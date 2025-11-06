@@ -383,7 +383,7 @@ async function validateClaudeKey(apiKey) {
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                model: "claude-3-haiku-20240307", // Usar um modelo estável para validação
+                model: "claude-3-5-haiku-20241022", // Usar um modelo estável para validação
                 max_tokens: 10,
                 messages: [{ role: "user", content: "Test" }]
             })
@@ -960,7 +960,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
             const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-1.5-flash');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-haiku-20240307');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-haiku-20241022');
             const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o-mini');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
