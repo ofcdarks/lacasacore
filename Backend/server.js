@@ -7,6 +7,7 @@ const sqlite = require('sqlite');
 const sqlite3 = require('sqlite3');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs'); // Importando o módulo File System
 require('dotenv').config(); // Carrega as variáveis do ficheiro .env
 
 const ytdl = require('ytdl-core'); // Usaremos apenas para o ID
@@ -439,8 +440,14 @@ const isAdmin = (req, res, next) => {
 // --- INICIALIZAÇÃO DO BANCO DE DADOS ---
 (async () => {
     try {
+        // Garante que o diretório de dados exista
+        const dataDir = path.join(__dirname, 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+
         db = await sqlite.open({
-            filename: path.join(__dirname, 'lacasadarkcore.db'),
+            filename: path.join(dataDir, 'lacasadarkcore.db'), // Salva o DB na pasta 'data'
             driver: sqlite3.Database
         });
 

@@ -2469,7 +2469,7 @@
                     let contentHtml;
 
                     if (typeof recommendationContent === 'object' && recommendationContent !== null) {
-                        contentHtml = `<pre class="whitespace-pre-wrap">${JSON.stringify(recommendationContent, null, 2)}</pre>`;
+                        contentHtml = renderObjectAsList(recommendationContent);
                         escapedRec = JSON.stringify(recommendationContent, null, 2);
                     } else {
                         recommendationContent = String(recommendationContent);
