@@ -910,6 +910,28 @@
                     if (spinner) spinner.style.display = 'none';
                 }
             }
+            
+            // Helper function to render nested objects/arrays as HTML lists
+            function renderObjectAsList(obj) {
+                if (typeof obj !== 'object' || obj === null) {
+                    return obj;
+                }
+                let html = '<ul class="list-disc list-inside pl-4 space-y-1 mt-2">';
+                for (const key in obj) {
+                    const title = isNaN(parseInt(key)) ? `<strong class="text-amber-400">${key.replace(/_/g, ' ')}:</strong> ` : '';
+                    const value = obj[key];
+                    html += '<li>';
+                    html += title;
+                    if (typeof value === 'object' && value !== null) {
+                        html += renderObjectAsList(value);
+                    } else {
+                        html += value;
+                    }
+                    html += '</li>';
+                }
+                html += '</ul>';
+                return html;
+            }
 
 
             // --- LÓGICA DE ADMIN ---
@@ -2442,13 +2464,25 @@
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.msg);
                     
-                    const escapedRec = data.recommendation.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                    let recommendationContent = data.recommendation;
+                    let escapedRec;
+                    let contentHtml;
+
+                    if (typeof recommendationContent === 'object' && recommendationContent !== null) {
+                        contentHtml = `<pre class="whitespace-pre-wrap">${JSON.stringify(recommendationContent, null, 2)}</pre>`;
+                        escapedRec = JSON.stringify(recommendationContent, null, 2);
+                    } else {
+                        recommendationContent = String(recommendationContent);
+                        contentHtml = recommendationContent.replace(/\n/g, '<br>');
+                        escapedRec = recommendationContent.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                    }
+
                     resultsDiv.innerHTML = `
                         <div class="relative">
-                            <button title="Copiar Sugestão" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text="${escapedRec}">
+                            <button title="Copiar Sugestão" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text='${escapedRec}'>
                                 <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                             </button>
-                            ${data.recommendation.replace(/\n/g, '<br>')}
+                            ${contentHtml}
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -2488,19 +2522,16 @@
                     let textToCopy = '';
                     for (const key in data) {
                         const title = key.replace(/_/g, ' ');
-                        html += `<h3>${title}</h3>`;
+                        html += `<h3 class="mt-4 font-bold text-amber-400">${title}</h3>`;
                         textToCopy += `${title.toUpperCase()}\n`;
-                        if (typeof data[key] === 'object' && data[key] !== null) {
-                            html += '<ul>';
-                            for (const subKey in data[key]) {
-                                const subTitle = subKey.replace(/_/g, ' ');
-                                html += `<li><strong>${subTitle}:</strong> ${data[key][subKey]}</li>`;
-                                textToCopy += `- ${subTitle}: ${data[key][subKey]}\n`;
-                            }
-                            html += '</ul>';
+                        const value = data[key];
+                        
+                        if (typeof value === 'object' && value !== null) {
+                            html += renderObjectAsList(value);
+                            textToCopy += JSON.stringify(value, null, 2) + '\n';
                         } else {
-                            html += `<p>${data[key]}</p>`;
-                            textToCopy += `${data[key]}\n`;
+                            html += `<p>${value}</p>`;
+                            textToCopy += value + '\n';
                         }
                         textToCopy += '\n';
                     }
