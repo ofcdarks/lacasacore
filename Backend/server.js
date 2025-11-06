@@ -1,6 +1,6 @@
 // --- IMPORTS ---
 const express = require('express');
-const cors =require('cors');
+const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sqlite = require('sqlite');
@@ -27,7 +27,11 @@ const ALGORITHM = 'aes-256-cbc';
 let db;
 
 // --- MIDDLEWARES ---
-app.use(cors());
+app.use(cors({
+  origin: '*', // Allow any origin
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly allow methods
+  allowedHeaders: ['Content-Type', 'Authorization'] // Explicitly allow headers
+}));
 app.use(express.json());
 app.use(express.static(__dirname));
 
