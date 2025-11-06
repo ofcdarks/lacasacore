@@ -905,7 +905,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
         
         console.log(`[Análise] Vídeo encontrado: ${videoDetails.title}`);
 
-        // --- ETAPA 2: IA - Análise de Título e Geração (NOVO PROMPT) ---
+        // --- ETAPA 2: IA - Análise de Título e Geração (PROMPT REFINADO) ---
         const titlePrompt = `
             Você é um especialista em SEO para YouTube e estrategista de conteúdo viral. Sua tarefa é analisar os dados de um vídeo que viralizou e, com base nisso, criar novos títulos otimizados.
 
@@ -918,7 +918,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             SUA TAREFA:
             1.  **Análise de Nicho:** Identifique o "nicho" e o "subniche" do vídeo.
             2.  **Análise do Título Original:** Explique o "motivoSucesso" do título original e identifique a "formulaTitulo" (a estrutura ou gatilho mental usado).
-            3.  **Geração de Novos Títulos:** Crie 5 novas variações de títulos para um vídeo com tema similar. Para cada novo título, forneça:
+            3.  **Geração de Novos Títulos:** Usando a "formulaTitulo" que você identificou como base, crie 5 novas variações de títulos com melhorias para um vídeo com tema similar. Para cada novo título, forneça:
                 - "titulo": O novo título.
                 - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral.
                 - "explicacao": Uma breve justificativa para a nota e a estratégia por trás do título.
@@ -1120,7 +1120,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 2. Buscar dados do vídeo original ---
         const videoDetails = await callYouTubeDataAPI(videoId, geminiApiKey);
         
-        // --- 3. Criar o prompt multimodal (PROMPT ATUALIZADO) ---
+        // --- 3. Criar o prompt multimodal (PROMPT REFINADO) ---
         const thumbPrompt = `
             Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.
 
@@ -1131,9 +1131,11 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             IDIOMA DO CONTEÚDO: "${language}"
 
             SUA TAREFA:
-            Crie DUAS (2) ideias completas para um novo vídeo. Para CADA ideia, forneça um pacote completo de criação e otimização.
+            Crie DUAS (2) ideias distintas para uma nova thumbnail.
+            - **IDEIA 1 (Melhoria):** Analise a thumbnail de referência e proponha uma versão melhorada. Mantenha a essência do que funcionou, mas aprimore a composição, clareza, cores e impacto emocional.
+            - **IDEIA 2 (Inovação):** Crie um conceito completamente novo e mais otimizado, que talvez use um ângulo diferente para atrair cliques, focando em curiosidade, emoção ou um elemento surpreendente do vídeo.
 
-            PARA CADA IDEIA, GERE:
+            PARA CADA UMA DAS 2 IDEIAS, GERE:
             1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
             2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
             3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
