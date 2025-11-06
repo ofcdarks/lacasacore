@@ -440,18 +440,21 @@ const isAdmin = (req, res, next) => {
 // --- INICIALIZAÇÃO DO BANCO DE DADOS ---
 (async () => {
     try {
-        // Garante que o diretório de dados exista
-        const dataDir = path.join(__dirname, 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
+        // Define o caminho do banco de dados, usando a variável de ambiente ou um padrão.
+        const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'lacasacorebd.db');
+        
+        // Garante que o diretório do banco de dados exista
+        const dbDir = path.dirname(dbPath);
+        if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
         }
 
         db = await sqlite.open({
-            filename: path.join(dataDir, 'lacasadarkcore.db'), // Salva o DB na pasta 'data'
+            filename: dbPath, // Usa o caminho definido
             driver: sqlite3.Database
         });
 
-        console.log('Conectado ao banco de dados SQLite com sucesso!');
+        console.log(`Conectado ao banco de dados em: ${dbPath}`);
 
         // --- CRIAÇÃO DAS TABELAS ---
 
@@ -1289,13 +1292,13 @@ app.post('/api/niche/analyze-competitor', authenticateToken, async (req, res) =>
         const legacyId = match[2];
 
         if (handle) {
-            const channelApiUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${handle}&key=${geminiApiKey}`;
-            const channelResponse = await fetch(channelApiUrl);
-            const channelData = await channelResponse.json();
-            if (!channelResponse.ok || !channelData.items || channelData.items.length === 0) {
+            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${handle}&type=channel&maxResults=1&key=${geminiApiKey}`;
+            const searchResponse = await fetch(searchApiUrl);
+            const searchData = await searchResponse.json();
+            if (!searchResponse.ok || !searchData.items || searchData.items.length === 0) {
                 throw new Error(`Não foi possível encontrar o canal para o handle: @${handle}.`);
             }
-            ytChannelId = channelData.items[0].id;
+            ytChannelId = searchData.items[0].id.channelId;
         } else {
             ytChannelId = legacyId;
         }
@@ -1716,15 +1719,15 @@ app.get('/api/channels/:channelId/check', authenticateToken, async (req, res) =>
 
         if (handle) {
             const originalHandle = handle;
-            const channelApiUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${handle}&key=${geminiApiKey}`;
-            const channelResponse = await fetch(channelApiUrl);
-            const channelData = await channelResponse.json();
+            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${handle}&type=channel&maxResults=1&key=${geminiApiKey}`;
+            const searchResponse = await fetch(searchApiUrl);
+            const searchData = await searchResponse.json();
 
-            if (!channelResponse.ok || !channelData.items || channelData.items.length === 0) {
-                console.error(`[YouTube API] Falha ao buscar canal por handle: ${handle}`, channelData);
+            if (!searchResponse.ok || !searchData.items || searchData.items.length === 0) {
+                console.error(`[YouTube API] Falha ao buscar canal por handle via search: ${handle}`, searchData);
                 throw new Error(`Não foi possível encontrar o canal para o handle: @${originalHandle}. Verifique se o URL está correto.`);
             }
-            ytChannelId = channelData.items[0].id;
+            ytChannelId = searchData.items[0].id.channelId;
         } else {
             ytChannelId = legacyId;
         }

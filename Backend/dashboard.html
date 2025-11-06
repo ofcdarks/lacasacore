@@ -933,6 +933,18 @@
                 return html;
             }
 
+            function createWhatsAppLink(whatsapp) {
+                if (!whatsapp) {
+                    return 'N/A';
+                }
+                // Remove all non-digit characters
+                const number = whatsapp.replace(/\D/g, '');
+                if (!number) {
+                    return whatsapp; // Return original if it's just weird characters
+                }
+                return `<a href="https://wa.me/${number}" target="_blank" class="text-blue-400 hover:text-blue-300 hover:underline">${whatsapp}</a>`;
+            }
+
 
             // --- LÓGICA DE ADMIN ---
             const editUserModal = document.getElementById('edit-user-modal');
@@ -1165,12 +1177,13 @@
 
                         const roleText = user.isAdmin ? 'Admin' : 'Utilizador';
                         const tags = 'N/A'; // Placeholder for tags
+                        const whatsappLink = createWhatsAppLink(user.whatsapp);
 
                         tableBody.innerHTML += `
                             <tr class="border-b border-gray-700 hover:bg-gray-700/50">
                                 <td class="p-3"><input type="checkbox" class="bg-gray-700 border-gray-600 rounded"></td>
                                 <td class="p-3 text-sm text-gray-200">${user.email}</td>
-                                <td class="p-3 text-sm text-blue-400">${user.whatsapp || 'N/A'}</td>
+                                <td class="p-3 text-sm">${whatsappLink}</td>
                                 <td class="p-3 text-sm text-gray-400">${roleText}</td>
                                 <td class="p-3">
                                     <span class="px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
