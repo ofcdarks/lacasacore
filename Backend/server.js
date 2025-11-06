@@ -959,8 +959,8 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
 
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
-            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-flash');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-haiku-20241022');
+            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-1.5-flash');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-haiku-20240307');
             const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o-mini');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
@@ -1100,7 +1100,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         let service;
         
         if (model === 'all') {
-            model = 'gemini-2.5-flash'; 
+            model = 'gemini-1.5-flash'; 
         }
 
         if (model.startsWith('gemini')) service = 'gemini';
