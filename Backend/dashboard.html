@@ -1,0 +1,2487 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - La Casa Dark Core</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonte Premium: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <!-- Ícones (Lucide Icons) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <style>
+        /* --- ESTILOS GLOBAIS --- */
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .brand-title {
+            font-weight: 500;
+            color: #6b7280;
+        }
+        .brand-title-core {
+            font-weight: 800;
+            color: #f59e0b;
+            letter-spacing: 0.05em;
+        }
+
+        /* --- COMPONENTES DE UI --- */
+        .loader {
+            border: 4px solid #374151; /* gray-700 */
+            border-top: 4px solid #f59e0b; /* amber-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        .btn-spinner {
+             border: 2px solid #f3f4f6; /* gray-100 */
+             border-top: 2px solid #f59e0b; /* amber-500 */
+             border-radius: 50%;
+             width: 16px;
+             height: 16px;
+             animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* --- FORMULÁRIOS E INPUTS --- */
+        select.styled-select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.25em;
+            padding-right: 2.5rem; /* Espaço para a seta */
+        }
+        
+        optgroup {
+            font-weight: 700;
+            font-style: normal;
+            background-color: #1f2937; /* gray-800 */
+            color: #f59e0b; /* amber-500 */
+        }
+        option {
+            background-color: #374151; /* gray-700 */
+            color: #d1d5db; /* gray-300 */
+            padding: 8px;
+        }
+
+        /* --- MENSAGENS E ALERTAS --- */
+        .error-message {
+            background-color: #450a0a;
+            color: #fecaca;
+            border: 1px solid #991b1b;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 0.875rem;
+            display: none;
+        }
+        .success-message {
+            background-color: #064e3b;
+            color: #d1fae5;
+            border: 1px solid #047857;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: none;
+        }
+        .success-message ul {
+            margin-top: 8px;
+            list-style: disc;
+            padding-left: 20px;
+        }
+        .success-message li.valid {
+            color: #a7f3d0;
+        }
+        .success-message li.invalid {
+            color: #fecaca;
+            font-weight: 600;
+        }
+
+        /* --- CARDS E LAYOUT (ANÁLISE) --- */
+        .niche-tag {
+            background-color: #3f3f46;
+            color: #d4d4d8;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #52525b;
+        }
+        .niche-tag strong {
+            color: #f59e0b;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            display: block;
+            margin-bottom: 2px;
+        }
+    </style>
+</head>
+<body class="bg-black text-gray-300">
+
+    <!-- Script de Proteção de Rota -->
+    <script>
+        const token = localStorage.getItem('core_token');
+        if (!token || token === 'undefined') {
+            localStorage.removeItem('core_token');
+            window.location.href = 'la-casa-dark-core-auth.html';
+        }
+    </script>
+
+    <!-- Overlay para o menu mobile -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden"></div>
+
+    <div class="flex min-h-screen">
+        <!-- Barra Lateral (Sidebar) -->
+        <aside id="sidebar" class="fixed inset-y-0 left-0 z-30 w-64 bg-gray-900 border-r border-gray-800 p-6 flex flex-col
+                         transform -translate-x-full transition-transform duration-300 ease-in-out
+                         md:relative md:translate-x-0 md:flex">
+            <!-- Logo -->
+            <div class="text-center mb-10">
+                <h1 class="text-2xl brand-title">
+                    La Casa Dark
+                    <span class="brand-title-core">CORE</span>
+                </h1>
+            </div>
+            
+            <!-- Navegação -->
+            <nav id="main-nav" class="flex-1 space-y-2">
+                <a href="#" data-view="inicio" class="flex items-center space-x-3 px-4 py-3 bg-amber-600 text-black rounded-lg font-bold">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Início</span>
+                </a>
+                <a href="#" data-view="analisador" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="youtube"></i>
+                    <span>Analisador de Vídeos</span>
+                </a>
+                <a href="#" data-view="explorar-nicho" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="compass"></i>
+                    <span>Explorar Nicho</span>
+                </a>
+                <a href="#" data-view="historico" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="history"></i>
+                    <span>Pastas e Histórico</span>
+                </a>
+                
+                <a href="#" data-view="canais" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="target"></i>
+                    <span>Canais Monitorados</span>
+                </a>
+                
+                <a href="#" data-view="configuracoes" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="settings"></i>
+                    <span>Configurações</span>
+                </a>
+
+                <!-- Link do Painel Admin (Oculto por padrão) -->
+                <a href="#" data-view="admin" id="admin-nav-link" style="display: none;"
+                   class="flex items-center space-x-3 px-4 py-3 text-red-400 hover:bg-gray-800 hover:text-red-300 rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="shield-check"></i>
+                    <span>Painel Admin</span>
+                </a>
+            </nav>
+
+            <!-- Logout -->
+            <div>
+                <button id="logout-button" class="flex items-center space-x-3 px-4 py-3 w-full text-left text-red-500 hover:bg-red-900 hover:text-red-300 rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="log-out"></i>
+                    <span>Sair</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Conteúdo Principal -->
+        <main class="flex-1 p-6 md:p-10 w-full overflow-x-hidden max-w-7xl mx-auto">
+
+            <!-- Header Mobile com botão Hamburger -->
+            <header class="mb-6 md:hidden flex items-center justify-between">
+                <button id="hamburger-button" class="p-2 text-gray-400 hover:text-white rounded-lg">
+                    <i data-lucide="menu" class="h-6 w-6"></i>
+                </button>
+                <div class="text-center">
+                    <h1 class="text-xl brand-title">
+                        La Casa Dark
+                        <span class="brand-title-core">CORE</span>
+                    </h1>
+                </div>
+                <div class="w-8"></div> <!-- Espaçador -->
+            </header>
+
+            <!-- VISÃO 1: Início (Visível por padrão) -->
+            <div id="view-inicio">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Bem-vindo, Admin!</h1>
+                    <p class="text-lg text-gray-400">Aqui está o resumo da sua operação.</p>
+                </header>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 md:p-8">
+                    <h2 class="text-2xl font-semibold text-white mb-4">Próximos Passos</h2>
+                    <p class="text-gray-300">
+                        Clique em "Analisador de Vídeos" à esquerda para começar a usar a
+                        funcionalidade de colar a URL de um vídeo viral
+                        e usar as IAs (Claude, OpenAI, Gemini) para gerar novos títulos.
+                    </p>
+                </div>
+            </div>
+
+            <!-- VISÃO 2: Analisador (Oculto por padrão) -->
+            <div id="view-analisador" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Analisador de Títulos Virais</h1>
+                    <p class="text-lg text-gray-400">Cole uma URL de vídeo e o motor de IA para gerar títulos.</p>
+                </header>
+
+                <div id="analisador-success-message" class="success-message mb-6"></div>
+
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 md:p-8">
+                    <form id="analisador-form" class="space-y-6">
+                        <!-- URL do Vídeo -->
+                        <div>
+                            <label for="video-url" class="block text-sm font-medium mb-2">URL do Vídeo Viral</label>
+                            <input type="url" id="video-url" name="video-url" required
+                                   placeholder="https://www.youtube.com/watch?v=..."
+                                   class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Motor de IA -->
+                            <div>
+                                <label for="model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
+                                <select id="model-select" name="model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <option value="all">Comparar (Multimodal)</option>
+                                    <optgroup label="Anthropic Claude">
+                                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (leve e rápido)</option>
+                                        <option value="claude-4-sonnet-20250514">Claude 4 Sonnet (equilibrado)</option>
+                                        <option value="claude-4-opus-20250514">Claude 4 Opus (mais inteligente)</option>
+                                    </optgroup>
+                                    <optgroup label="Google Gemini">
+                                        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                    </optgroup>
+                                    <optgroup label="OpenAI GPT">
+                                        <option value="gpt-4o">GPT-4o</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            
+                            <!-- Salvar em... (Canais/Pastas) -->
+                            <div>
+                                <label for="folder-select" class="block text-sm font-medium mb-2">Salvar em... (Opcional)</label>
+                                <select id="folder-select" name="folder-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <option value="">Histórico Geral</option>
+                                    <!-- Pastas serão carregadas aqui -->
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <button type="submit" id="analisar-button" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black w-full">
+                                <span>Analisar e Gerar Títulos</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Área de Loading e Resultados -->
+                    <div id="analisador-loading" class="mt-8 flex-col items-center justify-center" style="display: none;">
+                        <div class="loader"></div>
+                        <p class="text-amber-500 mt-4 font-semibold">Analisando... Isso pode levar alguns segundos.</p>
+                    </div>
+
+                    <!-- Caixa de erro para o analisador -->
+                    <div id="analisador-error" class="error-message mt-8"></div>
+
+                    <!-- Div de resultados (Títulos) -->
+                    <div id="analisador-resultados" class="mt-8" style="display: none;">
+                        <!-- O Sumário do Vídeo + Análise + Títulos serão inseridos aqui -->
+                    </div>
+                    
+                    <!-- Gerador de Thumbnail (Layout UX Revisado) -->
+                    <div id="thumbnail-generator" class="mt-8" style="display: none;">
+                        <hr class="border-gray-700 mb-6">
+                        <h3 class="text-xl font-semibold text-white mb-4">Gerador de Ideias de Thumbnail</h3>
+                        
+                        <div class="mb-4">
+                            <label for="thumb-title-select" class="block text-sm font-medium mb-2">1. Usar o Título</label>
+                            <select id="thumb-title-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                <!-- Options serão populadas via JS -->
+                            </select>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div>
+                                <label for="thumb-language" class="block text-sm font-medium mb-2">2. Idioma</label>
+                                <select id="thumb-language" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <option value="Português" selected>Português</option>
+                                    <option value="Inglês">Inglês</option>
+                                    <option value="Espanhol">Espanhol</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label for="thumb-phrases" class="block text-sm font-medium mb-2">3. Frases</label>
+                                <select id="thumb-phrases" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <option value="true" selected>Com Frases</option>
+                                    <option value="false">Sem Frases</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label for="thumb-style" class="block text-sm font-medium mb-2">4. Estilo de Arte</label>
+                                <select id="thumb-style" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <optgroup label="Realismo">
+                                        <option value="Hiper-realista" selected>Hiper-realista</option>
+                                        <option value="Fotografia de alta definicao (8K)">Fotografia 8K</option>
+                                        <option value="Estilo cinematico (luz dramatica)">Cinemático</option>
+                                        <option value="Foco nitido, alto detalhe">Alto Detalhe</option>
+                                    </optgroup>
+                                    <optgroup label="Fotografia">
+                                        <option value="Longa Exposicao">Longa Exposição</option>
+                                        <option value="Preto e Branco">Preto e Branco</option>
+                                        <option value="Fotografia Macro">Macro</option>
+                                    </optgroup>
+                                    <optgroup label="Arte Digital">
+                                        <option value="Arte Digital">Arte Digital</option>
+                                        <option value="Arte Conceitual">Arte Conceitual</option>
+                                        <option value="Arte de Fantasia">Fantasia</option>
+                                        <option value="Arte Sci-Fi">Sci-Fi</option>
+                                        <option value="Render 3D">Render 3D</option>
+                                        <option value="Pixel Art">Pixel Art</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button type="button" id="btn-generate-thumbs" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
+                                <span>Gerar 2 Ideias</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                            <button type="button" id="btn-generate-more-thumbs" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white">
+                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                <span>Gerar Mais 2 Ideias</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </div>
+                    </div>
+
+
+                    <!-- Área de loading e resultados para Ideias de Thumbnail -->
+                    <div id="thumbnail-ideas-loading" class="mt-6 flex-col items-center justify-center" style="display: none;">
+                        <div class="loader"></div>
+                        <p class="text-amber-500 mt-4 font-semibold">A gerar ideias de thumbnail (x2)...</p>
+                    </div>
+                    
+                    <div id="thumbnail-ideas-results" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6" style="display: none;">
+                        <!-- As 2 ideias de thumbnail serão inseridas aqui -->
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- VISÃO 3: Explorar Nicho (NOVA) -->
+            <div id="view-explorar-nicho" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Explorador de Nichos</h1>
+                    <p class="text-lg text-gray-400">Encontre subnichos promissores e analise a concorrência para o seu novo canal.</p>
+                </header>
+
+                <div id="niche-success-message" class="success-message mb-6"></div>
+                <div id="niche-error-message" class="error-message mb-6"></div>
+
+                <div class="space-y-8">
+                    <!-- Etapa 1: Encontrar Subnicho -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 md:p-8">
+                        <h2 class="text-2xl font-semibold text-white mb-1">Etapa 1: Encontrar um Subnicho</h2>
+                        <p class="text-gray-400 mb-6">Descubra oportunidades com alta demanda e baixa concorrência.</p>
+                        
+                        <form id="find-subniche-form" class="space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="niche-principal" class="block text-sm font-medium mb-2">Nicho Principal</label>
+                                    <input type="text" id="niche-principal" required placeholder="Ex: História, Culinária, Finanças" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                </div>
+                                <div>
+                                    <label for="ideia-inicial" class="block text-sm font-medium mb-2">Subnicho que você pensou (concorrido)</label>
+                                    <input type="text" id="ideia-inicial" required placeholder="Ex: Segunda Guerra Mundial" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                </div>
+                            </div>
+                            <div>
+                                <label for="niche-model-select" class="block text-sm font-medium mb-2">Motor de IA (Recomendado: Opus ou GPT-4o)</label>
+                                <select id="niche-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <optgroup label="Anthropic Claude">
+                                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+                                        <option value="claude-4-sonnet-20250514">Claude 4 Sonnet</option>
+                                        <option value="claude-4-opus-20250514" selected>Claude 4 Opus</option>
+                                    </optgroup>
+                                    <optgroup label="OpenAI GPT">
+                                        <option value="gpt-4o">GPT-4o</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    </optgroup>
+                                    <optgroup label="Google Gemini">
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <button type="submit" id="btn-find-subniche" class="w-full py-3 px-4 rounded-lg font-bold bg-amber-600 hover:bg-amber-500 text-black flex items-center justify-center space-x-2">
+                                <span>Encontrar Subnichos</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </form>
+                        <div id="subniche-loading" class="mt-6 text-center" style="display: none;">
+                            <div class="loader mx-auto"></div>
+                            <p class="mt-4 text-amber-500">A procurar subnichos...</p>
+                        </div>
+                        <div id="subniche-results" class="mt-6 prose prose-invert max-w-none prose-p:text-gray-300 prose-strong:text-white prose-headings:text-amber-400"></div>
+                    </div>
+
+                    <!-- Etapa 2: Analisar Concorrente -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 md:p-8">
+                        <h2 class="text-2xl font-semibold text-white mb-1">Etapa 2: Analisar Canal Concorrente</h2>
+                        <p class="text-gray-400 mb-6">Obtenha um plano estratégico completo baseado em um canal de sucesso.</p>
+                        
+                        <form id="analyze-competitor-form" class="space-y-6">
+                             <div>
+                                <label for="competitor-url" class="block text-sm font-medium mb-2">URL do Canal Concorrente</label>
+                                <input type="url" id="competitor-url" required placeholder="https://www.youtube.com/@canaldesucesso" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            </div>
+                             <div>
+                                <label for="competitor-model-select" class="block text-sm font-medium mb-2">Motor de IA (Recomendado: Opus ou GPT-4o)</label>
+                                <select id="competitor-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                     <optgroup label="Anthropic Claude">
+                                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+                                        <option value="claude-4-sonnet-20250514">Claude 4 Sonnet</option>
+                                        <option value="claude-4-opus-20250514" selected>Claude 4 Opus</option>
+                                    </optgroup>
+                                    <optgroup label="OpenAI GPT">
+                                        <option value="gpt-4o">GPT-4o</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    </optgroup>
+                                    <optgroup label="Google Gemini">
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <button type="submit" id="btn-analyze-competitor" class="w-full py-3 px-4 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center space-x-2">
+                                <span>Gerar Plano Estratégico</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </form>
+                        <div id="competitor-loading" class="mt-6 text-center" style="display: none;">
+                            <div class="loader mx-auto"></div>
+                            <p class="mt-4 text-amber-500">Analisando canal... Isso pode levar um minuto.</p>
+                        </div>
+                        <div id="competitor-analysis-results" class="mt-6 prose prose-invert max-w-none prose-p:text-gray-300 prose-strong:text-white prose-headings:text-amber-400 prose-li:text-gray-300"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISÃO 4: Pastas e Histórico (Layout UX Revisado) -->
+            <div id="view-historico" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Pastas e Histórico</h1>
+                    <p class="text-lg text-gray-400">Crie pastas (canais) e reveja suas análises salvas.</p>
+                </header>
+                
+                <div id="historico-success-message" class="success-message mb-6"></div>
+                <div id="historico-error-message" class="error-message mb-6"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    
+                    <div class="md:col-span-1 space-y-4">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                            <h2 class="text-xl font-semibold text-white mb-4">Minhas Pastas (Canais)</h2>
+                            <form id="new-folder-form" class="flex space-x-2">
+                                <input type="text" id="new-folder-name" placeholder="Nome do novo canal..." class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" required>
+                                <button type="submit" class="py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
+                                    <i data-lucide="plus" class="w-5 h-5"></i>
+                                </button>
+                            </form>
+                            <ul id="folder-list" class="mt-4 space-y-2">
+                                <!-- Lista de pastas/canais -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-xl font-semibold text-white" id="history-title">Histórico Geral</h2>
+                                <div class="flex items-center space-x-2">
+                                    <button id="delete-selected-history" class="py-1 px-3 rounded-lg bg-red-800 hover:bg-red-700 text-white text-xs font-bold flex items-center space-x-1.5 hidden">
+                                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                        <span>Excluir Selecionados</span>
+                                    </button>
+                                    <button id="clear-history-filter" class="text-sm text-amber-500 hover:text-amber-400" style="display: none;">
+                                        Ver Histórico Geral
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="overflow-x-auto rounded-lg border border-gray-800">
+                                <table id="history-table" class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th class="p-3 w-4 border-b border-gray-700 bg-gray-800"><input type="checkbox" id="select-all-history" class="bg-gray-700 border-gray-600 rounded"></th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Título Original</th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Nicho</th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Data</th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history-table-body">
+                                        <!-- Histórico carregado aqui -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- VISÃO 5: Canais Monitorados -->
+            <div id="view-canais" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Canais Monitorados</h1>
+                    <p class="text-lg text-gray-400">Adicione canais do YouTube para monitorar novos vídeos.</p>
+                </header>
+
+                <div id="canais-success-message" class="success-message mb-6"></div>
+                <div id="canais-error-message" class="error-message mb-6"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="md:col-span-1 space-y-4">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                            <h2 class="text-xl font-semibold text-white mb-4">Adicionar Novo Canal</h2>
+                            <form id="new-channel-form" class="space-y-4">
+                                <div>
+                                    <label for="new-channel-name" class="block text-sm font-medium mb-2">Nome do Canal</label>
+                                    <input type="text" id="new-channel-name" placeholder="Ex: Canal Dark" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" required>
+                                </div>
+                                <div>
+                                    <label for="new-channel-url" class="block text-sm font-medium mb-2">URL do Canal</label>
+                                    <input type="url" id="new-channel-url" placeholder="https://www.youtube.com/@canal" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" required>
+                                </div>
+                                <button type="submit" id="btn-add-channel" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black w-full">
+                                    <span>Adicionar Canal</span>
+                                    <div class="btn-spinner hidden"></div>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="md:col-span-2">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                            <h2 class="text-xl font-semibold text-white mb-4">Meus Canais Monitorados</h2>
+                            <div class="overflow-x-auto rounded-lg border border-gray-800">
+                                <table id="channel-table" class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Nome</th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">URL</th>
+                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="channel-table-body">
+                                        <!-- Canais carregados aqui -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISÃO 6: Configurações -->
+            <div id="view-configuracoes" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Configurações</h1>
+                    <p class="text-lg text-gray-400">Gerencie as suas chaves de API para habilitar as ferramentas da plataforma.</p>
+                </header>
+                
+                <div id="config-success-message" class="success-message mb-6"></div>
+                <div id="config-error-message" class="error-message mb-6"></div>
+
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 md:p-8">
+                    <form id="config-form" class="space-y-6 max-w-2xl mx-auto">
+                        
+                        <h2 class="text-xl font-semibold text-white">Chaves de API de Texto (Obrigatório)</h2>
+                        <p class="text-sm text-gray-400 -mt-4">As suas chaves são salvas de forma segura e encriptada.</p>
+
+                        <div>
+                            <label for="key-claude" class="block text-sm font-medium mb-2">Claude AI API Key (Preferencial)</label>
+                            <input type="password" id="key-claude" placeholder="Cole a sua chave (sk-ant-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                        </div>
+
+                        <div>
+                            <label for="key-gemini" class="block text-sm font-medium mb-2">Gemini API Key</label>
+                            <input type="password" id="key-gemini" placeholder="Cole a sua chave (AI...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                        </div>
+
+                        <div>
+                            <label for="key-openai" class="block text-sm font-medium mb-2">OpenAI (GPT) API Key</label>
+                            <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                        </div>
+
+                        <hr class="border-gray-700">
+
+                        <h2 class="text-xl font-semibold text-white">Configurações de Midia (Opcional)</h2>
+                        <div>
+                            <label for="key-imagefx" class="block text-sm font-medium mb-2">ImageFX Cookies (JSON)</label>
+                            <textarea id="key-imagefx" rows="4" placeholder="Cole o JSON dos cookies aqui..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" style="font-family: monospace;"></textarea>
+                        </div>
+
+                        <hr class="border-gray-700">
+
+                        <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+                            <button type="submit" id="btn-save-all" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black flex-1">
+                                <span class="btn-text">Salvar Configurações</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                            <button type="button" id="btn-validate-all" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white flex-1">
+                                <span class="btn-text">Validar APIs</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+            
+            <!-- VISÃO 7: Painel Admin (Oculto) -->
+            <div id="view-admin" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">Painel Administrativo</h1>
+                    <p class="text-lg text-gray-400">Gerir utilizadores e configuracoes da aplicacao.</p>
+                </header>
+                
+                <div id="admin-success-message" class="success-message mb-6"></div>
+                <div id="admin-error-message" class="error-message mb-6"></div>
+            
+                <div class="space-y-8">
+                    <!-- Estatisticas da Aplicacao -->
+                    <div>
+                        <h2 class="text-xl font-semibold text-white mb-4">Estatisticas da Aplicacao</h2>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+                                <p class="text-sm text-gray-400">Total de Utilizadores</p>
+                                <p id="stats-total-users" class="text-3xl font-bold text-white mt-1">...</p>
+                            </div>
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+                                <p class="text-sm text-gray-400">Ativacao Pendente</p>
+                                <p id="stats-pending-users" class="text-3xl font-bold text-yellow-400 mt-1">...</p>
+                            </div>
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+                                <p class="text-sm text-gray-400">Online Agora (15min)</p>
+                                <p id="stats-online-users" class="text-3xl font-bold text-green-400 mt-1">...</p>
+                            </div>
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+                                <p class="text-sm text-gray-400">Logins (24h)</p>
+                                <p id="stats-logins-24h" class="text-3xl font-bold text-white mt-1">...</p>
+                            </div>
+                        </div>
+                        <button id="btn-approve-all" class="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300">
+                            Aprovar Todos os Utilizadores Pendentes
+                        </button>
+                    </div>
+            
+                    <!-- Gerenciamento de Utilizadores -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">Gerenciamento de Utilizadores</h2>
+                        <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                            <input id="admin-search-input" type="search" placeholder="Buscar por email, whatsapp ou nome..." class="w-full md:w-1/3 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <div class="flex items-center gap-4">
+                                <select id="admin-status-filter" class="styled-select px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">Todos</option>
+                                    <option value="active">Ativos</option>
+                                    <option value="pending">Pendentes</option>
+                                    <option value="blocked">Bloqueados</option>
+                                </select>
+                                <select class="styled-select px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option>10 por pagina</option>
+                                    <option>25 por pagina</option>
+                                    <option>50 por pagina</option>
+                                </select>
+                            </div>
+                        </div>
+            
+                        <div class="overflow-x-auto rounded-lg border border-gray-700">
+                            <table id="admin-user-table" class="w-full text-left border-collapse">
+                                <thead class="bg-gray-900">
+                                    <tr>
+                                        <th class="p-3 w-4"><input type="checkbox" class="bg-gray-700 border-gray-600 rounded"></th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Email</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Whatsapp</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cargo</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Tags</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Acoes</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-user-table-body">
+                                    <!-- Rows will be populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="flex justify-end items-center mt-4">
+                            <nav class="flex items-center space-x-2 text-sm">
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">Anterior</a>
+                                <a href="#" class="px-3 py-1 rounded-md bg-blue-600 text-white">1</a>
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">2</a>
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">3</a>
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">4</a>
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">5</a>
+                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">Proximo</a>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal para Vídeos do Canal -->
+    <div id="channel-videos-modal" class="fixed inset-0 bg-black/70 z-40 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="modal-title" class="text-xl font-bold text-white">Últimos Vídeos do Canal</h2>
+                <button id="modal-close-btn" class="p-2 text-gray-400 hover:text-white rounded-full">
+                    <i data-lucide="x" class="h-6 w-6"></i>
+                </button>
+            </div>
+            <div id="modal-loading" class="text-center py-8" style="display: none;">
+                <div class="loader mx-auto"></div>
+                <p class="mt-4 text-amber-500">A procurar vídeos...</p>
+            </div>
+            <div id="modal-error" class="error-message" style="display: none;"></div>
+            <div id="modal-video-list" class="overflow-y-auto flex-1 space-y-6 pr-2">
+                <!-- Lista de vídeos será inserida aqui -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Editar Utilizador (Admin) -->
+    <div id="edit-user-modal" class="fixed inset-0 bg-black/70 z-40 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-white">Editar Utilizador</h2>
+                <button id="edit-user-modal-close-btn" class="p-2 text-gray-400 hover:text-white rounded-full">
+                    <i data-lucide="x" class="h-6 w-6"></i>
+                </button>
+            </div>
+            <form id="edit-user-form" class="space-y-4">
+                <input type="hidden" id="edit-user-id">
+                <div>
+                    <label for="edit-user-name" class="block text-sm font-medium mb-2">Nome</label>
+                    <input type="text" id="edit-user-name" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div>
+                    <label for="edit-user-email" class="block text-sm font-medium mb-2">Email (não pode ser alterado)</label>
+                    <input type="email" id="edit-user-email" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 cursor-not-allowed" readonly>
+                </div>
+                <div>
+                    <label for="edit-user-whatsapp" class="block text-sm font-medium mb-2">WhatsApp</label>
+                    <input type="text" id="edit-user-whatsapp" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="edit-user-role" class="block text-sm font-medium mb-2">Cargo</label>
+                        <select id="edit-user-role" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="user">Utilizador</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="edit-user-status" class="block text-sm font-medium mb-2">Status</label>
+                        <select id="edit-user-status" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="pending">Pendente</option>
+                            <option value="active">Ativo</option>
+                            <option value="blocked">Bloqueado</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="pt-4">
+                    <button type="submit" id="btn-save-user" class="w-full py-3 px-4 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center space-x-2">
+                        <span>Salvar Alterações</span>
+                        <div class="btn-spinner hidden"></div>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Trocar Senha (Admin) -->
+    <div id="change-password-modal" class="fixed inset-0 bg-black/70 z-40 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-white">Trocar Senha</h2>
+                <button id="change-password-modal-close-btn" class="p-2 text-gray-400 hover:text-white rounded-full">
+                    <i data-lucide="x" class="h-6 w-6"></i>
+                </button>
+            </div>
+            <form id="change-password-form" class="space-y-4">
+                <input type="hidden" id="change-password-user-id">
+                <p class="text-sm text-gray-400">A definir nova senha para <strong id="change-password-user-email" class="text-amber-400"></strong>.</p>
+                <div>
+                    <label for="new-password" class="block text-sm font-medium mb-2">Nova Senha (mínimo 6 caracteres)</label>
+                    <input type="password" id="new-password" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required minlength="6">
+                </div>
+                <div class="pt-4">
+                    <button type="submit" id="btn-save-password" class="w-full py-3 px-4 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center space-x-2">
+                        <span>Definir Nova Senha</span>
+                        <div class="btn-spinner hidden"></div>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+        
+            const API_BASE = 'http://localhost:5001';
+
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            } else {
+                console.error('Script Lucide (ícones) não carregou a tempo.');
+            }
+
+            const userToken = localStorage.getItem('core_token');
+
+            let currentAnalysisData = {
+                videoId: null,
+                niche: null,
+                subniche: null,
+                model: null,
+                generatedTitles: []
+            };
+            
+            let userFolders = [];
+
+            // --- FUNÇÕES GLOBAIS DE MENSAGEM (Genéricas) ---
+            function showMessage(elementId, message, isError = false) {
+                const msgBox = document.getElementById(elementId);
+                if (!msgBox) return;
+                
+                msgBox.innerHTML = message;
+                msgBox.style.display = 'block';
+                
+                const successId = isError ? elementId.replace('error', 'success') : '';
+                const errorId = !isError ? elementId.replace('success', 'error') : '';
+                
+                if (successId && document.getElementById(successId)) {
+                    document.getElementById(successId).style.display = 'none';
+                }
+                if (errorId && document.getElementById(errorId)) {
+                    document.getElementById(errorId).style.display = 'none';
+                }
+                
+                setTimeout(() => { msgBox.style.display = 'none'; }, 5000);
+            }
+
+            function setButtonLoading(button, isLoading) {
+                if (!button) return;
+                const text = button.querySelector('span');
+                const spinner = button.querySelector('.btn-spinner');
+                button.disabled = isLoading;
+                if (isLoading) {
+                    if (text) text.style.display = 'none';
+                    if (spinner) spinner.style.display = 'block';
+                } else {
+                    if (text) text.style.display = 'inline';
+                    if (spinner) spinner.style.display = 'none';
+                }
+            }
+
+
+            // --- LÓGICA DE ADMIN ---
+            const editUserModal = document.getElementById('edit-user-modal');
+            const editUserModalCloseBtn = document.getElementById('edit-user-modal-close-btn');
+            const editUserForm = document.getElementById('edit-user-form');
+            const changePasswordModal = document.getElementById('change-password-modal');
+            const changePasswordModalCloseBtn = document.getElementById('change-password-modal-close-btn');
+            const changePasswordForm = document.getElementById('change-password-form');
+
+            function showEditUserModal(user) {
+                document.getElementById('edit-user-id').value = user.id;
+                document.getElementById('edit-user-name').value = user.name;
+                document.getElementById('edit-user-email').value = user.email;
+                document.getElementById('edit-user-whatsapp').value = user.whatsapp || '';
+                document.getElementById('edit-user-role').value = user.isAdmin ? 'admin' : 'user';
+                
+                const statusSelect = document.getElementById('edit-user-status');
+                if (user.isBlocked) {
+                    statusSelect.value = 'blocked';
+                } else if (!user.isApproved) {
+                    statusSelect.value = 'pending';
+                } else {
+                    statusSelect.value = 'active';
+                }
+
+                editUserModal.style.display = 'flex';
+            }
+
+            function hideEditUserModal() {
+                editUserModal.style.display = 'none';
+            }
+
+            function showChangePasswordModal(user) {
+                document.getElementById('change-password-user-id').value = user.id;
+                document.getElementById('change-password-user-email').innerText = user.email;
+                document.getElementById('new-password').value = '';
+                changePasswordModal.style.display = 'flex';
+            }
+
+            function hideChangePasswordModal() {
+                changePasswordModal.style.display = 'none';
+            }
+
+            if (editUserModalCloseBtn) editUserModalCloseBtn.addEventListener('click', hideEditUserModal);
+            if (changePasswordModalCloseBtn) changePasswordModalCloseBtn.addEventListener('click', hideChangePasswordModal);
+
+            if (editUserModal) editUserModal.addEventListener('click', (e) => {
+                if (e.target === editUserModal) hideEditUserModal();
+            });
+            if (changePasswordModal) changePasswordModal.addEventListener('click', (e) => {
+                if (e.target === changePasswordModal) hideChangePasswordModal();
+            });
+
+            if (editUserForm) {
+                editUserForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const userId = document.getElementById('edit-user-id').value;
+                    const name = document.getElementById('edit-user-name').value;
+                    const whatsapp = document.getElementById('edit-user-whatsapp').value;
+                    const isAdmin = document.getElementById('edit-user-role').value === 'admin';
+                    const status = document.getElementById('edit-user-status').value;
+                    
+                    const isApproved = status !== 'pending';
+                    const isBlocked = status === 'blocked';
+
+                    const btn = document.getElementById('btn-save-user');
+                    setButtonLoading(btn, true);
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ name, whatsapp, isAdmin, isApproved, isBlocked })
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.msg || 'Erro ao atualizar utilizador.');
+                        showMessage('admin-success-message', data.msg);
+                        hideEditUserModal();
+                        loadAdminUsers();
+                        loadAdminStats();
+                    } catch (err) {
+                        showMessage('admin-error-message', err.message, true);
+                    } finally {
+                        setButtonLoading(btn, false);
+                    }
+                });
+            }
+
+            if (changePasswordForm) {
+                changePasswordForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const userId = document.getElementById('change-password-user-id').value;
+                    const newPassword = document.getElementById('new-password').value;
+                    const btn = document.getElementById('btn-save-password');
+                    setButtonLoading(btn, true);
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/admin/users/${userId}/password`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ password: newPassword })
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.msg || 'Erro ao trocar senha.');
+                        showMessage('admin-success-message', data.msg);
+                        hideChangePasswordModal();
+                    } catch (err) {
+                        showMessage('admin-error-message', err.message, true);
+                    } finally {
+                        setButtonLoading(btn, false);
+                    }
+                });
+            }
+
+            async function toggleUserBlockStatus(userId, isBlocked) {
+                if (!confirm(`Tem certeza que deseja ${isBlocked ? 'bloquear' : 'desbloquear'} este utilizador?`)) return;
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/users/${userId}/status`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ isBlocked: isBlocked })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg || 'Erro ao alterar status.');
+                    showMessage('admin-success-message', data.msg);
+                    loadAdminUsers();
+                } catch (err) {
+                    showMessage('admin-error-message', err.message, true);
+                }
+            }
+
+            async function deleteUser(userId) {
+                if (!confirm('Tem certeza que deseja EXCLUIR este utilizador? Esta ação é irreversível.')) return;
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg || 'Erro ao excluir utilizador.');
+                    showMessage('admin-success-message', data.msg);
+                    loadAdminUsers();
+                    loadAdminStats();
+                } catch (err) {
+                    showMessage('admin-error-message', err.message, true);
+                }
+            }
+
+            async function checkUserRoleAndLoadAdmin() {
+                if (!userToken) return;
+                try {
+                    const response = await fetch(`${API_BASE}/api/auth/me`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) {
+                        localStorage.removeItem('core_token');
+                        window.location.href = 'la-casa-dark-core-auth.html';
+                        return;
+                    }
+                    const userData = await response.json();
+                    if (userData.isAdmin) {
+                        document.getElementById('admin-nav-link').style.display = 'flex';
+                    }
+                } catch (err) { console.error('Erro ao verificar status do utilizador:', err); }
+            }
+
+            async function loadAdminStats() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/stats`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao buscar estatísticas.');
+                    const stats = await response.json();
+                    document.getElementById('stats-total-users').innerText = stats.totalUsers;
+                    document.getElementById('stats-pending-users').innerText = stats.pendingUsers;
+                    document.getElementById('stats-online-users').innerText = stats.onlineUsers;
+                    document.getElementById('stats-logins-24h').innerText = stats.logins24h;
+                } catch (err) {
+                    console.error('Erro ao carregar estatísticas do admin:', err);
+                }
+            }
+
+            async function loadAdminUsers() {
+                const search = document.getElementById('admin-search-input').value;
+                const status = document.getElementById('admin-status-filter').value;
+                let url = `${API_BASE}/api/admin/users?`;
+                if (search) url += `search=${encodeURIComponent(search)}&`;
+                if (status) url += `status=${status}&`;
+
+                try {
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao buscar utilizadores.');
+                    const users = await response.json();
+                    const tableBody = document.getElementById('admin-user-table-body');
+                    if (!tableBody) return;
+                    
+                    tableBody.innerHTML = ''; 
+                    users.forEach((user) => {
+                        let statusText, statusClass;
+                        if (user.isBlocked) {
+                            statusText = 'Bloqueado';
+                            statusClass = 'bg-red-500/20 text-red-400';
+                        } else if (!user.isApproved) {
+                            statusText = 'Pendente';
+                            statusClass = 'bg-yellow-500/20 text-yellow-400';
+                        } else {
+                            statusText = 'Ativo';
+                            statusClass = 'bg-green-500/20 text-green-400';
+                        }
+
+                        const roleText = user.isAdmin ? 'Admin' : 'Utilizador';
+                        const tags = 'N/A'; // Placeholder for tags
+
+                        tableBody.innerHTML += `
+                            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                <td class="p-3"><input type="checkbox" class="bg-gray-700 border-gray-600 rounded"></td>
+                                <td class="p-3 text-sm text-gray-200">${user.email}</td>
+                                <td class="p-3 text-sm text-blue-400">${user.whatsapp || 'N/A'}</td>
+                                <td class="p-3 text-sm text-gray-400">${roleText}</td>
+                                <td class="p-3">
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
+                                        ${statusText}
+                                    </span>
+                                </td>
+                                <td class="p-3">
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-600/50 text-gray-300">
+                                        ${tags}
+                                    </span>
+                                </td>
+                                <td class="p-3">
+                                    <div class="flex space-x-2">
+                                        <button title="Editar" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-blue-500 btn-admin-action" data-action="edit" data-user='${JSON.stringify(user)}'>
+                                            <i data-lucide="edit" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                        <button title="Trocar Senha" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-amber-500 btn-admin-action" data-action="change-password" data-user='${JSON.stringify(user)}'>
+                                            <i data-lucide="key" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                        <button title="${user.isBlocked ? 'Desbloquear' : 'Bloquear'}" class="p-2 rounded-md hover:bg-gray-700 transition-colors ${user.isBlocked ? 'text-green-500' : 'text-red-500'} btn-admin-action" data-action="toggle-block" data-id="${user.id}" data-is-blocked="${user.isBlocked}">
+                                            <i data-lucide="${user.isBlocked ? 'unlock' : 'lock'}" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                        <button title="Excluir" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-red-600 btn-admin-action" data-action="delete" data-id="${user.id}">
+                                            <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) { console.error('Erro ao carregar utilizadores admin:', err); }
+            }
+            
+            function setupAdminListeners() {
+                const adminUserTableBody = document.getElementById('admin-user-table-body');
+                if (adminUserTableBody) {
+                    adminUserTableBody.addEventListener('click', (e) => {
+                        const button = e.target.closest('.btn-admin-action');
+                        if (!button) return;
+
+                        const action = button.dataset.action;
+                        const userId = button.dataset.id;
+                        const user = JSON.parse(button.dataset.user || '{}');
+
+                        switch (action) {
+                            case 'edit':
+                                showEditUserModal(user);
+                                break;
+                            case 'change-password':
+                                showChangePasswordModal(user);
+                                break;
+                            case 'toggle-block':
+                                const isBlocked = button.dataset.isBlocked === 'true';
+                                toggleUserBlockStatus(userId, !isBlocked);
+                                break;
+                            case 'delete':
+                                deleteUser(userId);
+                                break;
+                        }
+                    });
+                }
+
+                document.getElementById('admin-search-input').addEventListener('input', loadAdminUsers);
+                document.getElementById('admin-status-filter').addEventListener('change', loadAdminUsers);
+                document.getElementById('btn-approve-all').addEventListener('click', async () => {
+                    if (!confirm('Tem a certeza que deseja aprovar todos os utilizadores pendentes?')) return;
+                    try {
+                        const response = await fetch(`${API_BASE}/api/admin/users/approve-all`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.msg);
+                        showMessage('admin-success-message', data.msg);
+                        loadAdminUsers();
+                        loadAdminStats();
+                    } catch (err) {
+                        showMessage('admin-error-message', err.message, true);
+                    }
+                });
+            }
+
+
+            // --- LÓGICA DE NAVEGAÇÃO SPA ---
+            const navLinks = document.querySelectorAll('#main-nav a');
+            const views = document.querySelectorAll('main > div[id^="view-"]');
+            const sidebar = document.getElementById('sidebar');
+            const sidebarOverlay = document.getElementById('sidebar-overlay');
+            const hamburgerButton = document.getElementById('hamburger-button');
+
+            function navigateToView(viewName, params = {}) {
+                if (!viewName) return;
+
+                views.forEach(view => { if (view) view.style.display = 'none'; });
+                const activeView = document.getElementById('view-' + viewName);
+                if (activeView) activeView.style.display = 'block';
+
+                navLinks.forEach(navLink => {
+                    if (navLink) {
+                        navLink.classList.remove('bg-amber-600', 'text-black', 'font-bold');
+                        navLink.classList.add('text-gray-400', 'hover:bg-gray-800', 'hover:text-white', 'font-medium');
+                    }
+                });
+                const link = document.querySelector(`a[data-view="${viewName}"]`);
+                if (link) {
+                    link.classList.add('bg-amber-600', 'text-black', 'font-bold');
+                    link.classList.remove('text-gray-400', 'hover:bg-gray-800', 'hover:text-white', 'font-medium');
+                }
+                
+                if (window.innerWidth < 768) { 
+                    if (sidebar) sidebar.classList.add('-translate-x-full');
+                    if (sidebarOverlay) sidebarOverlay.classList.add('hidden');
+                }
+                
+                // Carrega dados específicos da view
+                if (viewName === 'admin') {
+                    loadAdminStats();
+                    loadAdminUsers();
+                }
+                if (viewName === 'historico') {
+                    loadFolders().then(() => {
+                        if (params.folderId) {
+                            const folderName = userFolders.find(f => f.id == params.folderId)?.name || 'Desconhecida';
+                            historyTitle.innerText = `Histórico em: ${folderName}`;
+                            clearHistoryFilterBtn.style.display = 'inline';
+                            loadHistory(params.folderId);
+                        } else {
+                            loadHistory();
+                        }
+                    });
+                }
+                if (viewName === 'canais') {
+                    loadMonitoredChannels();
+                }
+                if (viewName === 'analisador' || viewName === 'explorar-nicho') {
+                    loadFolders();
+                }
+                
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const viewName = link.getAttribute('data-view');
+                    navigateToView(viewName);
+                });
+            });
+
+            if (hamburgerButton) {
+                hamburgerButton.addEventListener('click', () => {
+                    if (sidebar) sidebar.classList.remove('-translate-x-full');
+                    if (sidebarOverlay) sidebarOverlay.classList.remove('hidden');
+                });
+            }
+            if (sidebarOverlay) {
+                sidebarOverlay.addEventListener('click', () => {
+                    if (sidebar) sidebar.classList.add('-translate-x-full');
+                    if (sidebarOverlay) sidebarOverlay.classList.add('hidden');
+                });
+            }
+
+            // --- Lógica de Download ---
+            function downloadThumbnail(url, title) {
+                fetch(url)
+                    .then(response => response.blob())
+                    .then(blob => {
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `thumbnail_${title.replace(/[^a-z0-9]/gi, '_')}.jpg`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    })
+                    .catch(err => {
+                        console.error("Erro ao baixar thumbnail:", err);
+                        alert("Falha ao baixar thumbnail.");
+                    });
+            }
+            
+            function downloadBase64Image(base64Data, title) {
+                const link = document.createElement('a');
+                link.href = base64Data;
+                link.download = `generated_thumb_${title.replace(/[^a-z0-9]/gi, '_')}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+
+            // --- LÓGICA DO ANALISADOR DE VÍDEOS ---
+            const analisadorForm = document.getElementById('analisador-form');
+            const loadingSpinner = document.getElementById('analisador-loading');
+            const resultadosDiv = document.getElementById('analisador-resultados');
+            const analisarButton = document.getElementById('analisar-button');
+            const errorBox = document.getElementById('analisador-error'); 
+            const folderSelect = document.getElementById('folder-select');
+            
+            const thumbGeneratorDiv = document.getElementById('thumbnail-generator');
+            const thumbTitleSelect = document.getElementById('thumb-title-select');
+            const thumbLanguageSelect = document.getElementById('thumb-language');
+            const thumbPhrasesSelect = document.getElementById('thumb-phrases');
+            const thumbStyleSelect = document.getElementById('thumb-style');
+            const btnGenerateThumbs = document.getElementById('btn-generate-thumbs');
+            const btnGenerateMoreThumbs = document.getElementById('btn-generate-more-thumbs');
+
+            const thumbLoadingSpinner = document.getElementById('thumbnail-ideas-loading');
+            const thumbResultadosDiv = document.getElementById('thumbnail-ideas-results');
+            
+
+            async function handleTitleAnalysis(event) {
+                if (event) event.preventDefault();
+                
+                const videoUrl = document.getElementById('video-url').value;
+                const model = document.getElementById('model-select').value;
+                const folderId = folderSelect.value;
+                
+                if (loadingSpinner) loadingSpinner.style.display = 'flex';
+                if (resultadosDiv) {
+                    resultadosDiv.style.display = 'none';
+                    resultadosDiv.innerHTML = '';
+                }
+                if (thumbGeneratorDiv) thumbGeneratorDiv.style.display = 'none';
+                if (thumbResultadosDiv) {
+                    thumbResultadosDiv.style.display = 'none';
+                    thumbResultadosDiv.innerHTML = '';
+                }
+                if (errorBox) errorBox.style.display = 'none'; 
+                setButtonLoading(analisarButton, true);
+                
+                currentAnalysisData = {};
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/analyze/titles`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}` 
+                        },
+                        body: JSON.stringify({ 
+                            videoUrl, 
+                            model, 
+                            folderId: folderId || null
+                        }) 
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg || 'Erro desconhecido no servidor.');
+                    
+                    currentAnalysisData = {
+                        videoId: data.videoDetails.videoId,
+                        niche: data.niche,
+                        subniche: data.subniche,
+                        model: model, 
+                        generatedTitles: data.titulosSugeridos
+                    };
+
+                    populateAnalysisResults(data, videoUrl);
+
+                    if (data.folderId) {
+                        const folderName = userFolders.find(f => f.id == data.folderId)?.name || 'pasta selecionada';
+                        showMessage('analisador-success-message', `Análise salva com sucesso na pasta: <strong>${folderName}</strong>`);
+                    }
+
+                } catch (error) {
+                    console.error('Erro ao analisar vídeo:', error.message);
+                    if (errorBox) {
+                        errorBox.innerText = `Falha na análise: ${error.message}`;
+                        errorBox.style.display = 'block';
+                    }
+                    if (error.message.includes('inválido') || error.message.includes('expirado') || error.message.includes('configurada')) {
+                        setTimeout(() => navigateToView('configuracoes'), 2000);
+                    }
+                } finally {
+                    if (loadingSpinner) loadingSpinner.style.display = 'none';
+                    setButtonLoading(analisarButton, false);
+                }
+            }
+            
+            function populateAnalysisResults(data, videoUrl) {
+                if (resultadosDiv) {
+                    resultadosDiv.style.display = 'block';
+                    
+                    document.getElementById('video-url').value = videoUrl || data.originalVideoUrl;
+                    
+                    const viewsFormatted = new Intl.NumberFormat('pt-BR').format(data.videoDetails.views);
+                    const commentsFormatted = new Intl.NumberFormat('pt-BR').format(data.videoDetails.comments);
+                    
+                    let videoSummaryHtml = `
+                        <div class="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-6 mb-6 bg-gray-800 p-4 rounded-lg border border-gray-700">
+                            <img src="${data.videoDetails.thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
+                            <div class="flex-1">
+                                <h3 class="text-xl font-semibold text-white mb-3">${data.videoDetails.title}</h3>
+                                <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
+                                    <span class="flex items-center space-x-1.5">
+                                        <i data-lucide="eye" class="w-4 h-4 text-amber-500"></i>
+                                        <span>${viewsFormatted} views</span>
+                                    </span>
+                                    <span class="flex items-center space-x-1.5">
+                                        <i data-lucide="calendar-days" class="w-4 h-4 text-amber-500"></i>
+                                        <span>${data.videoDetails.days} dias</span>
+                                    </span>
+                                    <span class="flex items-center space-x-1.5">
+                                        <i data-lucide="message-square" class="w-4 h-4 text-amber-500"></i>
+                                        <span>${commentsFormatted} comentários</span>
+                                    </span>
+                                </div>
+                                <button id="btn-download-thumb" data-url="${data.videoDetails.thumbnailUrl}" data-title="${data.videoDetails.title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
+                                    <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
+                                    Baixar Thumbnail Original
+                                </button>
+                            </div>
+                        </div>
+                    `;
+
+                    let nicheHtml = `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div class="niche-tag">
+                                <strong>Nicho Detetado</strong>
+                                <span id="detected-niche">${data.niche || 'N/A'}</span>
+                            </div>
+                            <div class="niche-tag">
+                                <strong>Subnicho Detetado</strong>
+                                <span id="detected-subniche">${data.subniche || 'N/A'}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 mb-6">
+                            <h4 class="text-lg font-semibold text-white mb-2">Análise do Título Original</h4>
+                            <p class="text-sm text-gray-300 mb-2">
+                                <strong>Motivo do Sucesso:</strong> ${data.analiseOriginal.motivoSucesso || 'N/A'}
+                            </p>
+                            <p class="text-sm text-gray-300">
+                                <strong>Fórmula:</strong> <code class="text-amber-400">${data.analiseOriginal.formulaTitulo || 'N/A'}</code>
+                            </p>
+                        </div>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold text-white">Títulos Gerados (Modelo: ${data.modelUsed})</h3>
+                            <button type="button" id="btn-generate-more-titles" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
+                                <i data-lucide="refresh-cw" class="w-4 h-4 mr-1.5"></i>
+                                <span>Gerar Mais Títulos</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
+                        </div>
+                    `;
+                    
+                    let titlesHtml = '<ul id="generated-titles-list" class="space-y-4">';
+                    thumbTitleSelect.innerHTML = '';
+                    
+                    data.titulosSugeridos.forEach((titleObj, index) => {
+                        let scoreColor = 'bg-gray-600 text-gray-200';
+                        if (titleObj.pontuacao >= 8) scoreColor = 'bg-green-600 text-green-100';
+                        else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
+                        else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
+                        
+                        const escapedTitle = titleObj.titulo.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                        const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
+                        const isCheckedLabelClass = titleObj.is_checked ? 'line-through' : '';
+
+                        titlesHtml += `
+                            <li class="bg-gray-800 p-4 rounded-lg border border-gray-700 transition-opacity ${isCheckedClass}">
+                                <div class="flex items-center space-x-3 flex-1">
+                                    <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
+                                    <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">${titleObj.titulo}</label>
+                                </div>
+                                <div class="flex items-center justify-between mt-2 pl-8">
+                                    <p class="text-sm text-gray-400 flex-1">
+                                        ${titleObj.explicacao || ''}
+                                    </p>
+                                    ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor} ml-4">${titleObj.pontuacao}/10</span>` : ''}
+                                </div>
+                            </li>
+                        `;
+                        
+                        const option = document.createElement('option');
+                        option.value = escapedTitle;
+                        option.innerText = escapedTitle;
+                        if (titleObj.is_checked) {
+                            option.selected = true;
+                        }
+                        thumbTitleSelect.appendChild(option);
+                    });
+                    titlesHtml += '</ul>';
+                    
+                    resultadosDiv.innerHTML = videoSummaryHtml + nicheHtml + titlesHtml;
+                    
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+
+                    const downloadBtn = document.getElementById('btn-download-thumb');
+                    if (downloadBtn) {
+                        downloadBtn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const url = e.currentTarget.getAttribute('data-url');
+                            const title = e.currentTarget.getAttribute('data-title');
+                            downloadThumbnail(url, title);
+                        });
+                    }
+                    
+                    const btnMoreTitles = document.getElementById('btn-generate-more-titles');
+                    if (btnMoreTitles) {
+                        btnMoreTitles.addEventListener('click', handleTitleAnalysis);
+                    }
+                    
+                    if (thumbGeneratorDiv) thumbGeneratorDiv.style.display = 'block';
+                }
+            }
+            
+            if (analisadorForm) {
+                analisadorForm.addEventListener('submit', handleTitleAnalysis);
+            }
+
+            resultadosDiv.addEventListener('change', async (e) => {
+                if (e.target.classList.contains('title-checkbox')) {
+                    const checkbox = e.target;
+                    const titleId = checkbox.dataset.titleId;
+                    const isChecked = checkbox.checked;
+
+                    // Adiciona/remove o estilo visual
+                    const listItem = checkbox.closest('li');
+                    if (listItem) {
+                        listItem.classList.toggle('opacity-60', isChecked);
+                        const label = listItem.querySelector('label');
+                        if (label) {
+                            label.classList.toggle('line-through', isChecked);
+                        }
+                    }
+
+                    // Atualiza o select se o item for marcado (mas não desatualiza se for desmarcado)
+                    if (isChecked) {
+                        const label = checkbox.nextElementSibling;
+                        if (label) {
+                            thumbTitleSelect.value = label.innerText;
+                        }
+                    }
+
+                    // Salvar o estado no backend
+                    try {
+                        await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ is_checked: isChecked })
+                        });
+                    } catch (err) {
+                        console.error("Falha ao salvar o estado do título:", err);
+                        // Opcional: reverter a mudança visual em caso de erro
+                        if (listItem) {
+                            listItem.classList.toggle('opacity-60', !isChecked);
+                            const label = listItem.querySelector('label');
+                            if (label) {
+                                label.classList.toggle('line-through', !isChecked);
+                            }
+                        }
+                        checkbox.checked = !isChecked;
+                    }
+                }
+            });
+
+
+            // --- Lógica para Gerar Ideias de Thumbnail ---
+            async function handleThumbnailGeneration(e) {
+                const btn = e.currentTarget;
+                setButtonLoading(btn, true);
+
+                if (!currentAnalysisData.videoId) {
+                    alert("Erro: Dados da análise original não encontrados. Por favor, analise o vídeo novamente.");
+                    setButtonLoading(btn, false);
+                    return;
+                }
+                
+                const selectedTitle = thumbTitleSelect.value;
+                const language = thumbLanguageSelect.value;
+                const includePhrases = thumbPhrasesSelect.value === 'true';
+                const style = thumbStyleSelect.value; 
+
+                if (thumbLoadingSpinner) thumbLoadingSpinner.style.display = 'flex';
+                if (thumbResultadosDiv) {
+                    thumbResultadosDiv.style.display = 'none';
+                    thumbResultadosDiv.innerHTML = '';
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/analyze/thumbnail`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            videoId: currentAnalysisData.videoId,
+                            selectedTitle: selectedTitle,
+                            model: currentAnalysisData.model,
+                            niche: currentAnalysisData.niche,
+                            subniche: currentAnalysisData.subniche,
+                            language: language,
+                            includePhrases: includePhrases,
+                            style: style
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
+                    if (!Array.isArray(data) || data.length === 0) throw new Error("A IA não retornou o array de ideias esperado.");
+
+                    if (thumbResultadosDiv) {
+                        thumbResultadosDiv.style.display = 'grid';
+                        thumbResultadosDiv.innerHTML = '';
+                        
+                        data.forEach((idea, index) => {
+                            const uniqueId = `thumb-idea-${index}`;
+                            const escapedDesc = (idea.descricaoThumbnail || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                            
+                            let phrasesHtml = '';
+                            if (idea.frasesDeGancho && idea.frasesDeGancho.length > 0) {
+                                phrasesHtml = `
+                                    <strong class="text-sm text-amber-400">Frases de Gancho:</strong>
+                                    <ul class="list-disc list-inside text-sm text-gray-300 mt-2">
+                                        ${(idea.frasesDeGancho).map(frase => `<li>${frase}</li>`).join('')}
+                                    </ul>
+                                `;
+                            } else {
+                                phrasesHtml = `<p class="text-sm text-gray-500 italic">(Sem frases de gancho)</p>`;
+                            }
+
+                            let thumbHtml = `
+                                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700" id="${uniqueId}">
+                                    <h4 class="text-lg font-semibold text-white mb-2">Ideia de Thumbnail ${index + 1}</h4>
+                                    <p class="text-sm text-gray-300 mb-3">
+                                        <strong>Descrição:</strong> ${idea.descricaoThumbnail || 'N/A'}
+                                    </p>
+                                    ${phrasesHtml}
+                                    
+                                    <button type"button" class="btn-gen-imagefx mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs w-full" data-prompt="${escapedDesc}" data-target="${uniqueId}">
+                                        <span class="btn-text">Gerar Imagem com ImageFX</span>
+                                        <div class="btn-spinner hidden"></div>
+                                    </button>
+                                    
+                                    <div class="imagefx-loading mt-4 flex-col items-center justify-center" style="display: none;">
+                                        <div class="loader !w-20 !h-20"></div>
+                                    </div>
+                                    <div class="imagefx-result mt-4" style="display: none;">
+                                    </div>
+                                </div>
+                            `;
+                            thumbResultadosDiv.innerHTML += thumbHtml;
+                        });
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+
+                } catch (err) {
+                    console.error("Erro ao gerar ideias de thumb:", err);
+                    if (thumbResultadosDiv) {
+                        thumbResultadosDiv.innerHTML = `<div class="error-message md:col-span-2" style="display: block;">Falha ao gerar ideias: ${err.message}</div>`;
+                        thumbResultadosDiv.style.display = 'block';
+                    }
+                } finally {
+                    if (thumbLoadingSpinner) thumbLoadingSpinner.style.display = 'none';
+                    setButtonLoading(btn, false);
+                }
+            }
+            
+            if (btnGenerateThumbs) {
+                btnGenerateThumbs.addEventListener('click', handleThumbnailGeneration);
+            }
+            if (btnGenerateMoreThumbs) {
+                btnGenerateMoreThumbs.addEventListener('click', handleThumbnailGeneration);
+            }
+
+
+            // --- Lógica para Gerar Imagem com ImageFX (via event delegation) ---
+            thumbResultadosDiv.addEventListener('click', async (e) => {
+                const targetButton = e.target.closest('.btn-gen-imagefx');
+                if (!targetButton) return;
+
+                e.preventDefault();
+                const promptDesc = targetButton.getAttribute('data-prompt');
+                const targetCardId = targetButton.getAttribute('data-target');
+                const card = document.getElementById(targetCardId);
+                
+                if (!card) return;
+                
+                const imageFxLoading = card.querySelector('.imagefx-loading');
+                const imageFxResult = card.querySelector('.imagefx-result');
+
+                if (!promptDesc || promptDesc === 'N/A') {
+                    alert("Descrição da thumbnail não encontrada para gerar a imagem.");
+                    return;
+                }
+                
+                if (imageFxLoading) imageFxLoading.style.display = 'flex';
+                if (imageFxResult) imageFxResult.style.display = 'none';
+                setButtonLoading(targetButton, true);
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/generate/imagefx`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ prompt: promptDesc })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
+
+                    if (imageFxResult) {
+                        imageFxResult.innerHTML = `
+                            <img src="${data.imageUrl}" alt="Imagem gerada" class="rounded-lg w-full">
+                            <button type="button" class="btn-download-image mt-2 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs w-full" data-url="${data.imageUrl}" data-title="${promptDesc.substring(0, 20)}">
+                                <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
+                                <span>Baixar Imagem</span>
+                            </button>
+                        `;
+                        imageFxResult.style.display = 'block';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+
+                } catch (err) {
+                    console.error("Erro ao gerar imagem com ImageFX:", err);
+                     if (imageFxResult) {
+                        imageFxResult.innerHTML = `<div class="error-message" style="display: block;">Falha na geração ImageFX: ${err.message}</div>`;
+                        imageFxResult.style.display = 'block';
+                    }
+                } finally {
+                    if (imageFxLoading) imageFxLoading.style.display = 'none';
+                    setButtonLoading(targetButton, false);
+                }
+            });
+            
+            thumbResultadosDiv.addEventListener('click', (e) => {
+                const targetButton = e.target.closest('.btn-download-image');
+                if (!targetButton) return;
+                
+                e.preventDefault();
+                const url = targetButton.getAttribute('data-url');
+                const title = targetButton.getAttribute('data-title');
+                downloadBase64Image(url, title);
+            });
+
+
+            // --- LÓGICA DE PASTAS E HISTÓRICO ---
+            const newFolderForm = document.getElementById('new-folder-form');
+            const folderList = document.getElementById('folder-list');
+            const historyTableBody = document.getElementById('history-table-body');
+            const historyTitle = document.getElementById('history-title');
+            const clearHistoryFilterBtn = document.getElementById('clear-history-filter');
+            const selectAllHistory = document.getElementById('select-all-history');
+            const deleteSelectedBtn = document.getElementById('delete-selected-history');
+
+            async function loadFolders() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/folders`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar pastas.');
+                    userFolders = await response.json();
+                    
+                    folderSelect.innerHTML = '<option value="">Histórico Geral</option>';
+                    userFolders.forEach(folder => {
+                        folderSelect.innerHTML += `<option value="${folder.id}">${folder.name}</option>`;
+                    });
+                    
+                    folderList.innerHTML = '';
+                    userFolders.forEach(folder => {
+                        folderList.innerHTML += `
+                            <li class="flex justify-between items-center p-2 rounded-lg hover:bg-gray-800 group">
+                                <a href="#" class="folder-link text-gray-300 flex-1" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
+                                    ${folder.name}
+                                </a>
+                                <button title="Excluir Pasta" class="delete-folder-btn p-1 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
+                                    <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
+                                </button>
+                            </li>`;
+                    });
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                } catch (err) {
+                    console.error(err.message);
+                }
+            }
+            
+            async function loadHistory(folderId = null) {
+                let url = `${API_BASE}/api/history`;
+                if (folderId) {
+                    url += `?folderId=${folderId}`;
+                }
+                
+                try {
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar histórico.');
+                    const history = await response.json();
+                    
+                    historyTableBody.innerHTML = '';
+                    if (history.length === 0) {
+                        historyTableBody.innerHTML = '<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhuma análise encontrada.</td></tr>';
+                        return;
+                    }
+                    
+                    history.forEach(item => {
+                        const date = new Date(item.analyzed_at).toLocaleDateString('pt-BR');
+                        historyTableBody.innerHTML += `
+                            <tr>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900"><input type="checkbox" class="history-checkbox bg-gray-700 border-gray-600 rounded" data-id="${item.id}"></td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900 max-w-xs truncate">${item.original_title}</td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900">${item.detected_subniche || 'N/A'}</td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900">${date}</td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900 flex space-x-1">
+                                    <button title="Carregar Análise" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-amber-500 btn-history-action" data-action="load" data-id="${item.id}">
+                                        <i data-lucide="upload" class="pointer-events-none w-4 h-4"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                } catch (err) {
+                    console.error(err.message);
+                    historyTableBody.innerHTML = `<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-red-500 py-4">${err.message}</td></tr>`;
+                }
+            }
+            
+            newFolderForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const folderNameInput = document.getElementById('new-folder-name');
+                const name = folderNameInput.value;
+                if (!name) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/folders`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ name })
+                    });
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.msg || 'Erro ao criar pasta.');
+                    }
+                    folderNameInput.value = '';
+                    loadFolders();
+                    showMessage('historico-success-message', 'Pasta criada com sucesso!');
+                } catch (err) {
+                    showMessage('historico-error-message', err.message, true);
+                }
+            });
+            
+            folderList.addEventListener('click', async (e) => {
+                const deleteBtn = e.target.closest('.delete-folder-btn');
+                if (deleteBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const folderId = deleteBtn.dataset.folderId;
+                    const folderName = deleteBtn.dataset.folderName;
+                    if (confirm(`Tem a certeza que deseja excluir a pasta "${folderName}"? As análises dentro dela serão movidas para o Histórico Geral.`)) {
+                        try {
+                            const response = await fetch(`${API_BASE}/api/folders/${folderId}`, {
+                                method: 'DELETE',
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            const data = await response.json();
+                            if (!response.ok) throw new Error(data.msg);
+                            showMessage('historico-success-message', data.msg);
+                            loadFolders();
+                            if (historyTitle.innerText.includes(folderName)) {
+                                historyTitle.innerText = 'Histórico Geral';
+                                clearHistoryFilterBtn.style.display = 'none';
+                                loadHistory();
+                            }
+                        } catch (err) {
+                            showMessage('historico-error-message', err.message, true);
+                        }
+                    }
+                    return;
+                }
+
+                const link = e.target.closest('.folder-link');
+                if (link) {
+                    e.preventDefault();
+                    const folderId = link.dataset.folderId;
+                    const folderName = link.dataset.folderName;
+                    historyTitle.innerText = `Histórico em: ${folderName}`;
+                    clearHistoryFilterBtn.style.display = 'inline';
+                    loadHistory(folderId);
+                }
+            });
+            
+            clearHistoryFilterBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                historyTitle.innerText = 'Histórico Geral';
+                clearHistoryFilterBtn.style.display = 'none';
+                loadHistory();
+            });
+
+            historyTableBody.addEventListener('click', async (e) => {
+                const button = e.target.closest('.btn-history-action');
+                if (button) {
+                    const action = button.dataset.action;
+                    const id = button.dataset.id;
+                    
+                    if (action === 'load') {
+                        try {
+                            const response = await fetch(`${API_BASE}/api/history/load/${id}`, {
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            const data = await response.json();
+                            if (!response.ok) throw new Error(data.msg || 'Falha ao carregar dados.');
+                            
+                            navigateToView('analisador');
+                            
+                            if (thumbGeneratorDiv) thumbGeneratorDiv.style.display = 'none';
+                            if (thumbResultadosDiv) {
+                                thumbResultadosDiv.style.display = 'none';
+                                thumbResultadosDiv.innerHTML = '';
+                            }
+                            
+                            populateAnalysisResults(data, data.originalVideoUrl);
+                            
+                            currentAnalysisData = {
+                                videoId: data.videoDetails.videoId,
+                                niche: data.niche,
+                                subniche: data.subniche,
+                                model: data.modelUsed,
+                                generatedTitles: data.titulosSugeridos
+                            };
+                            
+                        } catch (err) {
+                            showMessage('analisador-error', `Falha ao carregar análise: ${err.message}`, true);
+                        }
+                    }
+                }
+
+                if (e.target.classList.contains('history-checkbox')) {
+                    const checked = document.querySelectorAll('.history-checkbox:checked').length > 0;
+                    deleteSelectedBtn.classList.toggle('hidden', !checked);
+                }
+            });
+
+            selectAllHistory.addEventListener('change', (e) => {
+                const checkboxes = document.querySelectorAll('.history-checkbox');
+                checkboxes.forEach(checkbox => checkbox.checked = e.target.checked);
+                deleteSelectedBtn.classList.toggle('hidden', !e.target.checked || checkboxes.length === 0);
+            });
+
+            deleteSelectedBtn.addEventListener('click', async () => {
+                const selectedIds = Array.from(document.querySelectorAll('.history-checkbox:checked')).map(cb => cb.dataset.id);
+                if (selectedIds.length === 0) return;
+
+                if (confirm(`Tem a certeza que deseja excluir ${selectedIds.length} análise(s)?`)) {
+                    try {
+                        const response = await fetch(`${API_BASE}/api/history`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ ids: selectedIds })
+                        });
+                        if (!response.ok) throw new Error('Falha ao excluir.');
+                        
+                        const currentFolderId = document.querySelector('.folder-link.active')?.dataset.folderId;
+                        loadHistory(currentFolderId);
+                        showMessage('historico-success-message', 'Análises excluídas.');
+                        deleteSelectedBtn.classList.add('hidden');
+                        selectAllHistory.checked = false;
+                    } catch (err) {
+                        showMessage('historico-error-message', err.message, true);
+                    }
+                }
+            });
+
+            // --- LÓGICA DE CANAIS MONITORADOS ---
+            const newChannelForm = document.getElementById('new-channel-form');
+            const channelTableBody = document.getElementById('channel-table-body');
+            const modal = document.getElementById('channel-videos-modal');
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+            const modalTitle = document.getElementById('modal-title');
+            const modalLoading = document.getElementById('modal-loading');
+            const modalError = document.getElementById('modal-error');
+            const modalVideoList = document.getElementById('modal-video-list');
+
+            function showModal(isLoading = false, error = null) {
+                modal.style.display = 'flex';
+                modalLoading.style.display = isLoading ? 'block' : 'none';
+                modalError.style.display = error ? 'block' : 'none';
+                modalVideoList.style.display = !isLoading && !error ? 'block' : 'none';
+                if (error) modalError.innerText = error;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            function hideModal() {
+                modal.style.display = 'none';
+                modalVideoList.innerHTML = '';
+            }
+
+            if(modalCloseBtn) modalCloseBtn.addEventListener('click', hideModal);
+            if(modal) modal.addEventListener('click', (e) => {
+                if (e.target === modal) hideModal();
+            });
+            
+            async function loadMonitoredChannels() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/channels`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar canais.');
+                    const channels = await response.json();
+                    
+                    channelTableBody.innerHTML = '';
+                    if (channels.length === 0) {
+                        channelTableBody.innerHTML = '<tr><td colspan="3" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhum canal monitorado.</td></tr>';
+                    }
+                    
+                    channels.forEach(channel => {
+                        channelTableBody.innerHTML += `
+                            <tr>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900">${channel.channel_name}</td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900 max-w-xs truncate">
+                                    <a href="${channel.channel_url}" target="_blank" class="text-amber-500 hover:text-amber-400">${channel.channel_url}</a>
+                                </td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900 flex space-x-1">
+                                    <button title="Verificar Vídeos" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-green-500 btn-channel-action" data-action="check" data-id="${channel.id}">
+                                        <i data-lucide="search" class="pointer-events-none w-4 h-4"></i>
+                                    </button>
+                                    <button title="Excluir Canal" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-red-500 btn-channel-action" data-action="delete" data-id="${channel.id}">
+                                        <i data-lucide="trash-2" class="pointer-events-none w-4 h-4"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                } catch (err) {
+                    showMessage('canais-error-message', err.message, true);
+                }
+            }
+            
+            if (newChannelForm) {
+                newChannelForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const btn = document.getElementById('btn-add-channel');
+                    setButtonLoading(btn, true);
+                    
+                    const channelName = document.getElementById('new-channel-name').value;
+                    const channelUrl = document.getElementById('new-channel-url').value;
+                    
+                    try {
+                         const response = await fetch(`${API_BASE}/api/channels`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ channelName, channelUrl })
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.msg || 'Erro ao adicionar canal.');
+                        
+                        document.getElementById('new-channel-name').value = '';
+                        document.getElementById('new-channel-url').value = '';
+                        loadMonitoredChannels();
+                        showMessage('canais-success-message', 'Canal adicionado com sucesso!');
+                        
+                    } catch (err) {
+                        showMessage('canais-error-message', err.message, true);
+                    } finally {
+                        setButtonLoading(btn, false);
+                    }
+                });
+            }
+            
+            if (channelTableBody) {
+                channelTableBody.addEventListener('click', async (e) => {
+                    const button = e.target.closest('.btn-channel-action');
+                    if (!button) return;
+                    
+                    const action = button.dataset.action;
+                    const channelId = button.dataset.id;
+                    
+                    if (action === 'delete') {
+                         if (confirm('Tem certeza que deseja remover este canal?')) {
+                            try {
+                                const response = await fetch(`${API_BASE}/api/channels/${channelId}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Authorization': `Bearer ${userToken}` }
+                                });
+                                if (!response.ok) throw new Error('Falha ao remover canal.');
+                                loadMonitoredChannels();
+                                showMessage('canais-success-message', 'Canal removido.');
+                            } catch (err) {
+                                showMessage('canais-error-message', err.message, true);
+                            }
+                        }
+                    }
+                    if (action === 'check') {
+                        const channelName = button.closest('tr').querySelector('td').innerText;
+                        modalTitle.innerText = `Vídeos de: ${channelName}`;
+                        showModal(true);
+
+                        try {
+                            const response = await fetch(`${API_BASE}/api/channels/${channelId}/check`, {
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            const data = await response.json();
+                            if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
+
+                            const createVideoListHTML = (videos, isPinned = false) => {
+                                if (!videos || videos.length === 0) return '<p class="text-gray-500 text-center py-4">Nenhum vídeo encontrado.</p>';
+                                return videos.map(video => {
+                                    const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                                    return `
+                                    <div class="flex items-start space-x-4 bg-gray-800 p-3 rounded-lg">
+                                        <img src="${video.thumbnail}" alt="thumb" class="w-32 h-18 object-cover rounded">
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-sm font-medium text-gray-200 line-clamp-2">${video.title}</p>
+                                            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 mt-1">
+                                                <span class="flex items-center"><i data-lucide="eye" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.views)}</span>
+                                                <span class="flex items-center"><i data-lucide="thumbs-up" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.likes)}</span>
+                                                <span class="flex items-center"><i data-lucide="message-square" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.comments)}</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-col space-y-2">
+                                            <button class="btn-analyze-from-modal py-2 px-3 rounded-lg transition duration-300 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-black whitespace-nowrap" data-video-id="${video.videoId}">Analisar</button>
+                                            ${isPinned ? 
+                                                `<button title="Remover Fixado" class="btn-unpin-video p-2 rounded-md hover:bg-gray-700 text-amber-500" data-pin-id="${video.pinId}" data-channel-id="${channelId}"><i data-lucide="x" class="w-4 h-4 pointer-events-none"></i></button>` :
+                                                `<button title="Fixar" class="btn-pin-video p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-400" data-channel-id="${channelId}" data-video-id="${video.videoId}" data-title="${escapedTitle}" data-thumbnail="${video.thumbnail}"><i data-lucide="pin" class="w-4 h-4 pointer-events-none"></i></button>`
+                                            }
+                                        </div>
+                                    </div>
+                                `}).join('');
+                            };
+
+                            modalVideoList.innerHTML = `
+                                <div>
+                                    <h3 class="text-lg font-semibold text-amber-500 mb-2">Vídeos Fixados</h3>
+                                    <div class="space-y-3">${createVideoListHTML(data.pinned, true)}</div>
+                                </div>
+                                <hr class="border-gray-700 my-6">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Populares</h3>
+                                    <div class="space-y-3">${createVideoListHTML(data.popular)}</div>
+                                </div>
+                                <hr class="border-gray-700 my-6">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Recentes</h3>
+                                    <div class="space-y-3">${createVideoListHTML(data.latest)}</div>
+                                </div>
+                            `;
+                            showModal(false);
+
+                        } catch (err) {
+                            showModal(false, `Falha ao buscar vídeos: ${err.message}`);
+                        }
+                    }
+                });
+            }
+
+            async function pinVideo(channelId, videoId, title, thumbnail, buttonElement) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/videos/pin`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ channelId, videoId, title, thumbnail })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg);
+                    
+                    buttonElement.classList.add('text-amber-500');
+                    buttonElement.disabled = true;
+                    buttonElement.innerHTML = '<i data-lucide="check" class="w-4 h-4 pointer-events-none"></i>';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    showMessage('canais-success-message', 'Vídeo fixado com sucesso!');
+                    
+                    // Refresh the modal content
+                    const checkButton = document.querySelector(`.btn-channel-action[data-action="check"][data-id="${channelId}"]`);
+                    if (checkButton) checkButton.click();
+
+                } catch (err) {
+                    showMessage('canais-error-message', err.message, true);
+                }
+            }
+            
+            async function unpinVideo(pinId, channelId, buttonElement) {
+                 try {
+                    const response = await fetch(`${API_BASE}/api/videos/unpin/${pinId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg);
+                    
+                    showMessage('canais-success-message', 'Vídeo removido dos fixados.');
+                    
+                    // Refresh the modal content
+                    const checkButton = document.querySelector(`.btn-channel-action[data-action="check"][data-id="${channelId}"]`);
+                    if (checkButton) checkButton.click();
+
+                } catch (err) {
+                    showMessage('canais-error-message', err.message, true);
+                }
+            }
+
+            if (modalVideoList) {
+                modalVideoList.addEventListener('click', (e) => {
+                    const analyzeButton = e.target.closest('.btn-analyze-from-modal');
+                    if (analyzeButton) {
+                        const videoId = analyzeButton.dataset.videoId;
+                        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+                        
+                        hideModal();
+                        navigateToView('analisador');
+                        
+                        const videoUrlInput = document.getElementById('video-url');
+                        const analisadorForm = document.getElementById('analisador-form');
+                        videoUrlInput.value = videoUrl;
+                        analisadorForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                        return;
+                    }
+
+                    const pinButton = e.target.closest('.btn-pin-video');
+                    if (pinButton) {
+                        const channelId = pinButton.dataset.channelId;
+                        const videoId = pinButton.dataset.videoId;
+                        const title = pinButton.dataset.title;
+                        const thumbnail = pinButton.dataset.thumbnail;
+                        pinVideo(channelId, videoId, title, thumbnail, pinButton);
+                        return;
+                    }
+                    
+                    const unpinButton = e.target.closest('.btn-unpin-video');
+                    if (unpinButton) {
+                        const pinId = unpinButton.dataset.pinId;
+                        const channelId = unpinButton.dataset.channelId;
+                        unpinVideo(pinId, channelId, unpinButton);
+                        return;
+                    }
+                });
+            }
+
+
+            // --- LÓGICA DE CONFIGURAÇÕES (API KEYS) ---
+            
+            async function saveKey(serviceName, apiKey) {
+                if (!apiKey) return Promise.resolve(null);
+                const response = await fetch(`${API_BASE}/api/keys/save`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${userToken}`
+                    },
+                    body: JSON.stringify({ service_name: serviceName, api_key: apiKey })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.msg || `Erro ao salvar ${serviceName}.`);
+                return data;
+            }
+            
+            const configForm = document.getElementById('config-form');
+            if (configForm) {
+                configForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const saveButton = document.getElementById('btn-save-all');
+                    setButtonLoading(saveButton, true);
+
+                    const claudeKey = document.getElementById('key-claude').value;
+                    const geminiKey = document.getElementById('key-gemini').value;
+                    const openaiKey = document.getElementById('key-openai').value;
+                    const imagefxKey = document.getElementById('key-imagefx').value;
+
+                    try {
+                        const promises = [];
+                        if (claudeKey) promises.push(saveKey('claude', claudeKey));
+                        if (geminiKey) promises.push(saveKey('gemini', geminiKey));
+                        if (openaiKey) promises.push(saveKey('openai', openaiKey));
+                        if (imagefxKey) promises.push(saveKey('imagefx', imagefxKey));
+
+                        if (promises.length === 0) {
+                            showMessage('config-error-message', "Nenhuma chave foi preenchida para salvar.", true);
+                        } else {
+                            await Promise.all(promises);
+                            showMessage('config-success-message', "Configurações salvas com sucesso!");
+                            
+                            document.getElementById('key-claude').value = '';
+                            document.getElementById('key-gemini').value = '';
+                            document.getElementById('key-openai').value = '';
+                        }
+                    } catch (err) {
+                        showMessage('config-error-message', err.message, true);
+                    } finally {
+                        setButtonLoading(saveButton, false);
+                    }
+                });
+            }
+
+            const validateButton = document.getElementById('btn-validate-all');
+            if (validateButton) {
+                validateButton.addEventListener('click', async () => {
+                    setButtonLoading(validateButton, true);
+                    showMessage('config-success-message', "A validar chaves guardadas... (Isto pode demorar um momento)");
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/keys/validate-all`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.msg || 'Erro desconhecido do servidor.');
+
+                        let resultsHtml = "<strong>Resultados da Validação:</strong><ul class='list-disc pl-5 mt-2'>";
+                        data.results.forEach(result => {
+                            if (result.success) {
+                                resultsHtml += `<li class='valid'>${result.service}: Válida</li>`;
+                            } else {
+                                resultsHtml += `<li class='invalid'>${result.service}: Inválida (${result.error})</li>`;
+                            }
+                        });
+                        resultsHtml += "</ul>";
+                        
+                        showMessage('config-success-message', resultsHtml);
+
+                    } catch (err) {
+                        showMessage('config-error-message', err.message, true);
+                    } finally {
+                        setButtonLoading(validateButton, false);
+                    }
+                });
+            }
+            
+            // --- LÓGICA DE EXPLORAR NICHO ---
+            const findSubnicheForm = document.getElementById('find-subniche-form');
+            const analyzeCompetitorForm = document.getElementById('analyze-competitor-form');
+
+            findSubnicheForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('btn-find-subniche');
+                const loading = document.getElementById('subniche-loading');
+                const resultsDiv = document.getElementById('subniche-results');
+                
+                setButtonLoading(btn, true);
+                loading.style.display = 'block';
+                resultsDiv.innerHTML = '';
+                showMessage('niche-error-message', '', true); // Clear previous errors
+
+                const nichePrincipal = document.getElementById('niche-principal').value;
+                const ideiaInicial = document.getElementById('ideia-inicial').value;
+                const model = document.getElementById('niche-model-select').value;
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/niche/find-subniche`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                        body: JSON.stringify({ nichePrincipal, ideiaInicial, model })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg);
+                    
+                    resultsDiv.innerHTML = data.recommendation.replace(/\n/g, '<br>');
+
+                } catch (err) {
+                    showMessage('niche-error-message', err.message, true);
+                } finally {
+                    setButtonLoading(btn, false);
+                    loading.style.display = 'none';
+                }
+            });
+
+            analyzeCompetitorForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('btn-analyze-competitor');
+                const loading = document.getElementById('competitor-loading');
+                const resultsDiv = document.getElementById('competitor-analysis-results');
+
+                setButtonLoading(btn, true);
+                loading.style.display = 'block';
+                resultsDiv.innerHTML = '';
+                showMessage('niche-error-message', '', true);
+
+                const competitorUrl = document.getElementById('competitor-url').value;
+                const model = document.getElementById('competitor-model-select').value;
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/niche/analyze-competitor`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                        body: JSON.stringify({ competitorUrl, model })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg);
+
+                    let html = '';
+                    for (const key in data) {
+                        html += `<h3>${key.replace(/_/g, ' ')}</h3>`;
+                        if (typeof data[key] === 'object' && data[key] !== null) {
+                            html += '<ul>';
+                            for (const subKey in data[key]) {
+                                html += `<li><strong>${subKey.replace(/_/g, ' ')}:</strong> ${data[key][subKey]}</li>`;
+                            }
+                            html += '</ul>';
+                        } else {
+                            html += `<p>${data[key]}</p>`;
+                        }
+                    }
+                    resultsDiv.innerHTML = html;
+
+                } catch (err) {
+                    showMessage('niche-error-message', err.message, true);
+                } finally {
+                    setButtonLoading(btn, false);
+                    loading.style.display = 'none';
+                }
+            });
+
+
+            // --- LÓGICA DE LOGOUT ---
+            const logoutButton = document.getElementById('logout-button');
+            if (logoutButton) {
+                logoutButton.addEventListener('click', () => {
+                    localStorage.removeItem('core_token');
+                    window.location.href = 'la-casa-dark-core-auth.html';
+                });
+            }
+            
+            // --- CARREGAMENTO INICIAL ---
+            checkUserRoleAndLoadAdmin();
+            loadFolders(); 
+            setupAdminListeners();
+
+        });
+    </script>
+
+</body>
+</html>
