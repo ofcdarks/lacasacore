@@ -1099,7 +1099,6 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 1. Identificar serviço e buscar chaves ---
         let service;
         
-        // FIX: If the model is 'all' from a comparison run, default to a capable multimodal model.
         if (model === 'all') {
             model = 'gemini-2.5-flash'; 
         }
@@ -1121,39 +1120,43 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 2. Buscar dados do vídeo original ---
         const videoDetails = await callYouTubeDataAPI(videoId, geminiApiKey);
         
-        // --- 3. Criar o prompt multimodal (PROMPT CORRIGIDO) ---
+        // --- 3. Criar o prompt multimodal (PROMPT ATUALIZADO) ---
         const thumbPrompt = `
-            Você é um diretor de arte e designer de thumbnails para o YouTube, especialista em criar imagens de alto impacto visual e alta taxa de cliques (CTR).
+            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
-
-            CONTEXTO: A imagem de referência é de um vídeo que viralizou. Use-a como inspiração, mas NÃO a copie. Sua tarefa é criar DUAS (2) ideias de thumbnail completamente NOVAS e MELHORES.
-
-            INFORMAÇÕES PARA A CRIAÇÃO:
-            - SUBNICHO (Público-Alvo): "${subniche}"
-            - ESTILO DE ARTE DESEJADO: "${style}"
-            - IDIOMA DO TEXTO NA THUMBNAIL: "${language}"
+            SUBNICHO (Público-Alvo): "${subniche}"
+            ESTILO DE ARTE DESEJADO: "${style}"
+            IDIOMA DO CONTEÚDO: "${language}"
 
             SUA TAREFA:
-            Para CADA UMA das 2 ideias, você deve fornecer:
-            1.  **"frasesDeGancho"**: Um array com 2 ou 3 frases CURTAS de impacto (ganchos) para serem inseridas na thumbnail. Estas frases DEVEM ser escritas no idioma: ${language}. ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
-            2.  **"descricaoThumbnail"**: Um prompt DETALHADO e VÍVIDO, escrito em INGLÊS, para uma IA de geração de imagem. Descreva a cena, composição, iluminação, cores, etc. Se "frasesDeGancho" não for vazio, a descrição DEVE incluir onde e como uma dessas frases aparece na imagem (ex: "bold yellow text in the upper corner says '[FRASE DE GANCHO AQUI]'").
+            Crie DUAS (2) ideias completas para um novo vídeo. Para CADA ideia, forneça um pacote completo de criação e otimização.
+
+            PARA CADA IDEIA, GERE:
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
+            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            4.  **"descricaoThumbnail"**: Um prompt DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. Descreva a cena, composição, iluminação, etc. A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.
 
             REGRAS IMPORTANTES:
             - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
-            - As "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
 
             RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
             {
               "ideias": [
                 {
-                  "descricaoThumbnail": "A detailed visual prompt in English incorporating one of the hook phrases...",
-                  "frasesDeGancho": ["Frase 1 no idioma correto", "Frase 2 no idioma correto"]
+                  "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
+                  "seoTags": ["tag1", "tag2", "tag3", ...],
+                  "frasesDeGancho": ["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"],
+                  "descricaoThumbnail": "A detailed visual prompt in English with the placeholder '[FRASE DE GANCHO AQUI]'..."
                 },
                 {
-                  "descricaoThumbnail": "Another detailed visual prompt in English...",
-                  "frasesDeGancho": ["Outra frase 1", "Outra frase 2"]
+                  "seoDescription": "Outra descrição completa e otimizada...",
+                  "seoTags": ["tagA", "tagB", "tagC", ...],
+                  "frasesDeGancho": ["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"],
+                  "descricaoThumbnail": "Another detailed visual prompt in English with the placeholder '[FRASE DE GANCHO AQUI]'..."
                 }
               ]
             }

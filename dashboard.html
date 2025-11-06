@@ -1714,35 +1714,57 @@
                         thumbResultadosDiv.innerHTML = '';
                         
                         data.forEach((idea, index) => {
-                            const uniqueId = `thumb-idea-${index}`;
-                            const escapedDesc = (idea.descricaoThumbnail || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                            const uniqueId = `thumb-idea-${Date.now()}-${index}`;
+                            const tagsString = (idea.seoTags || []).join(', ');
                             
-                            let phrasesHtml = '';
-                            if (idea.frasesDeGancho && idea.frasesDeGancho.length > 0) {
-                                phrasesHtml = `
-                                    <strong class="text-sm text-amber-400">Frases de Gancho:</strong>
-                                    <ul class="list-disc list-inside text-sm text-gray-300 mt-2">
-                                        ${(idea.frasesDeGancho).map(frase => `<li>${frase}</li>`).join('')}
-                                    </ul>
-                                `;
-                            } else {
-                                phrasesHtml = `<p class="text-sm text-gray-500 italic">(Sem frases de gancho)</p>`;
+                            let phrasesOptions = (idea.frasesDeGancho || []).map(phrase => `<option value="${phrase}">${phrase}</option>`).join('');
+                            if (!phrasesOptions) {
+                                phrasesOptions = '<option value="">Sem frases</option>';
                             }
 
                             let thumbHtml = `
-                                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700" id="${uniqueId}">
-                                    <div class="flex justify-between items-center mb-2">
-                                        <h4 class="text-lg font-semibold text-white">Ideia de Thumbnail ${index + 1}</h4>
-                                        <button title="Copiar Descrição" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedDesc}">
-                                            <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
-                                        </button>
-                                    </div>
-                                    <p class="text-sm text-gray-300 mb-3">
-                                        <strong>Descrição:</strong> ${idea.descricaoThumbnail || 'N/A'}
-                                    </p>
-                                    ${phrasesHtml}
+                                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4" id="${uniqueId}">
+                                    <h4 class="text-lg font-semibold text-white">Ideia de Thumbnail ${index + 1}</h4>
                                     
-                                    <button type"button" class="btn-gen-imagefx mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs w-full" data-prompt="${escapedDesc}" data-target="${uniqueId}">
+                                    <!-- SEO Section -->
+                                    <div class="space-y-3">
+                                        <div>
+                                            <div class="flex justify-between items-center mb-1">
+                                                <label class="text-sm font-medium text-amber-400">Descrição SEO</label>
+                                                <button title="Copiar Descrição" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${idea.seoDescription || ''}">
+                                                    <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                                </button>
+                                            </div>
+                                            <textarea readonly class="w-full h-24 text-xs p-2 bg-gray-900 border border-gray-700 rounded-md">${idea.seoDescription || 'N/A'}</textarea>
+                                        </div>
+                                        <div>
+                                            <div class="flex justify-between items-center mb-1">
+                                                <label class="text-sm font-medium text-amber-400">Tags</label>
+                                                <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${tagsString}">
+                                                    <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                                </button>
+                                            </div>
+                                            <p class="text-xs p-2 bg-gray-900 border border-gray-700 rounded-md">${tagsString || 'N/A'}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <hr class="border-gray-700">
+
+                                    <!-- Image Generation Section -->
+                                    <div class="space-y-3">
+                                        <div>
+                                            <label for="hook-select-${uniqueId}" class="text-sm font-medium text-amber-400">Frase de Gancho</label>
+                                            <select id="hook-select-${uniqueId}" class="hook-phrase-select styled-select w-full mt-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm">
+                                                ${phrasesOptions}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="text-sm font-medium text-amber-400">Descrição para IA de Imagem</label>
+                                            <p class="image-prompt-text text-sm text-gray-300 mt-1 p-2 bg-gray-900 border border-gray-700 rounded-md" data-original-prompt="${idea.descricaoThumbnail || ''}">${(idea.descricaoThumbnail || '').replace('[FRASE DE GANCHO AQUI]', idea.frasesDeGancho[0] || '')}</p>
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="btn-gen-imagefx mt-4 py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-sm w-full" data-prompt="${(idea.descricaoThumbnail || '').replace('[FRASE DE GANCHO AQUI]', idea.frasesDeGancho[0] || '')}">
                                         <span class="btn-text">Gerar Imagem com ImageFX</span>
                                         <div class="btn-spinner hidden"></div>
                                     </button>
@@ -1750,8 +1772,7 @@
                                     <div class="imagefx-loading mt-4 flex-col items-center justify-center" style="display: none;">
                                         <div class="loader !w-20 !h-20"></div>
                                     </div>
-                                    <div class="imagefx-result mt-4" style="display: none;">
-                                    </div>
+                                    <div class="imagefx-result mt-4" style="display: none;"></div>
                                 </div>
                             `;
                             thumbResultadosDiv.innerHTML += thumbHtml;
@@ -1778,6 +1799,23 @@
                 btnGenerateMoreThumbs.addEventListener('click', handleThumbnailGeneration);
             }
 
+            // Event listener for hook phrase selection
+            thumbResultadosDiv.addEventListener('change', (e) => {
+                if (e.target.classList.contains('hook-phrase-select')) {
+                    const select = e.target;
+                    const selectedPhrase = select.value;
+                    const card = select.closest('.bg-gray-800');
+                    const promptTextElement = card.querySelector('.image-prompt-text');
+                    const originalPrompt = promptTextElement.dataset.originalPrompt;
+                    const generateBtn = card.querySelector('.btn-gen-imagefx');
+
+                    const newPrompt = originalPrompt.replace('[FRASE DE GANCHO AQUI]', selectedPhrase);
+                    
+                    promptTextElement.textContent = newPrompt;
+                    generateBtn.dataset.prompt = newPrompt;
+                }
+            });
+
 
             // --- Lógica para Gerar Imagem com ImageFX (via event delegation) ---
             thumbResultadosDiv.addEventListener('click', async (e) => {
@@ -1786,8 +1824,7 @@
 
                 e.preventDefault();
                 const promptDesc = targetButton.getAttribute('data-prompt');
-                const targetCardId = targetButton.getAttribute('data-target');
-                const card = document.getElementById(targetCardId);
+                const card = targetButton.closest('.bg-gray-800');
                 
                 if (!card) return;
                 
