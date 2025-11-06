@@ -1,0 +1,32 @@
+{
+  "name": "la-casa-dark-core-backend",
+  "version": "1.0.0",
+  "description": "Servidor para o SaaS La Casa Dark Core",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:backend": "nodemon server.js",
+    "dev:frontend": "live-server ../ --port=5500 --open=la-casa-dark-core-auth.html",
+    "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\""
+  },
+  "author": "Rudy Silva & Gemini",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
+    "undici": "^6.19.2",
+    "ytdl-core": "^4.11.5",
+    "youtube-transcript": "^1.2.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "live-server": "^1.2.2",
+    "nodemon": "^3.1.4"
+  }
+}
+
