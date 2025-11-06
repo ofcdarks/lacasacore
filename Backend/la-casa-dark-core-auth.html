@@ -15,6 +15,10 @@
         /* Aplicando a fonte premium ao corpo */
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
+            /* Desativa a seleção de texto */
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10+ */
+            user-select: none; /* Padrão */
         }
         
         /* Estilo customizado para o título focar em CORE */
@@ -362,6 +366,32 @@
             // quando ele estiver pronto no backend.
         }
 
+    </script>
+    
+    <!-- Script de Proteção de Código -->
+    <script>
+        // Desativa o clique com o botão direito
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // Desativa atalhos de teclado
+        document.addEventListener('keydown', event => {
+            // Bloqueia F12 (Dev Tools)
+            if (event.key === 'F12') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+Shift+I (Dev Tools)
+            if (event.ctrlKey && event.shiftKey && event.key === 'I') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+U (Ver código-fonte)
+            if (event.ctrlKey && event.key === 'U') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+C (Copiar)
+            if (event.ctrlKey && event.key === 'C') {
+                event.preventDefault();
+            }
+        });
     </script>
 </body>
 </html>

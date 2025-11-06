@@ -37,13 +37,12 @@ app.get('/', (req, res) => {
 
 
 // --- FUNÇÕES AUXILIARES DE ENCRIPTAÇÃO ---
-const iv = crypto.randomBytes(16);
-
 function encrypt(text) {
     if (!ENCRYPTION_SECRET || ENCRYPTION_SECRET.length !== 32) {
         console.error("ENCRYPTION_SECRET inválida. Deve ter 32 caracteres.");
         throw new Error("Configuração de encriptação inválida.");
     }
+    const iv = crypto.randomBytes(16); // Gera um novo IV para cada encriptação
     const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_SECRET), iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
