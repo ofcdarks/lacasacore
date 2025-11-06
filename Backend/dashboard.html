@@ -1467,13 +1467,23 @@
 
                     let nicheHtml = `
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <div class="niche-tag">
-                                <strong>Nicho Detetado</strong>
-                                <span id="detected-niche">${data.niche || 'N/A'}</span>
+                            <div class="niche-tag flex justify-between items-center">
+                                <div>
+                                    <strong>Nicho Detetado</strong>
+                                    <span id="detected-niche">${data.niche || 'N/A'}</span>
+                                </div>
+                                <button title="Copiar Nicho" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.niche || ''}">
+                                    <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                </button>
                             </div>
-                            <div class="niche-tag">
-                                <strong>Subnicho Detetado</strong>
-                                <span id="detected-subniche">${data.subniche || 'N/A'}</span>
+                            <div class="niche-tag flex justify-between items-center">
+                                <div>
+                                    <strong>Subnicho Detetado</strong>
+                                    <span id="detected-subniche">${data.subniche || 'N/A'}</span>
+                                </div>
+                                <button title="Copiar Subnicho" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.subniche || ''}">
+                                    <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                </button>
                             </div>
                         </div>
                         
@@ -1520,7 +1530,12 @@
                                     <p class="text-sm text-gray-400 flex-1">
                                         ${titleObj.explicacao || ''}
                                     </p>
-                                    ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor} ml-4">${titleObj.pontuacao}/10</span>` : ''}
+                                    <div class="flex items-center ml-4">
+                                        ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">${titleObj.pontuacao}/10</span>` : ''}
+                                        <button title="Copiar Título" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedTitle}">
+                                            <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </li>
                         `;
@@ -1681,7 +1696,12 @@
 
                             let thumbHtml = `
                                 <div class="bg-gray-800 p-4 rounded-lg border border-gray-700" id="${uniqueId}">
-                                    <h4 class="text-lg font-semibold text-white mb-2">Ideia de Thumbnail ${index + 1}</h4>
+                                    <div class="flex justify-between items-center mb-2">
+                                        <h4 class="text-lg font-semibold text-white">Ideia de Thumbnail ${index + 1}</h4>
+                                        <button title="Copiar Descrição" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedDesc}">
+                                            <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                    </div>
                                     <p class="text-sm text-gray-300 mb-3">
                                         <strong>Descrição:</strong> ${idea.descricaoThumbnail || 'N/A'}
                                     </p>
@@ -2422,7 +2442,16 @@
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.msg);
                     
-                    resultsDiv.innerHTML = data.recommendation.replace(/\n/g, '<br>');
+                    const escapedRec = data.recommendation.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                    resultsDiv.innerHTML = `
+                        <div class="relative">
+                            <button title="Copiar Sugestão" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text="${escapedRec}">
+                                <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                            </button>
+                            ${data.recommendation.replace(/\n/g, '<br>')}
+                        </div>
+                    `;
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
 
                 } catch (err) {
                     showMessage('niche-error-message', err.message, true);
@@ -2456,19 +2485,36 @@
                     if (!response.ok) throw new Error(data.msg);
 
                     let html = '';
+                    let textToCopy = '';
                     for (const key in data) {
-                        html += `<h3>${key.replace(/_/g, ' ')}</h3>`;
+                        const title = key.replace(/_/g, ' ');
+                        html += `<h3>${title}</h3>`;
+                        textToCopy += `${title.toUpperCase()}\n`;
                         if (typeof data[key] === 'object' && data[key] !== null) {
                             html += '<ul>';
                             for (const subKey in data[key]) {
-                                html += `<li><strong>${subKey.replace(/_/g, ' ')}:</strong> ${data[key][subKey]}</li>`;
+                                const subTitle = subKey.replace(/_/g, ' ');
+                                html += `<li><strong>${subTitle}:</strong> ${data[key][subKey]}</li>`;
+                                textToCopy += `- ${subTitle}: ${data[key][subKey]}\n`;
                             }
                             html += '</ul>';
                         } else {
                             html += `<p>${data[key]}</p>`;
+                            textToCopy += `${data[key]}\n`;
                         }
+                        textToCopy += '\n';
                     }
-                    resultsDiv.innerHTML = html;
+                    
+                    const escapedText = textToCopy.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                    resultsDiv.innerHTML = `
+                        <div class="relative">
+                            <button title="Copiar Análise Completa" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text='${escapedText}'>
+                                <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                            </button>
+                            ${html}
+                        </div>
+                    `;
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
 
                 } catch (err) {
                     showMessage('niche-error-message', err.message, true);
@@ -2487,6 +2533,32 @@
                     window.location.href = 'la-casa-dark-core-auth.html';
                 });
             }
+            
+            // --- LÓGICA DE COPIAR PARA CLIPBOARD (Event Delegation) ---
+            document.body.addEventListener('click', async (e) => {
+                const copyBtn = e.target.closest('.btn-copy');
+                if (!copyBtn) return;
+
+                const textToCopy = copyBtn.dataset.copyText;
+                if (textToCopy) {
+                    try {
+                        await navigator.clipboard.writeText(textToCopy);
+                        
+                        const originalIcon = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4 text-green-500"></i>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                        
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalIcon;
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }, 2000);
+
+                    } catch (err) {
+                        console.error('Falha ao copiar texto: ', err);
+                        alert('Não foi possível copiar o texto.');
+                    }
+                }
+            });
             
             // --- CARREGAMENTO INICIAL ---
             checkUserRoleAndLoadAdmin();
