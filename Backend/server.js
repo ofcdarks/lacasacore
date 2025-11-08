@@ -963,9 +963,9 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
 
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
-            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-1.5-flash');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-haiku-20241022');
-            const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o-mini');
+            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-sonnet-4-20250514');
+            const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4.1');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
 
