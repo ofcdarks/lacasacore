@@ -1038,14 +1038,17 @@
 
                 <!-- Status da Integração -->
                 <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
-                    <h2 class="text-xl font-semibold text-white mb-4">Status da Integração</h2>
-                    <div id="youtube-integration-status" class="text-gray-400 mb-4">
-                        <p>Nenhuma integração configurada. Clique no botão abaixo para conectar seu canal do YouTube.</p>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold text-white">Canais Conectados</h2>
+                        <button id="btn-connect-youtube" class="py-2 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-red-600 hover:bg-red-500 text-white text-sm">
+                            <i data-lucide="plus"></i>
+                            <span>Adicionar Canal</span>
+                        </button>
                     </div>
-                    <button id="btn-connect-youtube" class="py-3 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-red-600 hover:bg-red-500 text-white">
-                        <i data-lucide="youtube"></i>
-                        <span>Conectar Canal do YouTube</span>
-                    </button>
+                    <div id="youtube-channels-list" class="space-y-3 mb-4">
+                        <p class="text-gray-400">Carregando canais...</p>
+                    </div>
+                    <div id="youtube-integration-status" class="text-gray-400"></div>
                 </div>
 
                 <!-- Publicações Agendadas -->
@@ -1836,6 +1839,7 @@
                     loadBibliotecaTitles();
                 }
                 if (viewName === 'youtube-integration') {
+                    loadYouTubeIntegrationStatus();
                     loadScheduledPosts();
                 }
                 
@@ -4901,33 +4905,185 @@
             }
 
             // === FUNCIONALIDADES DE INTEGRAÇÃO YOUTUBE ===
+            async function loadYouTubeIntegrationStatus() {
+                try {
+                    // Obter token dentro da função para garantir que está disponível
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        console.warn('[YouTube Integration] Token não encontrado');
+                        const channelsList = document.getElementById('youtube-channels-list');
+                        if (channelsList) {
+                            channelsList.innerHTML = '<p class="text-red-400">Erro: Token de autenticação não encontrado. Faça login novamente.</p>';
+                        }
+                        return;
+                    }
+                    
+                    if (typeof API_BASE === 'undefined') {
+                        console.error('[YouTube Integration] API_BASE não está definido');
+                        const channelsList = document.getElementById('youtube-channels-list');
+                        if (channelsList) {
+                            channelsList.innerHTML = '<p class="text-red-400">Erro: API_BASE não está definido. Recarregue a página.</p>';
+                        }
+                        return;
+                    }
+                    
+                    // Buscar lista de canais
+                    const response = await fetch(`${API_BASE}/api/youtube/channels`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Falha ao carregar canais');
+                    }
+                    
+                    const data = await response.json();
+                    const channelsList = document.getElementById('youtube-channels-list');
+                    const btnConnect = document.getElementById('btn-connect-youtube');
+                    
+                    if (channelsList) {
+                        if (data.channels && data.channels.length > 0) {
+                            channelsList.innerHTML = data.channels.map(channel => `
+                                <div class="bg-gray-800 border ${channel.isExpired ? 'border-yellow-700' : 'border-green-700'} rounded-lg p-4">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center space-x-3 flex-1">
+                                            <i data-lucide="${channel.isExpired ? 'alert-circle' : 'check-circle'}" class="w-5 h-5 ${channel.isExpired ? 'text-yellow-500' : 'text-green-500'}"></i>
+                                            <div class="flex-1">
+                                                <p class="text-white font-semibold">${escapeHtml(channel.channelName || 'Canal do YouTube')}</p>
+                                                <p class="text-gray-400 text-xs">ID: ${escapeHtml(channel.channelId || 'N/A')}</p>
+                                                ${channel.isExpired ? '<p class="text-yellow-400 text-xs mt-1">⚠️ Token expirado</p>' : ''}
+                                            </div>
+                                        </div>
+                                        <button onclick="disconnectChannel(${channel.id})" class="ml-4 py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition duration-300">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('');
+                            
+                            // Mostrar contador
+                            const statusDiv = document.getElementById('youtube-integration-status');
+                            if (statusDiv) {
+                                statusDiv.innerHTML = `<p class="text-gray-400 text-sm">${data.count} de ${data.maxChannels} canais conectados</p>`;
+                            }
+                            
+                            // Desabilitar botão se atingiu o limite
+                            if (btnConnect && data.count >= data.maxChannels) {
+                                btnConnect.disabled = true;
+                                btnConnect.innerHTML = '<i data-lucide="x"></i><span>Limite atingido (10 canais)</span>';
+                            } else if (btnConnect) {
+                                btnConnect.disabled = false;
+                                btnConnect.innerHTML = '<i data-lucide="plus"></i><span>Adicionar Canal</span>';
+                            }
+                        } else {
+                            channelsList.innerHTML = '<p class="text-gray-400">Nenhum canal conectado. Clique em "Adicionar Canal" para começar.</p>';
+                            const statusDiv = document.getElementById('youtube-integration-status');
+                            if (statusDiv) {
+                                statusDiv.innerHTML = '';
+                            }
+                        }
+                    }
+                    
+                    // Atualizar ícones do Lucide
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('[YouTube Integration] Erro ao carregar canais:', err);
+                    const channelsList = document.getElementById('youtube-channels-list');
+                    if (channelsList) {
+                        channelsList.innerHTML = `<p class="text-red-400">Erro ao carregar canais: ${err.message}</p>`;
+                    }
+                }
+            }
+            
+            // Função para desconectar um canal
+            window.disconnectChannel = async function(channelId) {
+                if (!confirm('Tem certeza que deseja desconectar este canal?')) {
+                    return;
+                }
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        showMessage('youtube-integration-error-message', 'Token de autenticação não encontrado.', true);
+                        return;
+                    }
+                    
+                    const response = await fetch(`${API_BASE}/api/youtube/channels/${channelId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.msg || 'Falha ao desconectar canal');
+                    }
+                    
+                    showMessage('youtube-integration-success-message', 'Canal desconectado com sucesso!');
+                    await loadYouTubeIntegrationStatus(); // Recarregar lista
+                } catch (err) {
+                    console.error('[YouTube Integration] Erro ao desconectar:', err);
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            }
+
             const btnConnectYouTube = document.getElementById('btn-connect-youtube');
             if (btnConnectYouTube) {
                 btnConnectYouTube.addEventListener('click', async () => {
                     try {
+                        // Obter token dentro da função
+                        const token = localStorage.getItem('core_token');
+                        if (!token) {
+                            showMessage('youtube-integration-error-message', 'Token de autenticação não encontrado. Faça login novamente.', true);
+                            return;
+                        }
+                        
+                        if (typeof API_BASE === 'undefined') {
+                            showMessage('youtube-integration-error-message', 'API_BASE não está definido. Recarregue a página.', true);
+                            return;
+                        }
+                        
                         const response = await fetch(`${API_BASE}/api/youtube/oauth/authorize`, {
-                            headers: { 'Authorization': `Bearer ${userToken}` }
+                            headers: { 'Authorization': `Bearer ${token}` }
                         });
-                        if (!response.ok) throw new Error('Falha ao obter URL de autorização.');
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.msg || 'Falha ao obter URL de autorização.');
+                        }
                         const data = await response.json();
                         window.open(data.authUrl, '_blank');
                         showMessage('youtube-integration-success-message', 'Autorize o acesso no popup que foi aberto.');
                     } catch (err) {
+                        console.error('[YouTube Integration] Erro ao conectar:', err);
                         showMessage('youtube-integration-error-message', err.message, true);
                     }
                 });
             }
 
             async function loadScheduledPosts() {
-                console.log('[YouTube] Carregando publicações agendadas...');
-                if (!userToken) {
-                    console.error('[YouTube] Token de usuário não encontrado');
-                    return;
-                }
                 try {
+                    // Obter token dentro da função para garantir que está disponível
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        console.warn('[YouTube Integration] Token não encontrado');
+                        const list = document.getElementById('scheduled-posts-list');
+                        if (list) {
+                            list.innerHTML = '<p class="text-red-400">Erro: Token de autenticação não encontrado. Faça login novamente.</p>';
+                        }
+                        return;
+                    }
+                    
+                    if (typeof API_BASE === 'undefined') {
+                        console.error('[YouTube Integration] API_BASE não está definido');
+                        const list = document.getElementById('scheduled-posts-list');
+                        if (list) {
+                            list.innerHTML = '<p class="text-red-400">Erro: API_BASE não está definido. Recarregue a página.</p>';
+                        }
+                        return;
+                    }
+                    
+                    console.log('[YouTube] Carregando publicações agendadas...', { API_BASE, hasToken: !!token });
                     console.log('[YouTube] Fazendo requisição para:', `${API_BASE}/api/youtube/scheduled`);
                     const response = await fetch(`${API_BASE}/api/youtube/scheduled`, {
-                        headers: { 'Authorization': `Bearer ${userToken}` }
+                        headers: { 'Authorization': `Bearer ${token}` }
                     });
                     console.log('[YouTube] Resposta:', response.status);
                     if (!response.ok) {
@@ -4935,12 +5091,13 @@
                         throw new Error(errorData.msg || `Falha ao carregar publicações agendadas: ${response.status}`);
                     }
                     const scheduled = await response.json();
-                    console.log('[YouTube] Publicações recebidas:', scheduled.length);
+                    const scheduledArray = Array.isArray(scheduled) ? scheduled : [];
+                    console.log('[YouTube] Publicações recebidas:', scheduledArray.length);
 
                     const list = document.getElementById('scheduled-posts-list');
                     if (list) {
-                        if (scheduled.length > 0) {
-                            list.innerHTML = scheduled.map(post => `
+                        if (scheduledArray.length > 0) {
+                            list.innerHTML = scheduledArray.map(post => `
                                 <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
                                     <h3 class="text-white font-semibold">${escapeHtml(post.title || 'Sem título')}</h3>
                                     <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
@@ -4954,6 +5111,10 @@
                     }
                 } catch (err) {
                     console.error('Erro ao carregar publicações agendadas:', err);
+                    const list = document.getElementById('scheduled-posts-list');
+                    if (list) {
+                        list.innerHTML = `<p class="text-red-400">Erro ao carregar publicações: ${err.message}</p>`;
+                    }
                 }
             }
 

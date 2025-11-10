@@ -392,30 +392,66 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
         },
     };
 
-    try {
-        const response = await fetch(GEMINI_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const result = await response.json();
+    // Retry logic com backoff exponencial para erro 429 (Resource exhausted)
+    const maxRetries = 3;
+    const baseDelay = 2000; // 2 segundos base
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(GEMINI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
 
-        if (!response.ok) {
-            console.error('Erro da API Gemini:', result);
-            if (response.status === 400 && result.error?.message.includes('API key not valid')) {
-                 throw new Error(`A sua Chave de API do Gemini é inválida.`);
+            if (!response.ok) {
+                console.error('Erro da API Gemini:', result);
+                
+                // Tratar erro de autenticação
+                if (response.status === 400 && result.error?.message.includes('API key not valid')) {
+                    throw new Error(`A sua Chave de API do Gemini é inválida.`);
+                }
+                
+                // Tratar erro 429 (Resource exhausted) com retry
+                if (response.status === 429 || (result.error?.message && result.error.message.includes('Resource exhausted'))) {
+                    if (attempt < maxRetries) {
+                        const delay = baseDelay * Math.pow(2, attempt); // Backoff exponencial: 2s, 4s, 8s
+                        console.warn(`[Gemini API] Limite de requisições atingido (429). Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms antes de tentar novamente...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue; // Tentar novamente
+                    } else {
+                        // Todas as tentativas falharam
+                        throw new Error(`Limite de requisições atingido para a API Gemini. Aguarde alguns minutos ou use outro modelo de IA (Claude ou OpenAI). Detalhes: ${result.error?.message || response.statusText}`);
+                    }
+                }
+                
+                // Outros erros não relacionados a rate limit
+                throw new Error(`Erro da API Gemini: ${result.error?.message || response.statusText}`);
             }
-            throw new Error(`Erro da API Gemini: ${result.error?.message || response.statusText}`);
+            
+            // Sucesso - processar resposta
+            if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
+                return { titles: result.candidates[0].content.parts[0].text, model: model };
+            } else {
+                console.error('Resposta inesperada da API Gemini:', result);
+                throw new Error('A resposta da IA (Gemini) foi bloqueada ou retornou vazia.');
+            }
+        } catch (error) {
+            // Se for erro de rate limit e ainda temos tentativas, continuar o loop
+            if (error.message.includes('Resource exhausted') || error.message.includes('Limite de requisições')) {
+                if (attempt < maxRetries) {
+                    const delay = baseDelay * Math.pow(2, attempt);
+                    console.warn(`[Gemini API] Erro detectado. Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+            }
+            
+            // Se não for erro de rate limit ou se esgotaram as tentativas, lançar erro
+            console.error('Falha ao chamar a API do Gemini:', error);
+            throw error;
         }
-        if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
-            return { titles: result.candidates[0].content.parts[0].text, model: model };
-        } else {
-            console.error('Resposta inesperada da API Gemini:', result);
-            throw new Error('A resposta da IA (Gemini) foi bloqueada ou retornou vazia.');
-        }
-    } catch (error) {
-        console.error('Falha ao chamar a API do Gemini:', error);
-        throw error;
     }
 }
 
@@ -480,38 +516,42 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
     const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
     
     // Mapeamento de nomes amigáveis para nomes corretos da API da Anthropic
-    // Apenas 2 modelos válidos e testados
+    // Modelos Claude mais recentes e disponíveis (2024-2025)
     const modelMapping = {
-        // Modelos Claude válidos e disponíveis
-        'claude-3-sonnet-20240229': 'claude-3-sonnet-20240229',
-        'claude-3-haiku-20240307': 'claude-3-haiku-20240307',
-        // Fallbacks para modelos antigos (caso sejam usados)
-        'claude-3-opus-20240229': 'claude-3-sonnet-20240229', // Fallback para Sonnet
-        'claude-sonnet-4-20250514': 'claude-3-sonnet-20240229', // Fallback para Sonnet
-        'claude-3.5-sonnet-20241022': 'claude-3-sonnet-20240229', // Fallback para Sonnet
-        'claude-3.5-haiku-20241022': 'claude-3-haiku-20240307' // Fallback para Haiku
+        // Modelos Claude válidos e disponíveis (versões mais recentes)
+        'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
+        'claude-3-5-haiku-20241022': 'claude-3-5-haiku-20241022',
+        'claude-3-opus-20240229': 'claude-3-opus-20240229',
+        // Fallbacks para modelos antigos (mapeamento para versões mais recentes)
+        'claude-3-sonnet-20240229': 'claude-3-5-sonnet-20241022', // Fallback para versão mais recente
+        'claude-3-haiku-20240307': 'claude-3-5-haiku-20241022', // Fallback para versão mais recente
+        'claude-sonnet-4-20250514': 'claude-3-5-sonnet-20241022', // Fallback para Sonnet
+        'claude-3.5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
+        'claude-3.5-haiku-20241022': 'claude-3-5-haiku-20241022'
     };
     
-    // Apenas 2 modelos válidos: claude-3-sonnet-20240229 e claude-3-haiku-20240307
+    // Modelos válidos mais recentes: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022, claude-3-opus-20240229
     // Converter nome do modelo usando mapeamento ou determinar pelo tipo
     let modelName = modelMapping[model];
     
     // Se não estiver no mapeamento, determinar pelo tipo de modelo
     if (!modelName) {
         if (model.includes('haiku')) {
-            modelName = 'claude-3-haiku-20240307';
+            modelName = 'claude-3-5-haiku-20241022';
+        } else if (model.includes('opus')) {
+            modelName = 'claude-3-opus-20240229';
         } else {
-            // Padrão: usar Sonnet (para sonnet, opus, ou qualquer outro)
-            modelName = 'claude-3-sonnet-20240229';
+            // Padrão: usar Sonnet mais recente (para sonnet ou qualquer outro)
+            modelName = 'claude-3-5-sonnet-20241022';
         }
     }
     
-    // Garantir que apenas os 2 modelos válidos sejam usados
-    const validModels = ['claude-3-sonnet-20240229', 'claude-3-haiku-20240307'];
+    // Garantir que apenas os modelos válidos sejam usados
+    const validModels = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
     if (!validModels.includes(modelName)) {
-        // Se por algum motivo o modelo não for válido, usar Sonnet como padrão
-        console.warn(`[Claude API] Modelo ${modelName} não é válido, usando claude-3-sonnet-20240229 como padrão`);
-        modelName = 'claude-3-sonnet-20240229';
+        // Se por algum motivo o modelo não for válido, usar Sonnet mais recente como padrão
+        console.warn(`[Claude API] Modelo ${modelName} não é válido, usando claude-3-5-sonnet-20241022 como padrão`);
+        modelName = 'claude-3-5-sonnet-20241022';
     }
     
     console.log(`[Claude API] Modelo original: ${model}, Modelo mapeado: ${modelName}`);
@@ -558,10 +598,10 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
             // Mensagem de erro mais detalhada
             const errorMsg = result.error?.message || response.statusText;
             if (errorMsg.includes('model') || errorMsg.includes('invalid') || errorMsg.includes('not found') || errorMsg.includes('does not exist')) {
-                // Tentar fallback automático apenas com os 2 modelos válidos
-                const validModels = ['claude-3-sonnet-20240229', 'claude-3-haiku-20240307'];
+                // Tentar fallback automático com os modelos válidos mais recentes
+                const validModels = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
                 
-                // Tentar o outro modelo válido se o atual falhou
+                // Tentar outros modelos válidos se o atual falhou
                 for (const altModel of validModels) {
                     if (altModel === modelName) continue; // Pular o modelo que já falhou
                     
@@ -590,7 +630,7 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
                 }
                 
                 // Se todos os modelos válidos falharem, mostrar erro
-                throw new Error(`Modelo Claude inválido ou não disponível: ${modelName}. Use um destes modelos válidos: ${validModels.join(' ou ')}. Erro da API: ${errorMsg}`);
+                throw new Error(`Modelo Claude inválido ou não disponível: ${modelName}. Use um destes modelos válidos: ${validModels.join(', ')}. Erro da API: ${errorMsg}`);
             }
             throw new Error(`Erro da API Claude: ${errorMsg}`);
         }
@@ -648,7 +688,7 @@ async function validateClaudeKey(apiKey) {
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                model: "claude-3-haiku-20240307", // Usar um modelo válido para validação
+                model: "claude-3-5-haiku-20241022", // Usar um modelo válido mais recente para validação
                 max_tokens: 10,
                 messages: [{ role: "user", content: "Test" }]
             })
@@ -1115,9 +1155,12 @@ const isAdmin = (req, res, next) => {
                 is_active INTEGER DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                UNIQUE(user_id, channel_id)
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+            
+            -- Criar índice para melhor performance (sem UNIQUE para permitir múltiplos canais)
+            CREATE INDEX IF NOT EXISTS idx_youtube_integrations_user_channel 
+            ON youtube_integrations(user_id, channel_id);
         `);
 
         await db.exec(`
@@ -1141,6 +1184,49 @@ const isAdmin = (req, res, next) => {
         `);
 
         console.log('✅ Novas tabelas criadas: Analytics, Biblioteca e Integração YouTube');
+        
+        // === MIGRAÇÃO: Remover constraint UNIQUE de youtube_integrations (permitir múltiplos canais) ===
+        try {
+            const tableInfo = await db.all("PRAGMA table_info(youtube_integrations)");
+            const indexes = await db.all("PRAGMA index_list(youtube_integrations)");
+            
+            // Verificar se existe constraint UNIQUE (através de índices únicos)
+            const uniqueIndexes = indexes.filter(idx => idx.unique === 1);
+            if (uniqueIndexes.length > 0) {
+                console.log('MIGRATION: Removendo constraint UNIQUE de youtube_integrations para permitir múltiplos canais...');
+                
+                // Recriar tabela sem UNIQUE
+                await db.exec(`
+                    CREATE TABLE IF NOT EXISTS youtube_integrations_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        channel_id TEXT,
+                        channel_name TEXT,
+                        access_token TEXT,
+                        refresh_token TEXT,
+                        token_expires_at DATETIME,
+                        is_active INTEGER DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                `);
+                
+                await db.exec(`INSERT INTO youtube_integrations_new SELECT * FROM youtube_integrations;`);
+                await db.exec(`DROP TABLE youtube_integrations;`);
+                await db.exec(`ALTER TABLE youtube_integrations_new RENAME TO youtube_integrations;`);
+                
+                // Criar índice não-único para performance
+                await db.exec(`
+                    CREATE INDEX IF NOT EXISTS idx_youtube_integrations_user_channel 
+                    ON youtube_integrations(user_id, channel_id);
+                `);
+                
+                console.log('✅ Migração concluída: múltiplos canais agora são permitidos');
+            }
+        } catch (migrationErr) {
+            console.warn('Aviso na migração de youtube_integrations:', migrationErr.message);
+        }
         
         // === MIGRAÇÃO: Corrigir tabela viral_thumbnails_library ===
         try {
@@ -1516,15 +1602,64 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 2: IA - Análise de Título e Geração (PROMPT REFINADO) ---
+        // Função para determinar se um vídeo é realmente viral
+        function isViralVideo(views, days, viewsPerDay) {
+            // Critérios para considerar um vídeo como viral:
+            // 1. Mínimo de 100.000 views totais
+            // 2. Mínimo de 10.000 views/dia (para vídeos recentes)
+            // 3. Ou mínimo de 50.000 views/dia nos primeiros 7 dias
+            // 4. Para vídeos mais antigos (>30 dias), mínimo de 500.000 views totais
+            
+            if (days <= 0) {
+                // Sem informação de dias, usar apenas views totais
+                return views >= 500000; // 500k+ views sem info de tempo = provavelmente viral
+            }
+            
+            if (days <= 7) {
+                // Vídeo muito recente: precisa de crescimento explosivo
+                return viewsPerDay >= 50000 || views >= 500000;
+            } else if (days <= 30) {
+                // Vídeo recente: precisa de bom crescimento
+                return viewsPerDay >= 10000 || views >= 300000;
+            } else {
+                // Vídeo mais antigo: precisa de views totais altas
+                return views >= 1000000; // 1M+ views para vídeos antigos
+            }
+        }
+        
         const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
-        const performanceContext = videoDetails.days > 0 
-            ? `Este vídeo viralizou com ${videoDetails.views.toLocaleString()} views em apenas ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) - um desempenho EXCEPCIONAL que indica alta viralização.`
-            : `Este vídeo tem ${videoDetails.views.toLocaleString()} views - um desempenho EXCEPCIONAL que indica alta viralização.`;
+        const isViral = isViralVideo(videoDetails.views, videoDetails.days, viewsPerDay);
+        
+        // Contexto de performance baseado na classificação real
+        let performanceContext;
+        let viralContext;
+        
+        if (isViral) {
+            if (videoDetails.days > 0) {
+                performanceContext = `Este vídeo VIRALIZOU com ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) - um desempenho EXCEPCIONAL que indica alta viralização.`;
+            } else {
+                performanceContext = `Este vídeo VIRALIZOU com ${videoDetails.views.toLocaleString()} views - um desempenho EXCEPCIONAL que indica alta viralização.`;
+            }
+            viralContext = 'que VIRALIZOU';
+        } else {
+            // Vídeo não viral - ser honesto sobre a performance
+            if (videoDetails.days > 0) {
+                const performanceLevel = viewsPerDay < 100 
+                    ? 'baixo desempenho' 
+                    : viewsPerDay < 1000 
+                        ? 'desempenho moderado' 
+                        : 'bom desempenho';
+                performanceContext = `Este vídeo tem ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) - ${performanceLevel}. Este vídeo NÃO viralizou, mas pode ser analisado para identificar elementos que podem ser melhorados para criar versões com maior potencial viral.`;
+            } else {
+                performanceContext = `Este vídeo tem ${videoDetails.views.toLocaleString()} views. Este vídeo NÃO viralizou, mas pode ser analisado para identificar elementos que podem ser melhorados para criar versões com maior potencial viral.`;
+            }
+            viralContext = 'de referência';
+        }
 
         const titlePrompt = `
-            Você é um ESPECIALISTA EM VIRALIZAÇÃO NO YOUTUBE com experiência comprovada em criar títulos que geram MILHÕES DE VIEWS e ALTO CTR (taxa de cliques acima de 25%). Sua missão é analisar um vídeo que VIRALIZOU e criar variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para canais subnichados.
+            Você é um ESPECIALISTA EM VIRALIZAÇÃO NO YOUTUBE com experiência comprovada em criar títulos que geram MILHÕES DE VIEWS e ALTO CTR (taxa de cliques acima de 25%). Sua missão é analisar um vídeo ${isViral ? 'que VIRALIZOU' : 'de referência'} e criar variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para canais subnichados.
 
-            🚀 CONTEXTO DO VÍDEO VIRAL:
+            🚀 CONTEXTO DO VÍDEO ${isViral ? 'VIRAL' : 'DE REFERÊNCIA'}:
             ${performanceContext}
             
             DADOS DO VÍDEO ORIGINAL:
@@ -1537,8 +1672,8 @@ Tradução em PT-BR:`;
             - Descrição (início): ${videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A'}...
             - Transcrição (início): ${transcriptText.substring(0, 500)}...
 
-            🎯 PROMPT DE ANÁLISE DE TÍTULOS VIRAIS (DIRETO DO VÍDEO VIRAL):
-            Este vídeo do canal viralizou, pegou ${videoDetails.views.toLocaleString()} VIEWS EM ${videoDetails.days} DIAS com o título: "${videoDetails.title}"
+            🎯 PROMPT DE ANÁLISE DE TÍTULOS ${isViral ? 'VIRAIS' : 'DE REFERÊNCIA'} (DIRETO DO VÍDEO):
+            Este vídeo do canal ${isViral ? 'viralizou, pegou' : 'tem'} ${videoDetails.views.toLocaleString()} VIEWS${videoDetails.days > 0 ? ` EM ${videoDetails.days} DIAS` : ''} com o título: "${videoDetails.title}"
             
             OBJETIVO: Criar títulos e canais MILIONÁRIOS com MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
             
@@ -1550,10 +1685,10 @@ Tradução em PT-BR:`;
                 - Analise por que esse subnicho funcionou tão bem e qual o público-alvo que gerou essa viralização.
                 - Identifique oportunidades de subnichos pouco explorados com alto potencial de viralização.
 
-            2.  **Análise do Título Viral (Por que funcionou?):** 
-                Analise PROFUNDAMENTE o título que viralizou e identifique:
-                - Explique o "motivoSucesso" detalhado: Por que esse título específico gerou ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que tornou ele tão viral?
-                - Identifique a "formulaTitulo" (a estrutura exata, gatilhos mentais, palavras-chave virais, padrões emocionais que fizeram esse título viralizar e gerar milhões de views).
+            2.  **Análise do Título ${isViral ? 'Viral' : 'de Referência'} (Por que ${isViral ? 'funcionou' : 'não funcionou tão bem'}?):** 
+                Analise PROFUNDAMENTE o título ${isViral ? 'que viralizou' : 'de referência'} e identifique:
+                - Explique o "motivoSucesso" detalhado: ${isViral ? `Por que esse título específico gerou ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que tornou ele tão viral?` : `Por que esse título gerou apenas ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que faltou para ele viralizar? Quais elementos podem ser melhorados?`}
+                - Identifique a "formulaTitulo" (a estrutura exata, gatilhos mentais, palavras-chave ${isViral ? 'virais' : 'que podem ser otimizadas'}, padrões emocionais ${isViral ? 'que fizeram esse título viralizar e gerar milhões de views' : 'que podem ser melhorados para criar versões com maior potencial viral'}).
                 - Analise a PSICOLOGIA POR TRÁS DO SUCESSO: Qual emoção ele despertou? Que curiosidade ele criou? Que gatilho mental ele acionou? Que palavra-chave teve maior impacto? Por que as pessoas CLICARAM nele?
                 - Identifique os PADRÕES VIRAIS COMPROVADOS: números impactantes, perguntas intrigantes, segredos revelados, contrastes, FOMO, prova social, urgência, escassez.
                 - Analise a ESTRUTURA DO TÍTULO: Quantas palavras? Qual é a ordem das palavras-chave? Onde estão os gatilhos mentais? Qual é o ritmo de leitura?
@@ -1642,7 +1777,7 @@ Tradução em PT-BR:`;
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
             const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-sonnet-20240229');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-sonnet-20241022');
             const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4.1');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
@@ -2097,10 +2232,19 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             // Prompt padrão baseado na fórmula do título e otimizado por modelo
             const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
             
-            // Contexto de performance do vídeo viral
-            const videoPerformanceContext = videoDetails.views && videoDetails.days 
-                ? `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views em apenas ${videoDetails.days} dias (média de ${Math.round(videoDetails.views / Math.max(videoDetails.days, 1)).toLocaleString()} views/dia). Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`
-                : `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views. Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`;
+            // Contexto de performance do vídeo - usar mesma classificação viral
+            const viewsPerDayThumb = videoDetails.views && videoDetails.days 
+                ? Math.round(videoDetails.views / Math.max(videoDetails.days, 1))
+                : 0;
+            const isViralThumb = isViralVideo(videoDetails.views || 0, videoDetails.days || 0, viewsPerDayThumb);
+            
+            const videoPerformanceContext = isViralThumb
+                ? (videoDetails.views && videoDetails.days 
+                    ? `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views em apenas ${videoDetails.days} dias (média de ${viewsPerDayThumb.toLocaleString()} views/dia). Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`
+                    : `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views. Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`)
+                : (videoDetails.views && videoDetails.days 
+                    ? `\n            🚀 CONTEXTO DO VÍDEO DE REFERÊNCIA:\n            Esta thumbnail pertence a um vídeo que alcançou ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDayThumb.toLocaleString()} views/dia). Este vídeo NÃO viralizou, mas a thumbnail pode ser analisada e melhorada para criar versões com maior potencial viral.`
+                    : `\n            🚀 CONTEXTO DO VÍDEO DE REFERÊNCIA:\n            Esta thumbnail pertence a um vídeo que alcançou ${videoDetails.views.toLocaleString()} views. Este vídeo NÃO viralizou, mas a thumbnail pode ser analisada e melhorada para criar versões com maior potencial viral.`);
             
             // Prompts otimizados por modelo
             if (service === 'gemini') {
@@ -2108,7 +2252,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}${videoPerformanceContext}
 
             🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
-            Este vídeo COM ESTA THUMBNAIL VIRALIZOU, com o título: "${videoDetails.title}"
+            Este vídeo ${isViralThumb ? 'COM ESTA THUMBNAIL VIRALIZOU' : 'DE REFERÊNCIA tem esta thumbnail'}, com o título: "${videoDetails.title}"
             
             OBJETIVO: Criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%) para canais milionários.
             
@@ -2293,7 +2437,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}${videoPerformanceContext}
 
             🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
-            Este vídeo COM ESTA THUMBNAIL VIRALIZOU, com o título: "${videoDetails.title}"
+            Este vídeo ${isViralThumb ? 'COM ESTA THUMBNAIL VIRALIZOU' : 'DE REFERÊNCIA tem esta thumbnail'}, com o título: "${videoDetails.title}"
             
             OBJETIVO: Criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%) para canais milionários.
             
@@ -2618,7 +2762,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                     }
                     
                     let fallbackModel = model;
-                    if (fallbackService === 'claude') fallbackModel = 'claude-3-haiku-20240307';
+                    if (fallbackService === 'claude') fallbackModel = 'claude-3-5-haiku-20241022';
                     else if (fallbackService === 'openai') fallbackModel = 'gpt-4o';
                     else if (fallbackService === 'gemini') fallbackModel = 'gemini-2.0-flash';
                     
@@ -4249,29 +4393,461 @@ app.put('/api/library/thumbnails/:id/favorite', authenticateToken, async (req, r
 
 // Iniciar OAuth do YouTube (retorna URL de autorização)
 app.get('/api/youtube/oauth/authorize', authenticateToken, async (req, res) => {
-    // Para produção, você precisa configurar OAuth 2.0 do Google
-    // Por enquanto, retornamos instruções
+    const userId = req.user.id;
     const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID';
     const REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:5001/api/youtube/oauth/callback';
     const SCOPE = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube';
 
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(SCOPE)}&access_type=offline&prompt=consent`;
+    if (CLIENT_ID === 'YOUR_CLIENT_ID') {
+        return res.status(500).json({ msg: 'Credenciais do YouTube não configuradas. Configure YOUTUBE_CLIENT_ID no arquivo .env. Veja CONFIGURACAO_YOUTUBE.md para mais informações.' });
+    }
+
+    // Validar e limpar REDIRECT_URI
+    let cleanRedirectUri = REDIRECT_URI.trim();
+    // Remover barra final se houver
+    if (cleanRedirectUri.endsWith('/')) {
+        cleanRedirectUri = cleanRedirectUri.slice(0, -1);
+    }
+
+    // Criar um state token seguro com o userId
+    // Em produção, você deve usar um token JWT ou criptografado
+    const stateToken = Buffer.from(JSON.stringify({ userId, timestamp: Date.now() })).toString('base64');
+
+    // Construir URL de autorização com parâmetros corretos
+    const authParams = new URLSearchParams({
+        client_id: CLIENT_ID,
+        redirect_uri: cleanRedirectUri,
+        response_type: 'code',
+        scope: SCOPE,
+        access_type: 'offline',
+        prompt: 'consent', // Força seleção de conta mesmo se já logado
+        include_granted_scopes: 'true', // Permite múltiplas contas
+        state: stateToken
+    });
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${authParams.toString()}`;
+
+    console.log(`[YouTube OAuth] URL de autorização gerada para userId: ${userId}`);
+    console.log(`[YouTube OAuth] Redirect URI: ${cleanRedirectUri}`);
 
     res.status(200).json({ authUrl, msg: 'Use esta URL para autorizar o acesso ao YouTube.' });
 });
 
 // Callback OAuth (será chamado pelo Google após autorização)
-app.get('/api/youtube/oauth/callback', authenticateToken, async (req, res) => {
-    const { code } = req.query;
-    const userId = req.user.id;
+// NOTA: Este endpoint não usa authenticateToken porque o Google redireciona diretamente
+// O userId é validado através do state parameter
+app.get('/api/youtube/oauth/callback', async (req, res) => {
+    const { code, error, state } = req.query;
+    
+    let userId = null;
+    
+    // Decodificar state para obter userId
+    try {
+        if (state) {
+            const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+            userId = stateData.userId;
+            
+            // Validar que o state não é muito antigo (máximo 10 minutos)
+            const maxAge = 10 * 60 * 1000; // 10 minutos
+            if (Date.now() - stateData.timestamp > maxAge) {
+                return res.status(400).send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>Erro - Token Expirado</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Token Expirado</h1>
+                        <p>O token de autorização expirou. Por favor, tente novamente.</p>
+                        <button onclick="window.close()">Fechar</button>
+                    </body>
+                    </html>
+                `);
+            }
+        } else {
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Erro - Estado Inválido</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Erro na Autorização</h1>
+                    <p>Estado inválido. Por favor, tente conectar novamente.</p>
+                    <button onclick="window.close()">Fechar</button>
+                </body>
+                </html>
+            `);
+        }
+    } catch (e) {
+        console.error('[YouTube OAuth] Erro ao decodificar state:', e);
+        return res.status(400).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Erro - Estado Inválido</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>❌ Erro na Autorização</h1>
+                <p>Estado inválido ou corrompido. Por favor, tente conectar novamente.</p>
+                <button onclick="window.close()">Fechar</button>
+            </body>
+            </html>
+        `);
+    }
+
+    if (error) {
+        console.error('[YouTube OAuth] Erro na autorização:', error);
+        return res.status(400).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Erro na Autorização</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>❌ Erro na Autorização</h1>
+                <p>${error}</p>
+                <button onclick="window.close()">Fechar</button>
+            </body>
+            </html>
+        `);
+    }
 
     if (!code) {
         return res.status(400).json({ msg: 'Código de autorização não fornecido.' });
     }
 
-    // Trocar code por access_token e refresh_token
-    // Em produção, implemente a troca do código OAuth
-    res.status(200).json({ msg: 'Integração configurada. Implementar troca de código OAuth.' });
+    const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID';
+    const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || 'YOUR_CLIENT_SECRET';
+    let REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:5001/api/youtube/oauth/callback';
+
+    // Limpar e validar REDIRECT_URI
+    REDIRECT_URI = REDIRECT_URI.trim();
+    if (REDIRECT_URI.endsWith('/')) {
+        REDIRECT_URI = REDIRECT_URI.slice(0, -1);
+    }
+
+    if (CLIENT_ID === 'YOUR_CLIENT_ID' || CLIENT_SECRET === 'YOUR_CLIENT_SECRET') {
+        return res.status(500).json({ msg: 'Credenciais do YouTube não configuradas. Configure YOUTUBE_CLIENT_ID e YOUTUBE_CLIENT_SECRET no arquivo .env' });
+    }
+
+    try {
+        // Trocar code por access_token e refresh_token
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                code: code,
+                client_id: CLIENT_ID,
+                client_secret: CLIENT_SECRET,
+                redirect_uri: REDIRECT_URI,
+                grant_type: 'authorization_code',
+            }),
+        });
+
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error('[YouTube OAuth] Erro ao trocar código por token:', errorText);
+            return res.status(400).json({ msg: 'Falha ao obter tokens de acesso.' });
+        }
+
+        const tokenData = await tokenResponse.json();
+        const { access_token, refresh_token, expires_in } = tokenData;
+
+        if (!access_token) {
+            return res.status(400).json({ msg: 'Token de acesso não recebido.' });
+        }
+
+        // Buscar TODOS os canais da conta Google (até 50 canais)
+        const channelsResponse = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&maxResults=50', {
+            headers: {
+                'Authorization': `Bearer ${access_token}`,
+            },
+        });
+
+        let availableChannels = [];
+        
+        if (channelsResponse.ok) {
+            const channelsData = await channelsResponse.json();
+            if (channelsData.items && channelsData.items.length > 0) {
+                availableChannels = channelsData.items.map(item => ({
+                    id: item.id,
+                    name: item.snippet?.title || 'Canal sem nome',
+                    thumbnail: item.snippet?.thumbnails?.default?.url || '',
+                    description: item.snippet?.description || ''
+                }));
+            }
+        }
+
+        if (availableChannels.length === 0) {
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Nenhum Canal Encontrado</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Nenhum Canal Encontrado</h1>
+                    <p>Não foi possível encontrar canais nesta conta Google.</p>
+                    <button onclick="window.close()">Fechar</button>
+                </body>
+                </html>
+            `);
+        }
+
+        // Verificar quantos canais já estão conectados
+        const existingChannelsCount = await db.get(
+            'SELECT COUNT(*) as count FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+            [userId]
+        );
+        const currentCount = existingChannelsCount?.count || 0;
+        const maxChannels = 10;
+        const remainingSlots = maxChannels - currentCount;
+
+        if (remainingSlots <= 0) {
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Limite Atingido</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Limite de Canais Atingido</h1>
+                    <p>Você já tem 10 canais conectados. Desconecte um canal antes de adicionar outro.</p>
+                    <button onclick="window.close()">Fechar</button>
+                </body>
+                </html>
+            `);
+        }
+
+        // Verificar quais canais já estão conectados
+        const existingChannels = await db.all(
+            'SELECT channel_id FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+            [userId]
+        );
+        const existingChannelIds = new Set(existingChannels.map(c => c.channel_id));
+
+        // Filtrar canais já conectados e limitar aos slots disponíveis
+        const selectableChannels = availableChannels
+            .filter(ch => !existingChannelIds.has(ch.id))
+            .slice(0, remainingSlots);
+
+        if (selectableChannels.length === 0) {
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Todos os Canais Já Conectados</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>ℹ️ Todos os Canais Já Estão Conectados</h1>
+                    <p>Todos os canais desta conta Google já estão conectados ou você atingiu o limite de 10 canais.</p>
+                    <button onclick="window.close()">Fechar</button>
+                </body>
+                </html>
+            `);
+        }
+
+        // Calcular quando o token expira
+        const expiresAt = expires_in 
+            ? new Date(Date.now() + expires_in * 1000).toISOString()
+            : null;
+
+        // Armazenar temporariamente os tokens e dados para processamento posterior
+        // Usar uma sessão temporária ou passar via state
+        const tempSessionId = `temp_${userId}_${Date.now()}`;
+        
+        // Salvar dados temporários (em produção, use Redis ou similar)
+        // Por enquanto, vamos passar via query params criptografados ou usar uma abordagem diferente
+        // Vou criar uma rota POST para processar a seleção
+        
+        // Retornar página de seleção de canais
+        const channelsHTML = selectableChannels.map((channel, index) => `
+            <div class="channel-item" style="display: flex; align-items: center; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 8px; margin-bottom: 1rem; cursor: pointer; transition: all 0.3s;" 
+                 onmouseover="this.style.background='rgba(255,255,255,0.2)'" 
+                 onmouseout="this.style.background='rgba(255,255,255,0.1)'"
+                 onclick="toggleChannel('${channel.id}', '${channel.name.replace(/'/g, "\\'")}')">
+                <input type="checkbox" id="channel_${channel.id}" value="${channel.id}" style="margin-right: 1rem; width: 20px; height: 20px; cursor: pointer;">
+                ${channel.thumbnail ? `<img src="${channel.thumbnail}" style="width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;" alt="${channel.name}">` : ''}
+                <div style="flex: 1;">
+                    <div style="font-weight: bold; margin-bottom: 0.25rem;">${channel.name}</div>
+                    <div style="font-size: 0.85rem; opacity: 0.8;">ID: ${channel.id}</div>
+                </div>
+            </div>
+        `).join('');
+
+        res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Selecionar Canais - YouTube</title>
+                <style>
+                    * { box-sizing: border-box; }
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                        margin: 0;
+                        padding: 2rem;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        min-height: 100vh;
+                    }
+                    .container {
+                        max-width: 600px;
+                        margin: 0 auto;
+                        background: rgba(255, 255, 255, 0.1);
+                        border-radius: 15px;
+                        padding: 2rem;
+                        backdrop-filter: blur(10px);
+                    }
+                    h1 { margin-top: 0; text-align: center; }
+                    .info {
+                        background: rgba(255, 255, 255, 0.15);
+                        padding: 1rem;
+                        border-radius: 8px;
+                        margin-bottom: 1.5rem;
+                        font-size: 0.9rem;
+                    }
+                    .channel-item:hover {
+                        transform: translateX(5px);
+                    }
+                    .actions {
+                        display: flex;
+                        gap: 1rem;
+                        margin-top: 2rem;
+                    }
+                    button {
+                        flex: 1;
+                        padding: 1rem;
+                        border: none;
+                        border-radius: 8px;
+                        font-size: 1rem;
+                        font-weight: bold;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                    }
+                    .btn-primary {
+                        background: white;
+                        color: #667eea;
+                    }
+                    .btn-primary:hover {
+                        background: #f0f0f0;
+                        transform: scale(1.02);
+                    }
+                    .btn-secondary {
+                        background: rgba(255, 255, 255, 0.2);
+                        color: white;
+                    }
+                    .btn-secondary:hover {
+                        background: rgba(255, 255, 255, 0.3);
+                    }
+                    .btn-primary:disabled {
+                        opacity: 0.5;
+                        cursor: not-allowed;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🎬 Selecione os Canais</h1>
+                    <div class="info">
+                        <strong>📊 Encontrados:</strong> ${selectableChannels.length} canal(is) disponível(is)<br>
+                        <strong>✅ Você pode selecionar até:</strong> ${remainingSlots} canal(is)
+                    </div>
+                    <form id="channelsForm">
+                        ${channelsHTML}
+                    </form>
+                    <div class="actions">
+                        <button type="button" class="btn-secondary" onclick="window.close()">Cancelar</button>
+                        <button type="button" class="btn-primary" id="connectBtn" onclick="connectSelectedChannels()" disabled>
+                            Conectar Canais Selecionados (0)
+                        </button>
+                    </div>
+                </div>
+                <script>
+                    const selectedChannels = new Set();
+                    const channelsData = ${JSON.stringify(selectableChannels)};
+                    const accessToken = '${access_token}';
+                    const refreshToken = '${refresh_token || ''}';
+                    const expiresAt = '${expiresAt || ''}';
+                    const userId = ${userId};
+                    
+                    function toggleChannel(channelId, channelName) {
+                        const checkbox = document.getElementById('channel_' + channelId);
+                        if (selectedChannels.has(channelId)) {
+                            selectedChannels.delete(channelId);
+                            checkbox.checked = false;
+                        } else {
+                            selectedChannels.add(channelId);
+                            checkbox.checked = true;
+                        }
+                        updateButton();
+                    }
+                    
+                    function updateButton() {
+                        const btn = document.getElementById('connectBtn');
+                        const count = selectedChannels.size;
+                        btn.disabled = count === 0;
+                        btn.textContent = 'Conectar Canais Selecionados (' + count + ')';
+                    }
+                    
+                    async function connectSelectedChannels() {
+                        if (selectedChannels.size === 0) return;
+                        
+                        const btn = document.getElementById('connectBtn');
+                        btn.disabled = true;
+                        btn.textContent = 'Conectando...';
+                        
+                        try {
+                            // Detectar a URL base automaticamente
+                            // Se estiver em localhost, usar porta 5001, senão usar a mesma origem
+                            let apiBase;
+                            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                                apiBase = 'http://localhost:5001';
+                            } else {
+                                // Em produção, usar a mesma origem
+                                apiBase = window.location.origin;
+                            }
+                            
+                            const response = await fetch(apiBase + '/api/youtube/oauth/connect-channels', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    userId: userId,
+                                    channelIds: Array.from(selectedChannels),
+                                    accessToken: accessToken,
+                                    refreshToken: refreshToken,
+                                    expiresAt: expiresAt
+                                })
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (response.ok) {
+                                document.body.innerHTML = \`
+                                    <div class="container" style="text-align: center;">
+                                        <h1>✅ Canais Conectados com Sucesso!</h1>
+                                        <p>\${data.connected} canal(is) conectado(s)</p>
+                                        <p>Você pode fechar esta janela e voltar ao dashboard.</p>
+                                        <button class="btn-primary" onclick="window.close()">Fechar</button>
+                                    </div>
+                                \`;
+                            } else {
+                                throw new Error(data.msg || 'Erro ao conectar canais');
+                            }
+                        } catch (err) {
+                            alert('Erro: ' + err.message);
+                            btn.disabled = false;
+                            updateButton();
+                        }
+                    }
+                    
+                    // Permitir clicar em qualquer lugar do item para selecionar
+                    document.querySelectorAll('.channel-item').forEach(item => {
+                        item.addEventListener('click', function(e) {
+                            if (e.target.type !== 'checkbox') {
+                                const checkbox = this.querySelector('input[type="checkbox"]');
+                                checkbox.click();
+                            }
+                        });
+                    });
+                </script>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error('[YouTube OAuth] Erro no callback:', err);
+        return res.status(500).json({ msg: `Erro ao processar autorização: ${err.message}` });
+    }
 });
 
 // Agendar publicação de vídeo
@@ -4293,6 +4869,231 @@ app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('[ERRO NA ROTA /api/youtube/schedule]:', err);
         res.status(500).json({ msg: 'Erro ao agendar publicação.' });
+    }
+});
+
+// Listar todos os canais conectados do YouTube
+app.get('/api/youtube/channels', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const integrations = await db.all(
+            'SELECT id, channel_id, channel_name, token_expires_at, created_at, is_active FROM youtube_integrations WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC',
+            [userId]
+        );
+
+        const channels = integrations.map(integration => {
+            const isExpired = integration.token_expires_at 
+                ? new Date(integration.token_expires_at) < new Date()
+                : false;
+            
+            return {
+                id: integration.id,
+                channelId: integration.channel_id,
+                channelName: integration.channel_name,
+                isExpired: isExpired,
+                createdAt: integration.created_at
+            };
+        });
+
+        return res.status(200).json({
+            channels: channels,
+            count: channels.length,
+            maxChannels: 10
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/channels]:', err);
+        return res.status(500).json({ msg: 'Erro ao listar canais.' });
+    }
+});
+
+// Verificar status da integração do YouTube (mantido para compatibilidade)
+app.get('/api/youtube/status', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const integrations = await db.all(
+            'SELECT * FROM youtube_integrations WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC',
+            [userId]
+        );
+
+        if (!integrations || integrations.length === 0) {
+            return res.status(200).json({ 
+                connected: false, 
+                message: 'Nenhuma integração configurada.',
+                channels: []
+            });
+        }
+
+        // Retornar o canal mais recente para compatibilidade
+        const latestIntegration = integrations[0];
+        const isExpired = latestIntegration.token_expires_at 
+            ? new Date(latestIntegration.token_expires_at) < new Date()
+            : false;
+
+        return res.status(200).json({
+            connected: true,
+            channelId: latestIntegration.channel_id,
+            channelName: latestIntegration.channel_name,
+            isExpired: isExpired,
+            createdAt: latestIntegration.created_at,
+            totalChannels: integrations.length,
+            channels: integrations.map(i => ({
+                id: i.id,
+                channelId: i.channel_id,
+                channelName: i.channel_name,
+                isExpired: i.token_expires_at ? new Date(i.token_expires_at) < new Date() : false
+            }))
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/status]:', err);
+        return res.status(500).json({ msg: 'Erro ao verificar status da integração.' });
+    }
+});
+
+// Processar seleção de canais após OAuth (rota interna, chamada pela página de seleção)
+// NOTA: Esta rota é chamada pela página de seleção após OAuth válido
+app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
+    const { userId, channelIds, accessToken, refreshToken, expiresAt } = req.body;
+
+    if (!userId || !channelIds || !Array.isArray(channelIds) || channelIds.length === 0) {
+        return res.status(400).json({ msg: 'Dados inválidos.' });
+    }
+
+    if (!accessToken) {
+        return res.status(400).json({ msg: 'Token de acesso não fornecido.' });
+    }
+
+    // Validar que userId é um número válido
+    const userIdNum = parseInt(userId);
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+        return res.status(400).json({ msg: 'ID de usuário inválido.' });
+    }
+
+    try {
+        // Buscar informações dos canais selecionados
+        const channelIdsParam = channelIds.join(',');
+        const channelsInfoResponse = await fetch(
+            `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channelIdsParam}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            }
+        );
+
+        if (!channelsInfoResponse.ok) {
+            throw new Error('Falha ao buscar informações dos canais');
+        }
+
+        const channelsInfo = await channelsInfoResponse.json();
+        if (!channelsInfo.items || channelsInfo.items.length === 0) {
+            throw new Error('Nenhum canal encontrado');
+        }
+
+        // Verificar limite antes de conectar
+        const existingChannelsCount = await db.get(
+            'SELECT COUNT(*) as count FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+            [userIdNum]
+        );
+        const currentCount = existingChannelsCount?.count || 0;
+        const maxChannels = 10;
+        const remainingSlots = maxChannels - currentCount;
+
+        if (channelIds.length > remainingSlots) {
+            return res.status(400).json({ 
+                msg: `Você só pode adicionar mais ${remainingSlots} canal(is). Você selecionou ${channelIds.length}.` 
+            });
+        }
+
+        // Verificar quais canais já estão conectados
+        const existingChannels = await db.all(
+            'SELECT channel_id FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+            [userId]
+        );
+        const existingChannelIds = new Set(existingChannels.map(c => c.channel_id));
+
+        let connectedCount = 0;
+        let updatedCount = 0;
+
+        // Conectar cada canal selecionado
+        for (const channelItem of channelsInfo.items) {
+            const channelId = channelItem.id;
+            const channelName = channelItem.snippet?.title || 'Canal do YouTube';
+
+            // Pular se já está conectado
+            if (existingChannelIds.has(channelId)) {
+                continue;
+            }
+
+            // Verificar se já existe (mas inativo)
+            const existingIntegration = await db.get(
+                'SELECT id FROM youtube_integrations WHERE user_id = ? AND channel_id = ?',
+                [userIdNum, channelId]
+            );
+
+            if (existingIntegration) {
+                // Atualizar integração existente
+                await db.run(
+                    `UPDATE youtube_integrations 
+                     SET access_token = ?, refresh_token = ?, token_expires_at = ?, 
+                         channel_name = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                     WHERE id = ?`,
+                    [accessToken, refreshToken || null, expiresAt, channelName, existingIntegration.id]
+                );
+                updatedCount++;
+            } else {
+                // Criar nova integração
+                await db.run(
+                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt]
+                );
+                connectedCount++;
+            }
+        }
+
+        console.log(`[YouTube OAuth] Canais conectados: ${connectedCount} novos, ${updatedCount} atualizados para userId: ${userIdNum}`);
+
+        return res.status(200).json({
+            msg: 'Canais conectados com sucesso!',
+            connected: connectedCount + updatedCount,
+            new: connectedCount,
+            updated: updatedCount
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/oauth/connect-channels]:', err);
+        return res.status(500).json({ msg: `Erro ao conectar canais: ${err.message}` });
+    }
+});
+
+// Desconectar/remover um canal
+app.delete('/api/youtube/channels/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const integrationId = parseInt(req.params.id);
+
+    try {
+        // Verificar se a integração pertence ao usuário
+        const integration = await db.get(
+            'SELECT id FROM youtube_integrations WHERE id = ? AND user_id = ?',
+            [integrationId, userId]
+        );
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado.' });
+        }
+
+        // Desativar a integração (soft delete)
+        await db.run(
+            'UPDATE youtube_integrations SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [integrationId]
+        );
+
+        console.log(`[YouTube] Canal desconectado: userId=${userId}, integrationId=${integrationId}`);
+        return res.status(200).json({ msg: 'Canal desconectado com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/channels/:id DELETE]:', err);
+        return res.status(500).json({ msg: 'Erro ao desconectar canal.' });
     }
 });
 
