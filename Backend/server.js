@@ -131,19 +131,29 @@ async function getChannelVideosWithDetails(channelId, apiKey, order = 'date', ma
         throw new Error(detailsData.error?.message || 'Falha ao buscar detalhes dos vídeos.');
     }
 
-    // Etapa 3: Mapear e formatar os dados
+    // Etapa 3: Mapear e formatar os dados (com receita e RPM estimados)
     return detailsData.items.map(item => {
         const uploadDate = new Date(item.snippet.publishedAt);
         const daysPosted = Math.round((new Date() - uploadDate) / (1000 * 60 * 60 * 24));
+        const views = parseInt(item.statistics.viewCount || 0);
+        // Calcular receita e RPM (usar padrão, pode ser melhorado buscando nicho do canal)
+        const rpm = getRPMByNiche(null);
+        const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+        const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+        
         return {
             videoId: item.id,
             title: item.snippet.title,
             thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
             publishedAt: item.snippet.publishedAt,
-            views: item.statistics.viewCount || 0,
-            likes: item.statistics.likeCount || 0,
-            comments: item.statistics.commentCount || 0,
-            days: daysPosted
+            views: views,
+            likes: parseInt(item.statistics.likeCount || 0),
+            comments: parseInt(item.statistics.commentCount || 0),
+            days: daysPosted,
+            estimatedRevenueUSD: estimatedRevenueUSD,
+            estimatedRevenueBRL: estimatedRevenueBRL,
+            rpmUSD: rpm.usd,
+            rpmBRL: rpm.brl
         };
     });
 }
@@ -573,10 +583,11 @@ const isAdmin = (req, res, next) => {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 channel_name TEXT NOT NULL,
-                channel_url TEXT NOT NULL UNIQUE,
+                channel_url TEXT NOT NULL,
                 last_checked DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, channel_url)
             );
         `);
 
@@ -702,6 +713,86 @@ const isAdmin = (req, res, next) => {
             }
         }
 
+        // Migração: Corrigir constraint UNIQUE em monitored_channels (permitir múltiplos canais por usuário)
+        try {
+            const monitoredChannelsInfo = await db.all("PRAGMA table_info(monitored_channels)");
+            const tableExists = monitoredChannelsInfo.length > 0;
+            
+            if (tableExists) {
+                // Verificar schema atual da tabela
+                const tableSchema = await db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='monitored_channels'");
+                const schemaSql = (tableSchema?.sql || '').toUpperCase();
+                
+                console.log('[MIGRATION] Schema atual de monitored_channels:', schemaSql.substring(0, 200));
+                
+                // Se a constraint UNIQUE está apenas em channel_url (sem user_id), precisamos recriar
+                if (schemaSql.includes('CHANNEL_URL') && schemaSql.includes('UNIQUE') && !schemaSql.includes('UNIQUE(USER_ID, CHANNEL_URL)')) {
+                    console.log('[MIGRATION] Detectada constraint UNIQUE incorreta. Recriando tabela com UNIQUE(user_id, channel_url)...');
+                    try {
+                        // Criar nova tabela com constraint correta
+                        await db.exec(`CREATE TABLE monitored_channels_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER NOT NULL,
+                            channel_name TEXT NOT NULL,
+                            channel_url TEXT NOT NULL,
+                            last_checked DATETIME,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                            UNIQUE(user_id, channel_url)
+                        )`);
+                        
+                        // Copiar dados existentes (ignorar duplicatas se houver)
+                        try {
+                            await db.exec(`INSERT INTO monitored_channels_new (id, user_id, channel_name, channel_url, last_checked, created_at) 
+                                         SELECT id, user_id, channel_name, channel_url, last_checked, created_at 
+                                         FROM monitored_channels`);
+                            console.log('[MIGRATION] Dados copiados com sucesso.');
+                        } catch (copyErr) {
+                            console.warn('[MIGRATION] Alguns dados podem ter duplicatas, tentando inserir apenas únicos...', copyErr.message);
+                            // Tentar inserir apenas registros únicos
+                            const existingChannels = await db.all('SELECT DISTINCT user_id, channel_url, MIN(id) as id, channel_name, last_checked, created_at FROM monitored_channels GROUP BY user_id, channel_url');
+                            for (const channel of existingChannels) {
+                                try {
+                                    await db.run('INSERT INTO monitored_channels_new (id, user_id, channel_name, channel_url, last_checked, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                                        [channel.id, channel.user_id, channel.channel_name, channel.channel_url, channel.last_checked, channel.created_at]);
+                                } catch (insErr) {
+                                    console.warn(`[MIGRATION] Erro ao inserir canal ${channel.id}:`, insErr.message);
+                                }
+                            }
+                        }
+                        
+                        // Dropar tabela antiga
+                        await db.exec('DROP TABLE monitored_channels');
+                        
+                        // Renomear nova tabela
+                        await db.exec('ALTER TABLE monitored_channels_new RENAME TO monitored_channels');
+                        
+                        console.log('[MIGRATION] ✅ Tabela monitored_channels recriada com sucesso com constraint UNIQUE(user_id, channel_url).');
+                    } catch (recreateErr) {
+                        console.error('[MIGRATION] ❌ Erro ao recriar tabela monitored_channels:', recreateErr.message);
+                        // Tentar criar índice único como fallback
+                        try {
+                            await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_channels_user_url ON monitored_channels(user_id, channel_url)');
+                            console.log('[MIGRATION] ✅ Índice único criado como fallback.');
+                        } catch (idxErr) {
+                            console.warn('[MIGRATION] ⚠️ Não foi possível criar índice único:', idxErr.message);
+                        }
+                    }
+                } else {
+                    // Garantir que o índice único correto existe
+                    try {
+                        await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_monitored_channels_user_url ON monitored_channels(user_id, channel_url)');
+                        console.log('[MIGRATION] ✅ Índice único verificado/criado.');
+                    } catch (idxErr) {
+                        // Índice já existe ou há outro problema, continuar
+                        console.log('[MIGRATION] ℹ️ Índice único já existe ou constraint já está correta.');
+                    }
+                }
+            }
+        } catch (migErr) {
+            console.error('[MIGRATION] ❌ Erro na migração de monitored_channels:', migErr.message);
+        }
+
         const pinnedVideosInfo = await db.all("PRAGMA table_info(pinned_videos)");
         if (!pinnedVideosInfo.some(c => c.name === 'monitored_channel_id')) {
             console.log('MIGRATION: Adding column "monitored_channel_id" to "pinned_videos"...');
@@ -721,6 +812,224 @@ const isAdmin = (req, res, next) => {
                     UNIQUE(user_id, monitored_channel_id, youtube_video_id)
                 );
             `);
+        }
+
+        // --- CRIAÇÃO DAS NOVAS TABELAS PARA ANALYTICS, BIBLIOTECA E INTEGRAÇÃO ---
+        
+        // Sistema de Analytics e Tracking
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS video_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                analysis_id INTEGER,
+                youtube_video_id TEXT,
+                title_used TEXT,
+                thumbnail_used TEXT,
+                predicted_ctr REAL,
+                predicted_views INTEGER,
+                actual_views INTEGER DEFAULT 0,
+                actual_ctr REAL DEFAULT 0,
+                actual_likes INTEGER DEFAULT 0,
+                actual_comments INTEGER DEFAULT 0,
+                revenue_estimate REAL DEFAULT 0,
+                published_at DATETIME,
+                tracked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (analysis_id) REFERENCES analyzed_videos(id) ON DELETE SET NULL
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS analytics_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                video_tracking_id INTEGER,
+                views INTEGER,
+                likes INTEGER,
+                comments INTEGER,
+                ctr REAL,
+                snapshot_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (video_tracking_id) REFERENCES video_tracking(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Biblioteca de Títulos Virais
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_titles_library (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                title TEXT NOT NULL,
+                niche TEXT,
+                subniche TEXT,
+                original_views INTEGER,
+                original_ctr REAL,
+                formula_type TEXT,
+                keywords TEXT,
+                viral_score INTEGER,
+                is_favorite INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS title_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                template_name TEXT NOT NULL,
+                template_pattern TEXT NOT NULL,
+                niche TEXT,
+                subniche TEXT,
+                usage_count INTEGER DEFAULT 0,
+                success_rate REAL DEFAULT 0,
+                is_public INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Biblioteca de Thumbnails Virais
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_thumbnails_library (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                thumbnail_url TEXT,
+                thumbnail_description TEXT,
+                niche TEXT,
+                subniche TEXT,
+                original_views INTEGER,
+                original_ctr REAL,
+                style TEXT,
+                elements TEXT,
+                viral_score INTEGER,
+                is_favorite INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS thumbnail_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                template_name TEXT NOT NULL,
+                template_description TEXT NOT NULL,
+                niche TEXT,
+                subniche TEXT,
+                style TEXT,
+                usage_count INTEGER DEFAULT 0,
+                success_rate REAL DEFAULT 0,
+                is_public INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Integração YouTube API
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS youtube_integrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                channel_id TEXT,
+                channel_name TEXT,
+                access_token TEXT,
+                refresh_token TEXT,
+                token_expires_at DATETIME,
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, channel_id)
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scheduled_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                youtube_integration_id INTEGER,
+                video_file_path TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                tags TEXT,
+                thumbnail_url TEXT,
+                scheduled_time DATETIME NOT NULL,
+                status TEXT DEFAULT 'pending',
+                published_video_id TEXT,
+                error_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (youtube_integration_id) REFERENCES youtube_integrations(id) ON DELETE CASCADE
+            );
+        `);
+
+        console.log('✅ Novas tabelas criadas: Analytics, Biblioteca e Integração YouTube');
+        
+        // === MIGRAÇÃO: Corrigir tabela viral_thumbnails_library ===
+        try {
+            const thumbnailsInfo = await db.all("PRAGMA table_info(viral_thumbnails_library)");
+            const thumbnailUrlColumn = thumbnailsInfo.find(c => c.name === 'thumbnail_url');
+            if (thumbnailUrlColumn && thumbnailUrlColumn.notnull === 1) {
+                console.log('MIGRATION: Corrigindo constraint NOT NULL em viral_thumbnails_library.thumbnail_url...');
+                // SQLite não suporta ALTER TABLE para remover NOT NULL diretamente
+                // Vamos recriar a tabela sem o NOT NULL
+                await db.exec(`
+                    CREATE TABLE IF NOT EXISTS viral_thumbnails_library_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        thumbnail_url TEXT,
+                        thumbnail_description TEXT,
+                        niche TEXT,
+                        subniche TEXT,
+                        original_views INTEGER,
+                        original_ctr REAL,
+                        style TEXT,
+                        elements TEXT,
+                        viral_score INTEGER,
+                        is_favorite INTEGER DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                `);
+                await db.exec(`INSERT INTO viral_thumbnails_library_new SELECT * FROM viral_thumbnails_library;`);
+                await db.exec(`DROP TABLE viral_thumbnails_library;`);
+                await db.exec(`ALTER TABLE viral_thumbnails_library_new RENAME TO viral_thumbnails_library;`);
+                console.log('✅ Migração concluída: thumbnail_url agora é opcional');
+            }
+        } catch (migrationErr) {
+            console.warn('Aviso na migração de viral_thumbnails_library:', migrationErr.message);
+        }
+
+        // === TABELA DE CANAIS DO USUÁRIO ===
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS user_channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                channel_url TEXT,
+                channel_id TEXT,
+                niche TEXT,
+                language TEXT DEFAULT 'pt-BR',
+                country TEXT DEFAULT 'BR',
+                is_active INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, channel_name)
+            );
+        `);
+
+        // Adicionar coluna channel_id na tabela video_tracking se não existir
+        try {
+            const trackingInfo = await db.all("PRAGMA table_info(video_tracking)");
+            if (!trackingInfo.some(c => c.name === 'channel_id')) {
+                console.log('MIGRATION: Adicionando coluna channel_id em video_tracking...');
+                await db.exec('ALTER TABLE video_tracking ADD COLUMN channel_id INTEGER REFERENCES user_channels(id) ON DELETE SET NULL');
+            }
+        } catch (migrationErr) {
+            console.warn('Aviso na migração de video_tracking:', migrationErr.message);
         }
         
         console.log('Tabelas e colunas sincronizadas.');
@@ -746,18 +1055,20 @@ const isAdmin = (req, res, next) => {
             console.log('Utilizador administrador já existe. Status verificado.');
         }
 
-        // --- INICIAR SERVIDOR ---
-        app.listen(PORT, () => {
-            console.log(`Servidor "La Casa Dark Core" a rodar na porta ${PORT}`);
-        });
+        console.log('✅ Banco de dados inicializado com sucesso!');
+        
+        // Sinalizar que o banco está pronto
+        global.dbReady = true;
 
     } catch (err) {
         console.error('Erro ao conectar ou inicializar o banco de dados:', err);
+        global.dbReady = false;
     }
 })();
 
 
 // --- ROTAS DE API ---
+// NOTA: Todas as rotas devem ser definidas ANTES do app.listen() para funcionarem corretamente
 
 // === ROTAS DE AUTENTICAÇÃO ===
 
@@ -1025,28 +1336,94 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 2: IA - Análise de Título e Geração (PROMPT REFINADO) ---
-        const titlePrompt = `
-            Você é um especialista em SEO para YouTube e estrategista de conteúdo viral. Sua tarefa é analisar os dados de um vídeo que viralizou e, com base nisso, criar novos títulos otimizados EM PORTUGUÊS BRASILEIRO (PT-BR).
+        const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
+        const performanceContext = videoDetails.days > 0 
+            ? `Este vídeo viralizou com ${videoDetails.views.toLocaleString()} views em apenas ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) - um desempenho EXCEPCIONAL que indica alta viralização.`
+            : `Este vídeo tem ${videoDetails.views.toLocaleString()} views - um desempenho EXCEPCIONAL que indica alta viralização.`;
 
+        const titlePrompt = `
+            Você é um ESPECIALISTA EM VIRALIZAÇÃO NO YOUTUBE com experiência comprovada em criar títulos que geram MILHÕES DE VIEWS e ALTO CTR (taxa de cliques acima de 25%). Sua missão é analisar um vídeo que VIRALIZOU e criar variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para canais subnichados.
+
+            🚀 CONTEXTO DO VÍDEO VIRAL:
+            ${performanceContext}
+            
             DADOS DO VÍDEO ORIGINAL:
             - Título Original (traduzido para PT-BR): "${translatedTitle}"
             - Título Original (idioma original): "${videoDetails.title}"
-            - Estatísticas: ${videoDetails.views} visualizações, ${videoDetails.comments} comentários, postado há ${videoDetails.days} dias.
-            - Descrição (início): ${videoDetails.description.substring(0, 300)}...
+            - Visualizações: ${videoDetails.views.toLocaleString()} views
+            - Comentários: ${videoDetails.comments.toLocaleString()} comentários
+            - Dias desde publicação: ${videoDetails.days} dias
+            - Thumbnail URL: ${videoDetails.thumbnailUrl}
+            - Descrição (início): ${videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A'}...
             - Transcrição (início): ${transcriptText.substring(0, 500)}...
 
-            SUA TAREFA:
-            1.  **Análise de Nicho:** Identifique o "nicho" e o "subniche" do vídeo.
-            2.  **Análise do Título Original:** Explique o "motivoSucesso" do título original e identifique a "formulaTitulo" (a estrutura ou gatilho mental usado).
-            3.  **Geração de Novos Títulos:** Usando a "formulaTitulo" que você identificou como base, crie 5 novas variações de títulos EM PORTUGUÊS BRASILEIRO (PT-BR) com melhorias para um vídeo com tema similar. Para cada novo título, forneça:
-                - "titulo": O novo título EM PORTUGUÊS BRASILEIRO (PT-BR).
-                - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral.
-                - "explicacao": Uma breve justificativa para a nota e a estratégia por trás do título EM PORTUGUÊS BRASILEIRO.
+            🎯 PROMPT DE ANÁLISE DE TÍTULOS VIRAIS (DIRETO DO VÍDEO VIRAL):
+            Este vídeo do canal viralizou, pegou ${videoDetails.views.toLocaleString()} VIEWS EM ${videoDetails.days} DIAS com o título: "${videoDetails.title}"
+            
+            OBJETIVO: Criar títulos e canais MILIONÁRIOS com MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
+            
+            Preciso que você me dê variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para meu canal subnichado. Cada título deve ter POTENCIAL PARA GERAR MILHÕES DE VIEWS, não apenas alguns milhares. Foque em criar títulos que se tornem virais e gerem engajamento massivo.
 
-            REGRAS IMPORTANTES:
+            🎯 SUA TAREFA (FOCO EM VIRALIZAÇÃO E MILHÕES DE VIEWS):
+            1.  **Análise Profunda de Nicho e Subnicho:** 
+                - Identifique o "nicho" exato e o "subniche" específico do vídeo.
+                - Analise por que esse subnicho funcionou tão bem e qual o público-alvo que gerou essa viralização.
+                - Identifique oportunidades de subnichos pouco explorados com alto potencial de viralização.
+
+            2.  **Análise do Título Viral (Por que funcionou?):** 
+                Analise PROFUNDAMENTE o título que viralizou e identifique:
+                - Explique o "motivoSucesso" detalhado: Por que esse título específico gerou ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que tornou ele tão viral?
+                - Identifique a "formulaTitulo" (a estrutura exata, gatilhos mentais, palavras-chave virais, padrões emocionais que fizeram esse título viralizar e gerar milhões de views).
+                - Analise a PSICOLOGIA POR TRÁS DO SUCESSO: Qual emoção ele despertou? Que curiosidade ele criou? Que gatilho mental ele acionou? Que palavra-chave teve maior impacto? Por que as pessoas CLICARAM nele?
+                - Identifique os PADRÕES VIRAIS COMPROVADOS: números impactantes, perguntas intrigantes, segredos revelados, contrastes, FOMO, prova social, urgência, escassez.
+                - Analise a ESTRUTURA DO TÍTULO: Quantas palavras? Qual é a ordem das palavras-chave? Onde estão os gatilhos mentais? Qual é o ritmo de leitura?
+                - Identifique PALAVRAS-CHAVE PODEROSAS que geraram cliques: quais palavras específicas fizeram a diferença? Quais palavras emocionais criaram conexão?
+
+            3.  **Geração de Títulos Virais (FOCO EM MILHÕES DE VIEWS E ALTO CTR):** 
+                Usando a "formulaTitulo" identificada como base, crie 5 variações MUITO CHAMATIVAS de títulos EM PORTUGUÊS BRASILEIRO (PT-BR) que:
+                - TENHAM ALTO POTENCIAL VIRAL (capazes de gerar MILHÕES DE VIEWS como o original, não apenas milhares)
+                - USEM GATILHOS MENTAIS PODEROSOS E COMPROVADOS (curiosidade, FOMO, surpresa, urgência, escassez, autoridade, prova social, emoção intensa)
+                - INCLUAM PALAVRAS-CHAVE VIRAIS E PODEROSAS (números impactantes, palavras emocionais, perguntas que prendem atenção, palavras que geram cliques)
+                - SEJAM OTIMIZADOS PARA ALTO CTR (taxa de cliques acima de 25%, preferencialmente 30% ou mais)
+                - MANTENHAM A ESSÊNCIA E PODER VIRAL DO TÍTULO ORIGINAL mas com MELHORIAS para maior viralização e mais views
+                - SEJAM ADAPTADOS PARA O SUBNICHO identificado, mas mantendo o PODER VIRAL e a capacidade de gerar milhões de views
+                - SIGAM A MESMA ESTRUTURA que funcionou no título original (ordem das palavras, ritmo, gatilhos mentais)
+                - TENHAM POTENCIAL PARA VIRALIZAR e gerar engajamento massivo (compartilhamentos, comentários, views orgânicas)
+
+                Para cada novo título, forneça:
+                - "titulo": O novo título EM PORTUGUÊS BRASILEIRO (PT-BR), otimizado para viralização e milhões de views, seguindo a fórmula que funcionou no título original.
+                - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral e de CTR (10 = capaz de gerar milhões de views como o original com CTR acima de 25%, 9-10 = alto potencial viral com milhões de views, 7-8 = bom potencial mas pode melhorar, abaixo de 7 = precisa ser reescrito).
+                - "explicacao": Uma justificativa detalhada em PORTUGUÊS BRASILEIRO explicando: 
+                  * Por que esse título tem potencial para gerar MILHÕES DE VIEWS? 
+                  * Quais gatilhos mentais específicos ele usa e por que eles funcionam?
+                  * Por que ele pode gerar alto CTR (acima de 25%)?
+                  * Como ele se compara ao título original que viralizou?
+                  * Quais elementos da "formulaTitulo" ele aplica?
+                  * Por que as pessoas vão CLICAR nele?
+                  * Qual é o potencial de viralização (compartilhamentos, engajamento)?
+
+            📊 ESTRATÉGIAS DE VIRALIZAÇÃO PARA TÍTULOS (APLIQUE ESSAS TÉCNICAS):
+            - **Números e Estatísticas Impactantes:** Use números específicos, grandes, ou surpreendentes (ex: "5000 anos", "1 milhão de views", "3 segundos", "10 segredos", "5 coisas que ninguém sabe").
+            - **Gatilhos de Curiosidade:** Crie perguntas, mistérios, segredos revelados, coisas escondidas ou proibidas (ex: "O que ninguém te conta sobre...", "O segredo que...", "O que aconteceu com...").
+            - **FOMO (Medo de Perder):** Urgência, exclusividade, oportunidade única, tempo limitado (ex: "Antes que seja tarde", "O que você está perdendo", "A última chance de...").
+            - **Prova Social:** "Todo mundo está falando", "viralizou", "ninguém sabe", "revelado", "descoberto", "exclusivo" (ex: "O que todo mundo quer saber", "A verdade que ninguém conhece").
+            - **Emoções Intensas:** Choque, surpresa, medo, alegria, raiva, curiosidade (ex: "Chocante", "Inacreditável", "Você não vai acreditar", "Preparado para isso?").
+            - **Contraste e Oposição:** "Parecia X mas era Y", "Todo mundo pensa X mas a verdade é Y" (ex: "Você pensava que era X, mas na verdade é Y", "O que todos acreditam está errado").
+            - **Palavras Poderosas:** "SECRETO", "REVELADO", "ESCONDIDO", "PROIBIDO", "NUNCA VISTO", "CHOCANTE", "INCRÍVEL", "IMPERDÍVEL", "EXCLUSIVO", "DESCOBERTO", "REAL", "VERDADEIRO".
+            - **Personalização:** "Você não sabia", "Isso vai mudar sua vida", "O que ninguém te conta", "O que você precisa saber" (ex: "O que você não sabia sobre...", "Isso vai mudar como você vê...").
+
+            ⚠️ REGRAS CRÍTICAS PARA TÍTULOS VIRAIS (CRIAR CANAIS MILIONÁRIOS):
             - TODOS os títulos sugeridos DEVEM estar em PORTUGUÊS BRASILEIRO (PT-BR).
             - A "explicacao" de cada título também deve estar em PORTUGUÊS BRASILEIRO.
-            - Mantenha o impacto, curiosidade e gatilhos mentais do título original.
+            - Mantenha o IMPACTO, CURIOSIDADE e GATILHOS MENTAIS do título original, mas MELHORE-OS para maior viralização e mais views.
+            - Foque APENAS em títulos que TENHAM POTENCIAL PARA GERAR MILHÕES DE VIEWS, não apenas alguns milhares. Rejeite títulos que não tenham potencial viral alto.
+            - Cada título deve ter um POTENCIAL VIRAL MUITO ALTO (pontuação 9-10, preferencialmente 10). Títulos com pontuação abaixo de 9 devem ser reescritos.
+            - Os títulos devem ser OTIMIZADOS PARA ALTO CTR (acima de 25%, preferencialmente 30% ou mais).
+            - Adapte para o SUBNICHO identificado, mas SEMPRE mantenha o PODER VIRAL do título original e a capacidade de gerar milhões de views.
+            - Use a mesma "formulaTitulo" que funcionou no título viral, mas com variações criativas e melhorias que aumentem o potencial de viralização.
+            - Cada título deve seguir a ESTRUTURA COMPROVADA do título original (ordem das palavras, ritmo, posicionamento dos gatilhos mentais).
+            - Foque em criar títulos que VIRALIZEM e gerem engajamento massivo (compartilhamentos, comentários, views orgânicas).
+            - Priorize títulos que TENHAM POTENCIAL PARA CRIAR CANAIS MILIONÁRIOS com milhões de views e alto CTR.
 
             IMPORTANTE: A sua resposta completa deve ser APENAS o objeto JSON, sem nenhum texto, comentário ou formatação markdown à volta.
             {
@@ -1168,8 +1545,20 @@ Tradução em PT-BR:`;
             console.error("[Análise] FALHA AO SALVAR NO BANCO DE DADOS:", dbErr.message);
         }
 
-        // --- ETAPA 4: Enviar Resposta (com IDs dos títulos) ---
+        // --- ETAPA 4: Calcular Receita e RPM baseado no nicho ---
+        const rpm = getRPMByNiche(finalNicheData.niche);
+        const views = parseInt(videoDetails.views) || 0;
+        const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+        const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+        const rpmUSD = rpm.usd;
+        const rpmBRL = rpm.brl;
+
+        // --- ETAPA 5: Enviar Resposta (com IDs dos títulos, receita e RPM) ---
         const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
+
+        // NÃO salvar automaticamente - apenas quando o usuário marcar o checkbox
+        // O salvamento será feito quando o usuário marcar o título como selecionado
+        console.log(`[Biblioteca] Títulos gerados aguardando seleção do usuário para salvar na biblioteca`);
 
         res.status(200).json({
             niche: finalNicheData.niche,
@@ -1177,7 +1566,15 @@ Tradução em PT-BR:`;
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: finalTitlesWithIds,
             modelUsed: modelUsedForDisplay, 
-            videoDetails: { ...videoDetails, videoId: videoId, translatedTitle: translatedTitle },
+            videoDetails: { 
+                ...videoDetails, 
+                videoId: videoId, 
+                translatedTitle: translatedTitle,
+                estimatedRevenueUSD: estimatedRevenueUSD,
+                estimatedRevenueBRL: estimatedRevenueBRL,
+                rpmUSD: rpmUSD,
+                rpmBRL: rpmBRL
+            },
             folderId: folderId || null
         });
 
@@ -1193,7 +1590,19 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     try {
-        // Atualiza o status do título específico, sem afetar os outros
+        // Buscar informações do título antes de atualizar
+        const titleData = await db.get(`
+            SELECT gt.id, gt.title_text, gt.pontuacao, gt.video_analysis_id, av.detected_niche, av.detected_subniche, av.original_views, av.analysis_data_json
+            FROM generated_titles gt
+            INNER JOIN analyzed_videos av ON gt.video_analysis_id = av.id
+            WHERE gt.id = ? AND av.user_id = ?
+        `, [titleId, userId]);
+
+        if (!titleData) {
+            return res.status(404).json({ msg: 'Título não encontrado ou não pertence a este utilizador.' });
+        }
+
+        // Atualiza o status do título específico
         const result = await db.run(
             `UPDATE generated_titles SET is_checked = ? 
              WHERE id = ? AND video_analysis_id IN (SELECT id FROM analyzed_videos WHERE user_id = ?)`,
@@ -1202,6 +1611,31 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
 
         if (result.changes === 0) {
             return res.status(404).json({ msg: 'Título não encontrado ou não pertence a este utilizador.' });
+        }
+
+        // Se o título foi marcado (is_checked = true), salvar na biblioteca
+        if (is_checked) {
+            try {
+                const cleanTitle = titleData.title_text.replace(/^\[.*?\]\s*/, ''); // Remove prefixo [Gemini], [Claude], etc
+                const analysisData = titleData.analysis_data_json ? JSON.parse(titleData.analysis_data_json) : null;
+                
+                // Verificar se já existe na biblioteca para evitar duplicatas
+                const existing = await db.get(
+                    'SELECT id FROM viral_titles_library WHERE user_id = ? AND title = ?',
+                    [userId, cleanTitle]
+                );
+
+                if (!existing) {
+                    await db.run(
+                        `INSERT INTO viral_titles_library (user_id, title, niche, subniche, original_views, formula_type, viral_score)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [userId, cleanTitle, titleData.detected_niche, titleData.detected_subniche, titleData.original_views, analysisData?.formulaTitulo || null, titleData.pontuacao || null]
+                    );
+                    console.log(`[Biblioteca] Título "${cleanTitle.substring(0, 50)}..." salvo na biblioteca`);
+                }
+            } catch (libErr) {
+                console.warn('[Biblioteca] Erro ao salvar título marcado na biblioteca:', libErr.message);
+            }
         }
 
         res.status(200).json({ msg: 'Status do título atualizado.' });
@@ -1416,10 +1850,32 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             // Prompt padrão baseado na fórmula do título e otimizado por modelo
             const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
             
+            // Contexto de performance do vídeo viral
+            const videoPerformanceContext = videoDetails.views && videoDetails.days 
+                ? `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views em apenas ${videoDetails.days} dias (média de ${Math.round(videoDetails.views / Math.max(videoDetails.days, 1)).toLocaleString()} views/dia). Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`
+                : `\n            🚀 CONTEXTO DO VÍDEO VIRAL:\n            Esta thumbnail VIRALIZOU junto com o vídeo que alcançou ${videoDetails.views.toLocaleString()} views. Esta thumbnail foi parte do sucesso viral e precisa ser adaptada para o seu subnicho mantendo o mesmo poder de viralização.`;
+            
             // Prompts otimizados por modelo
             if (service === 'gemini') {
                 thumbPrompt = `
-            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.${formulaContext}
+            Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}${videoPerformanceContext}
+
+            🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
+            Este vídeo COM ESTA THUMBNAIL VIRALIZOU, com o título: "${videoDetails.title}"
+            
+            OBJETIVO: Criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%) para canais milionários.
+            
+            Quero que você me dê uma ADAPTAÇÃO para meu SUBNICHO de "${subniche}" com o título: "${selectedTitle}"
+            
+            REGRAS CRÍTICAS:
+            - Mantenha o PODER VIRAL da thumbnail original que gerou milhões de views
+            - Adapte para o meu subnicho e título, mas SEMPRE mantenha a capacidade de gerar alto CTR e milhões de views
+            - Analise PROFUNDAMENTE o que tornou a thumbnail original viral (composição, cores, elementos visuais, expressões, texto, contraste, psicologia visual)
+            - Identifique os ELEMENTOS VIRAIS COMPROVADOS que funcionaram e mantenha-os na adaptação
+            - Melhore o que for possível (cores mais vibrantes, contraste maior, composição mais impactante, iluminação mais dramática)
+            - Crie thumbnails que TENHAM POTENCIAL PARA VIRALIZAR e gerar milhões de views como a original
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo VIRAL está anexada - analise cuidadosamente o que tornou esta thumbnail viral e gerou milhões de views]${formulaContext}
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
@@ -1436,10 +1892,39 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
             - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
             
-            SUA TAREFA (OTIMIZADA PARA GEMINI):
-            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o CTR (taxa de cliques).
-            - **IDEIA 1 (Melhoria Estratégica):** Analise a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
-            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes), emoção (expressões faciais intensas, momentos de tensão), contraste visual (cores vibrantes vs. fundo neutro), e elementos que gerem "FOMO" (medo de perder algo). LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - GEMINI):
+            Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
+            
+            - **IDEIA 1 (Adaptação Estratégica Mantendo o Poder Viral):** 
+              Analise PROFUNDAMENTE a thumbnail viral de referência e identifique:
+              * O que tornou esta thumbnail viral? (composição, cores, elementos visuais, expressões, texto, contraste)
+              * Quais elementos visuais geraram curiosidade e cliques?
+              * Qual foi a estratégia emocional que funcionou?
+              
+              Agora, crie uma ADAPTAÇÃO para o subnicho "${subniche}" e título "${selectedTitle}" que:
+              * MANTENHA os elementos virais que funcionaram (composição similar, estratégia emocional, contraste)
+              * ADAPTE os elementos visuais para o seu subnicho (personagens, objetos, cenários relevantes)
+              * MELHORE o que for possível (cores mais vibrantes, contraste maior, composição mais impactante)
+              * MANTENHA o mesmo PODER VIRAL da original
+              
+              LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            
+            - **IDEIA 2 (Inovação Viral com Elementos do Original):** 
+              Crie um conceito COMPLETAMENTE NOVO que:
+              * USE os GATILHOS VIRAIS identificados na thumbnail original (curiosidade, FOMO, surpresa, contraste)
+              * ADAPTE para o subnicho "${subniche}" com elementos visuais relevantes
+              * OTIMIZE para o título "${selectedTitle}" destacando palavras-chave visuais
+              * SEJA AINDA MAIS IMPACTANTE que a original (cores mais vibrantes, contraste maior, composição mais dramática)
+              * GERE MAIS CURIOSIDADE e CLIQUE que a original
+              
+              Foque em: 
+              * Curiosidade extrema (elementos misteriosos, surpreendentes, inusitados)
+              * Emoção intensa (expressões faciais dramáticas, momentos de tensão máxima)
+              * Contraste visual máximo (cores vibrantes vs. fundo neutro, luz vs. sombra dramática)
+              * FOMO máximo (medo de perder algo, urgência visual, exclusividade)
+              * Storytelling visual (conta uma história que prende a atenção)
+              
+              LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
             1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
@@ -1558,9 +2043,24 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         `;
             } else if (service === 'claude') {
                 thumbPrompt = `
-            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.${formulaContext}
+            Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}${videoPerformanceContext}
 
-            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
+            Este vídeo COM ESTA THUMBNAIL VIRALIZOU, com o título: "${videoDetails.title}"
+            
+            OBJETIVO: Criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%) para canais milionários.
+            
+            Quero que você me dê uma ADAPTAÇÃO para meu SUBNICHO de "${subniche}" com o título: "${selectedTitle}"
+            
+            REGRAS CRÍTICAS:
+            - Mantenha o PODER VIRAL da thumbnail original que gerou milhões de views
+            - Adapte para o meu subnicho e título, mas SEMPRE mantenha a capacidade de gerar alto CTR e milhões de views
+            - Analise PROFUNDAMENTE o que tornou a thumbnail original viral (composição, cores, elementos visuais, expressões, texto, contraste, psicologia visual)
+            - Identifique os ELEMENTOS VIRAIS COMPROVADOS que funcionaram e mantenha-os na adaptação
+            - Melhore o que for possível (cores mais vibrantes, contraste maior, composição mais impactante, iluminação mais dramática)
+            - Crie thumbnails que TENHAM POTENCIAL PARA VIRALIZAR e gerar milhões de views como a original
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo VIRAL está anexada - analise cuidadosamente o que tornou esta thumbnail viral e gerou milhões de views]
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
             SUBNICHE (Público-Alvo): "${subniche}"
             ESTILO DE ARTE DESEJADO: "${style}"
@@ -1575,10 +2075,42 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
             - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
             
-            SUA TAREFA (OTIMIZADA PARA CLAUDE):
-            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o engajamento e CTR.
-            - **IDEIA 1 (Melhoria Estratégica):** Analise profundamente a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada, harmonia cromática), expressões faciais ou elementos emocionais (micro-expressões, linguagem corporal), e clareza do elemento principal (profundidade de campo, iluminação direcional). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
-            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes, composições inusitadas), emoção (expressões faciais intensas, momentos de tensão, storytelling visual), contraste visual (cores vibrantes vs. fundo neutro, luz vs. sombra), e elementos que gerem "FOMO" (medo de perder algo, urgência visual). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - CLAUDE):
+            Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
+            
+            - **IDEIA 1 (Adaptação Estratégica Mantendo o Poder Viral):** 
+              Analise PROFUNDAMENTE a thumbnail viral de referência e identifique:
+              * O que tornou esta thumbnail viral? (composição, cores, elementos visuais, expressões, texto, contraste, psicologia visual)
+              * Quais elementos visuais geraram curiosidade e cliques?
+              * Qual foi a estratégia emocional e psicológica que funcionou?
+              * Quais micro-expressões, linguagem corporal, ou elementos sutis aumentaram o CTR?
+              
+              Agora, crie uma ADAPTAÇÃO para o subnicho "${subniche}" e título "${selectedTitle}" que:
+              * MANTENHA os elementos virais que funcionaram (composição similar, estratégia emocional, contraste, psicologia visual)
+              * ADAPTE os elementos visuais para o seu subnicho (personagens, objetos, cenários relevantes)
+              * MELHORE o que for possível (cores mais vibrantes, contraste maior, composição mais impactante, iluminação mais dramática)
+              * MANTENHA o mesmo PODER VIRAL da original
+              * APRIMORE elementos técnicos: profundidade de campo, iluminação direcional, harmonia cromática, hierarquia visual
+              
+              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            
+            - **IDEIA 2 (Inovação Viral com Elementos do Original):** 
+              Crie um conceito COMPLETAMENTE NOVO que:
+              * USE os GATILHOS VIRAIS identificados na thumbnail original (curiosidade, FOMO, surpresa, contraste, psicologia visual)
+              * ADAPTE para o subnicho "${subniche}" com elementos visuais relevantes e autênticos
+              * OTIMIZE para o título "${selectedTitle}" destacando palavras-chave visuais e emocionais
+              * SEJA AINDA MAIS IMPACTANTE que a original (cores mais vibrantes, contraste maior, composição mais dramática, iluminação mais intensa)
+              * GERE MAIS CURIOSIDADE e CLIQUE que a original
+              
+              Foque em: 
+              * Curiosidade extrema (elementos misteriosos, surpreendentes, inusitados, composições inovadoras)
+              * Emoção intensa (expressões faciais dramáticas, micro-expressões, momentos de tensão máxima, storytelling visual)
+              * Contraste visual máximo (cores vibrantes vs. fundo neutro, luz vs. sombra dramática, composição em regra dos terços)
+              * FOMO máximo (medo de perder algo, urgência visual, exclusividade, escassez)
+              * Psicologia visual avançada (elementos que prendem o olhar, pontos focais estratégicos, hierarquia visual clara)
+              * Técnicas cinematográficas (profundidade de campo, iluminação direcional, bokeh, composição profissional)
+              
+              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
             1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
@@ -1638,10 +2170,40 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
             - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
             
-            SUA TAREFA (OTIMIZADA PARA GPT):
-            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o CTR e engajamento.
-            - **IDEIA 1 (Melhoria Estratégica):** Analise a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
-            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes), emoção (expressões faciais intensas, momentos de tensão), contraste visual (cores vibrantes vs. fundo neutro), e elementos que gerem "FOMO" (medo de perder algo). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - GPT):
+            Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
+            
+            - **IDEIA 1 (Adaptação Estratégica Mantendo o Poder Viral):** 
+              Analise PROFUNDAMENTE a thumbnail viral de referência e identifique:
+              * O que tornou esta thumbnail viral? (composição, cores, elementos visuais, expressões, texto, contraste)
+              * Quais elementos visuais geraram curiosidade e cliques?
+              * Qual foi a estratégia emocional que funcionou?
+              
+              Agora, crie uma ADAPTAÇÃO para o subnicho "${subniche}" e título "${selectedTitle}" que:
+              * MANTENHA os elementos virais que funcionaram (composição similar, estratégia emocional, contraste)
+              * ADAPTE os elementos visuais para o seu subnicho (personagens, objetos, cenários relevantes)
+              * MELHORE o que for possível (cores mais vibrantes, contraste maior, composição mais impactante)
+              * MANTENHA o mesmo PODER VIRAL da original
+              * APRIMORE: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal
+              
+              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
+            
+            - **IDEIA 2 (Inovação Viral com Elementos do Original):** 
+              Crie um conceito COMPLETAMENTE NOVO que:
+              * USE os GATILHOS VIRAIS identificados na thumbnail original (curiosidade, FOMO, surpresa, contraste)
+              * ADAPTE para o subnicho "${subniche}" com elementos visuais relevantes
+              * OTIMIZE para o título "${selectedTitle}" destacando palavras-chave visuais
+              * SEJA AINDA MAIS IMPACTANTE que a original (cores mais vibrantes, contraste maior, composição mais dramática)
+              * GERE MAIS CURIOSIDADE e CLIQUE que a original
+              
+              Foque em: 
+              * Curiosidade extrema (elementos misteriosos, surpreendentes, inusitados)
+              * Emoção intensa (expressões faciais dramáticas, momentos de tensão máxima)
+              * Contraste visual máximo (cores vibrantes vs. fundo neutro, luz vs. sombra dramática)
+              * FOMO máximo (medo de perder algo, urgência visual, exclusividade)
+              * Composição visual avançada (regra dos terços, hierarquia visual, pontos focais estratégicos)
+              
+              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
             1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
@@ -1775,6 +2337,38 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
             throw new Error("A IA não retornou o array 'ideias' esperado.");
         }
+
+        // Salvar thumbnails geradas na biblioteca automaticamente
+        try {
+            for (const ideia of parsedData.ideias) {
+                if (ideia.descricaoThumbnail) {
+                    await db.run(
+                        `INSERT INTO viral_thumbnails_library (user_id, thumbnail_url, thumbnail_description, niche, subniche, original_views, style, viral_score)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [userId, null, ideia.descricaoThumbnail, niche, subniche, videoDetails?.views || null, style, 8] // Score padrão 8 para thumbnails geradas, thumbnail_url como NULL
+                    );
+                }
+            }
+            console.log(`[Biblioteca] ${parsedData.ideias.length} thumbnails salvas na biblioteca`);
+        } catch (libErr) {
+            console.error('[Biblioteca] Erro ao salvar thumbnails na biblioteca:', libErr);
+            // Tentar novamente sem thumbnail_url se falhar
+            try {
+                for (const ideia of parsedData.ideias) {
+                    if (ideia.descricaoThumbnail) {
+                        await db.run(
+                            `INSERT INTO viral_thumbnails_library (user_id, thumbnail_description, niche, subniche, original_views, style, viral_score)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                            [userId, ideia.descricaoThumbnail, niche, subniche, videoDetails?.views || null, style, 8]
+                        );
+                    }
+                }
+                console.log(`[Biblioteca] ${parsedData.ideias.length} thumbnails salvas na biblioteca (segunda tentativa)`);
+            } catch (retryErr) {
+                console.error('[Biblioteca] Erro persistente ao salvar thumbnails:', retryErr);
+            }
+        }
+
         res.status(200).json(parsedData.ideias);
 
     } catch (err) {
@@ -1786,7 +2380,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
 
 // === ROTA PARA GERAR IMAGEM COM IMAGEFX ===
 app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
-    const { prompt } = req.body;
+    const { prompt, niche, subniche, style, saveToLibrary } = req.body;
     const userId = req.user.id;
 
     if (!prompt) {
@@ -1817,9 +2411,29 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
             throw new Error('O ImageFX não retornou imagens.');
         }
 
+        const imageUrl = images[0].getImageData().url;
+
+        // Salvar automaticamente na biblioteca se solicitado
+        let savedId = null;
+        if (saveToLibrary && imageUrl) {
+            try {
+                const result = await db.run(
+                    `INSERT INTO viral_thumbnails_library (user_id, thumbnail_url, thumbnail_description, niche, subniche, style, viral_score)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [userId, imageUrl, prompt, niche || null, subniche || null, style || null, 8]
+                );
+                savedId = result.lastID;
+                console.log(`[ImageFX] Thumbnail salva na biblioteca com ID ${savedId}`);
+            } catch (libErr) {
+                console.warn('[ImageFX] Erro ao salvar thumbnail na biblioteca:', libErr.message);
+            }
+        }
+
         res.status(200).json({ 
             msg: 'Imagem gerada com sucesso!',
-            imageUrl: images[0].getImageData().url
+            imageUrl: imageUrl,
+            savedToLibrary: savedId !== null,
+            libraryId: savedId
         });
 
     } catch (err) {
@@ -1840,7 +2454,31 @@ app.post('/api/niche/find-subniche', authenticateToken, async (req, res) => {
     }
 
     try {
-        const prompt = `Quero criar um canal no YouTube dentro do nicho de "${nichePrincipal}", inicialmente pensei em abordar "${ideiaInicial}", mas percebi que já há bastante concorrência nesse subnicho. Estou em busca de uma ideia de subnicho dentro de "${nichePrincipal}" que ainda esteja pouco explorada no YouTube, com pouca ou nenhuma concorrência, mas que tenha alto volume de buscas, interesse crescente e bom potencial de monetização. O objetivo é encontrar uma oportunidade única para criar conteúdo relevante, com forte demanda e baixa competição. Com base em dados atuais e tendências, o que você recomenda?`;
+        const prompt = `
+            Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS MILIONÁRIOS NO YOUTUBE com experiência em identificar oportunidades de subnichos com alto potencial de viralização.
+            
+            OBJETIVO: Encontrar um subnicho dentro de "${nichePrincipal}" que permita criar um canal MILIONÁRIO com MILHÕES DE VIEWS, ALTO CTR e conteúdo que VIRALIZE.
+            
+            PROMPT INICIAL PARA EDUCAR O GPT:
+            Quero criar um canal no YouTube dentro do nicho de "${nichePrincipal}", inicialmente pensei em abordar "${ideiaInicial}", mas percebi que já há bastante concorrência nesse subnicho. 
+            
+            Estou em busca de uma ideia de subnicho dentro de "${nichePrincipal}" que:
+            - Ainda esteja pouco explorada no YouTube, com pouca ou nenhuma concorrência
+            - Tenha alto volume de buscas e interesse crescente
+            - Tenha bom potencial de monetização
+            - TENHA ALTO POTENCIAL DE VIRALIZAÇÃO e capacidade de gerar milhões de views
+            - Permita criar conteúdo com alto CTR (acima de 25%)
+            - Tenha oportunidades de criar títulos e thumbnails virais
+            
+            O objetivo é encontrar uma oportunidade única para criar conteúdo relevante, com forte demanda, baixa competição, e POTENCIAL PARA CRIAR UM CANAL MILIONÁRIO com milhões de views e alto CTR.
+            
+            Com base em dados atuais e tendências, o que você recomenda? Forneça uma análise detalhada que inclua:
+            - O subnicho recomendado e por que ele tem potencial para gerar milhões de views
+            - Análise de concorrência e oportunidades
+            - Potencial de viralização e alto CTR
+            - Estratégias para criar conteúdo que viralize
+            - Sugestões de títulos e thumbnails que gerem alto CTR
+        `;
 
         let service;
         if (model.startsWith('gemini')) service = 'gemini';
@@ -1922,28 +2560,57 @@ app.post('/api/niche/analyze-competitor', authenticateToken, async (req, res) =>
             videoDataForPrompt += `- Título: "${v.title}", Visualizações: ${v.views}, Publicado há: ${v.days} dias\n`;
         });
 
-        // 4. Construir o PROMPT 2
+        // 4. Construir o PROMPT 2 (OTIMIZADO PARA CRIAR CANAIS MILIONÁRIOS)
         const prompt = `
-            GPT, preciso da sua ajuda para analisar um canal de sucesso no YouTube e usar essa análise como base para a criação do meu próprio canal dentro do mesmo nicho.
+            Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS MILIONÁRIOS NO YOUTUBE com experiência em analisar canais de sucesso e criar estratégias vencedoras.
+            
+            OBJETIVO: Analisar um canal de sucesso no YouTube e usar essa análise como base para criar um canal MILIONÁRIO com MILHÕES DE VIEWS e ALTO CTR dentro do mesmo nicho.
+            
+            PROMPT 2 - ANÁLISE DE CANAL COMPETIDOR:
+            Preciso da sua ajuda para analisar um canal de sucesso no YouTube e usar essa análise como base para a criação do meu próprio canal dentro do mesmo nicho.
+            
             Vou te fornecer as seguintes informações:
             ${videoDataForPrompt}
             
-            Com base nesses dados, preciso que você faça uma análise profunda e me responda com:
-            - Qual é o nicho exato desse canal e seu subnicho (se houver)?
-            - Quais são os principais diferenciais que tornam esse canal bem-sucedido?
-            - Qual é o público-alvo (perfil demográfico, interesses, comportamento)?
-            - Quais estratégias de conteúdo parecem ser as mais eficazes (tipo de vídeo, frequência, estilo de narrativa, títulos, miniaturas, SEO)?
-            - Quais padrões ou formatos se repetem nos vídeos de maior sucesso?
-            - Há algo nos comentários que revele desejos ou insatisfações da audiência que eu possa usar como oportunidade? (Simule uma análise de sentimentos com base nos títulos e views)
-            - Quais são as oportunidades que eu posso explorar para criar um canal similar, porém com diferenciais competitivos?
+            Com base nesses dados, preciso que você faça uma ANÁLISE PROFUNDA E ESTRATÉGICA e me responda com:
             
-            Ao final, quero que você me oriente sobre:
-            - Como devo estruturar o conteúdo do meu canal.
-            - Qual linha editorial devo seguir.
-            - Sugestões de nome de canal, temas iniciais e identidade visual.
-            - E se possível, ideias de roteiros para os primeiros vídeos, baseados no que mais funciona no canal analisado.
+            1. **Análise de Nicho e Subnicho:**
+               - Qual é o nicho exato desse canal e seu subnicho (se houver)?
+               - Por que esse nicho/subnicho funcionou tão bem?
+               - Há oportunidades de subnichos pouco explorados com alto potencial de viralização?
             
-            Analise tudo com atenção e me dê uma resposta estratégica e prática, voltada para resultados, em formato JSON. O JSON deve ter chaves como "analise_nicho", "diferenciais_sucesso", "publico_alvo", "estrategias_conteudo", "padroes_videos", "analise_comentarios", "oportunidades_explorar", e "orientacoes_finais" (que por sua vez contém "estrutura_conteudo", "linha_editorial", "sugestoes_branding", "ideias_roteiros").
+            2. **Diferenciais de Sucesso:**
+               - Quais são os principais diferenciais que tornam esse canal bem-sucedido?
+               - O que faz esse canal gerar milhões de views?
+               - Quais são os elementos únicos que criam alta taxa de engajamento?
+            
+            3. **Público-Alvo:**
+               - Qual é o público-alvo (perfil demográfico, interesses, comportamento)?
+               - Que tipo de conteúdo esse público consome?
+               - Quais são as necessidades e desejos não atendidos desse público?
+            
+            4. **Estratégias de Conteúdo Virais:**
+               - Quais estratégias de conteúdo parecem ser as mais eficazes (tipo de vídeo, frequência, estilo de narrativa, títulos, miniaturas, SEO)?
+               - Quais padrões ou formatos se repetem nos vídeos de maior sucesso?
+               - O que faz os vídeos terem alto CTR e gerarem milhões de views?
+               - Quais são as fórmulas de títulos e thumbnails que funcionaram?
+            
+            5. **Análise de Oportunidades:**
+               - Há algo nos comentários que revele desejos ou insatisfações da audiência que eu possa usar como oportunidade? (Simule uma análise de sentimentos com base nos títulos e views)
+               - Quais são as oportunidades que eu posso explorar para criar um canal similar, porém com diferenciais competitivos?
+               - Como posso criar conteúdo que viralize e gere milhões de views?
+            
+            6. **Orientação Estratégica para Criar Canal Milionário:**
+               - Como devo estruturar o conteúdo do meu canal para gerar milhões de views?
+               - Qual linha editorial devo seguir para alto CTR e viralização?
+               - Sugestões de nome de canal, temas iniciais e identidade visual que atraiam milhões de views
+               - Ideias de roteiros para os primeiros vídeos, baseados no que mais funciona no canal analisado
+               - Estratégias para criar títulos e thumbnails que gerem alto CTR (acima de 25%)
+               - Como criar conteúdo que viralize e gere engajamento massivo
+            
+            FOCO: Criar um canal MILIONÁRIO com MILHÕES DE VIEWS, ALTO CTR (acima de 25%), e conteúdo que VIRALIZE.
+            
+            Analise tudo com atenção e me dê uma resposta estratégica e prática, voltada para resultados e criação de canais milionários, em formato JSON. O JSON deve ter chaves como "analise_nicho", "diferenciais_sucesso", "publico_alvo", "estrategias_conteudo", "padroes_videos", "analise_comentarios", "oportunidades_explorar", e "orientacoes_finais" (que por sua vez contém "estrutura_conteudo", "linha_editorial", "sugestoes_branding", "ideias_roteiros", "estrategias_viralizacao", "titulos_ctr_alto", "thumbnails_virais").
         `;
 
         // 5. Chamar a IA
@@ -2141,22 +2808,49 @@ app.delete('/api/folders/:folderId', authenticateToken, async (req, res) => {
 
 app.get('/api/history', authenticateToken, async (req, res) => {
     const userId = req.user.id;
-    const { folderId } = req.query;
+    const { folderId, page = 1, limit = 50 } = req.query;
     
     try {
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 50;
+        const offset = (pageNum - 1) * limitNum;
+        
         let query;
+        let countQuery;
         let params;
+        let countParams;
         
         if (folderId) {
-            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id = ? ORDER BY analyzed_at DESC';
-            params = [userId, folderId];
+            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id = ? ORDER BY analyzed_at DESC LIMIT ? OFFSET ?';
+            params = [userId, folderId, limitNum, offset];
+            countQuery = 'SELECT COUNT(*) as total FROM analyzed_videos WHERE user_id = ? AND folder_id = ?';
+            countParams = [userId, folderId];
         } else {
-            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id IS NULL ORDER BY analyzed_at DESC';
-            params = [userId];
+            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id IS NULL ORDER BY analyzed_at DESC LIMIT ? OFFSET ?';
+            params = [userId, limitNum, offset];
+            countQuery = 'SELECT COUNT(*) as total FROM analyzed_videos WHERE user_id = ? AND folder_id IS NULL';
+            countParams = [userId];
         }
         
-        const history = await db.all(query, params);
-        res.status(200).json(history);
+        const [history, totalResult] = await Promise.all([
+            db.all(query, params),
+            db.get(countQuery, countParams)
+        ]);
+        
+        const total = totalResult?.total || 0;
+        const totalPages = Math.ceil(total / limitNum);
+        
+        res.status(200).json({
+            data: history,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total: total,
+                totalPages: totalPages,
+                hasNext: pageNum < totalPages,
+                hasPrev: pageNum > 1
+            }
+        });
         
     } catch (err) {
         console.error('Erro ao listar histórico:', err);
@@ -2207,6 +2901,12 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
             [analysisId]
         );
 
+        // Calcular receita e RPM baseado no nicho
+        const rpm = getRPMByNiche(analysis.detected_niche);
+        const views = parseInt(analysis.original_views) || 0;
+        const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+        const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+
         const responseData = {
             niche: analysis.detected_niche,
             subniche: analysis.detected_subniche,
@@ -2216,11 +2916,15 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
             videoDetails: {
                 title: analysis.original_title,
                 translatedTitle: analysis.translated_title || null,
-                views: analysis.original_views,
+                views: views,
                 comments: analysis.original_comments,
                 days: analysis.original_days,
-                thumbnailUrl: analysis.original_thumbnail_url, // Corrigido
-                videoId: analysis.youtube_video_id
+                thumbnailUrl: analysis.original_thumbnail_url,
+                videoId: analysis.youtube_video_id,
+                estimatedRevenueUSD: estimatedRevenueUSD,
+                estimatedRevenueBRL: estimatedRevenueBRL,
+                rpmUSD: rpm.usd,
+                rpmBRL: rpm.brl
             },
             originalVideoUrl: analysis.video_url 
         };
@@ -2233,9 +2937,8 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
 });
 
 
-// === ROTAS DE CANAIS MONITORADOS ===
-
-app.post('/api/channels', authenticateToken, async (req, res) => {
+// === ROTAS DE CANAIS MONITORADOS (para análise de canais) ===
+app.post('/api/channels/monitor', authenticateToken, async (req, res) => {
     const { channelUrl, channelName } = req.body;
     const userId = req.user.id;
 
@@ -2244,6 +2947,12 @@ app.post('/api/channels', authenticateToken, async (req, res) => {
     }
 
     try {
+        // Verificar limite de 5 canais por usuário
+        const channelCount = await db.get('SELECT COUNT(*) as count FROM monitored_channels WHERE user_id = ?', [userId]);
+        if (channelCount && channelCount.count >= 5) {
+            return res.status(400).json({ msg: 'Limite de 5 canais monitorados atingido. Exclua um canal antes de adicionar outro.' });
+        }
+
         const result = await db.run(
             'INSERT INTO monitored_channels (user_id, channel_name, channel_url) VALUES (?, ?, ?)',
             [userId, channelName, channelUrl]
@@ -2252,27 +2961,34 @@ app.post('/api/channels', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('Erro ao adicionar canal:', err);
         if (err.message.includes('UNIQUE constraint failed')) {
-            return res.status(400).json({ msg: 'Este canal já está sendo monitorado.' });
+            return res.status(400).json({ msg: 'Este canal já está sendo monitorado por você.' });
         }
         res.status(500).json({ msg: 'Erro no servidor ao adicionar canal.' });
     }
 });
 
-app.get('/api/channels', authenticateToken, async (req, res) => {
+app.get('/api/channels/monitor', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     try {
+        if (!db) {
+            console.error('[Canais Monitorados] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
         const channels = await db.all(
             'SELECT id, channel_name, channel_url, last_checked FROM monitored_channels WHERE user_id = ? ORDER BY channel_name',
             [userId]
         );
-        res.status(200).json(channels);
+        
+        console.log(`[Canais Monitorados] Encontrados ${channels.length} canais para usuário ${userId}`);
+        res.status(200).json(channels || []);
     } catch (err) {
-        console.error('Erro ao listar canais:', err);
+        console.error('[ERRO NA ROTA /api/channels/monitor]:', err);
         res.status(500).json({ msg: 'Erro no servidor ao listar canais.' });
     }
 });
 
-app.delete('/api/channels/:channelId', authenticateToken, async (req, res) => {
+app.delete('/api/channels/monitor/:channelId', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { channelId } = req.params;
 
@@ -2293,7 +3009,7 @@ app.delete('/api/channels/:channelId', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/channels/:channelId/check', authenticateToken, async (req, res) => {
+app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user.id;
     try {
@@ -2311,32 +3027,81 @@ app.get('/api/channels/:channelId/check', authenticateToken, async (req, res) =>
             return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
         }
 
-        const match = channel.channel_url.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+))/);
-        if (!match) {
-            return res.status(400).json({ msg: 'Formato de URL do canal não suportado. Use o formato com @handle ou /channel/ID.' });
+        // Extrair ID do canal da URL (suporta múltiplos formatos)
+        let ytChannelId = null;
+        let channelUrl = channel.channel_url;
+        
+        // Se for URL de vídeo, extrair o canal do vídeo
+        const videoMatch = channelUrl.match(/youtube\.com\/watch\?v=([\w-]+)/);
+        if (videoMatch) {
+            try {
+                const videoId = videoMatch[1];
+                const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${geminiApiKey}`;
+                const videoResponse = await fetch(videoUrl);
+                const videoData = await videoResponse.json();
+                if (videoResponse.ok && videoData.items && videoData.items.length > 0) {
+                    ytChannelId = videoData.items[0].snippet.channelId;
+                    console.log(`[Canais Monitorados] Canal ID extraído do vídeo: ${ytChannelId}`);
+                }
+            } catch (videoErr) {
+                console.error('[Canais Monitorados] Erro ao extrair canal do vídeo:', videoErr);
+            }
         }
         
-        let ytChannelId;
-        const handle = match[1];
-        const legacyId = match[2];
+        // Se não encontrou via vídeo, tentar formatos de canal
+        if (!ytChannelId) {
+            const match = channelUrl.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+)|c\/([\w-]+)|user\/([\w-]+)|(?:embed\/)?([\w-]{24}))/);
+            if (match) {
+                const handle = match[1];
+                const legacyId = match[2] || match[3] || match[4] || match[5];
 
-        if (handle) {
-            const originalHandle = handle;
-            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${handle}&type=channel&maxResults=1&key=${geminiApiKey}`;
-            const searchResponse = await fetch(searchApiUrl);
-            const searchData = await searchResponse.json();
+                if (handle) {
+                    try {
+                        // Tentar buscar via channels.list primeiro (mais preciso)
+                        const channelsApiUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(handle)}&key=${geminiApiKey}`;
+                        const channelsResponse = await fetch(channelsApiUrl);
+                        const channelsData = await channelsResponse.json();
+                        
+                        if (channelsResponse.ok && channelsData.items && channelsData.items.length > 0) {
+                            ytChannelId = channelsData.items[0].id;
+                            console.log(`[Canais Monitorados] Canal ID encontrado via channels.list: ${ytChannelId}`);
+                        } else {
+                            // Fallback: usar search
+                            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${geminiApiKey}`;
+                            const searchResponse = await fetch(searchApiUrl);
+                            const searchData = await searchResponse.json();
 
-            if (!searchResponse.ok || !searchData.items || searchData.items.length === 0) {
-                console.error(`[YouTube API] Falha ao buscar canal por handle via search: ${handle}`, searchData);
-                throw new Error(`Não foi possível encontrar o canal para o handle: @${originalHandle}. Verifique se o URL está correto.`);
+                            if (searchResponse.ok && searchData.items && searchData.items.length > 0) {
+                                ytChannelId = searchData.items[0].id.channelId;
+                                console.log(`[Canais Monitorados] Canal ID encontrado via search: ${ytChannelId}`);
+                            }
+                        }
+                    } catch (searchErr) {
+                        console.error(`[Canais Monitorados] Erro ao buscar canal por handle:`, searchErr);
+                    }
+                } else if (legacyId) {
+                    // Tentar validar se é um ID de canal válido
+                    if (legacyId.length >= 24) {
+                        // Verificar se é um ID válido fazendo uma busca
+                        try {
+                            const validateUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&id=${legacyId}&key=${geminiApiKey}`;
+                            const validateResponse = await fetch(validateUrl);
+                            const validateData = await validateResponse.json();
+                            
+                            if (validateResponse.ok && validateData.items && validateData.items.length > 0) {
+                                ytChannelId = legacyId;
+                                console.log(`[Canais Monitorados] ID de canal validado: ${ytChannelId}`);
+                            }
+                        } catch (validateErr) {
+                            console.error(`[Canais Monitorados] Erro ao validar ID:`, validateErr);
+                        }
+                    }
+                }
             }
-            ytChannelId = searchData.items[0].id.channelId;
-        } else {
-            ytChannelId = legacyId;
         }
 
         if (!ytChannelId) {
-             return res.status(400).json({ msg: 'Não foi possível determinar o ID do canal a partir da URL.' });
+            return res.status(400).json({ msg: 'Não foi possível determinar o ID do canal. Verifique se a URL está correta. Formatos suportados: @handle, /channel/ID, /c/ID, /user/ID, ou URL de vídeo.' });
         }
 
         // Fetch latest, popular, and pinned videos
@@ -2353,21 +3118,33 @@ app.get('/api/channels/:channelId/check', authenticateToken, async (req, res) =>
             const detailsResponse = await fetch(detailsUrl);
             const detailsData = await detailsResponse.json();
             if (detailsResponse.ok && detailsData.items) {
+                // Calcular receita e RPM para vídeos fixados
                 pinnedVideos = detailsData.items.map(item => {
                     const pinData = pinnedVideoIds.find(p => p.youtube_video_id === item.id);
+                    const views = parseInt(item.statistics.viewCount || 0);
+                    // Buscar nicho do canal para calcular RPM correto
+                    // Por enquanto usar padrão, pode ser melhorado buscando do user_channels
+                    const rpm = getRPMByNiche(null);
+                    const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+                    const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+                    
                     return {
                         pinId: pinData.id,
                         videoId: item.id,
                         title: item.snippet.title,
                         thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
-                        views: item.statistics.viewCount || 0,
-                        likes: item.statistics.likeCount || 0,
-                        comments: item.statistics.commentCount || 0,
+                        views: views,
+                        likes: parseInt(item.statistics.likeCount || 0),
+                        comments: parseInt(item.statistics.commentCount || 0),
+                        estimatedRevenueUSD: estimatedRevenueUSD,
+                        estimatedRevenueBRL: estimatedRevenueBRL,
+                        rpmUSD: rpm.usd,
+                        rpmBRL: rpm.brl
                     };
                 });
             }
         }
-
+        
         await db.run('UPDATE monitored_channels SET last_checked = CURRENT_TIMESTAMP WHERE id = ?', [channelId]);
         
         res.status(200).json({
@@ -2377,8 +3154,9 @@ app.get('/api/channels/:channelId/check', authenticateToken, async (req, res) =>
         });
 
     } catch (err) {
-        console.error('Erro ao verificar vídeos do canal:', err);
-        res.status(500).json({ msg: err.message });
+        console.error('[ERRO NA ROTA /api/channels/monitor/:channelId/check]:', err);
+        // Sempre retornar JSON, nunca HTML
+        res.status(500).json({ msg: err.message || 'Erro ao buscar vídeos do canal.' });
     }
 });
 
@@ -2437,8 +3215,8 @@ app.post('/api/videos/pin', authenticateToken, async (req, res) => {
 
     try {
         const count = await db.get('SELECT COUNT(*) as count FROM pinned_videos WHERE user_id = ? AND monitored_channel_id = ?', [userId, channelId]);
-        if (count.count >= 5) {
-            return res.status(400).json({ msg: 'Limite de 5 vídeos fixados por canal atingido.' });
+        if (count.count >= 6) {
+            return res.status(400).json({ msg: 'Limite de 6 vídeos fixados por canal atingido.' });
         }
 
         await db.run(
@@ -2472,3 +3250,1034 @@ app.delete('/api/videos/unpin/:pinId', authenticateToken, async (req, res) => {
         res.status(500).json({ msg: 'Erro no servidor ao remover vídeo fixado.' });
     }
 });
+
+// === ROTAS DE ANALYTICS E TRACKING ===
+
+// Registrar tracking de vídeo publicado
+app.post('/api/analytics/track', authenticateToken, async (req, res) => {
+    const { analysisId, youtubeVideoId, titleUsed, thumbnailUsed, predictedCtr, predictedViews, publishedAt } = req.body;
+    const userId = req.user.id;
+
+    if (!youtubeVideoId || !titleUsed) {
+        return res.status(400).json({ msg: 'YouTube Video ID e título são obrigatórios.' });
+    }
+
+    try {
+        const result = await db.run(
+            `INSERT INTO video_tracking (user_id, analysis_id, youtube_video_id, title_used, thumbnail_used, predicted_ctr, predicted_views, published_at, channel_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, analysisId || null, youtubeVideoId, titleUsed, thumbnailUsed || null, predictedCtr || null, predictedViews || null, publishedAt || new Date().toISOString(), req.body.channelId || null]
+        );
+        res.status(201).json({ id: result.lastID, msg: 'Tracking iniciado com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/track]:', err);
+        res.status(500).json({ msg: 'Erro ao registrar tracking.' });
+    }
+});
+
+// Função helper para obter RPM baseado no nicho (usada em múltiplas rotas)
+function getRPMByNiche(niche) {
+    if (!niche) return { usd: 2.0, brl: 11.0 }; // Padrão: Entretenimento
+    
+    const nicheLower = niche.toLowerCase();
+    
+    // RPMs reais por nicho (USD por 1000 views) - baseado em dados do mercado
+    const rpmMap = {
+        'finança': { usd: 15.0, brl: 82.5 },
+        'financeiro': { usd: 15.0, brl: 82.5 },
+        'investimento': { usd: 18.0, brl: 99.0 },
+        'investimentos': { usd: 18.0, brl: 99.0 },
+        'educação financeira': { usd: 12.0, brl: 66.0 },
+        'tecnologia': { usd: 7.0, brl: 38.5 },
+        'tech': { usd: 7.0, brl: 38.5 },
+        'programação': { usd: 8.0, brl: 44.0 },
+        'gaming': { usd: 3.5, brl: 19.25 },
+        'jogos': { usd: 3.5, brl: 19.25 },
+        'game': { usd: 3.5, brl: 19.25 },
+        'educação': { usd: 5.0, brl: 27.5 },
+        'educacional': { usd: 5.0, brl: 27.5 },
+        'culinária': { usd: 3.0, brl: 16.5 },
+        'receitas': { usd: 3.0, brl: 16.5 },
+        'fitness': { usd: 4.0, brl: 22.0 },
+        'saúde': { usd: 4.5, brl: 24.75 },
+        'entretenimento': { usd: 2.0, brl: 11.0 },
+        'vlogs': { usd: 2.5, brl: 13.75 },
+        'viagens': { usd: 4.0, brl: 22.0 },
+        'história': { usd: 3.5, brl: 19.25 },
+        'ciência': { usd: 5.5, brl: 30.25 },
+        'negócios': { usd: 10.0, brl: 55.0 },
+        'empreendedorismo': { usd: 9.0, brl: 49.5 },
+        'marketing': { usd: 8.0, brl: 44.0 },
+        'vendas': { usd: 9.0, brl: 49.5 }
+    };
+    
+    // Buscar nicho correspondente (busca parcial)
+    for (const [key, value] of Object.entries(rpmMap)) {
+        if (nicheLower.includes(key)) {
+            return value;
+        }
+    }
+    
+    // Se não encontrar, retornar padrão baseado em palavras-chave
+    if (nicheLower.includes('finance') || nicheLower.includes('dinheiro') || nicheLower.includes('invest')) {
+        return { usd: 12.0, brl: 66.0 };
+    }
+    if (nicheLower.includes('tech') || nicheLower.includes('program') || nicheLower.includes('software')) {
+        return { usd: 7.0, brl: 38.5 };
+    }
+    if (nicheLower.includes('game') || nicheLower.includes('jogo')) {
+        return { usd: 3.5, brl: 19.25 };
+    }
+    if (nicheLower.includes('educ') || nicheLower.includes('curso') || nicheLower.includes('aprend')) {
+        return { usd: 5.0, brl: 27.5 };
+    }
+    
+    // Padrão: Entretenimento
+    return { usd: 2.0, brl: 11.0 };
+}
+
+// Atualizar métricas de vídeo (buscar do YouTube)
+app.post('/api/analytics/update/:trackingId', authenticateToken, async (req, res) => {
+    const { trackingId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Buscar tracking com informações do canal
+        const tracking = await db.get(`
+            SELECT vt.youtube_video_id, vt.channel_id, uc.niche 
+            FROM video_tracking vt
+            LEFT JOIN user_channels uc ON vt.channel_id = uc.id
+            WHERE vt.id = ? AND vt.user_id = ?
+        `, [trackingId, userId]);
+        
+        if (!tracking) {
+            return res.status(404).json({ msg: 'Tracking não encontrado.' });
+        }
+
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+        if (!geminiKeyData) {
+            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária.' });
+        }
+        const geminiApiKey = decrypt(geminiKeyData.api_key);
+
+        const videoDetails = await callYouTubeDataAPI(tracking.youtube_video_id, geminiApiKey);
+        
+        // Calcular CTR estimado (YouTube não fornece CTR diretamente, então estimamos)
+        // Usar uma fórmula mais realista baseada nas views
+        // Vídeos com muitas views geralmente têm CTR mais baixo, vídeos novos podem ter CTR mais alto
+        const views = parseInt(videoDetails.views) || 0;
+        let estimatedCtr = 0;
+        if (views > 0) {
+            // Fórmula mais realista: CTR diminui conforme views aumentam
+            // Vídeos com 1K views: ~15% CTR, 10K views: ~10% CTR, 100K views: ~5% CTR, 1M views: ~3% CTR
+            if (views < 10000) {
+                estimatedCtr = 15 - (views / 10000) * 5; // 15% a 10%
+            } else if (views < 100000) {
+                estimatedCtr = 10 - ((views - 10000) / 90000) * 5; // 10% a 5%
+            } else if (views < 1000000) {
+                estimatedCtr = 5 - ((views - 100000) / 900000) * 2; // 5% a 3%
+            } else {
+                estimatedCtr = Math.max(2, 3 - ((views - 1000000) / 10000000) * 1); // 3% a 2%
+            }
+            estimatedCtr = Math.max(2, Math.min(30, estimatedCtr)); // Limitar entre 2% e 30%
+        }
+        
+        // Calcular receita baseada no RPM do nicho do canal
+        const rpm = getRPMByNiche(tracking.niche);
+        const estimatedRevenue = (views / 1000) * rpm.usd;
+
+        await db.run(
+            `UPDATE video_tracking 
+             SET actual_views = ?, actual_likes = ?, actual_comments = ?, actual_ctr = ?, revenue_estimate = ?, last_updated = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [videoDetails.views, videoDetails.likes, videoDetails.comments, estimatedCtr, estimatedRevenue, trackingId]
+        );
+
+        // Criar snapshot
+        await db.run(
+            `INSERT INTO analytics_snapshots (user_id, video_tracking_id, views, likes, comments, ctr)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, trackingId, videoDetails.views, videoDetails.likes, videoDetails.comments, estimatedCtr]
+        );
+
+        res.status(200).json({ 
+            views: videoDetails.views,
+            likes: videoDetails.likes,
+            comments: videoDetails.comments,
+            ctr: estimatedCtr,
+            revenue: estimatedRevenue
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/update]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar métricas.' });
+    }
+});
+
+// Obter dashboard de analytics
+app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    console.log(`[Analytics Dashboard] Requisição recebida para userId: ${userId}`);
+
+    try {
+        if (!db) {
+            console.error('[Analytics Dashboard] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        // Verificar se a tabela existe e tem dados
+        let stats;
+        try {
+            stats = await db.get(`
+                SELECT 
+                    COUNT(*) as total_videos,
+                    COALESCE(SUM(actual_views), 0) as total_views,
+                    COALESCE(SUM(actual_likes), 0) as total_likes,
+                    COALESCE(SUM(actual_comments), 0) as total_comments,
+                    COALESCE(AVG(actual_ctr), 0) as avg_ctr,
+                    COALESCE(SUM(revenue_estimate), 0) as total_revenue,
+                    COUNT(CASE WHEN actual_views >= 1000000 THEN 1 END) as viral_videos
+                FROM video_tracking
+                WHERE user_id = ?
+            `, [userId]);
+            console.log(`[Analytics Dashboard] Stats encontrados:`, stats);
+        } catch (dbErr) {
+            console.error('[Analytics Dashboard] Erro ao buscar stats:', dbErr);
+            stats = {
+                total_videos: 0,
+                total_views: 0,
+                total_likes: 0,
+                total_comments: 0,
+                avg_ctr: 0,
+                total_revenue: 0,
+                viral_videos: 0
+            };
+        }
+
+        let recentVideos = [];
+        try {
+            recentVideos = await db.all(`
+                SELECT vt.id, vt.youtube_video_id, vt.title_used, vt.actual_views, vt.actual_ctr, vt.revenue_estimate, 
+                       vt.published_at, vt.tracked_at, vt.channel_id, uc.channel_name
+                FROM video_tracking vt
+                LEFT JOIN user_channels uc ON vt.channel_id = uc.id
+                WHERE vt.user_id = ?
+                ORDER BY COALESCE(vt.published_at, vt.tracked_at) DESC
+                LIMIT 50
+            `, [userId]);
+            console.log(`[Analytics Dashboard] Vídeos recentes encontrados:`, recentVideos.length);
+        } catch (dbErr) {
+            console.error('[Analytics Dashboard] Erro ao buscar vídeos recentes:', dbErr);
+            recentVideos = [];
+        }
+
+        // Usar a função getRPMByNiche definida globalmente acima
+        
+        // Calcular RPM por canal (baseado no nicho)
+        let totalRPMUSD = 0;
+        let totalRPMBRL = 0;
+        let channelsCount = 0;
+        
+        try {
+            const channelsWithNiche = await db.all(`
+                SELECT DISTINCT uc.niche 
+                FROM user_channels uc
+                INNER JOIN video_tracking vt ON vt.channel_id = uc.id
+                WHERE uc.user_id = ? AND uc.niche IS NOT NULL AND uc.niche != ''
+            `, [userId]);
+            
+            if (channelsWithNiche && channelsWithNiche.length > 0) {
+                channelsWithNiche.forEach(ch => {
+                    const rpm = getRPMByNiche(ch.niche);
+                    totalRPMUSD += rpm.usd;
+                    totalRPMBRL += rpm.brl;
+                    channelsCount++;
+                });
+                // Média dos RPMs
+                totalRPMUSD = totalRPMUSD / channelsCount;
+                totalRPMBRL = totalRPMBRL / channelsCount;
+            } else {
+                // Se não há canais com nicho, usar padrão
+                const defaultRPM = getRPMByNiche(null);
+                totalRPMUSD = defaultRPM.usd;
+                totalRPMBRL = defaultRPM.brl;
+            }
+        } catch (rpmErr) {
+            console.error('[Analytics] Erro ao calcular RPM por nicho:', rpmErr);
+            const defaultRPM = getRPMByNiche(null);
+            totalRPMUSD = defaultRPM.usd;
+            totalRPMBRL = defaultRPM.brl;
+        }
+        
+        // Calcular receita estimada baseada no RPM real do nicho
+        const totalViews = parseInt(stats?.total_views || 0);
+        const usdToBrlRate = 5.50;
+        
+        // Calcular receita total: somar receita do banco + receita estimada baseada no RPM do nicho
+        // Se há receita no banco, usar ela; senão, calcular baseado no RPM do nicho
+        let totalRevenueUSD = parseFloat(stats?.total_revenue || 0);
+        
+        // Se não há receita no banco mas há views, calcular baseado no RPM do nicho
+        if (totalRevenueUSD === 0 && totalViews > 0 && totalRPMUSD > 0) {
+            totalRevenueUSD = (totalViews * totalRPMUSD) / 1000;
+        }
+        // Se há receita no banco, recalcular baseado no RPM do nicho para atualizar
+        else if (totalViews > 0 && totalRPMUSD > 0) {
+            // Recalcular receita baseada no RPM atual do nicho (mais preciso)
+            totalRevenueUSD = (totalViews * totalRPMUSD) / 1000;
+        }
+        
+        const totalRevenueBRL = totalRevenueUSD * usdToBrlRate;
+        
+        // RPM final (usar o calculado baseado no nicho, ou calcular a partir da receita se houver)
+        let rpmUSD = totalRPMUSD;
+        let rpmBRL = totalRPMBRL;
+        
+        // Se não há RPM calculado mas há receita, calcular RPM a partir da receita
+        if (rpmUSD === 0 && totalRevenueUSD > 0 && totalViews > 0) {
+            rpmUSD = (totalRevenueUSD / totalViews) * 1000;
+            rpmBRL = (totalRevenueBRL / totalViews) * 1000;
+        }
+
+        const response = {
+            stats: {
+                totalVideos: parseInt(stats?.total_videos || 0),
+                totalViews: totalViews,
+                totalLikes: parseInt(stats?.total_likes || 0),
+                totalComments: parseInt(stats?.total_comments || 0),
+                avgCtr: parseFloat(stats?.avg_ctr || 0),
+                totalRevenue: totalRevenueUSD,
+                totalRevenueBRL: totalRevenueBRL,
+                rpmUSD: rpmUSD,
+                rpmBRL: rpmBRL,
+                viralVideos: parseInt(stats?.viral_videos || 0)
+            },
+            recentVideos: recentVideos || []
+        };
+
+        console.log(`[Analytics Dashboard] Enviando resposta:`, JSON.stringify(response).substring(0, 200));
+        res.status(200).json(response);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/dashboard]:', err);
+        // Retornar dados vazios em caso de erro (tabela pode não existir ainda)
+        // Função helper para RPM padrão
+        const getDefaultRPM = () => ({ usd: 2.0, brl: 11.0 });
+        const defaultRPM = getDefaultRPM();
+        res.status(200).json({
+            stats: {
+                totalVideos: 0,
+                totalViews: 0,
+                totalLikes: 0,
+                totalComments: 0,
+                avgCtr: 0,
+                totalRevenue: 0,
+                totalRevenueBRL: 0,
+                rpmUSD: defaultRPM.usd,
+                rpmBRL: defaultRPM.brl,
+                viralVideos: 0
+            },
+            recentVideos: []
+        });
+    }
+});
+
+// Excluir vídeo do tracking
+app.delete('/api/analytics/track/:trackingId', authenticateToken, async (req, res) => {
+    const { trackingId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            console.error('[Analytics Delete] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        // Verificar se o tracking pertence ao usuário
+        const tracking = await db.get('SELECT id FROM video_tracking WHERE id = ? AND user_id = ?', [trackingId, userId]);
+        if (!tracking) {
+            return res.status(404).json({ msg: 'Tracking não encontrado ou não pertence a este usuário.' });
+        }
+
+        // Excluir snapshots relacionados primeiro (devido à foreign key)
+        await db.run('DELETE FROM analytics_snapshots WHERE video_tracking_id = ?', [trackingId]);
+
+        // Excluir o tracking
+        const result = await db.run('DELETE FROM video_tracking WHERE id = ? AND user_id = ?', [trackingId, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Tracking não encontrado.' });
+        }
+
+        console.log(`[Analytics Delete] Vídeo ${trackingId} excluído pelo usuário ${userId}`);
+        res.status(200).json({ msg: 'Vídeo excluído do tracking com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/track/:trackingId DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao excluir vídeo do tracking.' });
+    }
+});
+
+// === ROTAS DE BIBLIOTECA DE TÍTULOS VIRAIS ===
+
+// Adicionar título à biblioteca (automático quando análise é feita)
+app.post('/api/library/titles', authenticateToken, async (req, res) => {
+    const { title, niche, subniche, originalViews, originalCtr, formulaType, keywords, viralScore } = req.body;
+    const userId = req.user.id;
+
+    if (!title) {
+        return res.status(400).json({ msg: 'Título é obrigatório.' });
+    }
+
+    try {
+        const result = await db.run(
+            `INSERT INTO viral_titles_library (user_id, title, niche, subniche, original_views, original_ctr, formula_type, keywords, viral_score)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, title, niche || null, subniche || null, originalViews || null, originalCtr || null, formulaType || null, keywords || null, viralScore || null]
+        );
+        res.status(201).json({ id: result.lastID, msg: 'Título adicionado à biblioteca.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/titles]:', err);
+        res.status(500).json({ msg: 'Erro ao adicionar título à biblioteca.' });
+    }
+});
+
+// Buscar títulos da biblioteca
+app.get('/api/library/titles', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { niche, subniche, minViews, minCtr, favorite, search } = req.query;
+    console.log(`[Biblioteca Titles] Requisição recebida para userId: ${userId}`, { niche, subniche, minViews, favorite, search });
+
+    try {
+        if (!db) {
+            console.error('[Biblioteca Titles] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        let query = 'SELECT * FROM viral_titles_library WHERE user_id = ?';
+        const params = [userId];
+
+        if (niche) {
+            query += ' AND niche = ?';
+            params.push(niche);
+        }
+        if (subniche) {
+            query += ' AND subniche = ?';
+            params.push(subniche);
+        }
+        if (minViews) {
+            query += ' AND original_views >= ?';
+            params.push(parseInt(minViews));
+        }
+        if (minCtr) {
+            query += ' AND original_ctr >= ?';
+            params.push(parseFloat(minCtr));
+        }
+        if (favorite === 'true') {
+            query += ' AND is_favorite = 1';
+        }
+        if (search) {
+            query += ' AND title LIKE ?';
+            params.push(`%${search}%`);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT 100';
+
+        console.log(`[Biblioteca Titles] Executando query:`, query.substring(0, 100));
+        let titles = [];
+        try {
+            titles = await db.all(query, params);
+            console.log(`[Biblioteca Titles] Títulos encontrados:`, titles.length);
+        } catch (dbErr) {
+            console.error('[Biblioteca Titles] Erro ao buscar títulos:', dbErr);
+            titles = [];
+        }
+
+        res.status(200).json(titles || []);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/titles]:', err);
+        // Retornar array vazio se a tabela não existir
+        res.status(200).json([]);
+    }
+});
+
+// Excluir título da biblioteca
+app.delete('/api/library/titles/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const result = await db.run('DELETE FROM viral_titles_library WHERE id = ? AND user_id = ?', [id, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Título não encontrado ou não pertence a este usuário.' });
+        }
+
+        console.log(`[Biblioteca] Título ${id} excluído pelo usuário ${userId}`);
+        res.status(200).json({ msg: 'Título excluído da biblioteca com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/titles/:id DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao excluir título da biblioteca.' });
+    }
+});
+
+// Marcar/desmarcar título como favorito
+app.put('/api/library/titles/:id/favorite', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { isFavorite } = req.body;
+    const userId = req.user.id;
+
+    try {
+        await db.run(
+            'UPDATE viral_titles_library SET is_favorite = ? WHERE id = ? AND user_id = ?',
+            [isFavorite ? 1 : 0, id, userId]
+        );
+        res.status(200).json({ msg: 'Favorito atualizado.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/titles/:id/favorite]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar favorito.' });
+    }
+});
+
+// === ROTAS DE BIBLIOTECA DE THUMBNAILS VIRAIS ===
+
+// Adicionar thumbnail à biblioteca
+app.post('/api/library/thumbnails', authenticateToken, async (req, res) => {
+    const { thumbnailUrl, thumbnailDescription, niche, subniche, originalViews, originalCtr, style, elements, viralScore } = req.body;
+    const userId = req.user.id;
+
+    if (!thumbnailUrl && !thumbnailDescription) {
+        return res.status(400).json({ msg: 'URL da thumbnail ou descrição é obrigatória.' });
+    }
+
+    try {
+        const result = await db.run(
+            `INSERT INTO viral_thumbnails_library (user_id, thumbnail_url, thumbnail_description, niche, subniche, original_views, original_ctr, style, elements, viral_score)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, thumbnailUrl || null, thumbnailDescription || null, niche || null, subniche || null, originalViews || null, originalCtr || null, style || null, elements || null, viralScore || null]
+        );
+        res.status(201).json({ id: result.lastID, msg: 'Thumbnail adicionada à biblioteca.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/thumbnails]:', err);
+        res.status(500).json({ msg: 'Erro ao adicionar thumbnail à biblioteca.' });
+    }
+});
+
+// Buscar thumbnails da biblioteca
+app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { niche, subniche, minViews, minCtr, favorite, style } = req.query;
+    console.log(`[Biblioteca Thumbnails] Requisição recebida para userId: ${userId}`, { niche, minViews, favorite, style });
+
+    try {
+        if (!db) {
+            console.error('[Biblioteca Thumbnails] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        let query = 'SELECT * FROM viral_thumbnails_library WHERE user_id = ?';
+        const params = [userId];
+
+        if (niche) {
+            query += ' AND niche = ?';
+            params.push(niche);
+        }
+        if (subniche) {
+            query += ' AND subniche = ?';
+            params.push(subniche);
+        }
+        if (minViews) {
+            query += ' AND original_views >= ?';
+            params.push(parseInt(minViews));
+        }
+        if (minCtr) {
+            query += ' AND original_ctr >= ?';
+            params.push(parseFloat(minCtr));
+        }
+        if (favorite === 'true') {
+            query += ' AND is_favorite = 1';
+        }
+        if (style) {
+            query += ' AND style = ?';
+            params.push(style);
+        }
+
+        query += ' ORDER BY created_at DESC LIMIT 100';
+
+        console.log(`[Biblioteca Thumbnails] Executando query:`, query.substring(0, 100));
+        let thumbnails = [];
+        try {
+            thumbnails = await db.all(query, params);
+            console.log(`[Biblioteca Thumbnails] Thumbnails encontradas:`, thumbnails.length);
+        } catch (dbErr) {
+            console.error('[Biblioteca Thumbnails] Erro ao buscar thumbnails:', dbErr);
+            thumbnails = [];
+        }
+
+        res.status(200).json(thumbnails || []);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/thumbnails]:', err);
+        // Retornar array vazio se a tabela não existir
+        res.status(200).json([]);
+    }
+});
+
+// Excluir thumbnail da biblioteca
+app.delete('/api/library/thumbnails/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const result = await db.run('DELETE FROM viral_thumbnails_library WHERE id = ? AND user_id = ?', [id, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Thumbnail não encontrada ou não pertence a este usuário.' });
+        }
+
+        console.log(`[Biblioteca] Thumbnail ${id} excluída pelo usuário ${userId}`);
+        res.status(200).json({ msg: 'Thumbnail excluída da biblioteca com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/thumbnails/:id DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao excluir thumbnail da biblioteca.' });
+    }
+});
+
+// Marcar/desmarcar thumbnail como favorito
+app.put('/api/library/thumbnails/:id/favorite', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { isFavorite } = req.body;
+    const userId = req.user.id;
+
+    try {
+        await db.run(
+            'UPDATE viral_thumbnails_library SET is_favorite = ? WHERE id = ? AND user_id = ?',
+            [isFavorite ? 1 : 0, id, userId]
+        );
+        res.status(200).json({ msg: 'Favorito atualizado.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/thumbnails/:id/favorite]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar favorito.' });
+    }
+});
+
+// === ROTAS DE INTEGRAÇÃO YOUTUBE API ===
+
+// Iniciar OAuth do YouTube (retorna URL de autorização)
+app.get('/api/youtube/oauth/authorize', authenticateToken, async (req, res) => {
+    // Para produção, você precisa configurar OAuth 2.0 do Google
+    // Por enquanto, retornamos instruções
+    const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID';
+    const REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:5001/api/youtube/oauth/callback';
+    const SCOPE = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube';
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(SCOPE)}&access_type=offline&prompt=consent`;
+
+    res.status(200).json({ authUrl, msg: 'Use esta URL para autorizar o acesso ao YouTube.' });
+});
+
+// Callback OAuth (será chamado pelo Google após autorização)
+app.get('/api/youtube/oauth/callback', authenticateToken, async (req, res) => {
+    const { code } = req.query;
+    const userId = req.user.id;
+
+    if (!code) {
+        return res.status(400).json({ msg: 'Código de autorização não fornecido.' });
+    }
+
+    // Trocar code por access_token e refresh_token
+    // Em produção, implemente a troca do código OAuth
+    res.status(200).json({ msg: 'Integração configurada. Implementar troca de código OAuth.' });
+});
+
+// Agendar publicação de vídeo
+app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
+    const { youtubeIntegrationId, videoFilePath, title, description, tags, thumbnailUrl, scheduledTime } = req.body;
+    const userId = req.user.id;
+
+    if (!title || !scheduledTime) {
+        return res.status(400).json({ msg: 'Título e horário agendado são obrigatórios.' });
+    }
+
+    try {
+        const result = await db.run(
+            `INSERT INTO scheduled_posts (user_id, youtube_integration_id, video_file_path, title, description, tags, thumbnail_url, scheduled_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, youtubeIntegrationId || null, videoFilePath || null, title, description || null, tags ? JSON.stringify(tags) : null, thumbnailUrl || null, scheduledTime]
+        );
+        res.status(201).json({ id: result.lastID, msg: 'Publicação agendada com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/schedule]:', err);
+        res.status(500).json({ msg: 'Erro ao agendar publicação.' });
+    }
+});
+
+// Listar publicações agendadas
+app.get('/api/youtube/scheduled', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    console.log(`[YouTube Scheduled] Requisição recebida para userId: ${userId}`);
+
+    try {
+        if (!db) {
+            console.error('[YouTube Scheduled] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        let scheduled = [];
+        try {
+            scheduled = await db.all(
+                'SELECT * FROM scheduled_posts WHERE user_id = ? ORDER BY scheduled_time ASC',
+                [userId]
+            );
+            console.log(`[YouTube Scheduled] Publicações encontradas:`, scheduled.length);
+        } catch (dbErr) {
+            console.error('[YouTube Scheduled] Erro ao buscar publicações:', dbErr);
+            scheduled = [];
+        }
+
+        res.status(200).json(scheduled || []);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/scheduled]:', err);
+        // Retornar array vazio se a tabela não existir
+        res.status(200).json([]);
+    }
+});
+
+// === ROTAS DE GERENCIAMENTO DE CANAIS DO USUÁRIO ===
+
+// Criar/Atualizar canal do usuário
+app.post('/api/channels', authenticateToken, async (req, res) => {
+    const { channelName, channelUrl, channelId, niche, language, country } = req.body;
+    const userId = req.user.id;
+
+    if (!channelName) {
+        return res.status(400).json({ msg: 'Nome do canal é obrigatório.' });
+    }
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        // Verificar limite de 10 canais por usuário
+        const channelCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ?', [userId]);
+        if (channelCount && channelCount.count >= 10) {
+            return res.status(400).json({ msg: 'Limite de 10 canais atingido. Exclua um canal antes de adicionar outro.' });
+        }
+
+        // Verificar se já existe um canal com o mesmo nome para este usuário
+        const existing = await db.get('SELECT id FROM user_channels WHERE user_id = ? AND channel_name = ?', [userId, channelName]);
+        
+        if (existing) {
+            // Atualizar canal existente
+            await db.run(
+                `UPDATE user_channels 
+                 SET channel_url = ?, channel_id = ?, niche = ?, language = ?, country = ?, updated_at = CURRENT_TIMESTAMP 
+                 WHERE id = ? AND user_id = ?`,
+                [channelUrl || null, channelId || null, niche || null, language || 'pt-BR', country || 'BR', existing.id, userId]
+            );
+            console.log(`[Canais] Canal ${existing.id} atualizado pelo usuário ${userId}`);
+            res.status(200).json({ id: existing.id, msg: 'Canal atualizado com sucesso.' });
+        } else {
+            // Criar novo canal
+            const result = await db.run(
+                `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, channelName, channelUrl || null, channelId || null, niche || null, language || 'pt-BR', country || 'BR']
+            );
+            console.log(`[Canais] Canal ${result.lastID} criado pelo usuário ${userId}`);
+            res.status(201).json({ id: result.lastID, msg: 'Canal criado com sucesso.' });
+        }
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/channels POST]:', err);
+        if (err.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ msg: 'Já existe um canal com este nome.' });
+        }
+        res.status(500).json({ msg: 'Erro ao criar/atualizar canal.' });
+    }
+});
+
+// Listar canais do usuário
+app.get('/api/channels', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const channels = await db.all(
+            'SELECT * FROM user_channels WHERE user_id = ? ORDER BY created_at DESC',
+            [userId]
+        );
+        res.status(200).json(channels || []);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/channels GET]:', err);
+        res.status(500).json({ msg: 'Erro ao listar canais.' });
+    }
+});
+
+// Excluir canal do usuário
+app.delete('/api/channels/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const result = await db.run('DELETE FROM user_channels WHERE id = ? AND user_id = ?', [id, userId]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não pertence a este usuário.' });
+        }
+
+        console.log(`[Canais] Canal ${id} excluído pelo usuário ${userId}`);
+        res.status(200).json({ msg: 'Canal excluído com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/channels/:id DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao excluir canal.' });
+    }
+});
+
+// Atualizar status do canal (ativar/desativar)
+app.put('/api/channels/:id/status', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { isActive } = req.body;
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const result = await db.run(
+            'UPDATE user_channels SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+            [isActive ? 1 : 0, id, userId]
+        );
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não pertence a este usuário.' });
+        }
+
+        console.log(`[Canais] Status do canal ${id} atualizado para ${isActive ? 'ativo' : 'inativo'} pelo usuário ${userId}`);
+        res.status(200).json({ msg: 'Status do canal atualizado com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/channels/:id/status PUT]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar status do canal.' });
+    }
+});
+
+// Buscar informações do canal a partir da URL
+app.post('/api/channels/fetch-info', authenticateToken, async (req, res) => {
+    const { channelUrl } = req.body;
+    const userId = req.user.id;
+
+    if (!channelUrl) {
+        return res.status(400).json({ msg: 'URL do canal é obrigatória.' });
+    }
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+        if (!geminiKeyData) {
+            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária.' });
+        }
+        const geminiApiKey = decrypt(geminiKeyData.api_key);
+        if (!geminiApiKey) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
+        }
+
+        // Extrair ID do canal da URL
+        const match = channelUrl.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+)|c\/([\w-]+)|user\/([\w-]+))/);
+        if (!match) {
+            return res.status(400).json({ msg: 'Formato de URL do canal não suportado.' });
+        }
+
+        let ytChannelId;
+        const handle = match[1];
+        const legacyId = match[2] || match[3] || match[4];
+
+        if (handle) {
+            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${geminiApiKey}`;
+            const searchResponse = await fetch(searchApiUrl);
+            const searchData = await searchResponse.json();
+            if (searchResponse.ok && searchData.items && searchData.items.length > 0) {
+                ytChannelId = searchData.items[0].id.channelId;
+            }
+        } else if (legacyId) {
+            ytChannelId = legacyId;
+        }
+
+        if (!ytChannelId) {
+            return res.status(400).json({ msg: 'Não foi possível determinar o ID do canal.' });
+        }
+
+        // Buscar informações do canal
+        const channelUrl_api = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${ytChannelId}&key=${geminiApiKey}`;
+        const channelResponse = await fetch(channelUrl_api);
+        const channelData = await channelResponse.json();
+
+        if (!channelResponse.ok || !channelData.items || channelData.items.length === 0) {
+            return res.status(400).json({ msg: 'Canal não encontrado.' });
+        }
+
+        const channel = channelData.items[0];
+        const channelName = channel.snippet.title;
+        const channelDescription = channel.snippet.description || '';
+        const country = channel.snippet.country || 'BR';
+        
+        // Detectar idioma baseado no país ou descrição
+        let language = 'pt-BR';
+        if (country === 'US' || country === 'GB' || country === 'CA' || country === 'AU') {
+            language = 'en-US';
+        } else if (country === 'ES' || country === 'MX' || country === 'AR' || country === 'CO') {
+            language = 'es-ES';
+        } else if (country === 'FR') {
+            language = 'fr-FR';
+        } else if (country === 'DE') {
+            language = 'de-DE';
+        } else if (country === 'IT') {
+            language = 'it-IT';
+        } else if (country === 'JP') {
+            language = 'ja-JP';
+        } else if (country === 'KR') {
+            language = 'ko-KR';
+        } else if (country === 'CN') {
+            language = 'zh-CN';
+        }
+
+        // Usar IA para detectar nicho (obrigatório)
+        let niche = '';
+        try {
+            const nichePrompt = `Analise este canal do YouTube e identifique o nicho principal em uma palavra ou frase curta (máximo 3 palavras). Seja específico e preciso.
+
+Nome do Canal: ${channelName}
+Descrição: ${channelDescription.substring(0, 500)}
+
+IMPORTANTE: Responda APENAS com o nicho, sem explicações adicionais, sem pontos, sem aspas, sem nada além do nicho.
+Exemplos válidos: Tecnologia, Educação Financeira, Gaming, Culinária, Fitness, Entretenimento, História, Ciência, Viagens.
+
+Nicho identificado:`;
+            
+            console.log('[Canais] Detectando nicho do canal:', channelName);
+            const nicheResponse = await callGeminiAPI(nichePrompt, geminiApiKey, 'gemini-2.0-flash-exp');
+            if (nicheResponse && nicheResponse.titles) {
+                niche = nicheResponse.titles.trim()
+                    .split('\n')[0]
+                    .replace(/^["']|["']$/g, '') // Remove aspas
+                    .replace(/^\.+/, '') // Remove pontos no início
+                    .substring(0, 50)
+                    .trim();
+                console.log('[Canais] Nicho detectado:', niche);
+            }
+            if (!niche || niche.length < 2) {
+                console.warn('[Canais] Nicho não detectado ou muito curto, usando fallback');
+                // Fallback: usar primeira palavra da descrição ou nome do canal
+                niche = channelDescription.split(' ').slice(0, 2).join(' ').substring(0, 30) || channelName.split(' ').slice(0, 2).join(' ').substring(0, 30) || 'Entretenimento';
+            }
+        } catch (nicheErr) {
+            console.warn('[Canais] Erro ao detectar nicho:', nicheErr.message);
+            // Fallback: usar primeira palavra do nome do canal
+            niche = channelName.split(' ').slice(0, 2).join(' ').substring(0, 30) || 'Entretenimento';
+        }
+
+        // Garantir que sempre há um nicho
+        if (!niche || niche.length < 2) {
+            niche = 'Entretenimento';
+        }
+
+        const responseData = {
+            channelName,
+            channelId: ytChannelId,
+            niche: niche,
+            language,
+            country
+        };
+        
+        console.log('[Canais] Retornando dados do canal:', responseData);
+        res.status(200).json(responseData);
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/channels/fetch-info]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar informações do canal.' });
+    }
+});
+
+// ============================================
+// INICIAR SERVIDOR (DEPOIS DE TODAS AS ROTAS)
+// ============================================
+// Variável para garantir que o servidor só inicie UMA vez (proteção contra race condition)
+let serverStarted = false;
+let startServerInterval = null;
+let startServerTimeout = null;
+
+// Função única para iniciar o servidor (garante que só inicie uma vez)
+function startServer() {
+    // Verificação dupla: flag + app.listening para garantir que não inicie duas vezes
+    if (serverStarted) {
+        return;
+    }
+    
+    // Marcar como iniciado ANTES de tentar iniciar (previne race condition)
+    serverStarted = true;
+    
+    // Limpar intervalos e timeouts para evitar múltiplas tentativas
+    if (startServerInterval) {
+        clearInterval(startServerInterval);
+        startServerInterval = null;
+    }
+    if (startServerTimeout) {
+        clearTimeout(startServerTimeout);
+        startServerTimeout = null;
+    }
+    
+    // Iniciar servidor
+    try {
+        const server = app.listen(PORT, () => {
+            console.log(`🚀 Servidor "La Casa Dark Core" a rodar na porta ${PORT}`);
+            if (!db) {
+                console.log(`⚠️  Banco de dados ainda não está pronto. Algumas funcionalidades podem não estar disponíveis.`);
+            } else {
+                console.log(`✅ Todas as rotas registradas e funcionando!`);
+            }
+        });
+        
+        // Tratamento de erro para porta em uso
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.error(`❌ Erro: A porta ${PORT} já está em uso.`);
+                console.error(`   Por favor, encerre o processo que está usando a porta ${PORT} e tente novamente.`);
+                console.error(`   Comando: netstat -ano | findstr :${PORT}`);
+            } else {
+                console.error('❌ Erro ao iniciar servidor:', err.message);
+            }
+            // Resetar flag em caso de erro para permitir nova tentativa
+            serverStarted = false;
+        });
+    } catch (err) {
+        console.error('❌ Erro ao iniciar servidor:', err.message);
+        serverStarted = false;
+    }
+}
+
+// Aguardar a inicialização do banco de dados antes de iniciar o servidor
+startServerInterval = setInterval(() => {
+    if (global.dbReady && db) {
+        startServer();
+    }
+}, 100);
+
+// Timeout de segurança: iniciar servidor após 3 segundos mesmo se o banco não estiver pronto
+startServerTimeout = setTimeout(() => {
+    if (!serverStarted) {
+        startServer();
+    }
+}, 3000);

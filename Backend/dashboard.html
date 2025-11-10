@@ -181,6 +181,21 @@
                     <span>Canais Monitorados</span>
                 </a>
                 
+                <a href="#" data-view="analytics" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="bar-chart-2"></i>
+                    <span>Analytics</span>
+                </a>
+                
+                <a href="#" data-view="biblioteca" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="book-open"></i>
+                    <span>Biblioteca Virais</span>
+                </a>
+                
+                <a href="#" data-view="youtube-integration" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="youtube"></i>
+                    <span>Integração YouTube</span>
+                </a>
+                
                 <a href="#" data-view="configuracoes" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
                     <i data-lucide="settings"></i>
                     <span>Configurações</span>
@@ -577,6 +592,12 @@
                                     </tbody>
                                 </table>
                             </div>
+                            
+                            <!-- Paginação -->
+                            <div id="history-pagination" class="mt-4 flex items-center justify-between" style="display: none;">
+                                <div class="text-sm text-gray-400" id="history-pagination-info"></div>
+                                <div class="flex items-center space-x-2" id="history-pagination-controls"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -592,6 +613,7 @@
 
                 <div id="canais-success-message" class="success-message mb-6"></div>
                 <div id="canais-error-message" class="error-message mb-6"></div>
+                <div id="canais-limit-message" class="error-message mb-4" style="display: none;"></div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div class="md:col-span-1 space-y-4">
@@ -634,9 +656,277 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Seção de Vídeos Fixados -->
+                <div class="mt-8 bg-black border border-gray-800 rounded-lg p-6">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-4">
+                        <h2 class="text-xl font-semibold text-white">Vídeos Fixados</h2>
+                        <div class="flex items-center gap-3">
+                            <label for="pinned-channel-select" class="text-sm text-gray-400 whitespace-nowrap">Canal:</label>
+                            <select id="pinned-channel-select" class="px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent flex-1 min-w-[200px]">
+                                <option value="">Todos os Canais</option>
+                                <!-- Canais serão carregados aqui -->
+                            </select>
+                        </div>
+                    </div>
+                    <div id="pinned-videos-section" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <p class="text-gray-400 col-span-full text-center py-8">Nenhum vídeo fixado ainda. Fixe vídeos ao buscar vídeos de um canal.</p>
+                    </div>
+                </div>
             </div>
 
-            <!-- VISÃO 6: Configurações -->
+            <!-- VISÃO 6: Analytics Dashboard -->
+            <div id="view-analytics" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">📊 Analytics e Performance</h1>
+                    <p class="text-lg text-gray-400">Acompanhe o desempenho dos seus vídeos e veja quanto dinheiro você está gerando</p>
+                </header>
+
+                <div id="analytics-error-message" class="error-message mb-6"></div>
+                <div id="analytics-success-message" class="success-message mb-6"></div>
+
+                <!-- Cards de Métricas Principais -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-gradient-to-br from-green-900 to-green-800 border border-green-700 rounded-lg p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <i data-lucide="trending-up" class="w-8 h-8 text-green-400"></i>
+                            <span class="text-2xl font-bold text-white" id="stats-total-views">0</span>
+                        </div>
+                        <p class="text-green-200 text-sm">Total de Visualizações</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-blue-900 to-blue-800 border border-blue-700 rounded-lg p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <i data-lucide="target" class="w-8 h-8 text-blue-400"></i>
+                            <span class="text-2xl font-bold text-white" id="stats-avg-ctr">0%</span>
+                        </div>
+                        <p class="text-blue-200 text-sm">CTR Médio</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-yellow-900 to-yellow-800 border border-yellow-700 rounded-lg p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <i data-lucide="dollar-sign" class="w-8 h-8 text-yellow-400"></i>
+                            <div class="text-right">
+                                <span class="text-2xl font-bold text-white" id="stats-total-revenue">$0</span>
+                                <span class="text-lg font-semibold text-yellow-200 block" id="stats-total-revenue-brl">R$ 0</span>
+                            </div>
+                        </div>
+                        <p class="text-yellow-200 text-sm">Receita Estimada</p>
+                        <p class="text-yellow-300 text-xs mt-1" id="stats-rpm">RPM: $0 / R$ 0</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-purple-900 to-purple-800 border border-purple-700 rounded-lg p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <i data-lucide="zap" class="w-8 h-8 text-purple-400"></i>
+                            <span class="text-2xl font-bold text-white" id="stats-viral-videos">0</span>
+                        </div>
+                        <p class="text-purple-200 text-sm">Vídeos Virais (1M+)</p>
+                    </div>
+                </div>
+
+                <!-- Lista de Vídeos Trackados -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-white mb-4">Vídeos Recentes</h2>
+                    <div class="space-y-4" id="analytics-videos-list">
+                        <p class="text-gray-400">Nenhum vídeo trackado ainda. Publique um vídeo usando nossos títulos/thumbnails e registre o tracking.</p>
+                    </div>
+                </div>
+
+                <!-- Gerenciamento de Canais -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold text-white">Meus Canais (1-10)</h2>
+                        <button onclick="showAddChannelModal()" class="py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm">
+                            <i data-lucide="plus" class="w-4 h-4 inline mr-1"></i> Adicionar Canal
+                        </button>
+                    </div>
+                    <div id="channels-list" class="space-y-3">
+                        <p class="text-gray-400">Carregando canais...</p>
+                    </div>
+                </div>
+
+                <!-- Modal para Registrar Novo Vídeo -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <h2 class="text-xl font-semibold text-white mb-4">Registrar Novo Vídeo Publicado</h2>
+                    <form id="register-video-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Canal</label>
+                            <select id="register-video-channel" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                <option value="">Selecione um canal (opcional)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">URL do Vídeo no YouTube</label>
+                            <input type="url" id="register-video-url" placeholder="https://www.youtube.com/watch?v=..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Título Usado</label>
+                            <input type="text" id="register-video-title" placeholder="Título que você usou no vídeo" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">CTR Previsto (%)</label>
+                                <input type="number" id="register-video-ctr" placeholder="25" min="0" max="100" step="0.1" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Views Previstas</label>
+                                <input type="number" id="register-video-views" placeholder="1000000" min="0" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                            </div>
+                        </div>
+                        <button type="submit" class="py-3 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black w-full">
+                            <i data-lucide="plus"></i>
+                            <span>Registrar Vídeo</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Modal para Adicionar/Editar Canal -->
+            <div id="channel-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+                <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
+                    <h2 class="text-2xl font-bold text-white mb-4" id="channel-modal-title">Adicionar Canal</h2>
+                    <form id="channel-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Nome do Canal *</label>
+                            <input type="text" id="channel-name" required class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" placeholder="Ex: Meu Canal de Tech">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">URL do Canal</label>
+                            <input type="url" id="channel-url" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" placeholder="https://www.youtube.com/@...">
+                            <p class="text-gray-500 text-xs mt-1">Digite a URL e os campos serão preenchidos automaticamente</p>
+                            <input type="hidden" id="channel-id-hidden">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
+                            <input type="text" id="channel-niche" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" placeholder="Ex: Tecnologia, Educação, Entretenimento">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Idioma</label>
+                                <select id="channel-language" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                    <option value="pt-BR">Português (BR)</option>
+                                    <option value="en-US">English (US)</option>
+                                    <option value="es-ES">Español</option>
+                                    <option value="fr-FR">Français</option>
+                                    <option value="de-DE">Deutsch</option>
+                                    <option value="it-IT">Italiano</option>
+                                    <option value="ja-JP">日本語</option>
+                                    <option value="ko-KR">한국어</option>
+                                    <option value="zh-CN">中文</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">País</label>
+                                <select id="channel-country" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                    <option value="BR">Brasil</option>
+                                    <option value="US">Estados Unidos</option>
+                                    <option value="ES">Espanha</option>
+                                    <option value="FR">França</option>
+                                    <option value="DE">Alemanha</option>
+                                    <option value="IT">Itália</option>
+                                    <option value="JP">Japão</option>
+                                    <option value="KR">Coreia do Sul</option>
+                                    <option value="CN">China</option>
+                                    <option value="MX">México</option>
+                                    <option value="AR">Argentina</option>
+                                    <option value="CO">Colômbia</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <button type="submit" class="flex-1 py-3 px-6 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-bold">Salvar</button>
+                            <button type="button" onclick="hideChannelModal()" class="flex-1 py-3 px-6 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-bold">Cancelar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- VISÃO 7: Biblioteca Virais -->
+            <div id="view-biblioteca" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">📚 Biblioteca de Títulos e Thumbnails Virais</h1>
+                    <p class="text-lg text-gray-400">Acesse todos os títulos e thumbnails que geraram milhões de views</p>
+                </header>
+
+                <div id="biblioteca-error-message" class="error-message mb-6"></div>
+                <div id="biblioteca-success-message" class="success-message mb-6"></div>
+
+                <div class="mb-6 flex space-x-4 border-b border-gray-800">
+                    <button id="biblioteca-tab-titles" class="px-4 py-2 font-semibold text-amber-500 border-b-2 border-amber-500">
+                        Títulos Virais
+                    </button>
+                    <button id="biblioteca-tab-thumbnails" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
+                        Thumbnails Virais
+                    </button>
+                </div>
+
+                <!-- Filtros -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <input type="text" id="biblioteca-search" placeholder="Buscar..." class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                        <select id="biblioteca-niche-filter" class="styled-select px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                            <option value="">Todos os Nichos</option>
+                        </select>
+                        <select id="biblioteca-views-filter" class="styled-select px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                            <option value="">Todas as Views</option>
+                            <option value="1000000">1M+ views</option>
+                            <option value="5000000">5M+ views</option>
+                            <option value="10000000">10M+ views</option>
+                        </select>
+                        <button id="biblioteca-favorites-only" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 flex items-center justify-center space-x-2">
+                            <i data-lucide="heart"></i>
+                            <span>Apenas Favoritos</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Lista de Títulos -->
+                <div id="biblioteca-titles-section" class="space-y-4">
+                    <div class="grid grid-cols-1 gap-4" id="biblioteca-titles-list">
+                        <p class="text-gray-400">Carregando títulos...</p>
+                    </div>
+                </div>
+
+                <!-- Lista de Thumbnails -->
+                <div id="biblioteca-thumbnails-section" class="space-y-4" style="display: none;">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="biblioteca-thumbnails-list">
+                        <p class="text-gray-400">Carregando thumbnails...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISÃO 8: Integração YouTube -->
+            <div id="view-youtube-integration" style="display: none;">
+                <header class="mb-8">
+                    <h1 class="text-3xl md:text-4xl font-bold text-white">🎬 Integração com YouTube</h1>
+                    <p class="text-lg text-gray-400">Publique vídeos automaticamente e gerencie seu canal</p>
+                </header>
+
+                <div id="youtube-integration-error-message" class="error-message mb-6"></div>
+                <div id="youtube-integration-success-message" class="success-message mb-6"></div>
+
+                <!-- Status da Integração -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-white mb-4">Status da Integração</h2>
+                    <div id="youtube-integration-status" class="text-gray-400 mb-4">
+                        <p>Nenhuma integração configurada. Clique no botão abaixo para conectar seu canal do YouTube.</p>
+                    </div>
+                    <button id="btn-connect-youtube" class="py-3 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-red-600 hover:bg-red-500 text-white">
+                        <i data-lucide="youtube"></i>
+                        <span>Conectar Canal do YouTube</span>
+                    </button>
+                </div>
+
+                <!-- Publicações Agendadas -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <h2 class="text-xl font-semibold text-white mb-4">Publicações Agendadas</h2>
+                    <div id="scheduled-posts-list" class="space-y-4">
+                        <p class="text-gray-400">Nenhuma publicação agendada.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISÃO 9: Configurações -->
             <div id="view-configuracoes" style="display: none;">
                 <header class="mb-8">
                     <h1 class="text-3xl md:text-4xl font-bold text-white">Configurações</h1>
@@ -972,6 +1262,21 @@
                     return whatsapp; // Return original if it's just weird characters
                 }
                 return `<a href="https://wa.me/${number}" target="_blank" class="text-blue-400 hover:text-blue-300 hover:underline">${whatsapp}</a>`;
+            }
+
+            // Funções auxiliares (definidas cedo para uso em todas as funções)
+            function formatNumber(num) {
+                const n = parseFloat(num) || 0;
+                if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+                if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+                return Math.floor(n).toString();
+            }
+
+            function escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = String(text);
+                return div.innerHTML;
             }
 
 
@@ -1340,17 +1645,28 @@
                             const folderName = userFolders.find(f => f.id == params.folderId)?.name || 'Desconhecida';
                             historyTitle.innerText = `Histórico em: ${folderName}`;
                             clearHistoryFilterBtn.style.display = 'inline';
-                            loadHistory(params.folderId);
+                            loadHistory(params.folderId, 1, currentHistoryLimit);
                         } else {
-                            loadHistory();
+                            loadHistory(null, 1, currentHistoryLimit);
                         }
                     });
                 }
                 if (viewName === 'canais') {
                     loadMonitoredChannels();
+                    loadPinnedVideos(null); // null = mostrar todos os canais
                 }
                 if (viewName === 'analisador' || viewName === 'explorar-nicho') {
                     loadFolders();
+                }
+                if (viewName === 'analytics') {
+                    loadAnalytics();
+                    loadChannels();
+                }
+                if (viewName === 'biblioteca') {
+                    loadBibliotecaTitles();
+                }
+                if (viewName === 'youtube-integration') {
+                    loadScheduledPosts();
                 }
                 
                 if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -1525,6 +1841,24 @@
                                         <span>${commentsFormatted} comentários</span>
                                     </span>
                                 </div>
+                                ${revenueUSD > 0 || rpmUSD > 0 ? `
+                                <div class="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+                                    <h4 class="text-sm font-semibold text-amber-500 mb-2">💰 Receita e RPM Estimados</h4>
+                                    <div class="grid grid-cols-2 gap-3 text-xs">
+                                        <div>
+                                            <p class="text-gray-400">Receita Estimada</p>
+                                            <p class="text-white font-bold">$${revenueUSD.toFixed(2)} USD</p>
+                                            <p class="text-gray-400">R$ ${revenueBRL.toFixed(2)} BRL</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-gray-400">RPM (Revenue Per Mille)</p>
+                                            <p class="text-white font-bold">$${rpmUSD.toFixed(2)} USD</p>
+                                            <p class="text-gray-400">R$ ${rpmBRL.toFixed(2)} BRL</p>
+                                        </div>
+                                    </div>
+                                    <p class="text-gray-500 text-xs mt-2">* Valores baseados no nicho "${data.niche || 'Entretenimento'}"</p>
+                                </div>
+                                ` : ''}
                                 <button id="btn-download-thumb" data-url="${data.videoDetails.thumbnailUrl}" data-title="${data.videoDetails.title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                     <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
                                     Baixar Thumbnail Original
@@ -1778,8 +2112,13 @@
                                 phrasesOptions = '<option value="">Sem frases</option>';
                             }
 
+                            // Buscar dados do contexto atual
+                            const currentNiche = currentAnalysisData?.niche || '';
+                            const currentSubniche = currentAnalysisData?.subniche || '';
+                            const currentStyle = document.getElementById('input-style')?.value || '';
+
                             let thumbHtml = `
-                                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4" id="${uniqueId}">
+                                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4" id="${uniqueId}" data-niche="${currentNiche}" data-subniche="${currentSubniche}" data-style="${currentStyle}">
                                     <h4 class="text-lg font-semibold text-white">Ideia de Thumbnail ${index + 1}</h4>
                                     
                                     <!-- SEO Section -->
@@ -1897,13 +2236,24 @@
                 setButtonLoading(targetButton, true);
 
                 try {
+                    // Buscar dados do contexto (niche, subniche, style) do card ou do formulário
+                    const niche = card.getAttribute('data-niche') || document.getElementById('input-niche')?.value || '';
+                    const subniche = card.getAttribute('data-subniche') || document.getElementById('input-subniche')?.value || '';
+                    const style = card.getAttribute('data-style') || document.getElementById('input-style')?.value || '';
+
                     const response = await fetch(`${API_BASE}/api/generate/imagefx`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}`
                         },
-                        body: JSON.stringify({ prompt: promptDesc })
+                        body: JSON.stringify({ 
+                            prompt: promptDesc,
+                            niche: niche,
+                            subniche: subniche,
+                            style: style,
+                            saveToLibrary: true // Sempre salvar na biblioteca quando gerar
+                        })
                     });
 
                     const data = await response.json();
@@ -1911,7 +2261,8 @@
 
                     if (imageFxResult) {
                         imageFxResult.innerHTML = `
-                            <img src="${data.imageUrl}" alt="Imagem gerada" class="rounded-lg w-full">
+                            <img src="${data.imageUrl}" alt="Imagem gerada" class="rounded-lg w-full mb-2">
+                            ${data.savedToLibrary ? '<p class="text-green-400 text-xs mb-2">✓ Imagem salva na biblioteca automaticamente!</p>' : ''}
                             <button type="button" class="btn-download-image mt-2 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs w-full" data-url="${data.imageUrl}" data-title="${promptDesc.substring(0, 20)}">
                                 <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
                                 <span>Baixar Imagem</span>
@@ -1985,10 +2336,18 @@
                 }
             }
             
-            async function loadHistory(folderId = null) {
-                let url = `${API_BASE}/api/history`;
+            let currentHistoryPage = 1;
+            let currentHistoryLimit = 50;
+            let currentHistoryFolderId = null;
+            
+            async function loadHistory(folderId = null, page = 1, limit = currentHistoryLimit) {
+                currentHistoryPage = page;
+                currentHistoryLimit = limit;
+                currentHistoryFolderId = folderId;
+                
+                let url = `${API_BASE}/api/history?page=${page}&limit=${limit}`;
                 if (folderId) {
-                    url += `?folderId=${folderId}`;
+                    url += `&folderId=${folderId}`;
                 }
                 
                 try {
@@ -1996,11 +2355,15 @@
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
                     if (!response.ok) throw new Error('Falha ao carregar histórico.');
-                    const history = await response.json();
+                    const result = await response.json();
+                    
+                    const history = result.data || [];
+                    const pagination = result.pagination || {};
                     
                     historyTableBody.innerHTML = '';
                     if (history.length === 0) {
                         historyTableBody.innerHTML = '<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhuma análise encontrada.</td></tr>';
+                        document.getElementById('history-pagination').style.display = 'none';
                         return;
                     }
                     
@@ -2022,10 +2385,71 @@
                     });
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                     
+                    // Atualizar paginação
+                    updateHistoryPagination(pagination);
+                    
                 } catch (err) {
                     console.error(err.message);
                     historyTableBody.innerHTML = `<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-red-500 py-4">${err.message}</td></tr>`;
+                    document.getElementById('history-pagination').style.display = 'none';
                 }
+            }
+            
+            function updateHistoryPagination(pagination) {
+                const paginationInfo = document.getElementById('history-pagination-info');
+                const paginationControls = document.getElementById('history-pagination-controls');
+                const paginationContainer = document.getElementById('history-pagination');
+                
+                if (!pagination || !pagination.total || pagination.totalPages <= 1) {
+                    paginationContainer.style.display = 'none';
+                    return;
+                }
+                
+                paginationContainer.style.display = 'flex';
+                
+                // Info
+                const start = ((pagination.page - 1) * pagination.limit) + 1;
+                const end = Math.min(pagination.page * pagination.limit, pagination.total);
+                paginationInfo.textContent = `Mostrando ${start}-${end} de ${pagination.total} análises`;
+                
+                // Controles
+                paginationControls.innerHTML = '';
+                
+                // Botão Anterior
+                if (pagination.hasPrev) {
+                    const prevBtn = document.createElement('button');
+                    prevBtn.className = 'px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 text-sm';
+                    prevBtn.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4 inline"></i> Anterior';
+                    prevBtn.onclick = () => loadHistory(currentHistoryFolderId, pagination.page - 1, currentHistoryLimit);
+                    paginationControls.appendChild(prevBtn);
+                }
+                
+                // Números de página
+                const maxPages = 5;
+                let startPage = Math.max(1, pagination.page - Math.floor(maxPages / 2));
+                let endPage = Math.min(pagination.totalPages, startPage + maxPages - 1);
+                if (endPage - startPage < maxPages - 1) {
+                    startPage = Math.max(1, endPage - maxPages + 1);
+                }
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    const pageBtn = document.createElement('button');
+                    pageBtn.className = `px-3 py-1 rounded-lg text-sm ${i === pagination.page ? 'bg-amber-600 text-black font-bold' : 'bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700'}`;
+                    pageBtn.textContent = i;
+                    pageBtn.onclick = () => loadHistory(currentHistoryFolderId, i, currentHistoryLimit);
+                    paginationControls.appendChild(pageBtn);
+                }
+                
+                // Botão Próximo
+                if (pagination.hasNext) {
+                    const nextBtn = document.createElement('button');
+                    nextBtn.className = 'px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 text-sm';
+                    nextBtn.innerHTML = 'Próximo <i data-lucide="chevron-right" class="w-4 h-4 inline"></i>';
+                    nextBtn.onclick = () => loadHistory(currentHistoryFolderId, pagination.page + 1, currentHistoryLimit);
+                    paginationControls.appendChild(nextBtn);
+                }
+                
+                if (typeof lucide !== 'undefined') lucide.createIcons();
             }
             
             newFolderForm.addEventListener('submit', async (e) => {
@@ -2091,7 +2515,7 @@
                     const folderName = link.dataset.folderName;
                     historyTitle.innerText = `Histórico em: ${folderName}`;
                     clearHistoryFilterBtn.style.display = 'inline';
-                    loadHistory(folderId);
+                    loadHistory(folderId, 1, currentHistoryLimit);
                 }
             });
             
@@ -2099,8 +2523,17 @@
                 e.preventDefault();
                 historyTitle.innerText = 'Histórico Geral';
                 clearHistoryFilterBtn.style.display = 'none';
-                loadHistory();
+                loadHistory(null, 1, currentHistoryLimit);
             });
+            
+            // Filtro de limite por página
+            const historyLimitSelect = document.getElementById('history-limit');
+            if (historyLimitSelect) {
+                historyLimitSelect.addEventListener('change', (e) => {
+                    const newLimit = parseInt(e.target.value);
+                    loadHistory(currentHistoryFolderId, 1, newLimit);
+                });
+            }
 
             historyTableBody.addEventListener('click', async (e) => {
                 const button = e.target.closest('.btn-history-action');
@@ -2168,8 +2601,8 @@
                         });
                         if (!response.ok) throw new Error('Falha ao excluir.');
                         
-                        const currentFolderId = document.querySelector('.folder-link.active')?.dataset.folderId;
-                        loadHistory(currentFolderId);
+                        const currentFolderId = document.querySelector('.folder-link.active')?.dataset.folderId || currentHistoryFolderId;
+                        loadHistory(currentFolderId, currentHistoryPage, currentHistoryLimit);
                         showMessage('historico-success-message', 'Análises excluídas.');
                         deleteSelectedBtn.classList.add('hidden');
                         selectAllHistory.checked = false;
@@ -2210,23 +2643,46 @@
             
             async function loadMonitoredChannels() {
                 try {
-                    const response = await fetch(`${API_BASE}/api/channels`, {
+                    console.log('[Canais Monitorados] Carregando lista de canais...');
+                    const response = await fetch(`${API_BASE}/api/channels/monitor`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
-                    if (!response.ok) throw new Error('Falha ao carregar canais.');
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Falha ao carregar canais.' }));
+                        throw new Error(errorData.msg || 'Falha ao carregar canais.');
+                    }
                     const channels = await response.json();
                     
+                    console.log(`[Canais Monitorados] ${channels ? channels.length : 0} canal(is) encontrado(s)`, channels);
+                    
                     channelTableBody.innerHTML = '';
-                    if (channels.length === 0) {
-                        channelTableBody.innerHTML = '<tr><td colspan="3" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhum canal monitorado.</td></tr>';
+                    if (!channels || channels.length === 0) {
+                        channelTableBody.innerHTML = '<tr><td colspan="3" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhum canal monitorado. Adicione um canal para começar.</td></tr>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                        return;
                     }
                     
-                    channels.forEach(channel => {
+                    // Verificar limite de 5 canais
+                    if (channels.length >= 5) {
+                        const limitMsg = document.getElementById('canais-limit-message');
+                        if (limitMsg) {
+                            limitMsg.textContent = `Limite de 5 canais atingido (${channels.length}/5). Exclua um canal para adicionar outro.`;
+                            limitMsg.style.display = 'block';
+                            limitMsg.className = 'error-message mb-4';
+                        }
+                    } else {
+                        const limitMsg = document.getElementById('canais-limit-message');
+                        if (limitMsg) limitMsg.style.display = 'none';
+                    }
+                    
+                    channels.forEach((channel, index) => {
+                        const escapedName = (channel.channel_name || '').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+                        const escapedUrl = (channel.channel_url || '').replace(/"/g, '&quot;');
                         channelTableBody.innerHTML += `
                             <tr>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900">${channel.channel_name}</td>
+                                <td class="p-3 border-b border-gray-700 bg-gray-900">${escapedName}</td>
                                 <td class="p-3 border-b border-gray-700 bg-gray-900 max-w-xs truncate">
-                                    <a href="${channel.channel_url}" target="_blank" class="text-amber-500 hover:text-amber-400">${channel.channel_url}</a>
+                                    <a href="${escapedUrl}" target="_blank" class="text-amber-500 hover:text-amber-400" title="${escapedUrl}">${escapedUrl}</a>
                                 </td>
                                 <td class="p-3 border-b border-gray-700 bg-gray-900 flex space-x-1">
                                     <button title="Verificar Vídeos" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-green-500 btn-channel-action" data-action="check" data-id="${channel.id}">
@@ -2241,7 +2697,10 @@
                     });
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                     
+                    console.log('[Canais Monitorados] Lista atualizada com sucesso.');
+                    
                 } catch (err) {
+                    console.error('[Canais Monitorados] Erro ao carregar:', err);
                     showMessage('canais-error-message', err.message, true);
                 }
             }
@@ -2252,11 +2711,18 @@
                     const btn = document.getElementById('btn-add-channel');
                     setButtonLoading(btn, true);
                     
-                    const channelName = document.getElementById('new-channel-name').value;
-                    const channelUrl = document.getElementById('new-channel-url').value;
+                    const channelName = document.getElementById('new-channel-name').value.trim();
+                    const channelUrl = document.getElementById('new-channel-url').value.trim();
+                    
+                    if (!channelName || !channelUrl) {
+                        showMessage('canais-error-message', 'Nome e URL do canal são obrigatórios.', true);
+                        setButtonLoading(btn, false);
+                        return;
+                    }
                     
                     try {
-                         const response = await fetch(`${API_BASE}/api/channels`, {
+                        console.log('[Adicionar Canal] Enviando requisição...', { channelName, channelUrl });
+                        const response = await fetch(`${API_BASE}/api/channels/monitor`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -2267,10 +2733,17 @@
                         const data = await response.json();
                         if (!response.ok) throw new Error(data.msg || 'Erro ao adicionar canal.');
                         
+                        console.log('[Adicionar Canal] Canal adicionado com sucesso:', data);
+                        
+                        // Limpar formulário
                         document.getElementById('new-channel-name').value = '';
                         document.getElementById('new-channel-url').value = '';
-                        loadMonitoredChannels();
-                        showMessage('canais-success-message', 'Canal adicionado com sucesso!');
+                        
+                        // Recarregar lista de canais e vídeos fixados
+                        await loadMonitoredChannels();
+                        await loadPinnedVideos(null); // null = mostrar todos os canais
+                        
+                        showMessage('canais-success-message', `Canal "${channelName}" adicionado com sucesso!`);
                         
                     } catch (err) {
                         showMessage('canais-error-message', err.message, true);
@@ -2291,13 +2764,20 @@
                     if (action === 'delete') {
                          if (confirm('Tem certeza que deseja remover este canal?')) {
                             try {
-                                const response = await fetch(`${API_BASE}/api/channels/${channelId}`, {
+                                const response = await fetch(`${API_BASE}/api/channels/monitor/${channelId}`, {
                                     method: 'DELETE',
                                     headers: { 'Authorization': `Bearer ${userToken}` }
                                 });
-                                if (!response.ok) throw new Error('Falha ao remover canal.');
-                                loadMonitoredChannels();
-                                showMessage('canais-success-message', 'Canal removido.');
+                                if (!response.ok) {
+                                    const errorData = await response.json().catch(() => ({ msg: 'Falha ao remover canal.' }));
+                                    throw new Error(errorData.msg || 'Falha ao remover canal.');
+                                }
+                                await loadMonitoredChannels();
+                                // Manter o canal selecionado no dropdown (ou null se não houver seleção)
+                                const channelSelect = document.getElementById('pinned-channel-select');
+                                const selectedChannelId = channelSelect ? channelSelect.value || null : null;
+                                await loadPinnedVideos(selectedChannelId);
+                                showMessage('canais-success-message', 'Canal removido com sucesso.');
                             } catch (err) {
                                 showMessage('canais-error-message', err.message, true);
                             }
@@ -2309,26 +2789,47 @@
                         showModal(true);
 
                         try {
-                            const response = await fetch(`${API_BASE}/api/channels/${channelId}/check`, {
+                            const response = await fetch(`${API_BASE}/api/channels/monitor/${channelId}/check`, {
                                 headers: { 'Authorization': `Bearer ${userToken}` }
                             });
+                            
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                let errorMsg = 'Erro desconhecido';
+                                try {
+                                    const errorData = JSON.parse(errorText);
+                                    errorMsg = errorData.msg || errorMsg;
+                                } catch (e) {
+                                    errorMsg = errorText.substring(0, 100) || 'Erro ao buscar vídeos do canal';
+                                }
+                                throw new Error(errorMsg);
+                            }
+                            
                             const data = await response.json();
-                            if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
 
                             const createVideoListHTML = (videos, isPinned = false) => {
                                 if (!videos || videos.length === 0) return '<p class="text-gray-500 text-center py-4">Nenhum vídeo encontrado.</p>';
                                 return videos.map(video => {
                                     const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                                    const revenueUSD = video.estimatedRevenueUSD || 0;
+                                    const rpmUSD = video.rpmUSD || 0;
                                     return `
                                     <div class="flex items-start space-x-4 bg-gray-800 p-3 rounded-lg">
                                         <img src="${video.thumbnail}" alt="thumb" class="w-32 h-18 object-cover rounded">
                                         <div class="flex-1 min-w-0">
                                             <p class="text-sm font-medium text-gray-200 line-clamp-2">${video.title}</p>
                                             <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 mt-1">
-                                                <span class="flex items-center"><i data-lucide="eye" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.views)}</span>
-                                                <span class="flex items-center"><i data-lucide="thumbs-up" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.likes)}</span>
-                                                <span class="flex items-center"><i data-lucide="message-square" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.comments)}</span>
+                                                <span class="flex items-center"><i data-lucide="eye" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.views || 0)}</span>
+                                                <span class="flex items-center"><i data-lucide="thumbs-up" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.likes || 0)}</span>
+                                                <span class="flex items-center"><i data-lucide="message-square" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.comments || 0)}</span>
                                             </div>
+                                            ${revenueUSD > 0 || rpmUSD > 0 ? `
+                                            <div class="mt-2 text-xs">
+                                                <span class="text-green-400 font-semibold">$${revenueUSD.toFixed(2)}</span>
+                                                <span class="text-gray-500 mx-1">•</span>
+                                                <span class="text-amber-400 font-semibold">RPM: $${rpmUSD.toFixed(2)}</span>
+                                            </div>
+                                            ` : ''}
                                         </div>
                                         <div class="flex flex-col space-y-2">
                                             <button class="btn-analyze-from-modal py-2 px-3 rounded-lg transition duration-300 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-black whitespace-nowrap" data-video-id="${video.videoId}">Analisar</button>
@@ -2388,6 +2889,11 @@
                     // Refresh the modal content
                     const checkButton = document.querySelector(`.btn-channel-action[data-action="check"][data-id="${channelId}"]`);
                     if (checkButton) checkButton.click();
+                    
+                    // Atualizar seção de vídeos fixados em tempo real (manter canal selecionado)
+                    const channelSelect = document.getElementById('pinned-channel-select');
+                    const selectedChannelId = channelSelect ? channelSelect.value || null : null;
+                    await loadPinnedVideos(selectedChannelId);
 
                 } catch (err) {
                     showMessage('canais-error-message', err.message, true);
@@ -2405,12 +2911,233 @@
                     
                     showMessage('canais-success-message', 'Vídeo removido dos fixados.');
                     
-                    // Refresh the modal content
+                    // Refresh the modal content and pinned videos section
                     const checkButton = document.querySelector(`.btn-channel-action[data-action="check"][data-id="${channelId}"]`);
                     if (checkButton) checkButton.click();
+                    // Manter o canal selecionado no dropdown
+                    const channelSelect = document.getElementById('pinned-channel-select');
+                    const selectedChannelId = channelSelect ? channelSelect.value || null : null;
+                    await loadPinnedVideos(selectedChannelId);
 
                 } catch (err) {
                     showMessage('canais-error-message', err.message, true);
+                }
+            }
+            
+            let allChannelsForPinned = [];
+            let allPinnedVideosByChannel = {};
+            
+            async function loadPinnedVideos(selectedChannelId = null) {
+                const pinnedSection = document.getElementById('pinned-videos-section');
+                const channelSelect = document.getElementById('pinned-channel-select');
+                if (!pinnedSection) return;
+                
+                try {
+                    // Buscar todos os canais monitorados
+                    const channelsResponse = await fetch(`${API_BASE}/api/channels/monitor`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!channelsResponse.ok) throw new Error('Falha ao carregar canais.');
+                    const channels = await channelsResponse.json();
+                    allChannelsForPinned = channels || [];
+                    
+                    // Atualizar dropdown de canais
+                    if (channelSelect) {
+                        channelSelect.innerHTML = '<option value="">Todos os Canais</option>';
+                        allChannelsForPinned.forEach(channel => {
+                            const option = document.createElement('option');
+                            option.value = channel.id;
+                            option.textContent = channel.channel_name;
+                            if (selectedChannelId && channel.id == selectedChannelId) {
+                                option.selected = true;
+                            }
+                            channelSelect.appendChild(option);
+                        });
+                    }
+                    
+                    if (allChannelsForPinned.length === 0) {
+                        pinnedSection.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Nenhum canal monitorado. Adicione um canal para começar.</p>';
+                        return;
+                    }
+                    
+                    // Buscar vídeos fixados de todos os canais (ou apenas do canal selecionado)
+                    const channelsToFetch = selectedChannelId 
+                        ? allChannelsForPinned.filter(c => c.id == selectedChannelId)
+                        : allChannelsForPinned;
+                    
+                    allPinnedVideosByChannel = {};
+                    for (const channel of channelsToFetch) {
+                        try {
+                            const pinnedResponse = await fetch(`${API_BASE}/api/channels/${channel.id}/pinned`, {
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            if (pinnedResponse.ok) {
+                                const pinned = await pinnedResponse.json();
+                                if (pinned && pinned.length > 0) {
+                                    allPinnedVideosByChannel[channel.id] = {
+                                        channelName: channel.channel_name,
+                                        channelId: channel.id,
+                                        videos: pinned
+                                    };
+                                }
+                            }
+                        } catch (err) {
+                            console.error(`Erro ao buscar vídeos fixados do canal ${channel.id}:`, err);
+                        }
+                    }
+                    
+                    const channelsWithPinnedVideos = Object.values(allPinnedVideosByChannel);
+                    
+                    if (channelsWithPinnedVideos.length === 0) {
+                        if (selectedChannelId) {
+                            pinnedSection.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Este canal não possui vídeos fixados ainda. Fixe vídeos ao buscar vídeos do canal.</p>';
+                        } else {
+                            pinnedSection.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Nenhum vídeo fixado ainda. Fixe vídeos ao buscar vídeos de um canal.</p>';
+                        }
+                        return;
+                    }
+                    
+                    // Exibir vídeos fixados (agrupados por canal se "Todos os Canais", ou apenas do canal selecionado)
+                    if (selectedChannelId) {
+                        // Mostrar apenas vídeos do canal selecionado
+                        const channelData = allPinnedVideosByChannel[selectedChannelId];
+                        if (channelData) {
+                            const { channelName, channelId, videos } = channelData;
+                            const videosHtml = videos.map(video => {
+                                const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                                return createPinnedVideoCard(video, channelId, escapedTitle);
+                            }).join('');
+                            
+                            pinnedSection.innerHTML = `
+                                <div class="col-span-full mb-4">
+                                    <h3 class="text-lg font-semibold text-amber-500 mb-3 flex items-center">
+                                        <i data-lucide="tv" class="w-5 h-5 mr-2"></i>
+                                        ${channelName}
+                                        <span class="ml-2 text-sm text-gray-400">(${videos.length} vídeo${videos.length !== 1 ? 's' : ''} fixado${videos.length !== 1 ? 's' : ''})</span>
+                                    </h3>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 col-span-full">
+                                    ${videosHtml}
+                                </div>
+                            `;
+                        } else {
+                            pinnedSection.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Este canal não possui vídeos fixados ainda.</p>';
+                        }
+                    } else {
+                        // Mostrar todos os canais agrupados
+                        pinnedSection.innerHTML = channelsWithPinnedVideos.map(channelData => {
+                            const { channelName, channelId, videos } = channelData;
+                            const videosHtml = videos.map(video => {
+                                const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                                return createPinnedVideoCard(video, channelId, escapedTitle);
+                            }).join('');
+                            
+                            return `
+                                <div class="col-span-full mb-6">
+                                    <h3 class="text-lg font-semibold text-amber-500 mb-3 flex items-center">
+                                        <i data-lucide="tv" class="w-5 h-5 mr-2"></i>
+                                        ${channelName}
+                                        <span class="ml-2 text-sm text-gray-400">(${videos.length} vídeo${videos.length !== 1 ? 's' : ''} fixado${videos.length !== 1 ? 's' : ''})</span>
+                                    </h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        ${videosHtml}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                    
+                    function createPinnedVideoCard(video, channelId, escapedTitle) {
+                        return `
+                            <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-amber-500 transition-colors">
+                                <img src="${video.thumbnail}" alt="thumb" class="w-full h-40 object-cover rounded-lg mb-3">
+                                <div class="space-y-2">
+                                    <p class="text-sm font-medium text-white line-clamp-2" title="${escapedTitle}">${escapedTitle}</p>
+                                    <div class="flex items-center justify-between text-xs text-gray-500 mb-2">
+                                        <span class="flex items-center"><i data-lucide="eye" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.views || 0)}</span>
+                                        <span class="flex items-center"><i data-lucide="thumbs-up" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.likes || 0)}</span>
+                                    </div>
+                                    ${video.estimatedRevenueUSD > 0 || video.rpmUSD > 0 ? `
+                                    <div class="mt-2 p-2 bg-gray-800 rounded text-xs">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="text-gray-400">Receita:</span>
+                                            <span class="text-green-400 font-bold">$${(video.estimatedRevenueUSD || 0).toFixed(2)}</span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-gray-400">RPM:</span>
+                                            <span class="text-amber-400 font-bold">$${(video.rpmUSD || 0).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                    <div class="flex items-center gap-2 mt-3">
+                                        <button class="btn-analyze-from-pinned flex-1 py-2 px-3 rounded-lg transition duration-300 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-black" data-video-id="${video.videoId}">
+                                            Analisar
+                                        </button>
+                                        <button title="Remover Fixado" class="btn-unpin-from-section p-2 rounded-md hover:bg-gray-700 text-red-500" data-pin-id="${video.pinId}" data-channel-id="${channelId}">
+                                            <i data-lucide="x" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Event listener para mudança de canal no dropdown
+                    if (channelSelect) {
+                        // Remover listener antigo se existir
+                        const oldHandler = channelSelect._changeHandler;
+                        if (oldHandler) {
+                            channelSelect.removeEventListener('change', oldHandler);
+                        }
+                        
+                        const changeHandler = (e) => {
+                            const selectedChannelId = e.target.value || null;
+                            loadPinnedVideos(selectedChannelId);
+                        };
+                        
+                        channelSelect._changeHandler = changeHandler;
+                        channelSelect.addEventListener('change', changeHandler);
+                    }
+                    
+                    // Event listeners para botões (usar event delegation)
+                    const oldClickHandler = pinnedSection._clickHandler;
+                    if (oldClickHandler) {
+                        pinnedSection.removeEventListener('click', oldClickHandler);
+                    }
+                    
+                    const clickHandler = async (e) => {
+                        const analyzeBtn = e.target.closest('.btn-analyze-from-pinned');
+                        if (analyzeBtn) {
+                            const videoId = analyzeBtn.dataset.videoId;
+                            const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+                            navigateToView('analisador');
+                            const urlInput = document.getElementById('video-url-input') || document.getElementById('video-url');
+                            if (urlInput) urlInput.value = videoUrl;
+                            const analisarBtn = document.getElementById('analisar-button');
+                            if (analisarBtn) analisarBtn.click();
+                            return;
+                        }
+                        
+                        const unpinBtn = e.target.closest('.btn-unpin-from-section');
+                        if (unpinBtn) {
+                            const pinId = unpinBtn.dataset.pinId;
+                            const channelId = unpinBtn.dataset.channelId;
+                            await unpinVideo(pinId, channelId, unpinBtn);
+                            // Recarregar mantendo o canal selecionado
+                            const selectedChannelId = channelSelect ? channelSelect.value || null : null;
+                            await loadPinnedVideos(selectedChannelId);
+                            return;
+                        }
+                    };
+                    
+                    pinnedSection._clickHandler = clickHandler;
+                    pinnedSection.addEventListener('click', clickHandler);
+                    
+                } catch (err) {
+                    console.error('Erro ao carregar vídeos fixados:', err);
+                    pinnedSection.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Erro ao carregar vídeos fixados.</p>';
                 }
             }
 
@@ -2702,7 +3429,834 @@
             loadFolders(); 
             setupAdminListeners();
 
+            // === FUNCIONALIDADES DE ANALYTICS ===
+            async function loadAnalytics() {
+                console.log('[Analytics] Iniciando carregamento...');
+                if (!userToken) {
+                    console.error('[Analytics] Token de usuário não encontrado');
+                    const errorMsg = document.getElementById('analytics-error-message');
+                    if (errorMsg) showMessage('analytics-error-message', 'Token de autenticação não encontrado. Por favor, faça login novamente.', true);
+                    return;
+                }
+                try {
+                    console.log('[Analytics] Fazendo requisição para:', `${API_BASE}/api/analytics/dashboard`);
+                    const response = await fetch(`${API_BASE}/api/analytics/dashboard`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    console.log('[Analytics] Resposta recebida:', response.status, response.statusText);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar analytics: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    console.log('[Analytics] Dados recebidos:', data);
+
+                    const totalViewsEl = document.getElementById('stats-total-views');
+                    const avgCtrEl = document.getElementById('stats-avg-ctr');
+                    const totalRevenueEl = document.getElementById('stats-total-revenue');
+                    const viralVideosEl = document.getElementById('stats-viral-videos');
+
+                    if (totalViewsEl) totalViewsEl.textContent = formatNumber(data.stats.totalViews || 0);
+                    if (avgCtrEl) avgCtrEl.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
+                    if (totalRevenueEl) totalRevenueEl.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
+                    const totalRevenueBrlEl = document.getElementById('stats-total-revenue-brl');
+                    if (totalRevenueBrlEl) totalRevenueBrlEl.textContent = 'R$ ' + formatNumber(data.stats.totalRevenueBRL || 0);
+                    const rpmEl = document.getElementById('stats-rpm');
+                    if (rpmEl) rpmEl.textContent = `RPM: $${(data.stats.rpmUSD || 0).toFixed(2)} / R$ ${(data.stats.rpmBRL || 0).toFixed(2)}`;
+                    if (viralVideosEl) viralVideosEl.textContent = data.stats.viralVideos || 0;
+
+                    const videosList = document.getElementById('analytics-videos-list');
+                    if (videosList) {
+                        if (data.recentVideos && data.recentVideos.length > 0) {
+                            videosList.innerHTML = data.recentVideos.map(video => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+                                    <div class="flex-1">
+                                        <h3 class="text-white font-semibold mb-1">${escapeHtml(video.title_used || 'Sem título')}</h3>
+                                        <p class="text-gray-400 text-sm mb-1">${formatNumber(parseInt(video.actual_views || 0))} views • CTR: ${(parseFloat(video.actual_ctr || 0)).toFixed(1)}%</p>
+                                        <p class="text-gray-400 text-xs mb-1">Receita: $${formatNumber(parseFloat(video.revenue_estimate || 0))} / R$ ${formatNumber(parseFloat(video.revenue_estimate || 0) * 5.50)}</p>
+                                        ${video.channel_name ? `<p class="text-blue-400 text-xs mb-1">Canal: ${escapeHtml(video.channel_name)}</p>` : ''}
+                                        ${video.youtube_video_id ? `<a href="https://www.youtube.com/watch?v=${video.youtube_video_id}" target="_blank" class="text-amber-500 hover:text-amber-400 text-xs">Ver no YouTube</a>` : ''}
+                                        ${video.published_at ? `<p class="text-gray-500 text-xs mt-1">Publicado: ${new Date(video.published_at).toLocaleDateString('pt-BR')}</p>` : ''}
+                                    </div>
+                                    <div class="flex items-center gap-2 ml-4">
+                                        <button onclick="updateVideoMetrics(${video.id})" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-bold text-sm" title="Atualizar métricas">
+                                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                        </button>
+                                        <button onclick="deleteVideoTracking(${video.id})" class="py-2 px-4 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-sm" title="Excluir do tracking">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('');
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            videosList.innerHTML = '<p class="text-gray-400">Nenhum vídeo trackado ainda.</p>';
+                        }
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar analytics:', err);
+                    const errorMsg = document.getElementById('analytics-error-message');
+                    if (errorMsg) {
+                        showMessage('analytics-error-message', err.message || 'Erro ao carregar analytics. Verifique o console para mais detalhes.', true);
+                    }
+                    // Mesmo com erro, mostrar interface vazia
+                    const totalViewsEl = document.getElementById('stats-total-views');
+                    const avgCtrEl = document.getElementById('stats-avg-ctr');
+                    const totalRevenueEl = document.getElementById('stats-total-revenue');
+                    const viralVideosEl = document.getElementById('stats-viral-videos');
+                    if (totalViewsEl) totalViewsEl.textContent = '0';
+                    if (avgCtrEl) avgCtrEl.textContent = '0%';
+                    if (totalRevenueEl) totalRevenueEl.textContent = '$0';
+                    if (viralVideosEl) viralVideosEl.textContent = '0';
+                }
+            }
+
+            window.updateVideoMetrics = async function(trackingId) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/analytics/update/${trackingId}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao atualizar métricas.');
+                    showMessage('analytics-success-message', 'Métricas atualizadas com sucesso!');
+                    await loadAnalytics();
+                } catch (err) {
+                    showMessage('analytics-error-message', err.message, true);
+                }
+            };
+
+            window.deleteVideoTracking = async function(trackingId) {
+                if (!confirm('Tem certeza que deseja excluir este vídeo do tracking? Esta ação não pode ser desfeita.')) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`${API_BASE}/api/analytics/track/${trackingId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || 'Falha ao excluir vídeo.');
+                    }
+                    showMessage('analytics-success-message', 'Vídeo excluído do tracking com sucesso!');
+                    await loadAnalytics();
+                } catch (err) {
+                    showMessage('analytics-error-message', err.message, true);
+                }
+            };
+
+            // === GERENCIAMENTO DE CANAIS ===
+            let currentEditingChannelId = null;
+
+            async function loadChannels() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/channels`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar canais.');
+                    const channels = await response.json();
+                    
+                    const channelsList = document.getElementById('channels-list');
+                    const channelSelect = document.getElementById('register-video-channel');
+                    
+                    if (channelsList) {
+                        if (channels.length > 0) {
+                            channelsList.innerHTML = channels.map(channel => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+                                    <div class="flex-1">
+                                        <h3 class="text-white font-semibold">${escapeHtml(channel.channel_name)}</h3>
+                                        <p class="text-gray-400 text-sm">${escapeHtml(channel.niche || 'Sem nicho')} • ${escapeHtml(channel.language || 'pt-BR')} • ${escapeHtml(channel.country || 'BR')}</p>
+                                        <span class="inline-block mt-1 px-2 py-1 text-xs rounded ${channel.is_active ? 'bg-green-600' : 'bg-gray-600'}">${channel.is_active ? 'Ativo' : 'Inativo'}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2 ml-4">
+                                        <button onclick="editChannel(${channel.id})" class="p-2 text-blue-400 hover:text-blue-300" title="Editar canal">
+                                            <i data-lucide="edit"></i>
+                                        </button>
+                                        <button onclick="toggleChannelStatus(${channel.id}, ${channel.is_active})" class="p-2 ${channel.is_active ? 'text-yellow-400' : 'text-green-400'} hover:opacity-80" title="${channel.is_active ? 'Desativar' : 'Ativar'}">
+                                            <i data-lucide="${channel.is_active ? 'pause' : 'play'}"></i>
+                                        </button>
+                                        <button onclick="deleteChannel(${channel.id})" class="p-2 text-red-600 hover:text-red-500" title="Excluir canal">
+                                            <i data-lucide="trash-2"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('');
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            channelsList.innerHTML = '<p class="text-gray-400">Nenhum canal cadastrado. Adicione um canal para organizar seus vídeos por nicho e idioma.</p>';
+                        }
+                    }
+
+                    if (channelSelect) {
+                        channelSelect.innerHTML = '<option value="">Selecione um canal (opcional)</option>' + 
+                            channels.filter(c => c.is_active).map(channel => 
+                                `<option value="${channel.id}">${escapeHtml(channel.channel_name)}</option>`
+                            ).join('');
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar canais:', err);
+                }
+            }
+
+            window.showAddChannelModal = function() {
+                currentEditingChannelId = null;
+                document.getElementById('channel-modal-title').textContent = 'Adicionar Canal';
+                document.getElementById('channel-form').reset();
+                document.getElementById('channel-modal').classList.remove('hidden');
+                document.getElementById('channel-modal').classList.add('flex');
+            };
+
+            window.hideChannelModal = function() {
+                document.getElementById('channel-modal').classList.add('hidden');
+                document.getElementById('channel-modal').classList.remove('flex');
+                currentEditingChannelId = null;
+            };
+
+            window.editChannel = async function(channelId) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/channels`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar canais.');
+                    const channels = await response.json();
+                    const channel = channels.find(c => c.id === channelId);
+                    if (!channel) throw new Error('Canal não encontrado.');
+                    
+                    currentEditingChannelId = channelId;
+                    document.getElementById('channel-modal-title').textContent = 'Editar Canal';
+                    document.getElementById('channel-name').value = channel.channel_name;
+                    document.getElementById('channel-url').value = channel.channel_url || '';
+                    document.getElementById('channel-niche').value = channel.niche || '';
+                    document.getElementById('channel-language').value = channel.language || 'pt-BR';
+                    document.getElementById('channel-country').value = channel.country || 'BR';
+                    document.getElementById('channel-modal').classList.remove('hidden');
+                    document.getElementById('channel-modal').classList.add('flex');
+                } catch (err) {
+                    showMessage('analytics-error-message', err.message, true);
+                }
+            };
+
+            window.toggleChannelStatus = async function(channelId, currentStatus) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/channels/${channelId}/status`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ isActive: !currentStatus })
+                    });
+                    if (!response.ok) throw new Error('Falha ao atualizar status do canal.');
+                    await loadChannels();
+                    await loadAnalytics();
+                } catch (err) {
+                    showMessage('analytics-error-message', err.message, true);
+                }
+            };
+
+            window.deleteChannel = async function(channelId) {
+                if (!confirm('Tem certeza que deseja excluir este canal? Esta ação não pode ser desfeita.')) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`${API_BASE}/api/channels/${channelId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao excluir canal.');
+                    await loadChannels();
+                    await loadAnalytics();
+                    showMessage('analytics-success-message', 'Canal excluído com sucesso!');
+                } catch (err) {
+                    showMessage('analytics-error-message', err.message, true);
+                }
+            };
+
+            // Auto-preenchimento de canal ao digitar URL (usando event delegation para funcionar quando modal abrir)
+            let channelUrlTimeout;
+            document.addEventListener('input', (e) => {
+                if (e.target.id === 'channel-url') {
+                    clearTimeout(channelUrlTimeout);
+                    const url = e.target.value.trim();
+                    if (url && url.includes('youtube.com')) {
+                        channelUrlTimeout = setTimeout(async () => {
+                            try {
+                                const response = await fetch(`${API_BASE}/api/channels/fetch-info`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${userToken}`
+                                    },
+                                    body: JSON.stringify({ channelUrl: url })
+                                });
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    console.log('[Canais] Dados recebidos do servidor:', data);
+                                    if (data.channelName) {
+                                        const nameInput = document.getElementById('channel-name');
+                                        if (nameInput) {
+                                            nameInput.value = data.channelName;
+                                            console.log('[Canais] Nome do canal preenchido:', data.channelName);
+                                        }
+                                    }
+                                    if (data.channelId) {
+                                        const hiddenInput = document.getElementById('channel-id-hidden');
+                                        if (hiddenInput) {
+                                            hiddenInput.setAttribute('data-channel-id', data.channelId);
+                                            console.log('[Canais] ID do canal salvo:', data.channelId);
+                                        }
+                                    }
+                                    if (data.niche) {
+                                        const nicheInput = document.getElementById('channel-niche');
+                                        if (nicheInput) {
+                                            nicheInput.value = data.niche;
+                                            console.log('[Canais] Nicho preenchido:', data.niche);
+                                        }
+                                    } else {
+                                        console.warn('[Canais] Nicho não retornado pelo servidor');
+                                    }
+                                    if (data.language) {
+                                        const langInput = document.getElementById('channel-language');
+                                        if (langInput) {
+                                            langInput.value = data.language;
+                                            console.log('[Canais] Idioma preenchido:', data.language);
+                                        }
+                                    }
+                                    if (data.country) {
+                                        const countryInput = document.getElementById('channel-country');
+                                        if (countryInput) {
+                                            countryInput.value = data.country;
+                                            console.log('[Canais] País preenchido:', data.country);
+                                        }
+                                    }
+                                    showMessage('analytics-success-message', 'Informações do canal carregadas com sucesso!');
+                                } else {
+                                    const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                                    console.error('[Canais] Erro ao buscar informações:', errorData);
+                                    showMessage('analytics-error-message', errorData.msg || 'Erro ao buscar informações do canal.', true);
+                                }
+                            } catch (err) {
+                                console.error('Erro ao buscar informações do canal:', err);
+                            }
+                        }, 1000); // Aguardar 1 segundo após parar de digitar
+                    }
+                }
+            });
+
+            const channelForm = document.getElementById('channel-form');
+            if (channelForm) {
+                channelForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const channelName = document.getElementById('channel-name').value;
+                    const channelUrl = document.getElementById('channel-url').value;
+                    const channelIdHidden = document.getElementById('channel-id-hidden');
+                    const channelId = channelIdHidden?.getAttribute('data-channel-id') || null;
+                    const niche = document.getElementById('channel-niche').value;
+                    const language = document.getElementById('channel-language').value;
+                    const country = document.getElementById('channel-country').value;
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/channels`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({
+                                channelName,
+                                channelUrl,
+                                channelId,
+                                niche,
+                                language,
+                                country
+                            })
+                        });
+                        if (!response.ok) {
+                            const data = await response.json();
+                            throw new Error(data.msg || 'Falha ao salvar canal.');
+                        }
+                        
+                        hideChannelModal();
+                        await loadChannels();
+                        showMessage('analytics-success-message', 'Canal salvo com sucesso!');
+                    } catch (err) {
+                        showMessage('analytics-error-message', err.message, true);
+                    }
+                });
+            }
+
+            const registerVideoForm = document.getElementById('register-video-form');
+            if (registerVideoForm) {
+                registerVideoForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const channelId = document.getElementById('register-video-channel').value;
+                    const url = document.getElementById('register-video-url').value;
+                    const title = document.getElementById('register-video-title').value;
+                    const ctr = document.getElementById('register-video-ctr').value;
+                    const views = document.getElementById('register-video-views').value;
+
+                    try {
+                        const videoId = url.match(/[?&]v=([^&]+)/)?.[1];
+                        if (!videoId) throw new Error('URL do YouTube inválida.');
+
+                        const response = await fetch(`${API_BASE}/api/analytics/track`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({
+                                channelId: channelId || null,
+                                youtubeVideoId: videoId,
+                                titleUsed: title,
+                                predictedCtr: ctr ? parseFloat(ctr) : null,
+                                predictedViews: views ? parseInt(views) : null
+                            })
+                        });
+                        if (!response.ok) {
+                            const data = await response.json();
+                            throw new Error(data.msg || 'Falha ao registrar vídeo.');
+                        }
+                        
+                        registerVideoForm.reset();
+                        await loadAnalytics();
+                        showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
+                    } catch (err) {
+                        showMessage('analytics-error-message', err.message, true);
+                    }
+                });
+            }
+
+            // === FUNCIONALIDADES DE BIBLIOTECA ===
+            let currentBibliotecaTab = 'titles';
+            
+            const bibliotecaTabTitles = document.getElementById('biblioteca-tab-titles');
+            const bibliotecaTabThumbnails = document.getElementById('biblioteca-tab-thumbnails');
+            
+            if (bibliotecaTabTitles) {
+                bibliotecaTabTitles.addEventListener('click', () => {
+                    currentBibliotecaTab = 'titles';
+                    document.getElementById('biblioteca-titles-section').style.display = 'block';
+                    document.getElementById('biblioteca-thumbnails-section').style.display = 'none';
+                    bibliotecaTabTitles.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabTitles.classList.remove('text-gray-400');
+                    bibliotecaTabThumbnails.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabThumbnails.classList.add('text-gray-400');
+                    loadBibliotecaTitles();
+                });
+            }
+
+            if (bibliotecaTabThumbnails) {
+                bibliotecaTabThumbnails.addEventListener('click', () => {
+                    currentBibliotecaTab = 'thumbnails';
+                    document.getElementById('biblioteca-titles-section').style.display = 'none';
+                    document.getElementById('biblioteca-thumbnails-section').style.display = 'block';
+                    bibliotecaTabThumbnails.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabThumbnails.classList.remove('text-gray-400');
+                    bibliotecaTabTitles.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabTitles.classList.add('text-gray-400');
+                    loadBibliotecaThumbnails();
+                });
+            }
+
+            async function loadBibliotecaTitles() {
+                console.log('[Biblioteca] Carregando títulos...');
+                if (!userToken) {
+                    console.error('[Biblioteca] Token de usuário não encontrado');
+                    return;
+                }
+                try {
+                    const search = document.getElementById('biblioteca-search')?.value || '';
+                    const niche = document.getElementById('biblioteca-niche-filter')?.value || '';
+                    const minViews = document.getElementById('biblioteca-views-filter')?.value || '';
+                    const favoritesBtn = document.getElementById('biblioteca-favorites-only');
+                    const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
+
+                    let url = `${API_BASE}/api/library/titles?`;
+                    if (search) url += `search=${encodeURIComponent(search)}&`;
+                    if (niche) url += `niche=${encodeURIComponent(niche)}&`;
+                    if (minViews) url += `minViews=${minViews}&`;
+                    if (favorites) url += `favorite=${favorites}&`;
+
+                    console.log('[Biblioteca] URL:', url);
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    console.log('[Biblioteca] Resposta:', response.status);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar títulos: ${response.status}`);
+                    }
+                    const titles = await response.json();
+                    console.log('[Biblioteca] Títulos recebidos:', titles.length);
+
+                    const list = document.getElementById('biblioteca-titles-list');
+                    if (list) {
+                        if (titles.length > 0) {
+                            list.innerHTML = titles.map(title => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+                                    <div class="flex-1">
+                                        <h3 class="text-white font-semibold mb-1">${escapeHtml(title.title || 'Sem título')}</h3>
+                                        <p class="text-gray-400 text-sm">${escapeHtml(title.niche || 'N/A')} • ${escapeHtml(title.subniche || 'N/A')} • ${formatNumber(parseInt(title.original_views || 0))} views • Score: ${title.viral_score || 'N/A'}/10</p>
+                                    </div>
+                                    <div class="flex items-center gap-2 ml-4">
+                                        <button onclick="toggleTitleFavorite(${title.id}, ${title.is_favorite || 0})" class="p-2 ${title.is_favorite ? 'text-red-600 fill-red-600' : 'text-gray-400'} hover:text-red-500 transition-colors" title="${title.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                                            <i data-lucide="heart" class="w-4 h-4 ${title.is_favorite ? 'fill-current' : ''}"></i>
+                                        </button>
+                                        <button onclick="deleteTitleFromLibrary(${title.id})" class="p-2 text-red-600 hover:text-red-500 transition-colors" title="Excluir título">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('');
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            list.innerHTML = '<p class="text-gray-400">Nenhum título encontrado.</p>';
+                        }
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar títulos:', err);
+                    const list = document.getElementById('biblioteca-titles-list');
+                    if (list) {
+                        list.innerHTML = `<p class="text-red-400">Erro ao carregar títulos: ${err.message}</p>`;
+                    }
+                }
+            }
+
+            async function loadBibliotecaThumbnails() {
+                console.log('[Biblioteca] Carregando thumbnails...');
+                if (!userToken) {
+                    console.error('[Biblioteca] Token de usuário não encontrado');
+                    return;
+                }
+                try {
+                    const niche = document.getElementById('biblioteca-niche-filter')?.value || '';
+                    const minViews = document.getElementById('biblioteca-views-filter')?.value || '';
+                    const favoritesBtn = document.getElementById('biblioteca-favorites-only');
+                    const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
+
+                    let url = `${API_BASE}/api/library/thumbnails?`;
+                    if (niche) url += `niche=${encodeURIComponent(niche)}&`;
+                    if (minViews) url += `minViews=${minViews}&`;
+                    if (favorites) url += `favorite=${favorites}&`;
+
+                    console.log('[Biblioteca] URL thumbnails:', url);
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    console.log('[Biblioteca] Resposta thumbnails:', response.status);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar thumbnails: ${response.status}`);
+                    }
+                    const thumbnails = await response.json();
+                    console.log('[Biblioteca] Thumbnails recebidos:', thumbnails.length);
+
+                    const list = document.getElementById('biblioteca-thumbnails-list');
+                    if (list) {
+                        if (thumbnails.length > 0) {
+                            list.innerHTML = thumbnails.map(thumb => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 relative overflow-hidden">
+                                    ${thumb.thumbnail_url ? `
+                                        <div class="w-full h-48 mb-3 rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
+                                            <img src="${escapeHtml(thumb.thumbnail_url)}" alt="Thumbnail" class="w-full h-full object-contain" onerror="this.style.display='none'; this.parentElement.innerHTML='<p class=\\'text-gray-500 text-xs\\'>Erro ao carregar imagem</p>'">
+                                        </div>
+                                    ` : ''}
+                                    ${!thumb.thumbnail_url && thumb.thumbnail_description ? `
+                                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-3 mb-3 min-h-[120px] flex items-center justify-center">
+                                            <p class="text-gray-400 text-xs text-center line-clamp-4" title="${escapeHtml(thumb.thumbnail_description)}">${escapeHtml(thumb.thumbnail_description.substring(0, 200))}${thumb.thumbnail_description.length > 200 ? '...' : ''}</p>
+                                        </div>
+                                    ` : ''}
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-white font-semibold text-sm mb-1 truncate" title="${escapeHtml(thumb.niche || 'N/A')} • ${escapeHtml(thumb.subniche || 'N/A')}">${escapeHtml(thumb.niche || 'N/A')} • ${escapeHtml(thumb.subniche || 'N/A')}</h3>
+                                            <p class="text-gray-400 text-xs mb-1">${formatNumber(parseInt(thumb.original_views || 0))} views${thumb.original_ctr ? ` • CTR: ${(parseFloat(thumb.original_ctr || 0)).toFixed(1)}%` : ''}</p>
+                                            ${thumb.style ? `<p class="text-gray-500 text-xs mb-1 truncate">Estilo: ${escapeHtml(thumb.style)}</p>` : ''}
+                                            ${thumb.viral_score ? `<p class="text-amber-400 text-xs mb-1">Score Viral: ${thumb.viral_score}/10</p>` : ''}
+                                        </div>
+                                        <div class="flex items-center gap-1 flex-shrink-0">
+                                            <button onclick="toggleThumbnailFavorite(${thumb.id}, ${thumb.is_favorite || 0})" class="p-2 ${thumb.is_favorite ? 'text-red-600 fill-red-600' : 'text-gray-400'} hover:text-red-500 transition-colors" title="${thumb.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                                                <i data-lucide="heart" class="w-4 h-4 ${thumb.is_favorite ? 'fill-current' : ''}"></i>
+                                            </button>
+                                            <button onclick="deleteThumbnailFromLibrary(${thumb.id})" class="p-2 text-red-600 hover:text-red-500 transition-colors" title="Excluir thumbnail">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    ${thumb.thumbnail_description ? `
+                                        <div class="mt-3 pt-3 border-t border-gray-700">
+                                            <p class="text-gray-500 text-xs mb-2 line-clamp-3" title="${escapeHtml(thumb.thumbnail_description)}">${escapeHtml(thumb.thumbnail_description)}</p>
+                                            <div class="flex items-center gap-2">
+                                                ${thumb.thumbnail_url ? `
+                                                    <button class="btn-download-thumbnail flex-1 py-1.5 px-3 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-bold text-xs flex items-center justify-center gap-1" data-url="${escapeHtml(thumb.thumbnail_url)}" data-title="${escapeHtml((thumb.thumbnail_description || '').substring(0, 30))}" title="Baixar imagem">
+                                                        <i data-lucide="download" class="w-3 h-3"></i>
+                                                        <span>Baixar</span>
+                                                    </button>
+                                                ` : ''}
+                                                <button class="btn-copy-thumbnail-prompt flex-1 py-1.5 px-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1" data-prompt="${escapeHtml(thumb.thumbnail_description)}" title="Copiar prompt">
+                                                    <i data-lucide="copy" class="w-3 h-3"></i>
+                                                    <span>Copiar Prompt</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('');
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            list.innerHTML = '<p class="text-gray-400">Nenhuma thumbnail encontrada. As thumbnails serão salvas automaticamente quando você gerar ideias de thumbnail no Analisador de Títulos Virais.</p>';
+                        }
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar thumbnails:', err);
+                    const list = document.getElementById('biblioteca-thumbnails-list');
+                    if (list) {
+                        list.innerHTML = `<p class="text-red-400">Erro ao carregar thumbnails: ${err.message}</p>`;
+                    }
+                }
+            }
+
+            window.toggleTitleFavorite = async function(id, currentState) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/library/titles/${id}/favorite`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ isFavorite: !currentState })
+                    });
+                    if (!response.ok) throw new Error('Falha ao atualizar favorito.');
+                    await loadBibliotecaTitles();
+                } catch (err) {
+                    console.error('Erro ao atualizar favorito:', err);
+                }
+            };
+
+            window.toggleThumbnailFavorite = async function(id, currentState) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/library/thumbnails/${id}/favorite`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ isFavorite: !currentState })
+                    });
+                    if (!response.ok) throw new Error('Falha ao atualizar favorito.');
+                    await loadBibliotecaThumbnails();
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('Erro ao atualizar favorito:', err);
+                    showMessage('biblioteca-error-message', 'Erro ao atualizar favorito.', true);
+                }
+            };
+
+            window.deleteTitleFromLibrary = async function(id) {
+                if (!confirm('Tem certeza que deseja excluir este título da biblioteca? Esta ação não pode ser desfeita.')) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`${API_BASE}/api/library/titles/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || 'Falha ao excluir título.');
+                    }
+                    await loadBibliotecaTitles();
+                    showMessage('biblioteca-success-message', 'Título excluído da biblioteca com sucesso!');
+                } catch (err) {
+                    showMessage('biblioteca-error-message', err.message, true);
+                }
+            };
+
+            window.deleteThumbnailFromLibrary = async function(id) {
+                if (!confirm('Tem certeza que deseja excluir esta thumbnail da biblioteca? Esta ação não pode ser desfeita.')) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`${API_BASE}/api/library/thumbnails/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || 'Falha ao excluir thumbnail.');
+                    }
+                    await loadBibliotecaThumbnails();
+                    showMessage('biblioteca-success-message', 'Thumbnail excluída da biblioteca com sucesso!');
+                } catch (err) {
+                    showMessage('biblioteca-error-message', err.message, true);
+                }
+            };
+
+            // Event delegation para botões de download e copiar prompt
+            document.addEventListener('click', async (e) => {
+                // Download de thumbnail
+                if (e.target.closest('.btn-download-thumbnail')) {
+                    const btn = e.target.closest('.btn-download-thumbnail');
+                    const imageUrl = btn.getAttribute('data-url');
+                    const title = btn.getAttribute('data-title') || 'thumbnail';
+                    
+                    try {
+                        // Tentar download direto primeiro
+                        const link = document.createElement('a');
+                        link.href = imageUrl;
+                        link.download = `${title.replace(/[^a-z0-9]/gi, '_')}.jpg`;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        // Mensagem de sucesso
+                        setTimeout(() => {
+                            showMessage('biblioteca-success-message', 'Download iniciado! Se não funcionar devido a CORS, a imagem será aberta em nova aba.');
+                        }, 100);
+                    } catch (err) {
+                        console.error('Erro ao baixar imagem:', err);
+                        // Fallback: abrir em nova aba
+                        window.open(imageUrl, '_blank');
+                        showMessage('biblioteca-success-message', 'Imagem aberta em nova aba. Use "Salvar imagem como..." do navegador.');
+                    }
+                }
+                
+                // Copiar prompt
+                if (e.target.closest('.btn-copy-thumbnail-prompt')) {
+                    const btn = e.target.closest('.btn-copy-thumbnail-prompt');
+                    const prompt = btn.getAttribute('data-prompt');
+                    
+                    if (!prompt) {
+                        showMessage('biblioteca-error-message', 'Prompt não encontrado.', true);
+                        return;
+                    }
+                    
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(prompt);
+                            showMessage('biblioteca-success-message', 'Prompt copiado para a área de transferência!');
+                        } else {
+                            // Fallback para navegadores mais antigos
+                            const textarea = document.createElement('textarea');
+                            textarea.value = prompt;
+                            textarea.style.position = 'fixed';
+                            textarea.style.opacity = '0';
+                            textarea.style.left = '-9999px';
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            textarea.setSelectionRange(0, 99999); // Para mobile
+                            const success = document.execCommand('copy');
+                            document.body.removeChild(textarea);
+                            if (success) {
+                                showMessage('biblioteca-success-message', 'Prompt copiado para a área de transferência!');
+                            } else {
+                                throw new Error('Falha ao copiar');
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Erro ao copiar prompt:', err);
+                        showMessage('biblioteca-error-message', 'Erro ao copiar prompt. Tente selecionar e copiar manualmente.', true);
+                    }
+                }
+            });
+
+            const bibliotecaSearch = document.getElementById('biblioteca-search');
+            const bibliotecaNicheFilter = document.getElementById('biblioteca-niche-filter');
+            const bibliotecaViewsFilter = document.getElementById('biblioteca-views-filter');
+            const bibliotecaFavoritesOnly = document.getElementById('biblioteca-favorites-only');
+
+            if (bibliotecaSearch) {
+                bibliotecaSearch.addEventListener('input', () => {
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    else loadBibliotecaThumbnails();
+                });
+            }
+
+            if (bibliotecaNicheFilter) {
+                bibliotecaNicheFilter.addEventListener('change', () => {
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    else loadBibliotecaThumbnails();
+                });
+            }
+
+            if (bibliotecaViewsFilter) {
+                bibliotecaViewsFilter.addEventListener('change', () => {
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    else loadBibliotecaThumbnails();
+                });
+            }
+
+            if (bibliotecaFavoritesOnly) {
+                bibliotecaFavoritesOnly.addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    this.classList.toggle('bg-amber-600');
+                    this.classList.toggle('text-white');
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    else loadBibliotecaThumbnails();
+                });
+            }
+
+            // === FUNCIONALIDADES DE INTEGRAÇÃO YOUTUBE ===
+            const btnConnectYouTube = document.getElementById('btn-connect-youtube');
+            if (btnConnectYouTube) {
+                btnConnectYouTube.addEventListener('click', async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/api/youtube/oauth/authorize`, {
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        if (!response.ok) throw new Error('Falha ao obter URL de autorização.');
+                        const data = await response.json();
+                        window.open(data.authUrl, '_blank');
+                        showMessage('youtube-integration-success-message', 'Autorize o acesso no popup que foi aberto.');
+                    } catch (err) {
+                        showMessage('youtube-integration-error-message', err.message, true);
+                    }
+                });
+            }
+
+            async function loadScheduledPosts() {
+                console.log('[YouTube] Carregando publicações agendadas...');
+                if (!userToken) {
+                    console.error('[YouTube] Token de usuário não encontrado');
+                    return;
+                }
+                try {
+                    console.log('[YouTube] Fazendo requisição para:', `${API_BASE}/api/youtube/scheduled`);
+                    const response = await fetch(`${API_BASE}/api/youtube/scheduled`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    console.log('[YouTube] Resposta:', response.status);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar publicações agendadas: ${response.status}`);
+                    }
+                    const scheduled = await response.json();
+                    console.log('[YouTube] Publicações recebidas:', scheduled.length);
+
+                    const list = document.getElementById('scheduled-posts-list');
+                    if (list) {
+                        if (scheduled.length > 0) {
+                            list.innerHTML = scheduled.map(post => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <h3 class="text-white font-semibold">${escapeHtml(post.title || 'Sem título')}</h3>
+                                    <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
+                                    <p class="text-gray-400 text-sm">Status: <span class="px-2 py-1 text-xs rounded ${post.status === 'published' ? 'bg-green-600' : post.status === 'failed' ? 'bg-red-600' : 'bg-yellow-600'}">${escapeHtml(post.status || 'pending')}</span></p>
+                                    ${post.description ? `<p class="text-gray-500 text-xs mt-2 line-clamp-2">${escapeHtml(post.description)}</p>` : ''}
+                                </div>
+                            `).join('');
+                        } else {
+                            list.innerHTML = '<p class="text-gray-400">Nenhuma publicação agendada.</p>';
+                        }
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar publicações agendadas:', err);
+                }
+            }
+
         });
+
     </script>
 
     <!-- Script de Proteção de Código -->
