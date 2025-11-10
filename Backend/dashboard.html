@@ -2116,24 +2116,21 @@
                                         <span>${commentsFormatted} comentários</span>
                                     </span>
                                 </div>
-                                ${revenueUSD > 0 || rpmUSD > 0 ? `
-                                <div class="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
-                                    <h4 class="text-sm font-semibold text-amber-500 mb-2">💰 Receita e RPM Estimados</h4>
-                                    <div class="grid grid-cols-2 gap-3 text-xs">
+                                <div class="bg-gray-900/50 p-3 rounded-lg mb-3 border border-gray-700">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                         <div>
-                                            <p class="text-gray-400">Receita Estimada</p>
-                                            <p class="text-white font-bold">$${revenueUSD.toFixed(2)} USD</p>
-                                            <p class="text-gray-400">R$ ${revenueBRL.toFixed(2)} BRL</p>
+                                            <span class="text-gray-400 block mb-1">Receita Estimada:</span>
+                                            ${revenueUSD > 0 ? `<span class="text-yellow-400 font-semibold">$${revenueUSD.toFixed(2)}</span>` : '<span class="text-gray-500">N/A</span>'}
+                                            ${revenueBRL > 0 ? `<span class="text-yellow-300 block">R$ ${revenueBRL.toFixed(2)}</span>` : ''}
                                         </div>
                                         <div>
-                                            <p class="text-gray-400">RPM (Revenue Per Mille)</p>
-                                            <p class="text-white font-bold">$${rpmUSD.toFixed(2)} USD</p>
-                                            <p class="text-gray-400">R$ ${rpmBRL.toFixed(2)} BRL</p>
+                                            <span class="text-gray-400 block mb-1">RPM (por 1K views):</span>
+                                            ${rpmUSD > 0 ? `<span class="text-green-400 font-semibold">$${rpmUSD.toFixed(2)}</span>` : '<span class="text-gray-500">N/A</span>'}
+                                            ${rpmBRL > 0 ? `<span class="text-green-300 block">R$ ${rpmBRL.toFixed(2)}</span>` : ''}
                                         </div>
                                     </div>
-                                    <p class="text-gray-500 text-xs mt-2">* Valores baseados no nicho "${data.niche || 'Entretenimento'}"</p>
+                                    ${data.niche ? `<p class="text-gray-500 text-xs mt-2">* Valores baseados no nicho "${data.niche}"</p>` : ''}
                                 </div>
-                                ` : ''}
                                 <button id="btn-download-thumb" data-url="${thumbnailUrl}" data-title="${title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                     <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
                                     Baixar Thumbnail Original
@@ -3929,84 +3926,313 @@
                 
                 const tips = [];
                 const stats = data.stats || {};
+                const recentVideos = data.recentVideos || [];
                 
+                // === ANÁLISE DE PERFORMANCE GERAL ===
                 if (stats.totalVideos === 0) {
                     tips.push({
                         type: 'info',
                         icon: 'lightbulb',
-                        title: 'Comece a Analisar Vídeos',
-                        text: 'Você ainda não analisou nenhum vídeo. Use o Analisador de Vídeos para começar a gerar títulos virais baseados em vídeos que já viralizaram.'
+                        title: '🚀 Comece Sua Jornada Viral',
+                        text: 'Você ainda não analisou nenhum vídeo. Use o Analisador de Vídeos para descobrir os segredos por trás de vídeos que geraram milhões de views. Analise pelo menos 5-10 vídeos virais do seu nicho para entender os padrões de sucesso.'
                     });
                 } else if (stats.totalVideos < 5) {
                     tips.push({
                         type: 'success',
                         icon: 'rocket',
-                        title: 'Bom Começo!',
-                        text: `Você já analisou ${stats.totalVideos} vídeo${stats.totalVideos > 1 ? 's' : ''}. Continue analisando mais vídeos para aumentar suas chances de criar conteúdo viral.`
+                        title: '📈 Bom Começo! Continue Acelerando',
+                        text: `Você já analisou ${stats.totalVideos} vídeo${stats.totalVideos > 1 ? 's' : ''}. Para maximizar seus resultados, analise pelo menos 10 vídeos virais do seu nicho. Isso ajudará a IA a entender melhor os padrões de sucesso e gerar títulos mais precisos.`
                     });
-                }
-                
-                if (stats.avgCtr > 0 && stats.avgCtr < 5) {
-                    tips.push({
-                        type: 'warning',
-                        icon: 'alert-circle',
-                        title: 'CTR Pode Melhorar',
-                        text: `Seu CTR médio é ${stats.avgCtr.toFixed(1)}%. Tente criar títulos mais chamativos e thumbnails mais impactantes para aumentar o CTR acima de 10%.`
-                    });
-                } else if (stats.avgCtr >= 10) {
-                    tips.push({
-                        type: 'success',
-                        icon: 'check-circle',
-                        title: 'Excelente CTR!',
-                        text: `Parabéns! Seu CTR médio de ${stats.avgCtr.toFixed(1)}% está acima da média. Continue mantendo essa qualidade nos seus títulos e thumbnails.`
-                    });
-                }
-                
-                if (stats.viralVideos > 0) {
+                } else if (stats.totalVideos < 20) {
                     tips.push({
                         type: 'success',
                         icon: 'trending-up',
-                        title: 'Vídeos Virais!',
-                        text: `Você tem ${stats.viralVideos} vídeo${stats.viralVideos > 1 ? 's' : ''} com mais de 1 milhão de views! Analise o que funcionou nesses vídeos e replique a estratégia.`
+                        title: '💪 Você Está no Caminho Certo!',
+                        text: `Excelente! Você já analisou ${stats.totalVideos} vídeos. Analise mais 10-15 vídeos para criar uma base sólida de dados. Quanto mais vídeos você analisar, mais precisas serão as recomendações da IA.`
                     });
                 }
                 
-                if (stats.totalViews > 0 && stats.totalRevenue === 0) {
+                // === ANÁLISE DE CTR DETALHADA ===
+                if (stats.avgCtr > 0) {
+                    if (stats.avgCtr < 3) {
+                        tips.push({
+                            type: 'warning',
+                            icon: 'alert-triangle',
+                            title: '⚠️ CTR Crítico: Ação Imediata Necessária',
+                            text: `Seu CTR médio é ${stats.avgCtr.toFixed(1)}%, que está MUITO abaixo do ideal (10%+). Ações urgentes: 1) Use títulos com números e perguntas, 2) Thumbnails com rostos humanos e expressões intensas, 3) Palavras poderosas como "SECRETO", "REVELADO", "PROIBIDO", 4) Teste A/B com 5-10 variações antes de publicar.`
+                        });
+                    } else if (stats.avgCtr < 5) {
+                        tips.push({
+                            type: 'warning',
+                            icon: 'alert-circle',
+                            title: '📊 CTR Pode Melhorar Significativamente',
+                            text: `Seu CTR médio é ${stats.avgCtr.toFixed(1)}% (meta: 10%+). Estratégias: 1) Títulos entre 40-60 caracteres com números, 2) Thumbnails com alto contraste e cores vibrantes, 3) Use a função "Validação de Título" antes de publicar, 4) Analise seus vídeos de maior CTR e replique os padrões.`
+                        });
+                    } else if (stats.avgCtr < 8) {
+                        tips.push({
+                            type: 'info',
+                            icon: 'target',
+                            title: '🎯 CTR Bom, Mas Pode Ser Excelente',
+                            text: `Seu CTR de ${stats.avgCtr.toFixed(1)}% está acima da média do YouTube (2-3%), mas pode chegar a 10-15%+. Foque em: 1) Thumbnails com texto grande e legível, 2) Títulos que geram curiosidade extrema, 3) Teste diferentes horários de publicação, 4) Use a Biblioteca Virais para estudar títulos que geraram CTR alto.`
+                        });
+                    } else if (stats.avgCtr >= 10) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'award',
+                            title: '🏆 CTR Excepcional! Você é um Expert',
+                            text: `Parabéns! Seu CTR médio de ${stats.avgCtr.toFixed(1)}% está no TOP 5% dos criadores. Continue: 1) Documente o que funciona nos seus vídeos de maior CTR, 2) Replique essas estratégias, 3) Experimente nichos com RPM mais alto para maximizar receita, 4) Compartilhe suas estratégias com a comunidade.`
+                        });
+                    }
+                }
+                
+                // === ANÁLISE DE RECEITA E MONETIZAÇÃO ===
+                if (stats.totalRevenue > 0) {
+                    const revenuePerVideo = stats.totalRevenue / stats.totalVideos;
+                    const viewsPerVideo = stats.totalViews / stats.totalVideos;
+                    const rpm = stats.rpmUSD || 0;
+                    
+                    if (revenuePerVideo < 10) {
+                        tips.push({
+                            type: 'info',
+                            icon: 'dollar-sign',
+                            title: '💰 Potencial de Monetização',
+                            text: `Você está gerando $${revenuePerVideo.toFixed(2)} por vídeo em média. Para aumentar: 1) Foque em nichos com RPM alto (Finanças: $15-18, Tech: $7-8), 2) Aumente o CTR para ter mais views, 3) Publique mais frequentemente, 4) Use a função "ROI Calculator" para acompanhar seu retorno.`
+                        });
+                    } else if (revenuePerVideo < 50) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'trending-up',
+                            title: '💵 Receita Crescendo Bem',
+                            text: `Excelente! Você está gerando $${revenuePerVideo.toFixed(2)} por vídeo. Para escalar: 1) Analise seus vídeos de maior receita e replique, 2) Considere nichos com RPM mais alto, 3) Publique 2-3x por semana, 4) Use o Heatmap de Sucesso para identificar fórmulas que geram mais receita.`
+                        });
+                    } else {
+                        tips.push({
+                            type: 'success',
+                            icon: 'zap',
+                            title: '🚀 Receita Excelente! Continue Escalando',
+                            text: `Impressionante! $${revenuePerVideo.toFixed(2)} por vídeo é um resultado excepcional. Estratégias avançadas: 1) Automatize publicação com Integração YouTube, 2) Crie séries de vídeos para aumentar retenção, 3) Explore afiliados e sponsorships, 4) Use o Leaderboard para identificar seus melhores títulos/thumbnails.`
+                        });
+                    }
+                    
+                    // Análise de RPM
+                    if (rpm > 0) {
+                        if (rpm < 3) {
+                            tips.push({
+                                type: 'info',
+                                icon: 'arrow-up',
+                                title: '📈 Seu RPM Pode Aumentar',
+                                text: `Seu RPM atual é $${rpm.toFixed(2)}. Para aumentar: 1) Considere nichos com RPM mais alto (Finanças: $15-18, Investimentos: $18+), 2) Melhore a retenção do público (vídeos mais longos e engajantes), 3) Publique em horários de pico, 4) Use SEO otimizado para atrair audiência de maior valor.`
+                            });
+                        } else if (rpm >= 10) {
+                            tips.push({
+                                type: 'success',
+                                icon: 'star',
+                                title: '⭐ RPM Premium! Você Está em Nicho Lucrativo',
+                                text: `Seu RPM de $${rpm.toFixed(2)} indica que você está em um nicho de alto valor. Continue: 1) Mantenha a qualidade do conteúdo, 2) Publique consistentemente, 3) Construa autoridade no nicho, 4) Explore oportunidades de monetização adicional (afiliados, produtos digitais).`
+                            });
+                        }
+                    }
+                } else if (stats.totalViews > 0) {
                     tips.push({
                         type: 'info',
                         icon: 'dollar-sign',
-                        title: 'Monetize Seus Vídeos',
-                        text: 'Você tem views, mas ainda não está rastreando receita. Configure o rastreamento de receita na seção Analytics para ver seu potencial de monetização.'
+                        title: '💡 Ative o Rastreamento de Receita',
+                        text: `Você tem ${formatNumber(stats.totalViews)} views, mas não está rastreando receita. Vá em Analytics > Registrar Novo Vídeo e registre seus vídeos publicados para ver quanto dinheiro você está gerando. Isso ajudará a identificar quais títulos/thumbnails geram mais receita.`
                     });
                 }
                 
-                if (stats.totalVideos >= 10 && stats.viralVideos === 0) {
+                // === ANÁLISE DE ENGAGEMENT ===
+                if (stats.totalViews > 0 && stats.totalLikes > 0) {
+                    const likesPerView = (stats.totalLikes / stats.totalViews) * 100;
+                    const commentsPerView = (stats.totalComments / stats.totalViews) * 100;
+                    
+                    if (likesPerView < 1) {
+                        tips.push({
+                            type: 'warning',
+                            icon: 'thumbs-down',
+                            title: '👎 Engajamento Baixo: Melhore o Conteúdo',
+                            text: `Apenas ${likesPerView.toFixed(2)}% dos viewers estão dando like. Isso indica que o conteúdo não está entregando o que o título/thumbnail promete. Ações: 1) Alinhe título/thumbnail com o conteúdo, 2) Melhore a qualidade do vídeo, 3) Adicione CTAs para like/compartilhar, 4) Analise comentários para entender o que o público quer.`
+                        });
+                    } else if (likesPerView >= 3) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'thumbs-up',
+                            title: '👍 Engajamento Excelente!',
+                            text: `Parabéns! ${likesPerView.toFixed(2)}% de taxa de likes é excepcional. Seu conteúdo está entregando valor. Continue: 1) Replique o formato dos vídeos com maior engajamento, 2) Crie séries baseadas nesses vídeos, 3) Use os comentários para gerar novos vídeos, 4) Compartilhe esses vídeos em outras plataformas.`
+                        });
+                    }
+                    
+                    if (commentsPerView < 0.1) {
+                        tips.push({
+                            type: 'info',
+                            icon: 'message-square',
+                            title: '💬 Aumente Comentários para Mais Engajamento',
+                            text: `Apenas ${commentsPerView.toFixed(3)}% dos viewers estão comentando. Para aumentar: 1) Faça perguntas no vídeo, 2) Peça opiniões nos comentários, 3) Responda todos os comentários, 4) Crie polêmica saudável, 5) Use finais que geram discussão.`
+                        });
+                    }
+                }
+                
+                // === ANÁLISE DE VÍDEOS VIRAIS ===
+                if (stats.viralVideos > 0) {
+                    const viralRate = (stats.viralVideos / stats.totalVideos) * 100;
+                    tips.push({
+                        type: 'success',
+                        icon: 'zap',
+                        title: '⚡ Você Tem Vídeos Virais!',
+                        text: `Você tem ${stats.viralVideos} vídeo${stats.viralVideos > 1 ? 's' : ''} com 1M+ views (${viralRate.toFixed(1)}% de taxa viral). Ações estratégicas: 1) Analise profundamente esses vídeos na Biblioteca, 2) Identifique padrões (título, thumbnail, nicho, horário), 3) Replique a fórmula, 4) Crie séries baseadas nesses vídeos, 5) Use o Score Predictor antes de publicar novos vídeos.`
+                    });
+                } else if (stats.totalVideos >= 10) {
                     tips.push({
                         type: 'info',
                         icon: 'target',
-                        title: 'Foque em Viralização',
-                        text: 'Você já analisou vários vídeos. Tente focar em nichos com maior potencial viral e use os títulos gerados pela IA que têm pontuação acima de 9.'
+                        title: '🎯 Estratégia para Viralizar',
+                        text: `Você já tem ${stats.totalVideos} vídeos, mas nenhum viral ainda. Estratégias: 1) Analise vídeos que viralizaram no seu nicho usando o Analisador, 2) Use títulos com pontuação 9+ da IA, 3) Foque em nichos com maior potencial viral, 4) Publique em horários de pico (terça-quinta, 14h-16h), 5) Use o Heatmap de Sucesso para identificar fórmulas que funcionam.`
                     });
                 }
                 
-                if (tips.length === 0) {
+                // === ANÁLISE DE PERFORMANCE POR VÍDEO ===
+                if (recentVideos.length > 0) {
+                    const topVideo = recentVideos.reduce((max, v) => (v.actual_views || 0) > (max.actual_views || 0) ? v : max, recentVideos[0]);
+                    const avgViewsPerVideo = stats.totalViews / stats.totalVideos;
+                    
+                    if (topVideo && topVideo.actual_views > avgViewsPerVideo * 2) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'star',
+                            title: '⭐ Você Tem um Vídeo Destaque!',
+                            text: `"${(topVideo.title_used || 'Sem título').substring(0, 50)}..." tem ${formatNumber(topVideo.actual_views)} views, muito acima da sua média. Analise: 1) Qual foi o título usado? 2) Qual foi a thumbnail? 3) Qual foi o nicho? 4) Replique essa fórmula em novos vídeos. Use a Biblioteca para salvar esse título/thumbnail como favorito.`
+                        });
+                    }
+                    
+                    // Análise de CTR por vídeo
+                    const videosWithHighCtr = recentVideos.filter(v => v.actual_ctr && v.actual_ctr >= 8);
+                    if (videosWithHighCtr.length > 0) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'trending-up',
+                            title: '📊 Você Tem Vídeos com CTR Alto',
+                            text: `${videosWithHighCtr.length} vídeo${videosWithHighCtr.length > 1 ? 's' : ''} com CTR acima de 8%. Esses são seus modelos de sucesso! Ações: 1) Estude esses títulos/thumbnails na Biblioteca, 2) Use o Gerador de Thumbnails para criar variações, 3) Aplique essas fórmulas em novos vídeos, 4) Use o Comparação com Competidores para ver como você se compara.`
+                        });
+                    }
+                }
+                
+                // === ANÁLISE DE CONSISTÊNCIA ===
+                if (stats.totalVideos >= 5) {
+                    const daysSinceFirst = recentVideos.length > 0 && recentVideos[0].published_at 
+                        ? Math.floor((new Date() - new Date(recentVideos[0].published_at)) / (1000 * 60 * 60 * 24))
+                        : 0;
+                    
+                    if (daysSinceFirst > 0) {
+                        const videosPerWeek = (stats.totalVideos / (daysSinceFirst / 7));
+                        if (videosPerWeek < 1) {
+                            tips.push({
+                                type: 'warning',
+                                icon: 'calendar',
+                                title: '📅 Consistência é Chave para o Sucesso',
+                                text: `Você está publicando menos de 1 vídeo por semana. Para crescer no YouTube: 1) Publique pelo menos 2-3x por semana, 2) Use a Integração YouTube para agendar publicações, 3) Crie um calendário de conteúdo, 4) Use o Gerador de Roteiros (em breve) para acelerar a criação.`
+                            });
+                        } else if (videosPerWeek >= 3) {
+                            tips.push({
+                                type: 'success',
+                                icon: 'check-circle',
+                                title: '✅ Excelente Consistência!',
+                                text: `Você está publicando ${videosPerWeek.toFixed(1)} vídeos por semana. Isso é ótimo! Continue: 1) Mantenha a qualidade mesmo com alta frequência, 2) Use automação para economizar tempo, 3) Analise quais dias/horários performam melhor, 4) Crie templates de títulos/thumbnails para acelerar.`
+                            });
+                        }
+                    }
+                }
+                
+                // === ANÁLISE DE ROI E EFICIÊNCIA ===
+                if (stats.totalRevenue > 0 && stats.totalVideos > 0) {
+                    const costPerAnalysis = 0.50; // Custo estimado por análise
+                    const totalCost = stats.totalVideos * costPerAnalysis;
+                    const roi = ((stats.totalRevenue - totalCost) / totalCost) * 100;
+                    
+                    if (roi > 1000) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'trending-up',
+                            title: '💰 ROI Excepcional! Você Está no Caminho Certo',
+                            text: `Seu ROI é de ${roi.toFixed(0)}%! Para cada $1 investido, você está gerando $${(stats.totalRevenue / totalCost).toFixed(2)}. Continue: 1) Aumente o investimento em análises, 2) Escale para mais canais, 3) Automatize o processo, 4) Use o ROI Calculator para acompanhar em tempo real.`
+                        });
+                    } else if (roi > 0) {
+                        tips.push({
+                            type: 'info',
+                            icon: 'dollar-sign',
+                            title: '📊 ROI Positivo - Continue Investindo',
+                            text: `Seu ROI é de ${roi.toFixed(0)}%. Você está no caminho certo! Para melhorar: 1) Foque em vídeos com maior potencial (use Score Predictor), 2) Otimize títulos/thumbnails antes de publicar, 3) Publique mais frequentemente, 4) Analise nichos com maior RPM.`
+                        });
+                    }
+                }
+                
+                // === DICAS ESPECÍFICAS BASEADAS EM PADRÕES ===
+                if (stats.totalVideos >= 3) {
+                    const avgViews = stats.totalViews / stats.totalVideos;
+                    
+                    if (avgViews < 10000) {
+                        tips.push({
+                            type: 'info',
+                            icon: 'eye',
+                            title: '👁️ Potencial de Crescimento',
+                            text: `Sua média de ${formatNumber(avgViews)} views por vídeo indica grande potencial. Estratégias: 1) Analise vídeos com 100K+ views do seu nicho, 2) Use títulos com pontuação 9+ da IA, 3) Otimize thumbnails para CTR acima de 10%, 4) Publique em horários de pico, 5) Use SEO otimizado (tags, descrição).`
+                        });
+                    } else if (avgViews >= 100000) {
+                        tips.push({
+                            type: 'success',
+                            icon: 'award',
+                            title: '🏆 Performance Excepcional!',
+                            text: `Sua média de ${formatNumber(avgViews)} views por vídeo está no TOP 1% dos criadores. Você domina o jogo! Próximos passos: 1) Escale para múltiplos canais, 2) Explore monetização avançada (afiliados, produtos), 3) Construa uma marca pessoal, 4) Use o Leaderboard para identificar seus melhores conteúdos.`
+                        });
+                    }
+                }
+                
+                // === DICAS DE OTIMIZAÇÃO TÉCNICA ===
+                if (stats.totalVideos > 0) {
                     tips.push({
                         type: 'info',
-                        icon: 'sparkles',
-                        title: 'Continue o Bom Trabalho!',
-                        text: 'Mantenha a consistência analisando vídeos virais regularmente e testando diferentes estratégias de títulos e thumbnails.'
+                        icon: 'settings',
+                        title: '⚙️ Otimize Antes de Publicar',
+                        text: 'Use as ferramentas de validação: 1) Validação de Título para garantir que segue melhores práticas, 2) Validação de Thumbnail para verificar contraste e composição, 3) Score Predictor para prever views antes de publicar, 4) Comparação com Competidores para ver como você se compara. Essas ferramentas aumentam suas chances de sucesso em até 300%.'
                     });
                 }
                 
-                const tipsHtml = tips.map(tip => `
-                    <div class="bg-gray-800/50 rounded-lg p-4 border border-amber-700/30">
+                // === DICAS DE ESTRATÉGIA AVANÇADA ===
+                if (stats.totalVideos >= 10) {
+                    tips.push({
+                        type: 'info',
+                        icon: 'brain',
+                        title: '🧠 Estratégias Avançadas',
+                        text: 'Você já tem experiência suficiente! Estratégias avançadas: 1) Use o Heatmap de Sucesso para identificar fórmulas que funcionam por nicho, 2) Crie séries de vídeos baseadas nos seus maiores sucessos, 3) Use A/B Testing (em breve) para testar variações, 4) Analise tendências semanais, 5) Construa uma biblioteca pessoal de títulos/thumbnails virais.'
+                    });
+                }
+                
+                // Limitar a 8 dicas mais relevantes para não sobrecarregar
+                tips.sort((a, b) => {
+                    const priority = { 'warning': 3, 'success': 2, 'info': 1 };
+                    return (priority[b.type] || 0) - (priority[a.type] || 0);
+                });
+                
+                const topTips = tips.slice(0, 8);
+                
+                // Se não houver dicas, adicionar uma padrão
+                if (topTips.length === 0) {
+                    topTips.push({
+                        type: 'info',
+                        icon: 'sparkles',
+                        title: '✨ Continue o Bom Trabalho!',
+                        text: 'Mantenha a consistência analisando vídeos virais regularmente e testando diferentes estratégias de títulos e thumbnails. Use todas as ferramentas disponíveis para maximizar seus resultados.'
+                    });
+                }
+                
+                const tipsHtml = topTips.map(tip => `
+                    <div class="bg-gray-800/50 rounded-lg p-4 border border-amber-700/30 hover:border-amber-600/50 transition-colors">
                         <div class="flex items-start space-x-3">
                             <div class="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
                                 <i data-lucide="${tip.icon}" class="w-5 h-5 text-amber-400"></i>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <h4 class="text-white font-semibold mb-1">${tip.title}</h4>
-                                <p class="text-gray-300 text-sm">${tip.text}</p>
+                                <h4 class="text-white font-semibold mb-1.5">${tip.title}</h4>
+                                <p class="text-gray-300 text-sm leading-relaxed">${tip.text}</p>
                             </div>
                         </div>
                     </div>
@@ -4126,9 +4352,16 @@
 
                     if (totalViewsEl) totalViewsEl.textContent = formatNumber(data.stats.totalViews || 0);
                     if (avgCtrEl) avgCtrEl.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                    if (totalRevenueEl) totalRevenueEl.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
+                    if (totalRevenueEl) {
+                        const revenueUSD = data.stats.totalRevenue || 0;
+                        totalRevenueEl.textContent = '$' + formatNumber(revenueUSD);
+                    }
                     const totalRevenueBrlEl = document.getElementById('stats-total-revenue-brl');
-                    if (totalRevenueBrlEl) totalRevenueBrlEl.textContent = 'R$ ' + formatNumber(data.stats.totalRevenueBRL || 0);
+                    if (totalRevenueBrlEl) {
+                        const revenueUSD = data.stats.totalRevenue || 0;
+                        const revenueBRL = revenueUSD * 5.50; // Taxa de câmbio USD para BRL
+                        totalRevenueBrlEl.textContent = 'R$ ' + formatNumber(revenueBRL);
+                    }
                     const rpmEl = document.getElementById('stats-rpm');
                     if (rpmEl) rpmEl.textContent = `RPM: $${(data.stats.rpmUSD || 0).toFixed(2)} / R$ ${(data.stats.rpmBRL || 0).toFixed(2)}`;
                     if (viralVideosEl) viralVideosEl.textContent = data.stats.viralVideos || 0;

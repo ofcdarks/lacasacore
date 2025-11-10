@@ -1803,11 +1803,15 @@ Tradução em PT-BR:`;
             if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
             
             // Verificar se a análise tem os dados necessários
-            if (!firstSuccessfulAnalysis.niche || !firstSuccessfulAnalysis.analiseOriginal) {
+            if (!firstSuccessfulAnalysis.analiseOriginal) {
                 throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
             }
             
-            finalNicheData = { niche: firstSuccessfulAnalysis.niche, subniche: firstSuccessfulAnalysis.subniche || 'N/A' };
+            // Garantir que o nicho sempre existe (usar padrão se não detectado)
+            finalNicheData = { 
+                niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
+                subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
+            };
             finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
 
         } else {
@@ -1835,11 +1839,15 @@ Tradução em PT-BR:`;
             const parsedData = parseAIResponse(response.titles, service);
             
             // Verificar se a análise tem os dados necessários
-            if (!parsedData.niche || !parsedData.analiseOriginal) {
+            if (!parsedData.analiseOriginal) {
                 throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
             }
             
-            finalNicheData = { niche: parsedData.niche, subniche: parsedData.subniche || 'N/A' };
+            // Garantir que o nicho sempre existe (usar padrão se não detectado)
+            finalNicheData = { 
+                niche: parsedData.niche || 'Entretenimento', 
+                subniche: parsedData.subniche || 'N/A' 
+            };
             finalAnalysisData = parsedData.analiseOriginal;
             allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: model }));
         }
@@ -1879,20 +1887,15 @@ Tradução em PT-BR:`;
         let rpmBRL = 11.0;
         
         try {
-            // Verificar se finalNicheData existe antes de calcular receita
-            if (!finalNicheData || !finalNicheData.niche) {
-                console.error('[Análise] Erro: finalNicheData não está definido corretamente', { finalNicheData });
-                throw new Error('Erro ao processar análise: dados do nicho não foram encontrados.');
-            }
-            
-            const rpm = getRPMByNiche(finalNicheData.niche);
+            // Calcular receita e RPM sempre, mesmo se o nicho não foi detectado
+            const nicheToUse = (finalNicheData && finalNicheData.niche) ? finalNicheData.niche : null;
+            const rpm = getRPMByNiche(nicheToUse); // getRPMByNiche retorna padrão se niche for null
             
             // Verificar se rpm foi retornado corretamente
             if (!rpm || typeof rpm !== 'object' || typeof rpm.usd !== 'number' || typeof rpm.brl !== 'number') {
-                console.error('[Análise] Erro: getRPMByNiche retornou valor inválido', { rpm, niche: finalNicheData.niche });
+                console.warn('[Análise] RPM inválido, usando valores padrão', { rpm, niche: nicheToUse });
                 // Usar valores padrão se rpm for inválido
                 const defaultRPM = { usd: 2.0, brl: 11.0 };
-                console.warn('[Análise] Usando RPM padrão devido a erro');
                 const views = parseInt(videoDetails.views) || 0;
                 estimatedRevenueUSD = (views / 1000) * defaultRPM.usd;
                 estimatedRevenueBRL = (views / 1000) * defaultRPM.brl;
@@ -1908,12 +1911,20 @@ Tradução em PT-BR:`;
             
             // Garantir que todas as variáveis estão definidas e são números válidos
             if (typeof estimatedRevenueUSD !== 'number' || isNaN(estimatedRevenueUSD)) {
-                console.error('[Análise] Erro: estimatedRevenueUSD não é um número válido', { estimatedRevenueUSD, rpm, views: videoDetails.views });
-                estimatedRevenueUSD = 0;
-                estimatedRevenueBRL = 0;
-                rpmUSD = 2.0;
-                rpmBRL = 11.0;
+                console.warn('[Análise] estimatedRevenueUSD inválido, recalculando', { estimatedRevenueUSD, rpm, views: videoDetails.views });
+                const views = parseInt(videoDetails.views) || 0;
+                estimatedRevenueUSD = (views / 1000) * rpm.usd;
+                estimatedRevenueBRL = (views / 1000) * rpm.brl;
             }
+            
+            console.log('[Análise] Receita calculada:', {
+                views: videoDetails.views,
+                niche: nicheToUse || 'padrão',
+                rpmUSD,
+                rpmBRL,
+                estimatedRevenueUSD: estimatedRevenueUSD.toFixed(2),
+                estimatedRevenueBRL: estimatedRevenueBRL.toFixed(2)
+            });
         } catch (revenueErr) {
             console.error('[Análise] Erro ao calcular receita:', revenueErr);
             // Usar valores padrão em caso de erro
@@ -4132,6 +4143,467 @@ app.delete('/api/analytics/track/:trackingId', authenticateToken, async (req, re
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analytics/track/:trackingId DELETE]:', err);
         res.status(500).json({ msg: 'Erro ao excluir vídeo do tracking.' });
+    }
+});
+
+// === NOVAS FUNCIONALIDADES DE ANALYTICS E VALIDAÇÃO ===
+
+// 1. ROI Calculator - Calcular receita total gerada pelos vídeos
+app.get('/api/analytics/roi', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { startDate, endDate } = req.query;
+
+    try {
+        let query = `
+            SELECT 
+                COUNT(*) as total_videos,
+                SUM(actual_views) as total_views,
+                SUM(revenue_estimate) as total_revenue,
+                AVG(actual_ctr) as avg_ctr,
+                SUM(actual_likes) as total_likes,
+                SUM(actual_comments) as total_comments
+            FROM video_tracking
+            WHERE user_id = ? AND actual_views > 0
+        `;
+        const params = [userId];
+
+        if (startDate) {
+            query += ' AND published_at >= ?';
+            params.push(startDate);
+        }
+        if (endDate) {
+            query += ' AND published_at <= ?';
+            params.push(endDate);
+        }
+
+        const stats = await db.get(query, params);
+
+        // Calcular ROI (assumindo que cada análise custa $0.50 ou similar)
+        const costPerAnalysis = 0.50;
+        const totalCost = (stats.total_videos || 0) * costPerAnalysis;
+        const totalRevenue = stats.total_revenue || 0;
+        const roi = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 0;
+
+        res.status(200).json({
+            totalVideos: stats.total_videos || 0,
+            totalViews: stats.total_views || 0,
+            totalRevenue: totalRevenue,
+            totalCost: totalCost,
+            roi: roi.toFixed(2),
+            avgCtr: (stats.avg_ctr || 0).toFixed(2),
+            totalLikes: stats.total_likes || 0,
+            totalComments: stats.total_comments || 0,
+            netProfit: (totalRevenue - totalCost).toFixed(2)
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/roi]:', err);
+        res.status(500).json({ msg: 'Erro ao calcular ROI.' });
+    }
+});
+
+// 2. Leaderboard - Melhores títulos/thumbnails por views
+app.get('/api/analytics/leaderboard', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { type = 'all', limit = 10 } = req.query; // type: 'titles', 'thumbnails', 'all'
+
+    try {
+        let leaderboard = [];
+
+        if (type === 'titles' || type === 'all') {
+            const topTitles = await db.all(`
+                SELECT 
+                    title_used as item,
+                    'title' as type,
+                    actual_views as views,
+                    actual_ctr as ctr,
+                    revenue_estimate as revenue,
+                    published_at
+                FROM video_tracking
+                WHERE user_id = ? AND title_used IS NOT NULL AND actual_views > 0
+                ORDER BY actual_views DESC
+                LIMIT ?
+            `, [userId, parseInt(limit)]);
+            leaderboard = leaderboard.concat(topTitles);
+        }
+
+        if (type === 'thumbnails' || type === 'all') {
+            const topThumbnails = await db.all(`
+                SELECT 
+                    thumbnail_used as item,
+                    'thumbnail' as type,
+                    actual_views as views,
+                    actual_ctr as ctr,
+                    revenue_estimate as revenue,
+                    published_at
+                FROM video_tracking
+                WHERE user_id = ? AND thumbnail_used IS NOT NULL AND actual_views > 0
+                ORDER BY actual_views DESC
+                LIMIT ?
+            `, [userId, parseInt(limit)]);
+            leaderboard = leaderboard.concat(topThumbnails);
+        }
+
+        // Ordenar por views e limitar
+        leaderboard.sort((a, b) => (b.views || 0) - (a.views || 0));
+        leaderboard = leaderboard.slice(0, parseInt(limit));
+
+        res.status(200).json({ leaderboard });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/leaderboard]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar leaderboard.' });
+    }
+});
+
+// 3. Heatmap de Sucesso - Fórmulas de título que funcionam melhor por nicho
+app.get('/api/analytics/heatmap', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        // Buscar títulos da biblioteca com suas métricas de sucesso
+        // Nota: JOIN pode não funcionar se não houver correspondência exata, então fazemos query separada
+        const heatmapData = await db.all(`
+            SELECT 
+                COALESCE(uc.niche, 'Geral') as niche,
+                COALESCE(uc.subniche, '') as subniche,
+                COUNT(*) as usage_count,
+                AVG(vt.actual_views) as avg_views,
+                AVG(vt.actual_ctr) as avg_ctr,
+                MAX(vt.actual_views) as max_views
+            FROM video_tracking vt
+            LEFT JOIN user_channels uc ON vt.channel_id = uc.id
+            WHERE vt.user_id = ? AND vt.actual_views > 0
+            GROUP BY COALESCE(uc.niche, 'Geral'), COALESCE(uc.subniche, '')
+            ORDER BY avg_views DESC
+        `, [userId]);
+
+        // Também buscar dados da biblioteca de títulos
+        const libraryData = await db.all(`
+            SELECT 
+                niche,
+                subniche,
+                formula_type,
+                COUNT(*) as count,
+                AVG(original_views) as avg_views,
+                AVG(original_ctr) as avg_ctr
+            FROM viral_titles_library
+            WHERE user_id = ? AND original_views > 0
+            GROUP BY niche, subniche, formula_type
+        `, [userId]);
+
+        res.status(200).json({
+            tracking: heatmapData,
+            library: libraryData
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/heatmap]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar heatmap.' });
+    }
+});
+
+// 4. Score Predictor - IA prevê potencial de views antes de publicar
+app.post('/api/analytics/predict-score', authenticateToken, async (req, res) => {
+    const { title, thumbnailDescription, niche, subniche } = req.body;
+    const userId = req.user.id;
+
+    if (!title) {
+        return res.status(400).json({ msg: 'Título é obrigatório.' });
+    }
+
+    try {
+        // Buscar histórico de sucesso do usuário
+        const userHistory = await db.all(`
+            SELECT 
+                AVG(actual_views) as avg_views,
+                AVG(actual_ctr) as avg_ctr,
+                COUNT(*) as total_videos
+            FROM video_tracking
+            WHERE user_id = ? AND actual_views > 0
+        `, [userId]);
+
+        // Buscar títulos similares na biblioteca
+        const similarTitles = await db.all(`
+            SELECT 
+                original_views,
+                original_ctr,
+                viral_score
+            FROM viral_titles_library
+            WHERE user_id = ? AND niche = ? AND original_views > 0
+            ORDER BY original_views DESC
+            LIMIT 10
+        `, [userId, niche || '']);
+
+        // Calcular score baseado em múltiplos fatores
+        let predictedViews = 0;
+        let predictedCtr = 0;
+        let score = 0;
+
+        // Fator 1: Histórico do usuário
+        if (userHistory[0] && userHistory[0].total_videos > 0) {
+            predictedViews = userHistory[0].avg_views || 0;
+            predictedCtr = userHistory[0].avg_ctr || 0;
+        }
+
+        // Fator 2: Títulos similares
+        if (similarTitles.length > 0) {
+            const avgSimilarViews = similarTitles.reduce((sum, t) => sum + (t.original_views || 0), 0) / similarTitles.length;
+            const avgSimilarCtr = similarTitles.reduce((sum, t) => sum + (t.original_ctr || 0), 0) / similarTitles.length;
+            
+            // Média ponderada: 60% histórico do usuário, 40% títulos similares
+            predictedViews = (predictedViews * 0.6) + (avgSimilarViews * 0.4);
+            predictedCtr = (predictedCtr * 0.6) + (avgSimilarCtr * 0.4);
+        }
+
+        // Fator 3: Análise do título (comprimento, palavras-chave, etc)
+        const titleLength = title.length;
+        const hasNumbers = /\d/.test(title);
+        const hasQuestion = title.includes('?');
+        const hasExclamation = title.includes('!');
+        const powerWords = ['SECRETO', 'REVELADO', 'ESCONDIDO', 'PROIBIDO', 'CHOCANTE', 'INCRÍVEL', 'NUNCA VISTO'];
+        const hasPowerWords = powerWords.some(word => title.toUpperCase().includes(word));
+
+        // Ajustar score baseado em características do título
+        let titleScore = 50; // Base
+        if (titleLength >= 40 && titleLength <= 60) titleScore += 10; // Tamanho ideal
+        if (hasNumbers) titleScore += 5;
+        if (hasQuestion) titleScore += 8;
+        if (hasExclamation) titleScore += 5;
+        if (hasPowerWords) titleScore += 15;
+
+        // Calcular score final (0-100)
+        score = Math.min(100, Math.max(0, titleScore + (predictedCtr * 2)));
+
+        // Ajustar views previstas baseado no score
+        predictedViews = predictedViews * (score / 50);
+
+        res.status(200).json({
+            predictedViews: Math.round(predictedViews),
+            predictedCtr: predictedCtr.toFixed(2),
+            score: Math.round(score),
+            factors: {
+                titleLength,
+                hasNumbers,
+                hasQuestion,
+                hasExclamation,
+                hasPowerWords,
+                userHistory: userHistory[0] || null,
+                similarTitlesCount: similarTitles.length
+            }
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/predict-score]:', err);
+        res.status(500).json({ msg: 'Erro ao prever score.' });
+    }
+});
+
+// 5. Validação de Título
+app.post('/api/analytics/validate-title', authenticateToken, async (req, res) => {
+    const { title, niche } = req.body;
+
+    if (!title) {
+        return res.status(400).json({ msg: 'Título é obrigatório.' });
+    }
+
+    try {
+        const validations = {
+            length: {
+                value: title.length,
+                min: 30,
+                max: 70,
+                ideal: 40,
+                passed: title.length >= 30 && title.length <= 70,
+                score: title.length >= 40 && title.length <= 60 ? 100 : title.length >= 30 && title.length <= 70 ? 70 : 50
+            },
+            hasNumbers: {
+                value: /\d/.test(title),
+                passed: /\d/.test(title),
+                score: /\d/.test(title) ? 100 : 50,
+                tip: 'Números aumentam CTR em até 20%'
+            },
+            hasQuestion: {
+                value: title.includes('?'),
+                passed: title.includes('?'),
+                score: title.includes('?') ? 100 : 60,
+                tip: 'Perguntas geram curiosidade'
+            },
+            hasPowerWords: {
+                value: ['SECRETO', 'REVELADO', 'ESCONDIDO', 'PROIBIDO', 'CHOCANTE', 'INCRÍVEL', 'NUNCA VISTO', 'EXCLUSIVO'].some(w => title.toUpperCase().includes(w)),
+                passed: ['SECRETO', 'REVELADO', 'ESCONDIDO', 'PROIBIDO', 'CHOCANTE', 'INCRÍVEL', 'NUNCA VISTO', 'EXCLUSIVO'].some(w => title.toUpperCase().includes(w)),
+                score: ['SECRETO', 'REVELADO', 'ESCONDIDO', 'PROIBIDO', 'CHOCANTE', 'INCRÍVEL', 'NUNCA VISTO', 'EXCLUSIVO'].some(w => title.toUpperCase().includes(w)) ? 100 : 50,
+                tip: 'Palavras poderosas aumentam engajamento'
+            },
+            capitalization: {
+                value: title.split(' ').filter(w => w[0] && w[0] === w[0].toUpperCase()).length,
+                passed: title.split(' ').filter(w => w[0] && w[0] === w[0].toUpperCase()).length >= 3,
+                score: title.split(' ').filter(w => w[0] && w[0] === w[0].toUpperCase()).length >= 3 ? 100 : 70,
+                tip: 'Capitalização adequada melhora legibilidade'
+            }
+        };
+
+        const totalScore = Object.values(validations).reduce((sum, v) => sum + (v.score || 0), 0) / Object.keys(validations).length;
+        const passedCount = Object.values(validations).filter(v => v.passed).length;
+        const totalChecks = Object.keys(validations).length;
+
+        res.status(200).json({
+            title,
+            validations,
+            overallScore: Math.round(totalScore),
+            passedChecks: `${passedCount}/${totalChecks}`,
+            recommendation: totalScore >= 80 ? 'excellent' : totalScore >= 60 ? 'good' : 'needs_improvement',
+            tips: Object.values(validations).filter(v => !v.passed && v.tip).map(v => v.tip)
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/validate-title]:', err);
+        res.status(500).json({ msg: 'Erro ao validar título.' });
+    }
+});
+
+// 6. Validação de Thumbnail (análise básica)
+app.post('/api/analytics/validate-thumbnail', authenticateToken, async (req, res) => {
+    const { thumbnailDescription, niche } = req.body;
+
+    if (!thumbnailDescription) {
+        return res.status(400).json({ msg: 'Descrição da thumbnail é obrigatória.' });
+    }
+
+    try {
+        const validations = {
+            hasFace: {
+                value: /face|rosto|pessoa|person|human/i.test(thumbnailDescription),
+                passed: /face|rosto|pessoa|person|human/i.test(thumbnailDescription),
+                score: /face|rosto|pessoa|person|human/i.test(thumbnailDescription) ? 100 : 50,
+                tip: 'Rostos humanos aumentam CTR em até 30%'
+            },
+            hasText: {
+                value: /text|texto|phrase|frase|word|palavra/i.test(thumbnailDescription),
+                passed: /text|texto|phrase|frase|word|palavra/i.test(thumbnailDescription),
+                score: /text|texto|phrase|frase|word|palavra/i.test(thumbnailDescription) ? 100 : 60,
+                tip: 'Texto na thumbnail aumenta cliques'
+            },
+            hasContrast: {
+                value: /contrast|contraste|bright|brilhante|vibrant|vibrante|color/i.test(thumbnailDescription),
+                passed: /contrast|contraste|bright|brilhante|vibrant|vibrante|color/i.test(thumbnailDescription),
+                score: /contrast|contraste|bright|brilhante|vibrant|vibrante|color/i.test(thumbnailDescription) ? 100 : 50,
+                tip: 'Alto contraste melhora visibilidade'
+            },
+            hasEmotion: {
+                value: /emotion|emoção|expression|expressão|surprised|surpreso|shocked|chocado|excited|animado/i.test(thumbnailDescription),
+                passed: /emotion|emoção|expression|expressão|surprised|surpreso|shocked|chocado|excited|animado/i.test(thumbnailDescription),
+                score: /emotion|emoção|expression|expressão|surprised|surpreso|shocked|chocado|excited|animado/i.test(thumbnailDescription) ? 100 : 50,
+                tip: 'Expressões emocionais geram mais cliques'
+            },
+            composition: {
+                value: 'center' in thumbnailDescription.toLowerCase() || 'rule of thirds' in thumbnailDescription.toLowerCase(),
+                passed: 'center' in thumbnailDescription.toLowerCase() || 'rule of thirds' in thumbnailDescription.toLowerCase(),
+                score: 'center' in thumbnailDescription.toLowerCase() || 'rule of thirds' in thumbnailDescription.toLowerCase() ? 100 : 70,
+                tip: 'Composição adequada melhora impacto visual'
+            }
+        };
+
+        const totalScore = Object.values(validations).reduce((sum, v) => sum + (v.score || 0), 0) / Object.keys(validations).length;
+        const passedCount = Object.values(validations).filter(v => v.passed).length;
+        const totalChecks = Object.keys(validations).length;
+
+        res.status(200).json({
+            thumbnailDescription,
+            validations,
+            overallScore: Math.round(totalScore),
+            passedChecks: `${passedCount}/${totalChecks}`,
+            recommendation: totalScore >= 80 ? 'excellent' : totalScore >= 60 ? 'good' : 'needs_improvement',
+            tips: Object.values(validations).filter(v => !v.passed && v.tip).map(v => v.tip)
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/validate-thumbnail]:', err);
+        res.status(500).json({ msg: 'Erro ao validar thumbnail.' });
+    }
+});
+
+// 7. Comparação com Competidores
+app.post('/api/analytics/compare-competitors', authenticateToken, async (req, res) => {
+    const { title, thumbnailDescription, niche, competitorVideoIds } = req.body;
+    const userId = req.user.id;
+
+    if (!title || !competitorVideoIds || !Array.isArray(competitorVideoIds)) {
+        return res.status(400).json({ msg: 'Título e lista de IDs de vídeos competidores são obrigatórios.' });
+    }
+
+    try {
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+        if (!geminiKeyData) {
+            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária.' });
+        }
+        const geminiApiKey = decrypt(geminiKeyData.api_key);
+
+        // Buscar dados dos vídeos competidores
+        const competitorData = await Promise.all(
+            competitorVideoIds.slice(0, 5).map(async (videoId) => {
+                try {
+                    const data = await callYouTubeDataAPI(videoId, geminiApiKey);
+                    return {
+                        videoId,
+                        title: data.title,
+                        views: data.views,
+                        likes: data.likes,
+                        comments: data.comments,
+                        days: data.days
+                    };
+                } catch (err) {
+                    console.error(`Erro ao buscar vídeo ${videoId}:`, err);
+                    return null;
+                }
+            })
+        );
+
+        const validCompetitors = competitorData.filter(c => c !== null);
+
+        if (validCompetitors.length === 0) {
+            return res.status(400).json({ msg: 'Nenhum vídeo competidor válido encontrado.' });
+        }
+
+        // Calcular métricas médias dos competidores
+        const avgViews = validCompetitors.reduce((sum, c) => sum + (c.views || 0), 0) / validCompetitors.length;
+        const avgLikes = validCompetitors.reduce((sum, c) => sum + (c.likes || 0), 0) / validCompetitors.length;
+        const avgComments = validCompetitors.reduce((sum, c) => sum + (c.comments || 0), 0) / validCompetitors.length;
+
+        // Comparar características do título
+        const yourTitleLength = title.length;
+        const competitorTitleLengths = validCompetitors.map(c => (c.title || '').length);
+        const avgCompetitorTitleLength = competitorTitleLengths.reduce((sum, l) => sum + l, 0) / competitorTitleLengths.length;
+
+        // Análise comparativa
+        const comparison = {
+            titleLength: {
+                yours: yourTitleLength,
+                average: Math.round(avgCompetitorTitleLength),
+                difference: yourTitleLength - avgCompetitorTitleLength,
+                better: Math.abs(yourTitleLength - 50) < Math.abs(avgCompetitorTitleLength - 50)
+            },
+            performance: {
+                avgCompetitorViews: Math.round(avgViews),
+                avgCompetitorLikes: Math.round(avgLikes),
+                avgCompetitorComments: Math.round(avgComments)
+            },
+            recommendations: []
+        };
+
+        if (yourTitleLength < 30) {
+            comparison.recommendations.push('Seu título é muito curto. Títulos entre 40-60 caracteres performam melhor.');
+        } else if (yourTitleLength > 70) {
+            comparison.recommendations.push('Seu título é muito longo. Considere reduzir para melhorar CTR.');
+        }
+
+        if (avgViews > 100000) {
+            comparison.recommendations.push(`Competidores têm média de ${Math.round(avgViews / 1000)}K views. Considere estudar seus títulos.`);
+        }
+
+        res.status(200).json({
+            yourTitle: title,
+            competitors: validCompetitors,
+            comparison,
+            score: comparison.titleLength.better ? 75 : 50
+        });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analytics/compare-competitors]:', err);
+        res.status(500).json({ msg: 'Erro ao comparar com competidores.' });
     }
 });
 
