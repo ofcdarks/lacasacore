@@ -1558,18 +1558,56 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 4: Calcular Receita e RPM baseado no nicho ---
-        // Verificar se finalNicheData existe antes de calcular receita
-        if (!finalNicheData || !finalNicheData.niche) {
-            console.error('[Análise] Erro: finalNicheData não está definido corretamente');
-            throw new Error('Erro ao processar análise: dados do nicho não foram encontrados.');
-        }
+        let estimatedRevenueUSD = 0;
+        let estimatedRevenueBRL = 0;
+        let rpmUSD = 2.0;
+        let rpmBRL = 11.0;
         
-        const rpm = getRPMByNiche(finalNicheData.niche);
-        const views = parseInt(videoDetails.views) || 0;
-        const estimatedRevenueUSD = (views / 1000) * rpm.usd;
-        const estimatedRevenueBRL = (views / 1000) * rpm.brl;
-        const rpmUSD = rpm.usd;
-        const rpmBRL = rpm.brl;
+        try {
+            // Verificar se finalNicheData existe antes de calcular receita
+            if (!finalNicheData || !finalNicheData.niche) {
+                console.error('[Análise] Erro: finalNicheData não está definido corretamente', { finalNicheData });
+                throw new Error('Erro ao processar análise: dados do nicho não foram encontrados.');
+            }
+            
+            const rpm = getRPMByNiche(finalNicheData.niche);
+            
+            // Verificar se rpm foi retornado corretamente
+            if (!rpm || typeof rpm !== 'object' || typeof rpm.usd !== 'number' || typeof rpm.brl !== 'number') {
+                console.error('[Análise] Erro: getRPMByNiche retornou valor inválido', { rpm, niche: finalNicheData.niche });
+                // Usar valores padrão se rpm for inválido
+                const defaultRPM = { usd: 2.0, brl: 11.0 };
+                console.warn('[Análise] Usando RPM padrão devido a erro');
+                const views = parseInt(videoDetails.views) || 0;
+                estimatedRevenueUSD = (views / 1000) * defaultRPM.usd;
+                estimatedRevenueBRL = (views / 1000) * defaultRPM.brl;
+                rpmUSD = defaultRPM.usd;
+                rpmBRL = defaultRPM.brl;
+            } else {
+                const views = parseInt(videoDetails.views) || 0;
+                estimatedRevenueUSD = (views / 1000) * rpm.usd;
+                estimatedRevenueBRL = (views / 1000) * rpm.brl;
+                rpmUSD = rpm.usd;
+                rpmBRL = rpm.brl;
+            }
+            
+            // Garantir que todas as variáveis estão definidas e são números válidos
+            if (typeof estimatedRevenueUSD !== 'number' || isNaN(estimatedRevenueUSD)) {
+                console.error('[Análise] Erro: estimatedRevenueUSD não é um número válido', { estimatedRevenueUSD, rpm, views: videoDetails.views });
+                estimatedRevenueUSD = 0;
+                estimatedRevenueBRL = 0;
+                rpmUSD = 2.0;
+                rpmBRL = 11.0;
+            }
+        } catch (revenueErr) {
+            console.error('[Análise] Erro ao calcular receita:', revenueErr);
+            // Usar valores padrão em caso de erro
+            const views = parseInt(videoDetails.views) || 0;
+            estimatedRevenueUSD = (views / 1000) * 2.0;
+            estimatedRevenueBRL = (views / 1000) * 11.0;
+            rpmUSD = 2.0;
+            rpmBRL = 11.0;
+        }
 
         // --- ETAPA 5: Enviar Resposta (com IDs dos títulos, receita e RPM) ---
         const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
