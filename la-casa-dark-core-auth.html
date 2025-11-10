@@ -181,8 +181,13 @@
     </div>
 
     <script>
-        // URLs da API
-        const API_BASE_URL = '/api/auth';
+        // URLs da API - Detecta automaticamente a porta do backend
+        // Se estiver rodando no live-server (porta 5500) ou não estiver na porta 5001, usa o backend na porta 5001
+        const currentPort = window.location.port;
+        const isBackendPort = currentPort === '5001' || currentPort === '';
+        const API_BASE_URL = isBackendPort 
+            ? '/api/auth' 
+            : `http://${window.location.hostname}:5001/api/auth`;
 
         // Seletores dos Formulários
         const loginForm = document.getElementById('login-form');
@@ -251,7 +256,29 @@
                     body: JSON.stringify({ email, password })
                 });
 
-                const data = await response.json();
+                // Ler o texto da resposta uma única vez
+                const text = await response.text();
+                
+                // Verificar se há conteúdo
+                if (!text || text.trim() === '') {
+                    throw new Error('O servidor retornou uma resposta vazia. Verifique se o servidor está rodando.');
+                }
+
+                // Verificar se é JSON válido
+                const contentType = response.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('Erro ao parsear JSON:', text);
+                        throw new Error('Resposta do servidor inválida. Verifique se o servidor está funcionando corretamente.');
+                    }
+                } else {
+                    // Se não for JSON, mostrar o texto da resposta
+                    throw new Error(`Erro no servidor: ${text.substring(0, 200)}`);
+                }
 
                 if (!response.ok) {
                     throw new Error(data.msg || 'Erro ao tentar fazer login.');
@@ -272,8 +299,19 @@
                 }, 100); // 100ms de delay
 
             } catch (error) {
-                console.error('Erro no login:', error.message);
-                showErrorMessage('login-error', error.message);
+                console.error('Erro no login:', error);
+                // Tratar diferentes tipos de erro
+                let errorMessage = error.message;
+                
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001.';
+                } else if (error.message.includes('Unexpected end of JSON input')) {
+                    errorMessage = 'Erro na comunicação com o servidor. Verifique se o servidor está funcionando corretamente.';
+                } else if (error.message.includes('resposta vazia')) {
+                    errorMessage = 'O servidor não está respondendo. Verifique se o servidor está rodando.';
+                }
+                
+                showErrorMessage('login-error', errorMessage);
             } finally {
                 // Reabilitar o botão
                 button.disabled = false;

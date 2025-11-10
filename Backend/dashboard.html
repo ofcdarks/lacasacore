@@ -320,9 +320,27 @@
                             </select>
                         </div>
                         
+                        <div class="mb-4">
+                            <label for="thumb-model-select" class="block text-sm font-medium mb-2">2. Modelo de IA</label>
+                            <select id="thumb-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                <optgroup label="Anthropic Claude">
+                                    <option value="claude-3-sonnet-20240229" selected>Claude 3 Sonnet</option>
+                                    <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                                </optgroup>
+                                <optgroup label="Google Gemini">
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                </optgroup>
+                                <optgroup label="OpenAI GPT">
+                                    <option value="gpt-4.1">GPT-4.1</option>
+                                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div>
-                                <label for="thumb-language" class="block text-sm font-medium mb-2">2. Idioma</label>
+                                <label for="thumb-language" class="block text-sm font-medium mb-2">3. Idioma</label>
                                 <select id="thumb-language" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="Português" selected>Português</option>
                                     <option value="Inglês">Inglês</option>
@@ -331,7 +349,7 @@
                             </div>
 
                             <div>
-                                <label for="thumb-phrases" class="block text-sm font-medium mb-2">3. Frases</label>
+                                <label for="thumb-phrases" class="block text-sm font-medium mb-2">4. Frases</label>
                                 <select id="thumb-phrases" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="true" selected>Com Frases</option>
                                     <option value="false">Sem Frases</option>
@@ -339,7 +357,7 @@
                             </div>
 
                             <div>
-                                <label for="thumb-style" class="block text-sm font-medium mb-2">4. Estilo de Arte</label>
+                                <label for="thumb-style" class="block text-sm font-medium mb-2">5. Estilo de Arte</label>
                                 <select id="thumb-style" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <optgroup label="Realismo">
                                         <option value="Hiper-realista" selected>Hiper-realista</option>
@@ -362,6 +380,19 @@
                                     </optgroup>
                                 </select>
                             </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label for="thumb-custom-prompt" class="block text-sm font-medium mb-2">6. Prompt Personalizado (Opcional)</label>
+                            <textarea id="thumb-custom-prompt" rows="4" placeholder="Digite aqui instruções específicas para a geração da thumbnail. Deixe vazio para usar o prompt padrão." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"></textarea>
+                            <p class="text-xs text-gray-400 mt-1">Use este campo para personalizar como a IA deve gerar as thumbnails. Ex: "Foco em cores vibrantes", "Estilo minimalista", etc.</p>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="thumb-no-phrases" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
+                                <span class="text-sm text-gray-300">Gerar thumbnail sem frase de gancho (apenas imagem, sem texto)</span>
+                            </label>
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1384,6 +1415,7 @@
             
             const thumbGeneratorDiv = document.getElementById('thumbnail-generator');
             const thumbTitleSelect = document.getElementById('thumb-title-select');
+            const thumbModelSelect = document.getElementById('thumb-model-select');
             const thumbLanguageSelect = document.getElementById('thumb-language');
             const thumbPhrasesSelect = document.getElementById('thumb-phrases');
             const thumbStyleSelect = document.getElementById('thumb-style');
@@ -1475,7 +1507,10 @@
                         <div class="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-6 mb-6 bg-gray-800 p-4 rounded-lg border border-gray-700">
                             <img src="${data.videoDetails.thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
                             <div class="flex-1">
-                                <h3 class="text-xl font-semibold text-white mb-3">${data.videoDetails.title}</h3>
+                                <h3 class="text-xl font-semibold text-white mb-2">${data.videoDetails.title}</h3>
+                                ${data.videoDetails.translatedTitle ? `
+                                <p class="text-base text-gray-400 mb-3 italic">${data.videoDetails.translatedTitle}</p>
+                                ` : ''}
                                 <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
                                     <span class="flex items-center space-x-1.5">
                                         <i data-lucide="eye" class="w-4 h-4 text-amber-500"></i>
@@ -1604,6 +1639,25 @@
                         btnMoreTitles.addEventListener('click', handleTitleAnalysis);
                     }
                     
+                    // Inicializar o modelo de IA com o modelo usado na análise (mas permitir mudança)
+                    if (thumbModelSelect && data.modelUsed) {
+                        // Tentar encontrar o modelo correspondente no dropdown
+                        const modelValue = data.modelUsed;
+                        // Se o modelo usado for "Comparação", usar Claude como padrão
+                        if (modelValue.includes('Comparação') || modelValue === 'all') {
+                            thumbModelSelect.value = 'claude-3-sonnet-20240229';
+                        } else {
+                            // Tentar encontrar o modelo exato ou usar o primeiro disponível
+                            const option = Array.from(thumbModelSelect.options).find(opt => 
+                                opt.value === modelValue || 
+                                modelValue.includes(opt.value.split('-')[0]) // Ex: "gemini" em "gemini-2.0-flash"
+                            );
+                            if (option) {
+                                thumbModelSelect.value = option.value;
+                            }
+                        }
+                    }
+                    
                     if (thumbGeneratorDiv) thumbGeneratorDiv.style.display = 'block';
                 }
             }
@@ -1674,9 +1728,12 @@
                 }
                 
                 const selectedTitle = thumbTitleSelect.value;
+                const selectedModel = thumbModelSelect.value;
                 const language = thumbLanguageSelect.value;
                 const includePhrases = thumbPhrasesSelect.value === 'true';
-                const style = thumbStyleSelect.value; 
+                const style = thumbStyleSelect.value;
+                const customPrompt = document.getElementById('thumb-custom-prompt')?.value?.trim() || null;
+                const noPhrases = document.getElementById('thumb-no-phrases')?.checked || false;
 
                 if (thumbLoadingSpinner) thumbLoadingSpinner.style.display = 'flex';
                 if (thumbResultadosDiv) {
@@ -1694,12 +1751,13 @@
                         body: JSON.stringify({
                             videoId: currentAnalysisData.videoId,
                             selectedTitle: selectedTitle,
-                            model: currentAnalysisData.model,
+                            model: selectedModel,
                             niche: currentAnalysisData.niche,
                             subniche: currentAnalysisData.subniche,
                             language: language,
-                            includePhrases: includePhrases,
-                            style: style
+                            includePhrases: noPhrases ? false : includePhrases,
+                            style: style,
+                            customPrompt: customPrompt
                         })
                     });
 

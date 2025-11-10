@@ -35,6 +35,14 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// Middleware de tratamento de erros para garantir que sempre retorne JSON
+app.use((err, req, res, next) => {
+    console.error('Erro no middleware:', err);
+    if (!res.headersSent) {
+        res.status(500).json({ msg: 'Erro interno do servidor.' });
+    }
+});
+
 // Rota principal para servir a página de autenticação
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
@@ -291,7 +299,42 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
     
     const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
     
-    const modelName = model; // Usar o nome do modelo diretamente do frontend
+    // Mapeamento de nomes amigáveis para nomes corretos da API da Anthropic
+    // Apenas 2 modelos válidos e testados
+    const modelMapping = {
+        // Modelos Claude válidos e disponíveis
+        'claude-3-sonnet-20240229': 'claude-3-sonnet-20240229',
+        'claude-3-haiku-20240307': 'claude-3-haiku-20240307',
+        // Fallbacks para modelos antigos (caso sejam usados)
+        'claude-3-opus-20240229': 'claude-3-sonnet-20240229', // Fallback para Sonnet
+        'claude-sonnet-4-20250514': 'claude-3-sonnet-20240229', // Fallback para Sonnet
+        'claude-3.5-sonnet-20241022': 'claude-3-sonnet-20240229', // Fallback para Sonnet
+        'claude-3.5-haiku-20241022': 'claude-3-haiku-20240307' // Fallback para Haiku
+    };
+    
+    // Apenas 2 modelos válidos: claude-3-sonnet-20240229 e claude-3-haiku-20240307
+    // Converter nome do modelo usando mapeamento ou determinar pelo tipo
+    let modelName = modelMapping[model];
+    
+    // Se não estiver no mapeamento, determinar pelo tipo de modelo
+    if (!modelName) {
+        if (model.includes('haiku')) {
+            modelName = 'claude-3-haiku-20240307';
+        } else {
+            // Padrão: usar Sonnet (para sonnet, opus, ou qualquer outro)
+            modelName = 'claude-3-sonnet-20240229';
+        }
+    }
+    
+    // Garantir que apenas os 2 modelos válidos sejam usados
+    const validModels = ['claude-3-sonnet-20240229', 'claude-3-haiku-20240307'];
+    if (!validModels.includes(modelName)) {
+        // Se por algum motivo o modelo não for válido, usar Sonnet como padrão
+        console.warn(`[Claude API] Modelo ${modelName} não é válido, usando claude-3-sonnet-20240229 como padrão`);
+        modelName = 'claude-3-sonnet-20240229';
+    }
+    
+    console.log(`[Claude API] Modelo original: ${model}, Modelo mapeado: ${modelName}`);
 
     const content = [{ type: "text", text: prompt }];
     if (imageUrl) {
@@ -328,10 +371,48 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
 
         if (!response.ok) {
             console.error('Erro da API Claude:', result);
+            console.error(`[Claude API] Modelo tentado: ${modelName} (original: ${model})`);
             if (result.error?.type === 'authentication_error') {
                  throw new Error(`A sua Chave de API do Claude é inválvida.`);
             }
-            throw new Error(`Erro da API Claude: ${result.error?.message || response.statusText}`);
+            // Mensagem de erro mais detalhada
+            const errorMsg = result.error?.message || response.statusText;
+            if (errorMsg.includes('model') || errorMsg.includes('invalid') || errorMsg.includes('not found') || errorMsg.includes('does not exist')) {
+                // Tentar fallback automático apenas com os 2 modelos válidos
+                const validModels = ['claude-3-sonnet-20240229', 'claude-3-haiku-20240307'];
+                
+                // Tentar o outro modelo válido se o atual falhou
+                for (const altModel of validModels) {
+                    if (altModel === modelName) continue; // Pular o modelo que já falhou
+                    
+                    try {
+                        console.log(`[Claude API] Tentando modelo alternativo: ${altModel}`);
+                        const fallbackPayload = { ...payload, model: altModel };
+                        const fallbackResponse = await fetch(CLAUDE_API_URL, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-api-key': apiKey,
+                                'anthropic-version': '2023-06-01'
+                            },
+                            body: JSON.stringify(fallbackPayload)
+                        });
+                        const fallbackResult = await fallbackResponse.json();
+                        
+                        if (fallbackResponse.ok && fallbackResult.content && fallbackResult.content[0] && fallbackResult.content[0].text) {
+                            console.log(`[Claude API] Sucesso com modelo alternativo: ${altModel}`);
+                            return { titles: fallbackResult.content[0].text, model: model };
+                        }
+                    } catch (fallbackErr) {
+                        console.warn(`[Claude API] Fallback ${altModel} falhou:`, fallbackErr.message);
+                        continue;
+                    }
+                }
+                
+                // Se todos os modelos válidos falharem, mostrar erro
+                throw new Error(`Modelo Claude inválido ou não disponível: ${modelName}. Use um destes modelos válidos: ${validModels.join(' ou ')}. Erro da API: ${errorMsg}`);
+            }
+            throw new Error(`Erro da API Claude: ${errorMsg}`);
         }
         if (result.content && result.content[0] && result.content[0].text) {
             return { titles: result.content[0].text, model: model };
@@ -387,7 +468,7 @@ async function validateClaudeKey(apiKey) {
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                model: "claude-3-5-haiku-20241022", // Usar um modelo estável para validação
+                model: "claude-3-haiku-20240307", // Usar um modelo válido para validação
                 max_tokens: 10,
                 messages: [{ role: "user", content: "Test" }]
             })
@@ -508,6 +589,7 @@ const isAdmin = (req, res, next) => {
                 youtube_video_id TEXT NOT NULL,
                 video_url TEXT,
                 original_title TEXT,
+                translated_title TEXT,
                 original_views INTEGER,
                 original_comments INTEGER,
                 original_days INTEGER,
@@ -593,6 +675,7 @@ const isAdmin = (req, res, next) => {
         const analyzedVideosColumns = {
             video_url: 'TEXT',
             folder_id: 'INTEGER REFERENCES analysis_folders(id) ON DELETE SET NULL',
+            translated_title: 'TEXT',
             original_views: 'INTEGER',
             original_comments: 'INTEGER',
             original_days: 'INTEGER',
@@ -708,6 +791,11 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
+    // Verificar se o banco de dados está inicializado
+    if (!db) {
+        return res.status(503).json({ msg: 'Servidor ainda não está pronto. Aguarde alguns instantes e tente novamente.' });
+    }
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -909,12 +997,40 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
         
         console.log(`[Análise] Vídeo encontrado: ${videoDetails.title}`);
 
+        // --- ETAPA 1.5: Traduzir título original para português ---
+        let translatedTitle = videoDetails.title;
+        try {
+            const translatePrompt = `Traduza o seguinte título de vídeo do YouTube para português brasileiro (PT-BR). Mantenha o sentido, impacto e estrutura original. Retorne APENAS a tradução, sem explicações ou formatação.
+
+Título original: "${videoDetails.title}"
+
+Tradução em PT-BR:`;
+            
+            // Usar o primeiro serviço disponível para tradução (preferir Gemini)
+            let translateService = 'gemini';
+            let translateKey = geminiApiKey;
+            
+            const translateResponse = await callGeminiAPI(translatePrompt, translateKey, 'gemini-2.0-flash');
+            const translateText = translateResponse.titles.trim();
+            
+            // Limpar a resposta (remover markdown, aspas, etc)
+            translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
+            if (translatedTitle.length > 200) {
+                translatedTitle = translatedTitle.substring(0, 200);
+            }
+            console.log(`[Análise] Título traduzido: ${translatedTitle}`);
+        } catch (err) {
+            console.warn(`[Análise] Falha ao traduzir título, usando original: ${err.message}`);
+            translatedTitle = videoDetails.title;
+        }
+
         // --- ETAPA 2: IA - Análise de Título e Geração (PROMPT REFINADO) ---
         const titlePrompt = `
-            Você é um especialista em SEO para YouTube e estrategista de conteúdo viral. Sua tarefa é analisar os dados de um vídeo que viralizou e, com base nisso, criar novos títulos otimizados.
+            Você é um especialista em SEO para YouTube e estrategista de conteúdo viral. Sua tarefa é analisar os dados de um vídeo que viralizou e, com base nisso, criar novos títulos otimizados EM PORTUGUÊS BRASILEIRO (PT-BR).
 
             DADOS DO VÍDEO ORIGINAL:
-            - Título Original: "${videoDetails.title}"
+            - Título Original (traduzido para PT-BR): "${translatedTitle}"
+            - Título Original (idioma original): "${videoDetails.title}"
             - Estatísticas: ${videoDetails.views} visualizações, ${videoDetails.comments} comentários, postado há ${videoDetails.days} dias.
             - Descrição (início): ${videoDetails.description.substring(0, 300)}...
             - Transcrição (início): ${transcriptText.substring(0, 500)}...
@@ -922,10 +1038,15 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             SUA TAREFA:
             1.  **Análise de Nicho:** Identifique o "nicho" e o "subniche" do vídeo.
             2.  **Análise do Título Original:** Explique o "motivoSucesso" do título original e identifique a "formulaTitulo" (a estrutura ou gatilho mental usado).
-            3.  **Geração de Novos Títulos:** Usando a "formulaTitulo" que você identificou como base, crie 5 novas variações de títulos com melhorias para um vídeo com tema similar. Para cada novo título, forneça:
-                - "titulo": O novo título.
+            3.  **Geração de Novos Títulos:** Usando a "formulaTitulo" que você identificou como base, crie 5 novas variações de títulos EM PORTUGUÊS BRASILEIRO (PT-BR) com melhorias para um vídeo com tema similar. Para cada novo título, forneça:
+                - "titulo": O novo título EM PORTUGUÊS BRASILEIRO (PT-BR).
                 - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral.
-                - "explicacao": Uma breve justificativa para a nota e a estratégia por trás do título.
+                - "explicacao": Uma breve justificativa para a nota e a estratégia por trás do título EM PORTUGUÊS BRASILEIRO.
+
+            REGRAS IMPORTANTES:
+            - TODOS os títulos sugeridos DEVEM estar em PORTUGUÊS BRASILEIRO (PT-BR).
+            - A "explicacao" de cada título também deve estar em PORTUGUÊS BRASILEIRO.
+            - Mantenha o impacto, curiosidade e gatilhos mentais do título original.
 
             IMPORTANTE: A sua resposta completa deve ser APENAS o objeto JSON, sem nenhum texto, comentário ou formatação markdown à volta.
             {
@@ -964,7 +1085,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
             const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-sonnet-4-20250514');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-sonnet-20240229');
             const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4.1');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
@@ -1026,10 +1147,10 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
         let analysisId;
         try {
              const analysisResult = await db.run(
-                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    userId, folderId || null, videoId, videoUrl, videoDetails.title, videoDetails.views,
+                    userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
                     videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
                     finalNicheData.niche, finalNicheData.subniche, JSON.stringify(finalAnalysisData) 
                 ]
@@ -1056,7 +1177,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: finalTitlesWithIds,
             modelUsed: modelUsedForDisplay, 
-            videoDetails: { ...videoDetails, videoId: videoId },
+            videoDetails: { ...videoDetails, videoId: videoId, translatedTitle: translatedTitle },
             folderId: folderId || null
         });
 
@@ -1092,7 +1213,7 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
 
 
 app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
-    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style } = req.body;
+    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt } = req.body;
     const userId = req.user.id;
 
     if (!videoId || !selectedTitle || !model || !niche || !subniche || !language || includePhrases === undefined || !style) {
@@ -1124,8 +1245,33 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 2. Buscar dados do vídeo original ---
         const videoDetails = await callYouTubeDataAPI(videoId, geminiApiKey);
         
-        // --- 3. Criar o prompt multimodal (PROMPT REFINADO) ---
-        const thumbPrompt = `
+        // --- 2.5. Buscar análise original para pegar a fórmula do título ---
+        let formulaTitulo = null;
+        let motivoSucesso = null;
+        try {
+            const originalAnalysis = await db.get(
+                'SELECT analysis_data_json FROM analyzed_videos WHERE youtube_video_id = ? AND user_id = ? ORDER BY analyzed_at DESC LIMIT 1',
+                [videoId, userId]
+            );
+            if (originalAnalysis && originalAnalysis.analysis_data_json) {
+                const analysisData = JSON.parse(originalAnalysis.analysis_data_json);
+                if (analysisData.formulaTitulo) {
+                    formulaTitulo = analysisData.formulaTitulo;
+                }
+                if (analysisData.motivoSucesso) {
+                    motivoSucesso = analysisData.motivoSucesso;
+                }
+            }
+        } catch (err) {
+            console.warn(`[Análise-Thumb] Não foi possível buscar análise original: ${err.message}`);
+        }
+        
+        // --- 3. Criar o prompt multimodal (PROMPT REFINADO ou CUSTOMIZADO) ---
+        let thumbPrompt;
+        
+        if (customPrompt && customPrompt.trim()) {
+            // Se houver prompt customizado, usar ele como base
+            thumbPrompt = `
             Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
@@ -1134,20 +1280,119 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             ESTILO DE ARTE DESEJADO: "${style}"
             IDIOMA DO CONTEÚDO: "${language}"
 
+            PROMPT PERSONALIZADO DO USUÁRIO:
+            ${customPrompt}
+
+            ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
+            - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
+            - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
+            - CORES: Alto contraste, cores complementares, saturação otimizada, fundo que faz o texto "pular"
+            - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
+            - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
+            
             SUA TAREFA:
-            Crie DUAS (2) ideias distintas para uma nova thumbnail.
-            - **IDEIA 1 (Melhoria):** Analise a thumbnail de referência e proponha uma versão melhorada. Mantenha a essência do que funcionou, mas aprimore a composição, clareza, cores e impacto emocional.
-            - **IDEIA 2 (Inovação):** Crie um conceito completamente novo e mais otimizado, que talvez use um ângulo diferente para atrair cliques, focando em curiosidade, emoção ou um elemento surpreendente do vídeo.
+            Crie DUAS (2) ideias distintas para uma nova thumbnail baseadas no prompt personalizado acima.
+            - **IDEIA 1 (Melhoria):** Analise a thumbnail de referência e proponha uma versão melhorada seguindo o prompt personalizado. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
+            - **IDEIA 2 (Inovação):** Crie um conceito completamente novo seguindo o prompt personalizado. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
             1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
             2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
             3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
-            4.  **"descricaoThumbnail"**: Um prompt DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. Descreva a cena, composição, iluminação, etc. A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido. CRÍTICO: Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem.'}
+            
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
+            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
 
             REGRAS IMPORTANTES:
             - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
             - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            ${!includePhrases ? '- IMPORTANTE: A "descricaoThumbnail" NÃO deve mencionar texto, palavras ou frases. Apenas descreva elementos visuais, composição, cores, iluminação, etc.' : ''}
+            - Seja extremamente específico e detalhado nas descrições visuais. Use termos técnicos de fotografia profissional, cinematografia e psicologia visual quando apropriado.
+            - Foque em elementos que maximizem CTR: expressões faciais intensas, momentos de tensão, curiosidade visual, contraste dramático, composição impactante.
+            
+            EXEMPLOS DE COMO DESCREVER PARA GARANTIR REALISMO:
+            - Em vez de "um guerreiro maia", escreva: "a real person dressed as a Mayan warrior, photographed on location, real skin texture with pores and natural imperfections, real fabric of the costume with visible texture and wrinkles, real feathers in the headdress with natural variations"
+            - Em vez de "uma pirâmide antiga", escreva: "a real ancient Mayan pyramid photographed on location, real weathered stone with cracks and imperfections, real moss and vegetation growing on the stones, real shadows cast by the sun, real depth of field blur in the background"
+            - Em vez de "luz mística", escreva: "real natural lighting from the sun, real shadows cast by real objects, real depth of field, real bokeh in the background, real camera lens flare if the sun is in frame"
+            - SEMPRE mencione: "real", "actual", "photographed", "shot on location", "documentary style", "real-world", "actual photograph"
+            
+            TÉCNICAS DE THUMBNAIL VIRAL PARA O TEXTO (quando includePhrases = true) - DESIGN PROFISSIONAL COMO PHOTOSHOP - CTR ACIMA DE 25%:
+            
+            📝 DESCRIÇÃO OBRIGATÓRIA DO TEXTO - DEVE PARECER FEITO NO PHOTOSHOP POR UM DESIGNER PROFISSIONAL:
+            O texto DEVE ser descrito como se fosse criado no Photoshop com técnicas profissionais de design gráfico:
+            
+            1. TIPOGRAFIA PROFISSIONAL:
+               - "Professional typography, Photoshop-quality text design"
+               - "Large, bold, professionally designed text occupying 25-35% of the image height"
+               - "Massive, oversized typography with professional letter spacing and kerning"
+               - "Thick, chunky, professionally rendered letters"
+               - "Typography that looks like it was designed by a professional graphic designer"
+               - "High-end text design, magazine-quality typography"
+            
+            2. CORES PROFISSIONAIS E EFEITOS DE CAMADA (Layer Effects do Photoshop):
+               - "Bright yellow (#FFD700) text with professional Photoshop layer effects: thick black stroke (6-8px), white drop shadow with distance 8px, spread 5px, size 12px, opacity 80%, angle 135 degrees"
+               - "Pure white text with professional red stroke (6px), black drop shadow with blur radius 10px, and subtle outer glow effect in yellow"
+               - "Neon orange (#FF6600) text with black stroke (7px), professional drop shadow with multiple layers, and yellow outer glow with spread 8px"
+               - "Electric blue (#00FFFF) text with white stroke (6px), black shadow with distance 10px, and professional bevel and emboss effect"
+               - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
+               - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
+               - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+            
+            3. FONTES PROFISSIONAIS:
+               - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
+               - "Thick, chunky, professionally designed block letters"
+               - "Modern, high-end typography with perfect letter spacing"
+               - "YouTube viral thumbnail professional font style"
+               - "Bold, condensed font with professional kerning and tracking"
+               - "Premium typography, no serifs, maximum readability, professional design"
+               - "Typography that looks like it came from a professional design agency"
+            
+            4. EFEITOS PROFISSIONAIS DO PHOTOSHOP (Layer Styles):
+               - "Professional Photoshop stroke effect: thick black outline (6-8px width), position: outside, blend mode: normal, opacity: 100%"
+               - "Professional drop shadow: distance 10px, spread 5px, size 12px, angle 135°, opacity 80%, color black, blend mode: multiply"
+               - "Professional outer glow effect: spread 8px, size 15px, opacity 75%, color matching text or contrasting"
+               - "Professional bevel and emboss effect: style: emboss, technique: smooth, depth 100%, size 5px, softness 2px"
+               - "Professional gradient overlay: linear gradient from bright color to darker shade, angle 90°, opacity 80%"
+               - "Professional inner shadow: distance 3px, choke 0%, size 5px, opacity 60%"
+               - "Professional color overlay: solid color with blend mode overlay or soft light, opacity 50%"
+               - "Text appears to pop out from the image with professional 3D effect"
+               - "Professional text rendering with anti-aliasing, crisp edges, perfect clarity"
+            
+            5. COMPOSIÇÃO PROFISSIONAL:
+               - "Positioned at the top center of the image with professional alignment"
+               - "Bottom third of the image with professional composition and high contrast background"
+               - "Centered horizontally, upper third vertically, following rule of thirds"
+               - "Strategically placed to not cover important visual elements, professional layout"
+               - "Text area has professional semi-transparent dark background (black overlay with 40% opacity) for better readability"
+               - "Professional text box or banner behind text with gradient or solid color, rounded corners optional"
+            
+            6. CONTRASTE E VISIBILIDADE PROFISSIONAL:
+               - "High contrast against the background, professionally optimized"
+               - "Text stands out dramatically from the image with professional design techniques"
+               - "Eye-catching text overlay that immediately draws attention, professional composition"
+               - "Text that pops from the image with maximum visibility, professional rendering"
+               - "Text is the first thing the eye is drawn to, professional visual hierarchy"
+               - "Background is professionally darkened (vignette effect) or lightened behind text for maximum contrast"
+               - "Professional color grading applied to background to make text stand out"
+            
+            7. EXEMPLO COMPLETO DE DESCRIÇÃO PROFISSIONAL:
+               "Professional Photoshop-quality text design: Large, bold, stylized text '[FRASE DE GANCHO AQUI]' in bright yellow (#FFD700) with professional layer effects: thick black stroke (7px width, position outside), white drop shadow (distance 10px, spread 5px, size 12px, opacity 80%, angle 135°), subtle outer glow in white (spread 6px, size 10px, opacity 70%), positioned at the top center of the image, occupying 30% of the image height, professional bold sans-serif font (Impact or Bebas Neue style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, high contrast viral thumbnail text style, eye-catching and attention-grabbing, text appears to pop out from the image with professional 3D effect, maximum visibility for high CTR, looks like it was designed by a professional graphic designer in Photoshop"
+            
+            8. REGRAS DE OURO PARA DESIGN PROFISSIONAL:
+               - O texto DEVE parecer feito no Photoshop por um designer profissional
+               - O texto DEVE ter múltiplos efeitos de camada (stroke, shadow, glow, bevel)
+               - O texto DEVE ter valores específicos de efeitos (distância, spread, tamanho, opacidade)
+               - O texto DEVE ter tipografia profissional com kerning e tracking perfeitos
+               - O texto DEVE ter renderização profissional (anti-aliasing, crisp edges)
+               - O texto DEVE ter composição profissional (regra dos terços, hierarquia visual)
+               - O texto DEVE parecer de qualidade de agência de design, não amador
 
             RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
             {
@@ -1155,18 +1400,366 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 {
                   "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
                   "seoTags": ["tag1", "tag2", "tag3", ...],
-                  "frasesDeGancho": ["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"],
-                  "descricaoThumbnail": "A detailed visual prompt in English with the placeholder '[FRASE DE GANCHO AQUI]'..."
+                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 },
                 {
                   "seoDescription": "Outra descrição completa e otimizada...",
                   "seoTags": ["tagA", "tagB", "tagC", ...],
-                  "frasesDeGancho": ["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"],
-                  "descricaoThumbnail": "Another detailed visual prompt in English with the placeholder '[FRASE DE GANCHO AQUI]'..."
+                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 }
               ]
             }
         `;
+        } else {
+            // Prompt padrão baseado na fórmula do título e otimizado por modelo
+            const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
+            
+            // Prompts otimizados por modelo
+            if (service === 'gemini') {
+                thumbPrompt = `
+            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.${formulaContext}
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
+            SUBNICHO (Público-Alvo): "${subniche}"
+            ESTILO DE ARTE DESEJADO: "${style}"
+            IDIOMA DO CONTEÚDO: "${language}"
+
+            ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
+            - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
+            - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
+            - CORES: Alto contraste, cores complementares, saturação otimizada, fundo que faz o texto "pular"
+            - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
+            - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
+            
+            SUA TAREFA (OTIMIZADA PARA GEMINI):
+            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o CTR (taxa de cliques).
+            - **IDEIA 1 (Melhoria Estratégica):** Analise a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes), emoção (expressões faciais intensas, momentos de tensão), contraste visual (cores vibrantes vs. fundo neutro), e elementos que gerem "FOMO" (medo de perder algo). LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+
+            PARA CADA UMA DAS 2 IDEIAS, GERE:
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
+            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
+            
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
+            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+
+            REGRAS IMPORTANTES:
+            - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
+            - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            ${!includePhrases ? '- IMPORTANTE: A "descricaoThumbnail" NÃO deve mencionar texto, palavras ou frases. Apenas descreva elementos visuais, composição, cores, iluminação, etc.' : ''}
+            - Seja extremamente específico e detalhado nas descrições visuais. Use termos técnicos de fotografia profissional, cinematografia e psicologia visual quando apropriado.
+            - Foque em elementos que maximizem CTR: expressões faciais intensas, momentos de tensão, curiosidade visual, contraste dramático, composição impactante.
+            
+            EXEMPLOS DE COMO DESCREVER PARA GARANTIR REALISMO:
+            - Em vez de "um guerreiro maia", escreva: "a real person dressed as a Mayan warrior, photographed on location, real skin texture with pores and natural imperfections, real fabric of the costume with visible texture and wrinkles, real feathers in the headdress with natural variations"
+            - Em vez de "uma pirâmide antiga", escreva: "a real ancient Mayan pyramid photographed on location, real weathered stone with cracks and imperfections, real moss and vegetation growing on the stones, real shadows cast by the sun, real depth of field blur in the background"
+            - Em vez de "luz mística", escreva: "real natural lighting from the sun, real shadows cast by real objects, real depth of field, real bokeh in the background, real camera lens flare if the sun is in frame"
+            - SEMPRE mencione: "real", "actual", "photographed", "shot on location", "documentary style", "real-world", "actual photograph"
+            
+            TÉCNICAS DE THUMBNAIL VIRAL PARA O TEXTO (quando includePhrases = true) - DESIGN PROFISSIONAL COMO PHOTOSHOP - CTR ACIMA DE 25%:
+            
+            📝 DESCRIÇÃO OBRIGATÓRIA DO TEXTO - DEVE PARECER FEITO NO PHOTOSHOP POR UM DESIGNER PROFISSIONAL:
+            O texto DEVE ser descrito como se fosse criado no Photoshop com técnicas profissionais de design gráfico:
+            
+            1. TIPOGRAFIA PROFISSIONAL:
+               - "Professional typography, Photoshop-quality text design"
+               - "Large, bold, professionally designed text occupying 25-35% of the image height"
+               - "Massive, oversized typography with professional letter spacing and kerning"
+               - "Thick, chunky, professionally rendered letters"
+               - "Typography that looks like it was designed by a professional graphic designer"
+               - "High-end text design, magazine-quality typography"
+            
+            2. CORES PROFISSIONAIS E EFEITOS DE CAMADA (Layer Effects do Photoshop):
+               - "Bright yellow (#FFD700) text with professional Photoshop layer effects: thick black stroke (6-8px), white drop shadow with distance 8px, spread 5px, size 12px, opacity 80%, angle 135 degrees"
+               - "Pure white text with professional red stroke (6px), black drop shadow with blur radius 10px, and subtle outer glow effect in yellow"
+               - "Neon orange (#FF6600) text with black stroke (7px), professional drop shadow with multiple layers, and yellow outer glow with spread 8px"
+               - "Electric blue (#00FFFF) text with white stroke (6px), black shadow with distance 10px, and professional bevel and emboss effect"
+               - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
+               - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
+               - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+            
+            3. FONTES PROFISSIONAIS:
+               - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
+               - "Thick, chunky, professionally designed block letters"
+               - "Modern, high-end typography with perfect letter spacing"
+               - "YouTube viral thumbnail professional font style"
+               - "Bold, condensed font with professional kerning and tracking"
+               - "Premium typography, no serifs, maximum readability, professional design"
+               - "Typography that looks like it came from a professional design agency"
+            
+            4. EFEITOS PROFISSIONAIS DO PHOTOSHOP (Layer Styles):
+               - "Professional Photoshop stroke effect: thick black outline (6-8px width), position: outside, blend mode: normal, opacity: 100%"
+               - "Professional drop shadow: distance 10px, spread 5px, size 12px, angle 135°, opacity 80%, color black, blend mode: multiply"
+               - "Professional outer glow effect: spread 8px, size 15px, opacity 75%, color matching text or contrasting"
+               - "Professional bevel and emboss effect: style: emboss, technique: smooth, depth 100%, size 5px, softness 2px"
+               - "Professional gradient overlay: linear gradient from bright color to darker shade, angle 90°, opacity 80%"
+               - "Professional inner shadow: distance 3px, choke 0%, size 5px, opacity 60%"
+               - "Professional color overlay: solid color with blend mode overlay or soft light, opacity 50%"
+               - "Text appears to pop out from the image with professional 3D effect"
+               - "Professional text rendering with anti-aliasing, crisp edges, perfect clarity"
+            
+            5. COMPOSIÇÃO PROFISSIONAL:
+               - "Positioned at the top center of the image with professional alignment"
+               - "Bottom third of the image with professional composition and high contrast background"
+               - "Centered horizontally, upper third vertically, following rule of thirds"
+               - "Strategically placed to not cover important visual elements, professional layout"
+               - "Text area has professional semi-transparent dark background (black overlay with 40% opacity) for better readability"
+               - "Professional text box or banner behind text with gradient or solid color, rounded corners optional"
+            
+            6. CONTRASTE E VISIBILIDADE PROFISSIONAL:
+               - "High contrast against the background, professionally optimized"
+               - "Text stands out dramatically from the image with professional design techniques"
+               - "Eye-catching text overlay that immediately draws attention, professional composition"
+               - "Text that pops from the image with maximum visibility, professional rendering"
+               - "Text is the first thing the eye is drawn to, professional visual hierarchy"
+               - "Background is professionally darkened (vignette effect) or lightened behind text for maximum contrast"
+               - "Professional color grading applied to background to make text stand out"
+            
+            7. EXEMPLO COMPLETO DE DESCRIÇÃO PROFISSIONAL:
+               "Professional Photoshop-quality text design: Large, bold, stylized text '[FRASE DE GANCHO AQUI]' in bright yellow (#FFD700) with professional layer effects: thick black stroke (7px width, position outside), white drop shadow (distance 10px, spread 5px, size 12px, opacity 80%, angle 135°), subtle outer glow in white (spread 6px, size 10px, opacity 70%), positioned at the top center of the image, occupying 30% of the image height, professional bold sans-serif font (Impact or Bebas Neue style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, high contrast viral thumbnail text style, eye-catching and attention-grabbing, text appears to pop out from the image with professional 3D effect, maximum visibility for high CTR, looks like it was designed by a professional graphic designer in Photoshop"
+            
+            8. REGRAS DE OURO PARA DESIGN PROFISSIONAL:
+               - O texto DEVE parecer feito no Photoshop por um designer profissional
+               - O texto DEVE ter múltiplos efeitos de camada (stroke, shadow, glow, bevel)
+               - O texto DEVE ter valores específicos de efeitos (distância, spread, tamanho, opacidade)
+               - O texto DEVE ter tipografia profissional com kerning e tracking perfeitos
+               - O texto DEVE ter renderização profissional (anti-aliasing, crisp edges)
+               - O texto DEVE ter composição profissional (regra dos terços, hierarquia visual)
+               - O texto DEVE parecer de qualidade de agência de design, não amador
+
+            RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
+            {
+              "ideias": [
+                {
+                  "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
+                  "seoTags": ["tag1", "tag2", "tag3", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                },
+                {
+                  "seoDescription": "Outra descrição completa e otimizada...",
+                  "seoTags": ["tagA", "tagB", "tagC", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                }
+              ]
+            }
+        `;
+            } else if (service === 'claude') {
+                thumbPrompt = `
+            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.${formulaContext}
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
+            SUBNICHE (Público-Alvo): "${subniche}"
+            ESTILO DE ARTE DESEJADO: "${style}"
+            IDIOMA DO CONTEÚDO: "${language}"
+
+            ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
+            - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
+            - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
+            - CORES: Alto contraste, cores complementares, saturação otimizada, fundo que faz o texto "pular"
+            - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
+            - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
+            
+            SUA TAREFA (OTIMIZADA PARA CLAUDE):
+            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o engajamento e CTR.
+            - **IDEIA 1 (Melhoria Estratégica):** Analise profundamente a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada, harmonia cromática), expressões faciais ou elementos emocionais (micro-expressões, linguagem corporal), e clareza do elemento principal (profundidade de campo, iluminação direcional). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes, composições inusitadas), emoção (expressões faciais intensas, momentos de tensão, storytelling visual), contraste visual (cores vibrantes vs. fundo neutro, luz vs. sombra), e elementos que gerem "FOMO" (medo de perder algo, urgência visual). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+
+            PARA CADA UMA DAS 2 IDEIAS, GERE:
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
+            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
+            
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
+            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+
+            REGRAS IMPORTANTES:
+            - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
+            - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            ${!includePhrases ? '- IMPORTANTE: A "descricaoThumbnail" NÃO deve mencionar texto, palavras ou frases. Apenas descreva elementos visuais, composição, cores, iluminação, etc.' : ''}
+            - Seja extremamente específico e detalhado nas descrições visuais. Use termos técnicos de fotografia profissional, cinematografia e psicologia visual quando apropriado.
+            - Considere aspectos de usabilidade: a thumbnail deve ser legível mesmo em tamanhos pequenos (mobile).
+            - Foque em elementos que maximizem CTR: expressões faciais intensas, momentos de tensão, curiosidade visual, contraste dramático, composição impactante.
+
+            RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
+            {
+              "ideias": [
+                {
+                  "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
+                  "seoTags": ["tag1", "tag2", "tag3", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                },
+                {
+                  "seoDescription": "Outra descrição completa e otimizada...",
+                  "seoTags": ["tagA", "tagB", "tagC", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                }
+              ]
+            }
+        `;
+            } else { // OpenAI
+                thumbPrompt = `
+            Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.${formulaContext}
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
+            SUBNICHE (Público-Alvo): "${subniche}"
+            ESTILO DE ARTE DESEJADO: "${style}"
+            IDIOMA DO CONTEÚDO: "${language}"
+
+            ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
+            - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
+            - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
+            - CORES: Alto contraste, cores complementares, saturação otimizada, fundo que faz o texto "pular"
+            - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
+            - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
+            
+            SUA TAREFA (OTIMIZADA PARA GPT):
+            Crie DUAS (2) ideias distintas para uma nova thumbnail que maximizem o CTR e engajamento.
+            - **IDEIA 1 (Melhoria Estratégica):** Analise a thumbnail de referência e proponha uma versão melhorada que mantenha a essência do que funcionou, mas aprimore: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            - **IDEIA 2 (Inovação Viral):** Crie um conceito completamente novo e mais otimizado, usando um ângulo diferente para atrair cliques. Foque em: curiosidade (elementos misteriosos ou surpreendentes), emoção (expressões faciais intensas, momentos de tensão), contraste visual (cores vibrantes vs. fundo neutro), e elementos que gerem "FOMO" (medo de perder algo). O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+
+            PARA CADA UMA DAS 2 IDEIAS, GERE:
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
+            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
+            
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
+            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+
+            REGRAS IMPORTANTES:
+            - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
+            - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            ${!includePhrases ? '- IMPORTANTE: A "descricaoThumbnail" NÃO deve mencionar texto, palavras ou frases. Apenas descreva elementos visuais, composição, cores, iluminação, etc.' : ''}
+            - Seja extremamente específico e detalhado nas descrições visuais. Use termos técnicos de fotografia profissional, cinematografia e psicologia visual quando apropriado.
+            - Foque em elementos que maximizem CTR: expressões faciais intensas, momentos de tensão, curiosidade visual, contraste dramático, composição impactante.
+            
+            EXEMPLOS DE COMO DESCREVER PARA GARANTIR REALISMO:
+            - Em vez de "um guerreiro maia", escreva: "a real person dressed as a Mayan warrior, photographed on location, real skin texture with pores and natural imperfections, real fabric of the costume with visible texture and wrinkles, real feathers in the headdress with natural variations"
+            - Em vez de "uma pirâmide antiga", escreva: "a real ancient Mayan pyramid photographed on location, real weathered stone with cracks and imperfections, real moss and vegetation growing on the stones, real shadows cast by the sun, real depth of field blur in the background"
+            - Em vez de "luz mística", escreva: "real natural lighting from the sun, real shadows cast by real objects, real depth of field, real bokeh in the background, real camera lens flare if the sun is in frame"
+            - SEMPRE mencione: "real", "actual", "photographed", "shot on location", "documentary style", "real-world", "actual photograph"
+            
+            TÉCNICAS DE THUMBNAIL VIRAL PARA O TEXTO (quando includePhrases = true) - DESIGN PROFISSIONAL COMO PHOTOSHOP - CTR ACIMA DE 25%:
+            
+            📝 DESCRIÇÃO OBRIGATÓRIA DO TEXTO - DEVE PARECER FEITO NO PHOTOSHOP POR UM DESIGNER PROFISSIONAL:
+            O texto DEVE ser descrito como se fosse criado no Photoshop com técnicas profissionais de design gráfico:
+            
+            1. TIPOGRAFIA PROFISSIONAL:
+               - "Professional typography, Photoshop-quality text design"
+               - "Large, bold, professionally designed text occupying 25-35% of the image height"
+               - "Massive, oversized typography with professional letter spacing and kerning"
+               - "Thick, chunky, professionally rendered letters"
+               - "Typography that looks like it was designed by a professional graphic designer"
+               - "High-end text design, magazine-quality typography"
+            
+            2. CORES PROFISSIONAIS E EFEITOS DE CAMADA (Layer Effects do Photoshop):
+               - "Bright yellow (#FFD700) text with professional Photoshop layer effects: thick black stroke (6-8px), white drop shadow with distance 8px, spread 5px, size 12px, opacity 80%, angle 135 degrees"
+               - "Pure white text with professional red stroke (6px), black drop shadow with blur radius 10px, and subtle outer glow effect in yellow"
+               - "Neon orange (#FF6600) text with black stroke (7px), professional drop shadow with multiple layers, and yellow outer glow with spread 8px"
+               - "Electric blue (#00FFFF) text with white stroke (6px), black shadow with distance 10px, and professional bevel and emboss effect"
+               - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
+               - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
+               - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+            
+            3. FONTES PROFISSIONAIS:
+               - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
+               - "Thick, chunky, professionally designed block letters"
+               - "Modern, high-end typography with perfect letter spacing"
+               - "YouTube viral thumbnail professional font style"
+               - "Bold, condensed font with professional kerning and tracking"
+               - "Premium typography, no serifs, maximum readability, professional design"
+               - "Typography that looks like it came from a professional design agency"
+            
+            4. EFEITOS PROFISSIONAIS DO PHOTOSHOP (Layer Styles):
+               - "Professional Photoshop stroke effect: thick black outline (6-8px width), position: outside, blend mode: normal, opacity: 100%"
+               - "Professional drop shadow: distance 10px, spread 5px, size 12px, angle 135°, opacity 80%, color black, blend mode: multiply"
+               - "Professional outer glow effect: spread 8px, size 15px, opacity 75%, color matching text or contrasting"
+               - "Professional bevel and emboss effect: style: emboss, technique: smooth, depth 100%, size 5px, softness 2px"
+               - "Professional gradient overlay: linear gradient from bright color to darker shade, angle 90°, opacity 80%"
+               - "Professional inner shadow: distance 3px, choke 0%, size 5px, opacity 60%"
+               - "Professional color overlay: solid color with blend mode overlay or soft light, opacity 50%"
+               - "Text appears to pop out from the image with professional 3D effect"
+               - "Professional text rendering with anti-aliasing, crisp edges, perfect clarity"
+            
+            5. COMPOSIÇÃO PROFISSIONAL:
+               - "Positioned at the top center of the image with professional alignment"
+               - "Bottom third of the image with professional composition and high contrast background"
+               - "Centered horizontally, upper third vertically, following rule of thirds"
+               - "Strategically placed to not cover important visual elements, professional layout"
+               - "Text area has professional semi-transparent dark background (black overlay with 40% opacity) for better readability"
+               - "Professional text box or banner behind text with gradient or solid color, rounded corners optional"
+            
+            6. CONTRASTE E VISIBILIDADE PROFISSIONAL:
+               - "High contrast against the background, professionally optimized"
+               - "Text stands out dramatically from the image with professional design techniques"
+               - "Eye-catching text overlay that immediately draws attention, professional composition"
+               - "Text that pops from the image with maximum visibility, professional rendering"
+               - "Text is the first thing the eye is drawn to, professional visual hierarchy"
+               - "Background is professionally darkened (vignette effect) or lightened behind text for maximum contrast"
+               - "Professional color grading applied to background to make text stand out"
+            
+            7. EXEMPLO COMPLETO DE DESCRIÇÃO PROFISSIONAL:
+               "Professional Photoshop-quality text design: Large, bold, stylized text '[FRASE DE GANCHO AQUI]' in bright yellow (#FFD700) with professional layer effects: thick black stroke (7px width, position outside), white drop shadow (distance 10px, spread 5px, size 12px, opacity 80%, angle 135°), subtle outer glow in white (spread 6px, size 10px, opacity 70%), positioned at the top center of the image, occupying 30% of the image height, professional bold sans-serif font (Impact or Bebas Neue style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, high contrast viral thumbnail text style, eye-catching and attention-grabbing, text appears to pop out from the image with professional 3D effect, maximum visibility for high CTR, looks like it was designed by a professional graphic designer in Photoshop"
+            
+            8. REGRAS DE OURO PARA DESIGN PROFISSIONAL:
+               - O texto DEVE parecer feito no Photoshop por um designer profissional
+               - O texto DEVE ter múltiplos efeitos de camada (stroke, shadow, glow, bevel)
+               - O texto DEVE ter valores específicos de efeitos (distância, spread, tamanho, opacidade)
+               - O texto DEVE ter tipografia profissional com kerning e tracking perfeitos
+               - O texto DEVE ter renderização profissional (anti-aliasing, crisp edges)
+               - O texto DEVE ter composição profissional (regra dos terços, hierarquia visual)
+               - O texto DEVE parecer de qualidade de agência de design, não amador
+
+            RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
+            {
+              "ideias": [
+                {
+                  "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
+                  "seoTags": ["tag1", "tag2", "tag3", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                },
+                {
+                  "seoDescription": "Outra descrição completa e otimizada...",
+                  "seoTags": ["tagA", "tagB", "tagC", ...],
+                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                }
+              ]
+            }
+        `;
+            }
+        }
         
         // --- 4. Chamar a API Multimodal ---
         let apiCallFunction;
@@ -1622,6 +2215,7 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
             modelUsed: titles.length > 0 ? titles[0].model : 'Carregado',
             videoDetails: {
                 title: analysis.original_title,
+                translatedTitle: analysis.translated_title || null,
                 views: analysis.original_views,
                 comments: analysis.original_comments,
                 days: analysis.original_days,
