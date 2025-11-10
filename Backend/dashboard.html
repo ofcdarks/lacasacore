@@ -1175,7 +1175,15 @@
     <script>
         document.addEventListener('DOMContentLoaded', (event) => {
         
-            const API_BASE = '';
+            // URLs da API - Detecta automaticamente a porta do backend
+            // Se estiver rodando no live-server (porta 5500) ou não estiver na porta 5001, usa o backend na porta 5001
+            const currentPort = window.location.port;
+            const isBackendPort = currentPort === '5001' || currentPort === '';
+            const API_BASE = isBackendPort 
+                ? '' 
+                : `http://${window.location.hostname}:5001`;
+            
+            console.log('API_BASE configurado:', API_BASE, { currentPort, isBackendPort });
 
             if (typeof lucide !== 'undefined') {
                 lucide.createIcons();
@@ -1439,15 +1447,32 @@
             async function checkUserRoleAndLoadAdmin() {
                 if (!userToken) return;
                 try {
+                    console.log('Verificando autenticação do usuário...', { API_BASE, hasToken: !!userToken });
                     const response = await fetch(`${API_BASE}/api/auth/me`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
+                    
+                    console.log('Resposta de /api/auth/me:', { status: response.status, ok: response.ok });
+                    
                     if (!response.ok) {
-                        localStorage.removeItem('core_token');
-                        window.location.href = 'la-casa-dark-core-auth.html';
-                        return;
+                        // Só redireciona se for erro de autenticação (401/403), não erro de rede (404)
+                        if (response.status === 401 || response.status === 403) {
+                            console.warn('Erro de autenticação. Redirecionando para login...');
+                            localStorage.removeItem('core_token');
+                            window.location.href = 'la-casa-dark-core-auth.html';
+                            return;
+                        } else if (response.status === 404) {
+                            console.error('Endpoint não encontrado. Verifique se o servidor está rodando e se a URL da API está correta.');
+                            console.error('API_BASE:', API_BASE, 'URL completa:', `${API_BASE}/api/auth/me`);
+                            // Não redireciona em caso de 404, apenas mostra erro no console
+                            return;
+                        } else {
+                            console.error('Erro ao verificar autenticação:', response.status, response.statusText);
+                            return;
+                        }
                     }
                     const userData = await response.json();
+                    console.log('Dados do usuário carregados:', { name: userData.name, isAdmin: userData.isAdmin });
                     
                     // Atualiza a mensagem de boas-vindas
                     const welcomeHeading = document.getElementById('welcome-heading');
@@ -2306,11 +2331,23 @@
 
             async function loadFolders() {
                 try {
+                    console.log('Carregando pastas...', { API_BASE });
                     const response = await fetch(`${API_BASE}/api/folders`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
-                    if (!response.ok) throw new Error('Falha ao carregar pastas.');
+                    console.log('Resposta de /api/folders:', { status: response.status, ok: response.ok });
+                    
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            console.error('Endpoint /api/folders não encontrado. Verifique se o servidor está rodando.');
+                            console.error('API_BASE:', API_BASE, 'URL completa:', `${API_BASE}/api/folders`);
+                            userFolders = []; // Define como array vazio em caso de erro
+                            return;
+                        }
+                        throw new Error('Falha ao carregar pastas.');
+                    }
                     userFolders = await response.json();
+                    console.log('Pastas carregadas:', userFolders.length);
                     
                     folderSelect.innerHTML = '<option value="">Histórico Geral</option>';
                     userFolders.forEach(folder => {
