@@ -1486,7 +1486,13 @@ Tradução em PT-BR:`;
             });
             
             if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
-            finalNicheData = { niche: firstSuccessfulAnalysis.niche, subniche: firstSuccessfulAnalysis.subniche };
+            
+            // Verificar se a análise tem os dados necessários
+            if (!firstSuccessfulAnalysis.niche || !firstSuccessfulAnalysis.analiseOriginal) {
+                throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
+            }
+            
+            finalNicheData = { niche: firstSuccessfulAnalysis.niche, subniche: firstSuccessfulAnalysis.subniche || 'N/A' };
             finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
 
         } else {
@@ -1512,7 +1518,13 @@ Tradução em PT-BR:`;
             const response = await apiCallFunction(titlePrompt, decryptedKey, model);
             
             const parsedData = parseAIResponse(response.titles, service);
-            finalNicheData = { niche: parsedData.niche, subniche: parsedData.subniche };
+            
+            // Verificar se a análise tem os dados necessários
+            if (!parsedData.niche || !parsedData.analiseOriginal) {
+                throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
+            }
+            
+            finalNicheData = { niche: parsedData.niche, subniche: parsedData.subniche || 'N/A' };
             finalAnalysisData = parsedData.analiseOriginal;
             allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: model }));
         }
@@ -1546,6 +1558,12 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 4: Calcular Receita e RPM baseado no nicho ---
+        // Verificar se finalNicheData existe antes de calcular receita
+        if (!finalNicheData || !finalNicheData.niche) {
+            console.error('[Análise] Erro: finalNicheData não está definido corretamente');
+            throw new Error('Erro ao processar análise: dados do nicho não foram encontrados.');
+        }
+        
         const rpm = getRPMByNiche(finalNicheData.niche);
         const views = parseInt(videoDetails.views) || 0;
         const estimatedRevenueUSD = (views / 1000) * rpm.usd;

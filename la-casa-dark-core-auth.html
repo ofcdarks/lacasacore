@@ -250,11 +250,15 @@
             errorBox.style.display = 'none'; // Ocultar erros antigos
 
             try {
+                console.log('Tentando fazer login...', { email, API_BASE_URL });
+                
                 const response = await fetch(`${API_BASE_URL}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
+
+                console.log('Resposta recebida:', { status: response.status, statusText: response.statusText });
 
                 // Ler o texto da resposta uma única vez
                 const text = await response.text();
@@ -281,22 +285,45 @@
                 }
 
                 if (!response.ok) {
-                    throw new Error(data.msg || 'Erro ao tentar fazer login.');
+                    // Mensagens específicas para diferentes códigos de erro
+                    if (response.status === 403) {
+                        throw new Error(data.msg || 'A sua conta está pendente de aprovação ou foi bloqueada. Entre em contacto com o suporte.');
+                    } else if (response.status === 400) {
+                        throw new Error(data.msg || 'Credenciais inválidas. Verifique seu email e senha.');
+                    } else if (response.status === 503) {
+                        throw new Error(data.msg || 'Servidor ainda não está pronto. Aguarde alguns instantes e tente novamente.');
+                    } else {
+                        throw new Error(data.msg || 'Erro ao tentar fazer login.');
+                    }
+                }
+                
+                // Verificar se o token foi retornado
+                if (!data.token) {
+                    throw new Error('Token não foi retornado pelo servidor. Tente novamente.');
                 }
                 
                 // SUCESSO!
-                console.log('Login bem-sucedido!', data);
+                console.log('Login bem-sucedido!', { hasToken: !!data.token, isAdmin: data.isAdmin });
+                
                 // Salvar o token
                 localStorage.setItem('core_token', data.token);
+                
+                // Verificar se o token foi salvo corretamente
+                const savedToken = localStorage.getItem('core_token');
+                if (!savedToken || savedToken === 'undefined') {
+                    throw new Error('Erro ao salvar o token. Tente novamente.');
+                }
+                
+                console.log('Token salvo com sucesso!');
                 
                 // Mudar o botão para "Sucesso!" e redirecionar
                 button.innerText = 'Sucesso! Redirecionando...';
                 
-                // CORREÇÃO: Adicionado um pequeno delay para garantir que o localStorage
-                // seja escrito antes do redirecionamento.
+                // Redirecionar após um pequeno delay para garantir que o localStorage seja escrito
                 setTimeout(() => {
+                    console.log('Redirecionando para dashboard...');
                     window.location.href = 'dashboard.html';
-                }, 100); // 100ms de delay
+                }, 200); // Aumentado para 200ms para garantir
 
             } catch (error) {
                 console.error('Erro no login:', error);
@@ -304,7 +331,7 @@
                 let errorMessage = error.message;
                 
                 if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001.';
+                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001. Abra o terminal e execute: cd Backend && node server.js';
                 } else if (error.message.includes('Unexpected end of JSON input')) {
                     errorMessage = 'Erro na comunicação com o servidor. Verifique se o servidor está funcionando corretamente.';
                 } else if (error.message.includes('resposta vazia')) {
@@ -312,8 +339,8 @@
                 }
                 
                 showErrorMessage('login-error', errorMessage);
-            } finally {
-                // Reabilitar o botão
+                
+                // Reabilitar o botão apenas em caso de erro
                 button.disabled = false;
                 button.innerText = 'Entrar';
             }
