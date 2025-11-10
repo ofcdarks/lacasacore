@@ -1766,6 +1766,14 @@
             const sidebarOverlay = document.getElementById('sidebar-overlay');
             const hamburgerButton = document.getElementById('hamburger-button');
 
+            // Função auxiliar para atualizar o dashboard se estiver na tela de início
+            function refreshDashboardIfVisible() {
+                const inicioView = document.getElementById('view-inicio');
+                if (inicioView && inicioView.style.display !== 'none') {
+                    loadDashboard();
+                }
+            }
+            
             function navigateToView(viewName, params = {}) {
                 if (!viewName) return;
 
@@ -1924,6 +1932,8 @@
                 currentAnalysisData = {};
 
                 try {
+                    console.log('Iniciando análise...', { API_BASE, videoUrl, model, folderId });
+                    
                     const response = await fetch(`${API_BASE}/api/analyze/titles`, {
                         method: 'POST',
                         headers: {
@@ -1936,8 +1946,62 @@
                             folderId: folderId || null
                         }) 
                     });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.msg || 'Erro desconhecido no servidor.');
+                    
+                    // Ler o texto da resposta uma única vez
+                    const text = await response.text();
+                    console.log('Resposta recebida:', { status: response.status, ok: response.ok, textLength: text.length });
+                    
+                    // Verificar se há conteúdo
+                    if (!text || text.trim() === '') {
+                        throw new Error('O servidor retornou uma resposta vazia. Verifique se o servidor está funcionando corretamente.');
+                    }
+                    
+                    // Verificar se a resposta é JSON antes de tentar parsear
+                    const contentType = response.headers.get('content-type');
+                    let data;
+                    
+                    if (contentType && contentType.includes('application/json')) {
+                        try {
+                            data = JSON.parse(text);
+                        } catch (parseError) {
+                            console.error('Erro ao parsear JSON:', parseError, 'Texto recebido:', text.substring(0, 500));
+                            throw new Error('Erro ao processar resposta do servidor. Verifique se o servidor está funcionando corretamente.');
+                        }
+                    } else {
+                        throw new Error(`Erro no servidor: ${text.substring(0, 200)}`);
+                    }
+                    
+                    if (!response.ok) {
+                        throw new Error(data.msg || 'Erro desconhecido no servidor.');
+                    }
+                    
+                    // Verificar se os dados estão completos antes de processar
+                    if (!data.videoDetails) {
+                        throw new Error('Resposta do servidor incompleta: videoDetails não encontrado.');
+                    }
+                    
+                    // Garantir que as propriedades de receita existem
+                    if (typeof data.videoDetails.estimatedRevenueUSD === 'undefined') {
+                        console.warn('[Frontend] estimatedRevenueUSD não encontrado, usando valor padrão');
+                        data.videoDetails.estimatedRevenueUSD = 0;
+                    }
+                    if (typeof data.videoDetails.estimatedRevenueBRL === 'undefined') {
+                        data.videoDetails.estimatedRevenueBRL = 0;
+                    }
+                    if (typeof data.videoDetails.rpmUSD === 'undefined') {
+                        data.videoDetails.rpmUSD = 2.0;
+                    }
+                    if (typeof data.videoDetails.rpmBRL === 'undefined') {
+                        data.videoDetails.rpmBRL = 11.0;
+                    }
+                    
+                    console.log('[Frontend] Dados recebidos:', {
+                        hasVideoDetails: !!data.videoDetails,
+                        hasEstimatedRevenueUSD: typeof data.videoDetails.estimatedRevenueUSD !== 'undefined',
+                        estimatedRevenueUSD: data.videoDetails.estimatedRevenueUSD,
+                        hasTitulos: !!data.titulosSugeridos,
+                        titulosCount: data.titulosSugeridos?.length || 0
+                    });
                     
                     currentAnalysisData = {
                         videoId: data.videoDetails.videoId,
@@ -1953,15 +2017,36 @@
                         const folderName = userFolders.find(f => f.id == data.folderId)?.name || 'pasta selecionada';
                         showMessage('analisador-success-message', `Análise salva com sucesso na pasta: <strong>${folderName}</strong>`);
                     }
+                    
+                    // Atualizar dashboard se estiver visível
+                    refreshDashboardIfVisible();
 
                 } catch (error) {
-                    console.error('Erro ao analisar vídeo:', error.message);
-                    if (errorBox) {
-                        errorBox.innerText = `Falha na análise: ${error.message}`;
-                        errorBox.style.display = 'block';
-                    }
-                    if (error.message.includes('inválido') || error.message.includes('expirado') || error.message.includes('configurada')) {
+                    console.error('Erro ao analisar vídeo:', error);
+                    
+                    let errorMessage = 'Erro desconhecido ao analisar o vídeo.';
+                    
+                    // Tratar diferentes tipos de erro
+                    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.name === 'TypeError') {
+                        errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001. Abra o terminal e execute: cd Backend && node server.js';
+                    } else if (error.message.includes('inválido') || error.message.includes('expirado') || error.message.includes('configurada')) {
+                        errorMessage = error.message;
                         setTimeout(() => navigateToView('configuracoes'), 2000);
+                    } else if (error.message.includes('Resource exhausted') || error.message.includes('429')) {
+                        errorMessage = 'Limite de requisições atingido para a API. Aguarde alguns minutos ou use outro modelo de IA (Claude ou OpenAI).';
+                    } else if (error.message.includes('401') || error.message.includes('403')) {
+                        errorMessage = 'Erro de autenticação. Faça login novamente.';
+                        setTimeout(() => {
+                            localStorage.removeItem('core_token');
+                            window.location.href = 'la-casa-dark-core-auth.html';
+                        }, 2000);
+                    } else {
+                        errorMessage = `Falha na análise: ${error.message}`;
+                    }
+                    
+                    if (errorBox) {
+                        errorBox.innerText = errorMessage;
+                        errorBox.style.display = 'block';
                     }
                 } finally {
                     if (loadingSpinner) loadingSpinner.style.display = 'none';
@@ -1970,21 +2055,45 @@
             }
             
             function populateAnalysisResults(data, videoUrl) {
-                if (resultadosDiv) {
+                try {
+                    if (!resultadosDiv) {
+                        console.error('[Frontend] resultadosDiv não encontrado');
+                        return;
+                    }
+                    
+                    if (!data || !data.videoDetails) {
+                        throw new Error('Dados incompletos: videoDetails não encontrado');
+                    }
+                    
                     resultadosDiv.style.display = 'block';
                     
-                    document.getElementById('video-url').value = videoUrl || data.originalVideoUrl;
+                    document.getElementById('video-url').value = videoUrl || data.originalVideoUrl || '';
                     
-                    const viewsFormatted = new Intl.NumberFormat('pt-BR').format(data.videoDetails.views);
-                    const commentsFormatted = new Intl.NumberFormat('pt-BR').format(data.videoDetails.comments);
+                    // Garantir que todas as propriedades existem antes de usar
+                    const videoDetails = data.videoDetails || {};
+                    const views = videoDetails.views || 0;
+                    const comments = videoDetails.comments || 0;
+                    const days = videoDetails.days || 0;
+                    const title = videoDetails.title || 'Sem título';
+                    const thumbnailUrl = videoDetails.thumbnailUrl || '';
+                    const translatedTitle = videoDetails.translatedTitle || '';
+                    
+                    // Extrair valores de receita e RPM de forma segura
+                    const revenueUSD = videoDetails.estimatedRevenueUSD || 0;
+                    const revenueBRL = videoDetails.estimatedRevenueBRL || 0;
+                    const rpmUSD = videoDetails.rpmUSD || 0;
+                    const rpmBRL = videoDetails.rpmBRL || 0;
+                    
+                    const viewsFormatted = new Intl.NumberFormat('pt-BR').format(views);
+                    const commentsFormatted = new Intl.NumberFormat('pt-BR').format(comments);
                     
                     let videoSummaryHtml = `
                         <div class="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-6 mb-6 bg-gray-800 p-4 rounded-lg border border-gray-700">
-                            <img src="${data.videoDetails.thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
+                            <img src="${thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
                             <div class="flex-1">
-                                <h3 class="text-xl font-semibold text-white mb-2">${data.videoDetails.title}</h3>
-                                ${data.videoDetails.translatedTitle ? `
-                                <p class="text-base text-gray-400 mb-3 italic">${data.videoDetails.translatedTitle}</p>
+                                <h3 class="text-xl font-semibold text-white mb-2">${title}</h3>
+                                ${translatedTitle ? `
+                                <p class="text-base text-gray-400 mb-3 italic">${translatedTitle}</p>
                                 ` : ''}
                                 <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
                                     <span class="flex items-center space-x-1.5">
@@ -1993,7 +2102,7 @@
                                     </span>
                                     <span class="flex items-center space-x-1.5">
                                         <i data-lucide="calendar-days" class="w-4 h-4 text-amber-500"></i>
-                                        <span>${data.videoDetails.days} dias</span>
+                                        <span>${days} dias</span>
                                     </span>
                                     <span class="flex items-center space-x-1.5">
                                         <i data-lucide="message-square" class="w-4 h-4 text-amber-500"></i>
@@ -2018,7 +2127,7 @@
                                     <p class="text-gray-500 text-xs mt-2">* Valores baseados no nicho "${data.niche || 'Entretenimento'}"</p>
                                 </div>
                                 ` : ''}
-                                <button id="btn-download-thumb" data-url="${data.videoDetails.thumbnailUrl}" data-title="${data.videoDetails.title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
+                                <button id="btn-download-thumb" data-url="${thumbnailUrl}" data-title="${title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                     <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
                                     Baixar Thumbnail Original
                                 </button>
@@ -2152,6 +2261,13 @@
                     }
                     
                     if (thumbGeneratorDiv) thumbGeneratorDiv.style.display = 'block';
+                } catch (renderError) {
+                    console.error('[Frontend] Erro ao renderizar resultados:', renderError);
+                    if (errorBox) {
+                        errorBox.innerText = `Erro ao exibir resultados: ${renderError.message}. Verifique o console para mais detalhes.`;
+                        errorBox.style.display = 'block';
+                    }
+                    throw renderError; // Re-lançar para ser capturado pelo catch externo
                 }
             }
             
@@ -2185,7 +2301,7 @@
 
                     // Salvar o estado no backend
                     try {
-                        await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
+                        const response = await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
                             method: 'PUT',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -2193,6 +2309,11 @@
                             },
                             body: JSON.stringify({ is_checked: isChecked })
                         });
+                        
+                        if (response.ok && isChecked) {
+                            // Se o título foi marcado, atualizar dashboard
+                            refreshDashboardIfVisible();
+                        }
                     } catch (err) {
                         console.error("Falha ao salvar o estado do título:", err);
                         // Opcional: reverter a mudança visual em caso de erro
@@ -4016,6 +4137,8 @@
                     if (!response.ok) throw new Error('Falha ao atualizar métricas.');
                     showMessage('analytics-success-message', 'Métricas atualizadas com sucesso!');
                     await loadAnalytics();
+                    // Atualizar dashboard se estiver visível
+                    refreshDashboardIfVisible();
                 } catch (err) {
                     showMessage('analytics-error-message', err.message, true);
                 }
@@ -4317,6 +4440,8 @@
                         registerVideoForm.reset();
                         await loadAnalytics();
                         showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
+                        // Atualizar dashboard se estiver visível
+                        refreshDashboardIfVisible();
                     } catch (err) {
                         showMessage('analytics-error-message', err.message, true);
                     }

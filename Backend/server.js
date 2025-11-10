@@ -1615,24 +1615,35 @@ Tradução em PT-BR:`;
         // NÃO salvar automaticamente - apenas quando o usuário marcar o checkbox
         // O salvamento será feito quando o usuário marcar o título como selecionado
         console.log(`[Biblioteca] Títulos gerados aguardando seleção do usuário para salvar na biblioteca`);
-
-        res.status(200).json({
-            niche: finalNicheData.niche,
-            subniche: finalNicheData.subniche,
-            analiseOriginal: finalAnalysisData,
-            titulosSugeridos: finalTitlesWithIds,
-            modelUsed: modelUsedForDisplay, 
+        
+        // Garantir que todas as variáveis estão definidas antes de enviar
+        const responseData = {
+            niche: finalNicheData?.niche || 'N/A',
+            subniche: finalNicheData?.subniche || 'N/A',
+            analiseOriginal: finalAnalysisData || {},
+            titulosSugeridos: finalTitlesWithIds || [],
+            modelUsed: modelUsedForDisplay || 'N/A', 
             videoDetails: { 
                 ...videoDetails, 
                 videoId: videoId, 
-                translatedTitle: translatedTitle,
-                estimatedRevenueUSD: estimatedRevenueUSD,
-                estimatedRevenueBRL: estimatedRevenueBRL,
-                rpmUSD: rpmUSD,
-                rpmBRL: rpmBRL
+                translatedTitle: translatedTitle || videoDetails.title,
+                estimatedRevenueUSD: typeof estimatedRevenueUSD === 'number' ? estimatedRevenueUSD : 0,
+                estimatedRevenueBRL: typeof estimatedRevenueBRL === 'number' ? estimatedRevenueBRL : 0,
+                rpmUSD: typeof rpmUSD === 'number' ? rpmUSD : 2.0,
+                rpmBRL: typeof rpmBRL === 'number' ? rpmBRL : 11.0
             },
             folderId: folderId || null
+        };
+        
+        // Log para debug
+        console.log('[Análise] Enviando resposta:', {
+            hasEstimatedRevenueUSD: typeof responseData.videoDetails.estimatedRevenueUSD !== 'undefined',
+            estimatedRevenueUSD: responseData.videoDetails.estimatedRevenueUSD,
+            hasRpmUSD: typeof responseData.videoDetails.rpmUSD !== 'undefined',
+            rpmUSD: responseData.videoDetails.rpmUSD
         });
+
+        res.status(200).json(responseData);
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analyze/titles]:', err);
