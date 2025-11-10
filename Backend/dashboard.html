@@ -1805,6 +1805,9 @@
                 }
                 if (viewName === 'inicio') {
                     loadDashboard(); // Recarregar dashboard quando voltar para a tela inicial
+                    startDashboardAutoRefresh(); // Iniciar atualização automática
+                } else {
+                    stopDashboardAutoRefresh(); // Parar atualização quando sair da tela de início
                 }
                 if (viewName === 'historico') {
                     loadFolders().then(() => {
@@ -2649,11 +2652,12 @@
                     if (!response.ok) throw new Error('Falha ao carregar histórico.');
                     const result = await response.json();
                     
-                    const history = result.data || [];
+                    // Garantir que history é sempre um array
+                    const history = Array.isArray(result) ? result : (result.data || result.history || result.items || []);
                     const pagination = result.pagination || {};
                     
                     historyTableBody.innerHTML = '';
-                    if (history.length === 0) {
+                    if (!Array.isArray(history) || history.length === 0) {
                         historyTableBody.innerHTML = '<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhuma análise encontrada.</td></tr>';
                         document.getElementById('history-pagination').style.display = 'none';
                         return;
@@ -2681,9 +2685,13 @@
                     updateHistoryPagination(pagination);
                     
                 } catch (err) {
-                    console.error(err.message);
-                    historyTableBody.innerHTML = `<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-red-500 py-4">${err.message}</td></tr>`;
-                    document.getElementById('history-pagination').style.display = 'none';
+                    console.error('Erro ao carregar histórico:', err);
+                    const errorMessage = err.message || 'Erro desconhecido ao carregar histórico.';
+                    if (historyTableBody) {
+                        historyTableBody.innerHTML = `<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-red-500 py-4">${errorMessage}</td></tr>`;
+                    }
+                    const paginationEl = document.getElementById('history-pagination');
+                    if (paginationEl) paginationEl.style.display = 'none';
                 }
             }
             
@@ -3722,6 +3730,34 @@
                 if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
                 return num.toLocaleString('pt-BR');
             }
+            
+            // Variável para controlar o intervalo de atualização automática
+            let dashboardAutoRefreshInterval = null;
+            
+            // Função para iniciar atualização automática do dashboard
+            function startDashboardAutoRefresh() {
+                // Limpar intervalo anterior se existir
+                if (dashboardAutoRefreshInterval) {
+                    clearInterval(dashboardAutoRefreshInterval);
+                }
+                
+                // Atualizar a cada 10 segundos quando a tela de início estiver visível
+                dashboardAutoRefreshInterval = setInterval(() => {
+                    const inicioView = document.getElementById('view-inicio');
+                    if (inicioView && inicioView.style.display !== 'none') {
+                        console.log('[Dashboard] Atualização automática...');
+                        loadDashboard();
+                    }
+                }, 10000); // 10 segundos
+            }
+            
+            // Função para parar atualização automática
+            function stopDashboardAutoRefresh() {
+                if (dashboardAutoRefreshInterval) {
+                    clearInterval(dashboardAutoRefreshInterval);
+                    dashboardAutoRefreshInterval = null;
+                }
+            }
 
             async function loadDashboard() {
                 try {
@@ -3736,17 +3772,27 @@
                     
                     const data = await response.json();
                     
-                    // Atualizar estatísticas principais
-                    document.getElementById('stat-total-videos').textContent = formatNumber(data.stats.totalVideos || 0);
-                    document.getElementById('stat-total-views').textContent = formatNumber(data.stats.totalViews || 0);
-                    document.getElementById('stat-total-revenue').textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
-                    document.getElementById('stat-viral-videos').textContent = formatNumber(data.stats.viralVideos || 0);
+                    // Atualizar estatísticas principais (com verificação de existência)
+                    const statTotalVideos = document.getElementById('stat-total-videos');
+                    const statTotalViews = document.getElementById('stat-total-views');
+                    const statTotalRevenue = document.getElementById('stat-total-revenue');
+                    const statViralVideos = document.getElementById('stat-viral-videos');
                     
-                    // Atualizar métricas adicionais
-                    document.getElementById('stat-avg-ctr').textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                    document.getElementById('stat-total-likes').textContent = formatNumber(data.stats.totalLikes || 0);
-                    document.getElementById('stat-total-comments').textContent = formatNumber(data.stats.totalComments || 0);
-                    document.getElementById('stat-avg-rpm').textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
+                    if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
+                    if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
+                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
+                    if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
+                    
+                    // Atualizar métricas adicionais (com verificação de existência)
+                    const statAvgCtr = document.getElementById('stat-avg-ctr');
+                    const statTotalLikes = document.getElementById('stat-total-likes');
+                    const statTotalComments = document.getElementById('stat-total-comments');
+                    const statAvgRpm = document.getElementById('stat-avg-rpm');
+                    
+                    if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
+                    if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
+                    if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
+                    if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
                     
                     // Carregar vídeos recentes
                     loadRecentVideos(data.recentVideos || []);
@@ -4044,6 +4090,7 @@
             checkUserRoleAndLoadAdmin();
             loadFolders();
             loadDashboard(); // Carregar dashboard na tela inicial
+            startDashboardAutoRefresh(); // Iniciar atualização automática do dashboard
             setupAdminListeners();
 
             // === FUNCIONALIDADES DE ANALYTICS ===
@@ -4408,16 +4455,32 @@
             if (registerVideoForm) {
                 registerVideoForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
-                    const channelId = document.getElementById('register-video-channel').value;
-                    const url = document.getElementById('register-video-url').value;
-                    const title = document.getElementById('register-video-title').value;
-                    const ctr = document.getElementById('register-video-ctr').value;
-                    const views = document.getElementById('register-video-views').value;
+                    console.log('[Analytics] Registrando vídeo...', { API_BASE, hasToken: !!userToken });
+                    
+                    const channelId = document.getElementById('register-video-channel')?.value;
+                    const url = document.getElementById('register-video-url')?.value;
+                    const title = document.getElementById('register-video-title')?.value;
+                    const ctr = document.getElementById('register-video-ctr')?.value;
+                    const views = document.getElementById('register-video-views')?.value;
+
+                    if (!url || !title) {
+                        const errorMsg = document.getElementById('analytics-error-message');
+                        if (errorMsg) {
+                            showMessage('analytics-error-message', 'URL e título são obrigatórios.', true);
+                        } else {
+                            alert('URL e título são obrigatórios.');
+                        }
+                        return;
+                    }
 
                     try {
                         const videoId = url.match(/[?&]v=([^&]+)/)?.[1];
-                        if (!videoId) throw new Error('URL do YouTube inválida.');
+                        if (!videoId) {
+                            throw new Error('URL do YouTube inválida. Use o formato: https://www.youtube.com/watch?v=VIDEO_ID');
+                        }
 
+                        console.log('[Analytics] Enviando dados:', { videoId, title, ctr, views, channelId });
+                        
                         const response = await fetch(`${API_BASE}/api/analytics/track`, {
                             method: 'POST',
                             headers: {
@@ -4432,20 +4495,38 @@
                                 predictedViews: views ? parseInt(views) : null
                             })
                         });
+                        
                         if (!response.ok) {
-                            const data = await response.json();
-                            throw new Error(data.msg || 'Falha ao registrar vídeo.');
+                            const errorData = await response.json().catch(() => ({ msg: 'Falha ao registrar vídeo.' }));
+                            throw new Error(errorData.msg || 'Falha ao registrar vídeo.');
                         }
+                        
+                        const data = await response.json();
+                        console.log('[Analytics] Vídeo registrado com sucesso:', data);
                         
                         registerVideoForm.reset();
                         await loadAnalytics();
-                        showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
+                        
+                        // Mostrar mensagem de sucesso
+                        const successMsg = document.getElementById('analytics-success-message');
+                        if (successMsg) {
+                            showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
+                        }
+                        
                         // Atualizar dashboard se estiver visível
                         refreshDashboardIfVisible();
                     } catch (err) {
-                        showMessage('analytics-error-message', err.message, true);
+                        console.error('[Analytics] Erro ao registrar vídeo:', err);
+                        const errorMsg = document.getElementById('analytics-error-message');
+                        if (errorMsg) {
+                            showMessage('analytics-error-message', err.message, true);
+                        } else {
+                            alert('Erro ao registrar vídeo: ' + err.message);
+                        }
                     }
                 });
+            } else {
+                console.warn('[Analytics] Formulário register-video-form não encontrado');
             }
 
             // === FUNCIONALIDADES DE BIBLIOTECA ===

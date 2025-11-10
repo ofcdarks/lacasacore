@@ -35,11 +35,30 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// Middleware para garantir que todas as respostas sejam JSON válido
+app.use((req, res, next) => {
+    // Interceptar res.json para garantir formato válido
+    const originalJson = res.json;
+    res.json = function(data) {
+        // Garantir que sempre retorna JSON válido
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch {
+                data = { msg: data };
+            }
+        }
+        res.setHeader('Content-Type', 'application/json');
+        return originalJson.call(this, data);
+    };
+    next();
+});
+
 // Middleware de tratamento de erros para garantir que sempre retorne JSON
 app.use((err, req, res, next) => {
     console.error('Erro no middleware:', err);
     if (!res.headersSent) {
-        res.status(500).json({ msg: 'Erro interno do servidor.' });
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor.' });
     }
 });
 
@@ -112,50 +131,87 @@ async function callYouTubeDataAPI(videoId, apiKey) {
 }
 
 async function getChannelVideosWithDetails(channelId, apiKey, order = 'date', maxResults = 5) {
-    // Etapa 1: Buscar IDs dos vídeos
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=id&channelId=${channelId}&order=${order}&maxResults=${maxResults}&type=video&key=${apiKey}`;
-    const searchResponse = await fetch(searchUrl);
-    const searchData = await searchResponse.json();
-    if (!searchResponse.ok || !searchData.items) {
-        throw new Error(searchData.error?.message || 'Falha ao buscar IDs de vídeos do canal.');
-    }
-    
-    const videoIds = searchData.items.map(item => item.id.videoId).join(',');
-    if (!videoIds) return [];
-
-    // Etapa 2: Buscar detalhes e estatísticas de todos os vídeos de uma vez
-    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
-    const detailsResponse = await fetch(detailsUrl);
-    const detailsData = await detailsResponse.json();
-    if (!detailsResponse.ok || !detailsData.items) {
-        throw new Error(detailsData.error?.message || 'Falha ao buscar detalhes dos vídeos.');
-    }
-
-    // Etapa 3: Mapear e formatar os dados (com receita e RPM estimados)
-    return detailsData.items.map(item => {
-        const uploadDate = new Date(item.snippet.publishedAt);
-        const daysPosted = Math.round((new Date() - uploadDate) / (1000 * 60 * 60 * 24));
-        const views = parseInt(item.statistics.viewCount || 0);
-        // Calcular receita e RPM (usar padrão, pode ser melhorado buscando nicho do canal)
-        const rpm = getRPMByNiche(null);
-        const estimatedRevenueUSD = (views / 1000) * rpm.usd;
-        const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+    try {
+        // Etapa 1: Buscar IDs dos vídeos
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=id&channelId=${channelId}&order=${order}&maxResults=${maxResults}&type=video&key=${apiKey}`;
+        const searchResponse = await fetch(searchUrl);
         
-        return {
-            videoId: item.id,
-            title: item.snippet.title,
-            thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
-            publishedAt: item.snippet.publishedAt,
-            views: views,
-            likes: parseInt(item.statistics.likeCount || 0),
-            comments: parseInt(item.statistics.commentCount || 0),
-            days: daysPosted,
-            estimatedRevenueUSD: estimatedRevenueUSD,
-            estimatedRevenueBRL: estimatedRevenueBRL,
-            rpmUSD: rpm.usd,
-            rpmBRL: rpm.brl
-        };
-    });
+        if (!searchResponse.ok) {
+            const errorText = await searchResponse.text();
+            console.error('[getChannelVideosWithDetails] Erro na busca de vídeos:', searchResponse.status, errorText.substring(0, 200));
+            // Tentar parsear como JSON, se falhar retornar array vazio
+            try {
+                const errorData = JSON.parse(errorText);
+                throw new Error(errorData.error?.message || `Erro ao buscar vídeos: ${searchResponse.status}`);
+            } catch {
+                throw new Error(`Erro ao buscar vídeos do canal: ${searchResponse.status}`);
+            }
+        }
+        
+        const searchData = await searchResponse.json();
+        if (!searchData.items || !Array.isArray(searchData.items)) {
+            console.warn('[getChannelVideosWithDetails] Nenhum vídeo encontrado ou resposta inválida');
+            return [];
+        }
+        
+        const videoIds = searchData.items.map(item => item.id?.videoId).filter(id => id).join(',');
+        if (!videoIds) {
+            console.warn('[getChannelVideosWithDetails] Nenhum ID de vídeo válido encontrado');
+            return [];
+        }
+
+        // Etapa 2: Buscar detalhes e estatísticas de todos os vídeos de uma vez
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${apiKey}`;
+        const detailsResponse = await fetch(detailsUrl);
+        
+        if (!detailsResponse.ok) {
+            const errorText = await detailsResponse.text();
+            console.error('[getChannelVideosWithDetails] Erro ao buscar detalhes:', detailsResponse.status, errorText.substring(0, 200));
+            // Tentar parsear como JSON, se falhar retornar array vazio
+            try {
+                const errorData = JSON.parse(errorText);
+                throw new Error(errorData.error?.message || `Erro ao buscar detalhes: ${detailsResponse.status}`);
+            } catch {
+                throw new Error(`Erro ao buscar detalhes dos vídeos: ${detailsResponse.status}`);
+            }
+        }
+        
+        const detailsData = await detailsResponse.json();
+        if (!detailsData.items || !Array.isArray(detailsData.items)) {
+            console.warn('[getChannelVideosWithDetails] Nenhum detalhe de vídeo encontrado');
+            return [];
+        }
+
+        // Etapa 3: Mapear e formatar os dados (com receita e RPM estimados)
+        return detailsData.items.map(item => {
+            const uploadDate = new Date(item.snippet.publishedAt);
+            const daysPosted = Math.round((new Date() - uploadDate) / (1000 * 60 * 60 * 24));
+            const views = parseInt(item.statistics.viewCount || 0);
+            // Calcular receita e RPM (usar padrão, pode ser melhorado buscando nicho do canal)
+            const rpm = getRPMByNiche(null);
+            const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+            const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+            
+            return {
+                videoId: item.id,
+                title: item.snippet.title,
+                thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url || '',
+                publishedAt: item.snippet.publishedAt,
+                views: views,
+                likes: parseInt(item.statistics.likeCount || 0),
+                comments: parseInt(item.statistics.commentCount || 0),
+                days: daysPosted,
+                estimatedRevenueUSD: estimatedRevenueUSD,
+                estimatedRevenueBRL: estimatedRevenueBRL,
+                rpmUSD: rpm.usd,
+                rpmBRL: rpm.brl
+            };
+        });
+    } catch (err) {
+        console.error('[getChannelVideosWithDetails] Erro geral:', err.message);
+        // Sempre retornar array vazio em caso de erro, não lançar exceção
+        return [];
+    }
 }
 
 // --- Helper para buscar imagem como Base64 ---
@@ -173,19 +229,133 @@ async function fetchImageAsBase64(url) {
     }
 }
 
+// --- Helper para corrigir JSON com quebras de linha não escapadas ---
+function fixJsonWithUnescapedNewlines(jsonString) {
+    let result = '';
+    let inString = false;
+    let escapeNext = false;
+    
+    for (let i = 0; i < jsonString.length; i++) {
+        const char = jsonString[i];
+        const nextChar = jsonString[i + 1];
+        
+        if (escapeNext) {
+            result += char;
+            escapeNext = false;
+            continue;
+        }
+        
+        if (char === '\\') {
+            result += char;
+            escapeNext = true;
+            continue;
+        }
+        
+        if (char === '"') {
+            inString = !inString;
+            result += char;
+            continue;
+        }
+        
+        if (inString && (char === '\n' || char === '\r')) {
+            // Substituir quebras de linha dentro de strings por \n escapado
+            if (char === '\r' && nextChar === '\n') {
+                result += '\\n';
+                i++; // Pular o \n também
+            } else {
+                result += '\\n';
+            }
+            continue;
+        }
+        
+        result += char;
+    }
+    
+    return result;
+}
+
 // --- Helper para analisar resposta JSON da IA ---
 function parseAIResponse(responseText, serviceName) {
     try {
+        // Limpar o texto removendo possíveis markdown code blocks
+        let cleanedText = responseText.trim();
+        
+        // Remover markdown code blocks se existirem
+        cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+        
         // Tenta encontrar um objeto JSON dentro de uma string maior (comum com Claude)
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
+            let jsonString = jsonMatch[0];
+            
+            // Tentar parsear diretamente
+            try {
+                return JSON.parse(jsonString);
+            } catch (parseError) {
+                // Se falhar, tentar corrigir quebras de linha não escapadas
+                try {
+                    const fixedJson = fixJsonWithUnescapedNewlines(jsonString);
+                    return JSON.parse(fixedJson);
+                } catch (secondError) {
+                    // Última tentativa: usar uma abordagem mais robusta
+                    // Extrair apenas o conteúdo entre as primeiras chaves
+                    const firstBrace = jsonString.indexOf('{');
+                    const lastBrace = jsonString.lastIndexOf('}');
+                    
+                    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                        let extractedJson = jsonString.substring(firstBrace, lastBrace + 1);
+                        extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
+                        return JSON.parse(extractedJson);
+                    }
+                    
+                    throw parseError;
+                }
+            }
         }
+        
         // Se não encontrar, tenta parsear a string inteira
-        return JSON.parse(responseText);
+        return JSON.parse(cleanedText);
     } catch (e) {
         console.error(`[Análise-${serviceName}] Falha ao parsear JSON da IA:`, e);
-        console.error(`[Análise-${serviceName}] Texto recebido:`, responseText);
+        console.error(`[Análise-${serviceName}] Texto recebido (primeiros 2000 caracteres):`, responseText.substring(0, 2000));
+        
+        // Tentar uma última abordagem: usar regex para extrair campos específicos
+        try {
+            // Regex mais robusta que lida com quebras de linha dentro de strings
+            const nicheMatch = responseText.match(/"niche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            const subnicheMatch = responseText.match(/"subniche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            // Usar [\s\S] em vez de . com flag s para compatibilidade
+            const motivoMatch = responseText.match(/"motivoSucesso"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
+            const formulaMatch = responseText.match(/"formulaTitulo"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
+            
+            if (nicheMatch && motivoMatch) {
+                console.warn(`[Análise-${serviceName}] Usando fallback de parsing regex devido a JSON malformado`);
+                
+                // Extrair títulos sugeridos usando regex (mais robusta)
+                const titulosMatches = [...responseText.matchAll(/"titulo"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
+                const titulos = titulosMatches.map(m => m[1]).filter(t => t.length > 0);
+                
+                // Limpar quebras de linha dos valores extraídos
+                const cleanValue = (val) => val.replace(/\r?\n/g, ' ').trim();
+                
+                return {
+                    niche: cleanValue(nicheMatch[1]),
+                    subniche: subnicheMatch ? cleanValue(subnicheMatch[1]) : 'N/A',
+                    analiseOriginal: {
+                        motivoSucesso: cleanValue(motivoMatch[1]),
+                        formulaTitulo: formulaMatch ? cleanValue(formulaMatch[1]) : 'N/A'
+                    },
+                    titulosSugeridos: titulos.map((titulo, index) => ({
+                        titulo: cleanValue(titulo),
+                        pontuacao: 8,
+                        explicacao: `Título gerado pela IA (parsing fallback)`
+                    }))
+                };
+            }
+        } catch (fallbackError) {
+            console.error(`[Análise-${serviceName}] Fallback também falhou:`, fallbackError);
+        }
+        
         throw new Error(`A IA (${serviceName}) retornou um formato JSON inválido.`);
     }
 }
@@ -508,6 +678,11 @@ async function validateClaudeKey(apiKey) {
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
 const authenticateToken = (req, res, next) => {
+    // Verificar se o banco de dados está inicializado
+    if (!db) {
+        return res.status(503).json({ msg: 'Servidor ainda não está pronto. Aguarde alguns instantes e tente novamente.' });
+    }
+    
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -1276,6 +1451,11 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
     }
     
     try {
+        // Verificar se o banco de dados está disponível
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível. Aguarde alguns instantes.' });
+        }
+        
         // --- ETAPA 1: Mineração de Dados (YouTube) ---
         console.log(`[Análise] A iniciar mineração para: ${videoUrl}`);
         let videoId;
@@ -2390,20 +2570,86 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             }
         }
         
-        // --- 4. Chamar a API Multimodal ---
+        // --- 4. Chamar a API Multimodal com fallback ---
         let apiCallFunction;
         if (service === 'gemini') apiCallFunction = callGeminiAPI;
         else if (service === 'claude') apiCallFunction = callClaudeAPI;
         else if (service === 'openai') apiCallFunction = callOpenAIAPI;
         
         console.log(`[Análise-Thumb] A chamar ${service} com o modelo ${model}...`);
-        const response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
+        
+        let response;
+        let parsedData;
+        let successfulService = service;
+        
+        try {
+            response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
+            parsedData = parseAIResponse(response.titles, service);
+            
+            if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
+                throw new Error("A IA não retornou o array 'ideias' esperado.");
+            }
+        } catch (firstError) {
+            console.warn(`[Análise-Thumb] Falha com ${service}:`, firstError.message);
+            
+            // Tentar fallback para outros modelos se o primeiro falhar
+            const fallbackServices = service === 'gemini' 
+                ? ['claude', 'openai'] 
+                : service === 'claude' 
+                    ? ['openai', 'gemini'] 
+                    : ['gemini', 'claude'];
+            
+            let fallbackSuccess = false;
+            
+            for (const fallbackService of fallbackServices) {
+                try {
+                    console.log(`[Análise-Thumb] Tentando fallback com ${fallbackService}...`);
+                    
+                    const fallbackKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, fallbackService]);
+                    if (!fallbackKeyData) {
+                        console.warn(`[Análise-Thumb] Chave de API do ${fallbackService} não configurada para fallback.`);
+                        continue;
+                    }
+                    
+                    const fallbackDecryptedKey = decrypt(fallbackKeyData.api_key);
+                    if (!fallbackDecryptedKey) {
+                        console.warn(`[Análise-Thumb] Falha ao desencriptar chave do ${fallbackService}.`);
+                        continue;
+                    }
+                    
+                    let fallbackModel = model;
+                    if (fallbackService === 'claude') fallbackModel = 'claude-3-haiku-20240307';
+                    else if (fallbackService === 'openai') fallbackModel = 'gpt-4o';
+                    else if (fallbackService === 'gemini') fallbackModel = 'gemini-2.0-flash';
+                    
+                    let fallbackApiCallFunction;
+                    if (fallbackService === 'gemini') fallbackApiCallFunction = callGeminiAPI;
+                    else if (fallbackService === 'claude') fallbackApiCallFunction = callClaudeAPI;
+                    else fallbackApiCallFunction = callOpenAIAPI;
+                    
+                    response = await fallbackApiCallFunction(thumbPrompt, fallbackDecryptedKey, fallbackModel, videoDetails.thumbnailUrl);
+                    parsedData = parseAIResponse(response.titles, fallbackService);
+                    
+                    if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
+                        throw new Error("A IA não retornou o array 'ideias' esperado.");
+                    }
+                    
+                    successfulService = fallbackService;
+                    fallbackSuccess = true;
+                    console.log(`[Análise-Thumb] Sucesso com fallback ${fallbackService}!`);
+                    break;
+                } catch (fallbackError) {
+                    console.warn(`[Análise-Thumb] Fallback ${fallbackService} também falhou:`, fallbackError.message);
+                    continue;
+                }
+            }
+            
+            if (!fallbackSuccess) {
+                throw new Error(`Todas as IAs falharam. Último erro: ${firstError.message}`);
+            }
+        }
 
         // --- 5. Enviar resposta ---
-        const parsedData = parseAIResponse(response.titles, service);
-        if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
-            throw new Error("A IA não retornou o array 'ideias' esperado.");
-        }
 
         // Salvar thumbnails geradas na biblioteca automaticamente
         try {
@@ -2904,11 +3150,14 @@ app.get('/api/history', authenticateToken, async (req, res) => {
             db.get(countQuery, countParams)
         ]);
         
+        // Garantir que history é sempre um array
+        const historyArray = Array.isArray(history) ? history : [];
+        
         const total = totalResult?.total || 0;
         const totalPages = Math.ceil(total / limitNum);
         
         res.status(200).json({
-            data: history,
+            data: historyArray,
             pagination: {
                 page: pageNum,
                 limit: limitNum,
@@ -3171,53 +3420,95 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
             return res.status(400).json({ msg: 'Não foi possível determinar o ID do canal. Verifique se a URL está correta. Formatos suportados: @handle, /channel/ID, /c/ID, /user/ID, ou URL de vídeo.' });
         }
 
-        // Fetch latest, popular, and pinned videos
-        const [latestVideos, popularVideos, pinnedVideoIds] = await Promise.all([
-            getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'date', 5),
-            getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'viewCount', 5),
-            db.all('SELECT id, youtube_video_id FROM pinned_videos WHERE user_id = ? AND monitored_channel_id = ? ORDER BY pinned_at DESC', [userId, channelId])
-        ]);
+        // Fetch latest, popular, and pinned videos com tratamento de erro robusto
+        let latestVideos = [];
+        let popularVideos = [];
+        let pinnedVideoIds = [];
+        
+        try {
+            const results = await Promise.allSettled([
+                getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'date', 5).catch(err => {
+                    console.error('[Canais Monitorados] Erro ao buscar vídeos recentes:', err);
+                    return [];
+                }),
+                getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'viewCount', 5).catch(err => {
+                    console.error('[Canais Monitorados] Erro ao buscar vídeos populares:', err);
+                    return [];
+                }),
+                db.all('SELECT id, youtube_video_id FROM pinned_videos WHERE user_id = ? AND monitored_channel_id = ? ORDER BY pinned_at DESC', [userId, channelId]).catch(err => {
+                    console.error('[Canais Monitorados] Erro ao buscar vídeos fixados:', err);
+                    return [];
+                })
+            ]);
+            
+            if (results[0].status === 'fulfilled') latestVideos = Array.isArray(results[0].value) ? results[0].value : [];
+            if (results[1].status === 'fulfilled') popularVideos = Array.isArray(results[1].value) ? results[1].value : [];
+            if (results[2].status === 'fulfilled') pinnedVideoIds = Array.isArray(results[2].value) ? results[2].value : [];
+        } catch (fetchErr) {
+            console.error('[Canais Monitorados] Erro ao buscar vídeos:', fetchErr);
+            // Continuar com arrays vazios
+        }
 
         let pinnedVideos = [];
         if (pinnedVideoIds.length > 0) {
-            const idsToFetch = pinnedVideoIds.map(p => p.youtube_video_id).join(',');
-            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${geminiApiKey}`;
-            const detailsResponse = await fetch(detailsUrl);
-            const detailsData = await detailsResponse.json();
-            if (detailsResponse.ok && detailsData.items) {
-                // Calcular receita e RPM para vídeos fixados
-                pinnedVideos = detailsData.items.map(item => {
-                    const pinData = pinnedVideoIds.find(p => p.youtube_video_id === item.id);
-                    const views = parseInt(item.statistics.viewCount || 0);
-                    // Buscar nicho do canal para calcular RPM correto
-                    // Por enquanto usar padrão, pode ser melhorado buscando do user_channels
-                    const rpm = getRPMByNiche(null);
-                    const estimatedRevenueUSD = (views / 1000) * rpm.usd;
-                    const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+            try {
+                const idsToFetch = pinnedVideoIds.map(p => p.youtube_video_id).filter(id => id).join(',');
+                if (!idsToFetch) {
+                    console.warn('[Canais Monitorados] Nenhum ID válido para vídeos fixados');
+                } else {
+                    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${geminiApiKey}`;
+                    const detailsResponse = await fetch(detailsUrl);
                     
-                    return {
-                        pinId: pinData.id,
-                        videoId: item.id,
-                        title: item.snippet.title,
-                        thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
-                        views: views,
-                        likes: parseInt(item.statistics.likeCount || 0),
-                        comments: parseInt(item.statistics.commentCount || 0),
-                        estimatedRevenueUSD: estimatedRevenueUSD,
-                        estimatedRevenueBRL: estimatedRevenueBRL,
-                        rpmUSD: rpm.usd,
-                        rpmBRL: rpm.brl
-                    };
-                });
+                    if (!detailsResponse.ok) {
+                        const errorText = await detailsResponse.text();
+                        console.error('[Canais Monitorados] Erro ao buscar vídeos fixados:', detailsResponse.status, errorText.substring(0, 200));
+                    } else {
+                        const detailsData = await detailsResponse.json();
+                        if (detailsData.items && Array.isArray(detailsData.items)) {
+                            // Calcular receita e RPM para vídeos fixados
+                            pinnedVideos = detailsData.items.map(item => {
+                                const pinData = pinnedVideoIds.find(p => p.youtube_video_id === item.id);
+                                const views = parseInt(item.statistics.viewCount || 0);
+                                // Buscar nicho do canal para calcular RPM correto
+                                // Por enquanto usar padrão, pode ser melhorado buscando do user_channels
+                                const rpm = getRPMByNiche(null);
+                                const estimatedRevenueUSD = (views / 1000) * rpm.usd;
+                                const estimatedRevenueBRL = (views / 1000) * rpm.brl;
+                                
+                                return {
+                                    pinId: pinData.id,
+                                    videoId: item.id,
+                                    title: item.snippet.title,
+                                    thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url || '',
+                                    views: views,
+                                    likes: parseInt(item.statistics.likeCount || 0),
+                                    comments: parseInt(item.statistics.commentCount || 0),
+                                    estimatedRevenueUSD: estimatedRevenueUSD,
+                                    estimatedRevenueBRL: estimatedRevenueBRL,
+                                    rpmUSD: rpm.usd,
+                                    rpmBRL: rpm.brl
+                                };
+                            });
+                        }
+                    }
+                }
+            } catch (pinnedErr) {
+                console.error('[Canais Monitorados] Erro ao processar vídeos fixados:', pinnedErr);
+                // Continuar com array vazio
             }
         }
         
-        await db.run('UPDATE monitored_channels SET last_checked = CURRENT_TIMESTAMP WHERE id = ?', [channelId]);
+        try {
+            await db.run('UPDATE monitored_channels SET last_checked = CURRENT_TIMESTAMP WHERE id = ?', [channelId]);
+        } catch (updateErr) {
+            console.warn('[Canais Monitorados] Erro ao atualizar last_checked:', updateErr);
+            // Não bloquear a resposta por causa disso
+        }
         
         res.status(200).json({
-            latest: latestVideos,
-            popular: popularVideos,
-            pinned: pinnedVideos
+            latest: Array.isArray(latestVideos) ? latestVideos : [],
+            popular: Array.isArray(popularVideos) ? popularVideos : [],
+            pinned: Array.isArray(pinnedVideos) ? pinnedVideos : []
         });
 
     } catch (err) {
@@ -3492,45 +3783,62 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         }
 
         // Verificar se a tabela existe e tem dados
-        let stats;
+        let stats = {
+            total_videos: 0,
+            total_views: 0,
+            total_likes: 0,
+            total_comments: 0,
+            avg_ctr: 0,
+            total_revenue: 0,
+            viral_videos: 0
+        };
+        
         try {
-            stats = await db.get(`
-                SELECT 
-                    COUNT(*) as total_videos,
-                    COALESCE(SUM(actual_views), 0) as total_views,
-                    COALESCE(SUM(actual_likes), 0) as total_likes,
-                    COALESCE(SUM(actual_comments), 0) as total_comments,
-                    COALESCE(AVG(actual_ctr), 0) as avg_ctr,
-                    COALESCE(SUM(revenue_estimate), 0) as total_revenue,
-                    COUNT(CASE WHEN actual_views >= 1000000 THEN 1 END) as viral_videos
-                FROM video_tracking
-                WHERE user_id = ?
-            `, [userId]);
+            // Verificar se a tabela existe primeiro
+            const tableCheck = await db.get(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='video_tracking'
+            `);
+            
+            if (tableCheck) {
+                stats = await db.get(`
+                    SELECT 
+                        COUNT(*) as total_videos,
+                        COALESCE(SUM(actual_views), 0) as total_views,
+                        COALESCE(SUM(actual_likes), 0) as total_likes,
+                        COALESCE(SUM(actual_comments), 0) as total_comments,
+                        COALESCE(AVG(actual_ctr), 0) as avg_ctr,
+                        COALESCE(SUM(revenue_estimate), 0) as total_revenue,
+                        COUNT(CASE WHEN actual_views >= 1000000 THEN 1 END) as viral_videos
+                    FROM video_tracking
+                    WHERE user_id = ?
+                `, [userId]) || stats;
+            }
             console.log(`[Analytics Dashboard] Stats encontrados:`, stats);
         } catch (dbErr) {
             console.error('[Analytics Dashboard] Erro ao buscar stats:', dbErr);
-            stats = {
-                total_videos: 0,
-                total_views: 0,
-                total_likes: 0,
-                total_comments: 0,
-                avg_ctr: 0,
-                total_revenue: 0,
-                viral_videos: 0
-            };
+            // Manter valores padrão
         }
 
         let recentVideos = [];
         try {
-            recentVideos = await db.all(`
-                SELECT vt.id, vt.youtube_video_id, vt.title_used, vt.actual_views, vt.actual_ctr, vt.revenue_estimate, 
-                       vt.published_at, vt.tracked_at, vt.channel_id, uc.channel_name
-                FROM video_tracking vt
-                LEFT JOIN user_channels uc ON vt.channel_id = uc.id
-                WHERE vt.user_id = ?
-                ORDER BY COALESCE(vt.published_at, vt.tracked_at) DESC
-                LIMIT 50
-            `, [userId]);
+            // Verificar se a tabela existe primeiro
+            const tableCheck = await db.get(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='video_tracking'
+            `);
+            
+            if (tableCheck) {
+                recentVideos = await db.all(`
+                    SELECT vt.id, vt.youtube_video_id, vt.title_used, vt.actual_views, vt.actual_ctr, vt.revenue_estimate, 
+                           vt.published_at, vt.tracked_at, vt.channel_id, uc.channel_name
+                    FROM video_tracking vt
+                    LEFT JOIN user_channels uc ON vt.channel_id = uc.id
+                    WHERE vt.user_id = ?
+                    ORDER BY COALESCE(vt.published_at, vt.tracked_at) DESC
+                    LIMIT 50
+                `, [userId]) || [];
+            }
             console.log(`[Analytics Dashboard] Vídeos recentes encontrados:`, recentVideos.length);
         } catch (dbErr) {
             console.error('[Analytics Dashboard] Erro ao buscar vídeos recentes:', dbErr);
@@ -3605,6 +3913,9 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
             rpmBRL = (totalRevenueBRL / totalViews) * 1000;
         }
 
+        // Garantir que recentVideos é sempre um array
+        const recentVideosArray = Array.isArray(recentVideos) ? recentVideos : [];
+        
         const response = {
             stats: {
                 totalVideos: parseInt(stats?.total_videos || 0),
@@ -3618,18 +3929,15 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
                 rpmBRL: rpmBRL,
                 viralVideos: parseInt(stats?.viral_videos || 0)
             },
-            recentVideos: recentVideos || []
+            recentVideos: recentVideosArray
         };
 
         console.log(`[Analytics Dashboard] Enviando resposta:`, JSON.stringify(response).substring(0, 200));
         res.status(200).json(response);
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analytics/dashboard]:', err);
-        // Retornar dados vazios em caso de erro (tabela pode não existir ainda)
-        // Função helper para RPM padrão
-        const getDefaultRPM = () => ({ usd: 2.0, brl: 11.0 });
-        const defaultRPM = getDefaultRPM();
-        res.status(200).json({
+        // Sempre retornar JSON válido, nunca HTML
+        res.status(500).json({ 
             stats: {
                 totalVideos: 0,
                 totalViews: 0,
@@ -3638,11 +3946,12 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
                 avgCtr: 0,
                 totalRevenue: 0,
                 totalRevenueBRL: 0,
-                rpmUSD: defaultRPM.usd,
-                rpmBRL: defaultRPM.brl,
+                rpmUSD: 2.0,
+                rpmBRL: 11.0,
                 viralVideos: 0
             },
-            recentVideos: []
+            recentVideos: [],
+            error: err.message || 'Erro no servidor ao buscar dados do dashboard.'
         });
     }
 });
@@ -3757,10 +4066,12 @@ app.get('/api/library/titles', authenticateToken, async (req, res) => {
             titles = [];
         }
 
-        res.status(200).json(titles || []);
+        // Garantir que titles é sempre um array
+        const titlesArray = Array.isArray(titles) ? titles : [];
+        res.status(200).json(titlesArray);
     } catch (err) {
         console.error('[ERRO NA ROTA /api/library/titles]:', err);
-        // Retornar array vazio se a tabela não existir
+        // Sempre retornar JSON válido (array vazio), nunca HTML
         res.status(200).json([]);
     }
 });
@@ -3882,10 +4193,12 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
             thumbnails = [];
         }
 
-        res.status(200).json(thumbnails || []);
+        // Garantir que thumbnails é sempre um array
+        const thumbnailsArray = Array.isArray(thumbnails) ? thumbnails : [];
+        res.status(200).json(thumbnailsArray);
     } catch (err) {
         console.error('[ERRO NA ROTA /api/library/thumbnails]:', err);
-        // Retornar array vazio se a tabela não existir
+        // Sempre retornar JSON válido (array vazio), nunca HTML
         res.status(200).json([]);
     }
 });

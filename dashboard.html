@@ -788,6 +788,22 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Seção de Vídeos Fixados -->
+                <div class="mt-6 bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold text-white">Vídeos Fixados</h2>
+                        <div class="flex items-center space-x-3">
+                            <label for="pinned-channel-selector" class="text-sm text-gray-400">Canal:</label>
+                            <select id="pinned-channel-selector" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                <option value="">Selecione um canal</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="pinned-videos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <p class="text-gray-500 text-center col-span-full py-8">Selecione um canal para ver os vídeos fixados.</p>
+                    </div>
+                </div>
             </div>
 
             <!-- VISÃO 6: Analytics Dashboard -->
@@ -798,6 +814,7 @@
                 </header>
 
                 <div id="analytics-error-message" class="error-message mb-6"></div>
+                <div id="analytics-success-message" class="success-message mb-6"></div>
 
                 <!-- Cards de Métricas Principais -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -1211,6 +1228,9 @@
                 ? '' 
                 : `http://${window.location.hostname}:5001`;
             
+            // Tornar API_BASE acessível globalmente
+            window.API_BASE = API_BASE;
+            
             console.log('API_BASE configurado:', API_BASE, { currentPort, isBackendPort });
 
             if (typeof lucide !== 'undefined') {
@@ -1232,7 +1252,7 @@
             let userFolders = [];
 
             // --- FUNÇÕES GLOBAIS DE MENSAGEM (Genéricas) ---
-            function showMessage(elementId, message, isError = false) {
+            window.showMessage = function(elementId, message, isError = false) {
                 const msgBox = document.getElementById(elementId);
                 if (!msgBox) return;
                 
@@ -1649,12 +1669,14 @@
             const hamburgerButton = document.getElementById('hamburger-button');
 
             // Função auxiliar para atualizar o dashboard se estiver na tela de início
-            function refreshDashboardIfVisible() {
+            window.refreshDashboardIfVisible = function() {
                 const inicioView = document.getElementById('view-inicio');
                 if (inicioView && inicioView.style.display !== 'none') {
-                    loadDashboard();
+                    if (typeof loadDashboard === 'function') {
+                        loadDashboard();
+                    }
                 }
-            }
+            };
             
             function navigateToView(viewName, params = {}) {
                 if (!viewName) return;
@@ -1687,6 +1709,9 @@
                 }
                 if (viewName === 'inicio') {
                     loadDashboard(); // Recarregar dashboard quando voltar para a tela inicial
+                    startDashboardAutoRefresh(); // Iniciar atualização automática
+                } else {
+                    stopDashboardAutoRefresh(); // Parar atualização quando sair da tela de início
                 }
                 if (viewName === 'historico') {
                     loadFolders().then(() => {
@@ -1708,6 +1733,12 @@
                 }
                 if (viewName === 'analytics') {
                     loadAnalytics();
+                    // Reconfigurar formulário de registrar vídeo
+                    setTimeout(() => {
+                        if (typeof window.setupRegisterVideoForm === 'function') {
+                            window.setupRegisterVideoForm();
+                        }
+                    }, 100);
                 }
                 if (viewName === 'biblioteca') {
                     loadBibliotecaTitles();
@@ -1899,7 +1930,9 @@
                     }
                     
                     // Atualizar dashboard se estiver visível
-                    refreshDashboardIfVisible();
+                    if (typeof window.refreshDashboardIfVisible === 'function') {
+                        window.refreshDashboardIfVisible();
+                    }
 
                 } catch (error) {
                     console.error('Erro ao analisar vídeo:', error);
@@ -2157,22 +2190,42 @@
 
                     // Salvar o estado no backend
                     try {
-                        const response = await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
+                        const apiBase = window.API_BASE || API_BASE || '';
+                        const token = localStorage.getItem('core_token');
+                        
+                        console.log('[Títulos] Atualizando status do título:', { titleId, isChecked, apiBase, hasToken: !!token });
+                        const response = await fetch(`${apiBase}/api/titles/${titleId}/check`, {
                             method: 'PUT',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${userToken}`
+                                'Authorization': `Bearer ${token}`
                             },
                             body: JSON.stringify({ is_checked: isChecked })
                         });
                         
-                        if (response.ok && isChecked) {
-                            // Se o título foi marcado, atualizar dashboard
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                            throw new Error(errorData.msg || 'Falha ao atualizar título.');
+                        }
+                        
+                        const data = await response.json();
+                        console.log('[Títulos] Título atualizado com sucesso:', data);
+                        
+                        if (isChecked) {
+                            // Se o título foi marcado, atualizar dashboard e biblioteca
                             refreshDashboardIfVisible();
+                            
+                            // Recarregar biblioteca se estiver na view de biblioteca
+                            const bibliotecaView = document.getElementById('view-biblioteca');
+                            if (bibliotecaView && bibliotecaView.style.display !== 'none') {
+                                if (currentBibliotecaTab === 'titles') {
+                                    loadBibliotecaTitles();
+                                }
+                            }
                         }
                     } catch (err) {
                         console.error("Falha ao salvar o estado do título:", err);
-                        // Opcional: reverter a mudança visual em caso de erro
+                        // Reverter a mudança visual em caso de erro
                         if (listItem) {
                             listItem.classList.toggle('opacity-60', !isChecked);
                             const label = listItem.querySelector('label');
@@ -2181,6 +2234,7 @@
                             }
                         }
                         checkbox.checked = !isChecked;
+                        alert('Erro ao salvar título: ' + err.message);
                     }
                 }
             });
@@ -2234,6 +2288,16 @@
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
                     if (!Array.isArray(data) || data.length === 0) throw new Error("A IA não retornou o array de ideias esperado.");
+
+                    console.log('[Thumbnails] Thumbnails geradas com sucesso:', data.length);
+                    
+                    // Recarregar biblioteca de thumbnails se estiver na view de biblioteca
+                    const bibliotecaView = document.getElementById('view-biblioteca');
+                    if (bibliotecaView && bibliotecaView.style.display !== 'none') {
+                        if (currentBibliotecaTab === 'thumbnails') {
+                            loadBibliotecaThumbnails();
+                        }
+                    }
 
                     if (thumbResultadosDiv) {
                         thumbResultadosDiv.style.display = 'grid';
@@ -2478,10 +2542,15 @@
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
                     if (!response.ok) throw new Error('Falha ao carregar histórico.');
-                    const history = await response.json();
+                    
+                    const data = await response.json();
+                    
+                    // Garantir que history é sempre um array
+                    // O backend retorna { data: [...], pagination: {...} }
+                    const history = Array.isArray(data) ? data : (data.data || data.history || data.items || []);
                     
                     historyTableBody.innerHTML = '';
-                    if (history.length === 0) {
+                    if (!Array.isArray(history) || history.length === 0) {
                         historyTableBody.innerHTML = '<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhuma análise encontrada.</td></tr>';
                         return;
                     }
@@ -2692,18 +2761,33 @@
             
             async function loadMonitoredChannels() {
                 try {
-                    const response = await fetch(`${API_BASE}/api/channels`, {
+                    console.log('[Canais Monitorados] Carregando canais...', { API_BASE });
+                    const response = await fetch(`${API_BASE}/api/channels/monitor`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
-                    if (!response.ok) throw new Error('Falha ao carregar canais.');
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Falha ao carregar canais.' }));
+                        throw new Error(errorData.msg || 'Falha ao carregar canais.');
+                    }
                     const channels = await response.json();
+                    console.log('[Canais Monitorados] Canais recebidos:', channels);
                     
-                    channelTableBody.innerHTML = '';
-                    if (channels.length === 0) {
-                        channelTableBody.innerHTML = '<tr><td colspan="3" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhum canal monitorado.</td></tr>';
+                    if (!channelTableBody) {
+                        console.error('[Canais Monitorados] Elemento channel-table-body não encontrado');
+                        return;
                     }
                     
-                    channels.forEach(channel => {
+                    channelTableBody.innerHTML = '';
+                    
+                    // Garantir que channels é um array
+                    const channelsArray = Array.isArray(channels) ? channels : [];
+                    
+                    if (channelsArray.length === 0) {
+                        channelTableBody.innerHTML = '<tr><td colspan="3" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhum canal monitorado.</td></tr>';
+                        return;
+                    }
+                    
+                    channelsArray.forEach(channel => {
                         channelTableBody.innerHTML += `
                             <tr>
                                 <td class="p-3 border-b border-gray-700 bg-gray-900">${channel.channel_name}</td>
@@ -2723,8 +2807,17 @@
                     });
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                     
+                    // Atualizar seletor de canais para vídeos fixados
+                    updatePinnedChannelSelector(channelsArray);
+                    
                 } catch (err) {
-                    showMessage('canais-error-message', err.message, true);
+                    console.error('[Canais Monitorados] Erro:', err);
+                    const errorMsg = document.getElementById('canais-error-message');
+                    if (errorMsg) {
+                        showMessage('canais-error-message', err.message, true);
+                    } else {
+                        alert('Erro ao carregar canais: ' + err.message);
+                    }
                 }
             }
             
@@ -2738,7 +2831,7 @@
                     const channelUrl = document.getElementById('new-channel-url').value;
                     
                     try {
-                         const response = await fetch(`${API_BASE}/api/channels`, {
+                         const response = await fetch(`${API_BASE}/api/channels/monitor`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -2773,15 +2866,55 @@
                     if (action === 'delete') {
                          if (confirm('Tem certeza que deseja remover este canal?')) {
                             try {
-                                const response = await fetch(`${API_BASE}/api/channels/${channelId}`, {
+                                const apiBase = window.API_BASE || API_BASE || '';
+                                const token = localStorage.getItem('core_token');
+                                
+                                console.log('[Canais Monitorados] Removendo canal:', channelId, { apiBase });
+                                
+                                const response = await fetch(`${apiBase}/api/channels/monitor/${channelId}`, {
                                     method: 'DELETE',
-                                    headers: { 'Authorization': `Bearer ${userToken}` }
+                                    headers: { 'Authorization': `Bearer ${token}` }
                                 });
-                                if (!response.ok) throw new Error('Falha ao remover canal.');
+                                
+                                if (!response.ok) {
+                                    const errorText = await response.text();
+                                    console.error('[Canais Monitorados] Erro na resposta:', response.status, errorText.substring(0, 200));
+                                    let errorData;
+                                    try {
+                                        errorData = JSON.parse(errorText);
+                                    } catch {
+                                        throw new Error(`Erro ao remover canal: ${response.status}`);
+                                    }
+                                    throw new Error(errorData.msg || 'Falha ao remover canal.');
+                                }
+                                
+                                const data = await response.json();
+                                console.log('[Canais Monitorados] Canal removido com sucesso:', data);
+                                
                                 loadMonitoredChannels();
-                                showMessage('canais-success-message', 'Canal removido.');
+                                
+                                // Limpar seletor de vídeos fixados se o canal removido estava selecionado
+                                const selector = document.getElementById('pinned-channel-selector');
+                                if (selector && selector.value == channelId) {
+                                    selector.value = '';
+                                    const container = document.getElementById('pinned-videos-container');
+                                    if (container) {
+                                        container.innerHTML = '<p class="text-gray-500 text-center col-span-full py-8">Selecione um canal para ver os vídeos fixados.</p>';
+                                    }
+                                }
+                                
+                                if (typeof window.showMessage === 'function') {
+                                    window.showMessage('canais-success-message', 'Canal removido com sucesso.');
+                                } else {
+                                    alert('Canal removido com sucesso.');
+                                }
                             } catch (err) {
-                                showMessage('canais-error-message', err.message, true);
+                                console.error('[Canais Monitorados] Erro ao remover canal:', err);
+                                if (typeof window.showMessage === 'function') {
+                                    window.showMessage('canais-error-message', err.message, true);
+                                } else {
+                                    alert('Erro ao remover canal: ' + err.message);
+                                }
                             }
                         }
                     }
@@ -2791,15 +2924,37 @@
                         showModal(true);
 
                         try {
-                            const response = await fetch(`${API_BASE}/api/channels/${channelId}/check`, {
+                            console.log('[Canais Monitorados] Buscando vídeos do canal:', channelId, { API_BASE });
+                            const response = await fetch(`${API_BASE}/api/channels/monitor/${channelId}/check`, {
                                 headers: { 'Authorization': `Bearer ${userToken}` }
                             });
+                            
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                console.error('[Canais Monitorados] Erro na resposta:', response.status, errorText.substring(0, 200));
+                                
+                                // Tentar parsear como JSON
+                                let errorData;
+                                try {
+                                    errorData = JSON.parse(errorText);
+                                } catch {
+                                    throw new Error(`Erro ao buscar vídeos: ${response.status} - ${errorText.substring(0, 100)}`);
+                                }
+                                throw new Error(errorData.msg || 'Erro ao buscar vídeos do canal.');
+                            }
+                            
                             const data = await response.json();
-                            if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
+                            console.log('[Canais Monitorados] Vídeos recebidos:', data);
+                            
+                            if (!data || (!data.latest && !data.popular && !data.pinned)) {
+                                throw new Error('Resposta inválida do servidor.');
+                            }
 
                             const createVideoListHTML = (videos, isPinned = false) => {
-                                if (!videos || videos.length === 0) return '<p class="text-gray-500 text-center py-4">Nenhum vídeo encontrado.</p>';
-                                return videos.map(video => {
+                                // Garantir que videos é um array
+                                const videosArray = Array.isArray(videos) ? videos : [];
+                                if (videosArray.length === 0) return '<p class="text-gray-500 text-center py-4">Nenhum vídeo encontrado.</p>';
+                                return videosArray.map(video => {
                                     const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
                                     return `
                                     <div class="flex items-start space-x-4 bg-gray-800 p-3 rounded-lg">
@@ -2823,31 +2978,232 @@
                                 `}).join('');
                             };
 
-                            modalVideoList.innerHTML = `
+                            // Garantir que os arrays existem
+                            const pinnedVideos = Array.isArray(data.pinned) ? data.pinned : [];
+                            const popularVideos = Array.isArray(data.popular) ? data.popular : [];
+                            const latestVideos = Array.isArray(data.latest) ? data.latest : [];
+                            
+                            console.log('[Canais Monitorados] Vídeos recebidos:', { 
+                                pinned: pinnedVideos.length, 
+                                popular: popularVideos.length, 
+                                latest: latestVideos.length 
+                            });
+                            
+                            let modalContent = '';
+                            
+                            // Sempre mostrar seção de vídeos fixados, mesmo se vazia
+                            modalContent += `
                                 <div>
                                     <h3 class="text-lg font-semibold text-amber-500 mb-2">Vídeos Fixados</h3>
-                                    <div class="space-y-3">${createVideoListHTML(data.pinned, true)}</div>
-                                </div>
-                                <hr class="border-gray-700 my-6">
-                                <div>
-                                    <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Populares</h3>
-                                    <div class="space-y-3">${createVideoListHTML(data.popular)}</div>
-                                </div>
-                                <hr class="border-gray-700 my-6">
-                                <div>
-                                    <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Recentes</h3>
-                                    <div class="space-y-3">${createVideoListHTML(data.latest)}</div>
+                                    <div class="space-y-3">${pinnedVideos.length > 0 ? createVideoListHTML(pinnedVideos, true) : '<p class="text-gray-500 text-center py-4">Nenhum vídeo fixado ainda. Use o botão de fixar para adicionar vídeos aqui.</p>'}</div>
                                 </div>
                             `;
+                            
+                            if (popularVideos.length > 0 || latestVideos.length > 0) {
+                                modalContent += '<hr class="border-gray-700 my-6">';
+                            }
+                            
+                            if (popularVideos.length > 0) {
+                                modalContent += `
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Populares</h3>
+                                        <div class="space-y-3">${createVideoListHTML(popularVideos)}</div>
+                                    </div>
+                                `;
+                                if (latestVideos.length > 0) {
+                                    modalContent += '<hr class="border-gray-700 my-6">';
+                                }
+                            }
+                            
+                            if (latestVideos.length > 0) {
+                                modalContent += `
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-amber-500 mb-2">5 Vídeos Mais Recentes</h3>
+                                        <div class="space-y-3">${createVideoListHTML(latestVideos)}</div>
+                                    </div>
+                                `;
+                            }
+                            
+                            modalVideoList.innerHTML = modalContent;
+                            
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
                             showModal(false);
 
                         } catch (err) {
+                            console.error('[Canais Monitorados] Erro ao buscar vídeos:', err);
                             showModal(false, `Falha ao buscar vídeos: ${err.message}`);
                         }
                     }
                 });
             }
 
+            // Função para atualizar o seletor de canais para vídeos fixados
+            function updatePinnedChannelSelector(channels) {
+                const selector = document.getElementById('pinned-channel-selector');
+                if (!selector) return;
+                
+                const currentValue = selector.value;
+                selector.innerHTML = '<option value="">Selecione um canal</option>';
+                
+                if (Array.isArray(channels) && channels.length > 0) {
+                    channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.id;
+                        option.textContent = channel.channel_name;
+                        selector.appendChild(option);
+                    });
+                    
+                    // Restaurar seleção anterior se ainda existir
+                    if (currentValue) {
+                        selector.value = currentValue;
+                    }
+                }
+            }
+            
+            // Função para carregar vídeos fixados do canal selecionado
+            async function loadPinnedVideos(channelId) {
+                const container = document.getElementById('pinned-videos-container');
+                if (!container) return;
+                
+                if (!channelId) {
+                    container.innerHTML = '<p class="text-gray-500 text-center col-span-full py-8">Selecione um canal para ver os vídeos fixados.</p>';
+                    return;
+                }
+                
+                try {
+                    console.log('[Vídeos Fixados] Carregando vídeos do canal:', channelId);
+                    container.innerHTML = '<p class="text-gray-500 text-center col-span-full py-8">Carregando vídeos fixados...</p>';
+                    
+                    const response = await fetch(`${API_BASE}/api/channels/monitor/${channelId}/check`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('[Vídeos Fixados] Erro na resposta:', response.status, errorText.substring(0, 200));
+                        let errorData;
+                        try {
+                            errorData = JSON.parse(errorText);
+                        } catch {
+                            throw new Error(`Erro ao buscar vídeos: ${response.status}`);
+                        }
+                        throw new Error(errorData.msg || 'Erro ao buscar vídeos fixados.');
+                    }
+                    
+                    const data = await response.json();
+                    const pinnedVideos = Array.isArray(data.pinned) ? data.pinned.slice(0, 6) : []; // Limitar a 6 vídeos
+                    
+                    console.log('[Vídeos Fixados] Vídeos recebidos:', pinnedVideos.length);
+                    
+                    if (pinnedVideos.length === 0) {
+                        container.innerHTML = '<p class="text-gray-500 text-center col-span-full py-8">Nenhum vídeo fixado neste canal ainda. Use o botão de fixar ao verificar vídeos do canal.</p>';
+                        return;
+                    }
+                    
+                    container.innerHTML = pinnedVideos.map(video => {
+                        const escapedTitle = (video.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                        return `
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-amber-500 transition-colors">
+                                <div class="relative mb-3">
+                                    <img src="${video.thumbnail || ''}" alt="${escapedTitle}" class="w-full h-32 object-cover rounded-lg">
+                                    <a href="https://www.youtube.com/watch?v=${video.videoId}" target="_blank" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-50 transition-all rounded-lg">
+                                        <i data-lucide="play" class="w-8 h-8 text-white opacity-0 hover:opacity-100 transition-opacity"></i>
+                                    </a>
+                                </div>
+                                <h3 class="text-white font-semibold text-sm mb-2 line-clamp-2">${escapedTitle}</h3>
+                                <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400 mb-3">
+                                    <span class="flex items-center"><i data-lucide="eye" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.views || 0)}</span>
+                                    <span class="flex items-center"><i data-lucide="thumbs-up" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.likes || 0)}</span>
+                                    <span class="flex items-center"><i data-lucide="message-square" class="w-3 h-3 mr-1"></i>${new Intl.NumberFormat('pt-BR').format(video.comments || 0)}</span>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button class="btn-analyze-pinned flex-1 py-2 px-3 rounded-lg transition duration-300 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-black" data-video-id="${video.videoId}">
+                                        Analisar
+                                    </button>
+                                    <button class="btn-unpin-pinned p-2 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-red-500 transition-colors" data-pin-id="${video.pinId}" data-channel-id="${channelId}" title="Remover Fixado">
+                                        <i data-lucide="x" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                } catch (err) {
+                    console.error('[Vídeos Fixados] Erro ao carregar vídeos:', err);
+                    container.innerHTML = `<p class="text-red-400 text-center col-span-full py-8">Erro ao carregar vídeos fixados: ${err.message}</p>`;
+                }
+            }
+            
+            // Event listener para o seletor de canais
+            const pinnedChannelSelector = document.getElementById('pinned-channel-selector');
+            if (pinnedChannelSelector) {
+                pinnedChannelSelector.addEventListener('change', (e) => {
+                    const channelId = e.target.value;
+                    loadPinnedVideos(channelId);
+                });
+            }
+            
+            // Event listener para os botões dos vídeos fixados (event delegation)
+            const pinnedVideosContainer = document.getElementById('pinned-videos-container');
+            if (pinnedVideosContainer) {
+                pinnedVideosContainer.addEventListener('click', (e) => {
+                    // Botão Analisar
+                    const analyzeButton = e.target.closest('.btn-analyze-pinned');
+                    if (analyzeButton) {
+                        const videoId = analyzeButton.dataset.videoId;
+                        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+                        
+                        navigateToView('analisador');
+                        
+                        // Aguardar um pouco para garantir que a view foi carregada
+                        setTimeout(() => {
+                            const videoUrlInput = document.getElementById('video-url');
+                            const analisadorForm = document.getElementById('analisador-form');
+                            if (videoUrlInput && analisadorForm) {
+                                videoUrlInput.value = videoUrl;
+                                analisadorForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                            }
+                        }, 100);
+                        return;
+                    }
+                    
+                    // Botão Remover Fixado
+                    const unpinButton = e.target.closest('.btn-unpin-pinned');
+                    if (unpinButton) {
+                        const pinId = unpinButton.dataset.pinId;
+                        const channelId = unpinButton.dataset.channelId;
+                        unpinVideoFromList(pinId, channelId);
+                        return;
+                    }
+                });
+            }
+            
+            // Função para remover vídeo fixado da lista
+            async function unpinVideoFromList(pinId, channelId) {
+                if (!confirm('Tem certeza que deseja remover este vídeo dos fixados?')) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/videos/unpin/${pinId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.msg);
+                    
+                    showMessage('canais-success-message', 'Vídeo removido dos fixados.');
+                    
+                    // Recarregar vídeos fixados
+                    const selector = document.getElementById('pinned-channel-selector');
+                    if (selector && selector.value) {
+                        loadPinnedVideos(selector.value);
+                    }
+                } catch (err) {
+                    showMessage('canais-error-message', err.message, true);
+                }
+            }
+            
             async function pinVideo(channelId, videoId, title, thumbnail, buttonElement) {
                 try {
                     const response = await fetch(`${API_BASE}/api/videos/pin`, {
@@ -2870,6 +3226,12 @@
                     // Refresh the modal content
                     const checkButton = document.querySelector(`.btn-channel-action[data-action="check"][data-id="${channelId}"]`);
                     if (checkButton) checkButton.click();
+                    
+                    // Atualizar lista de vídeos fixados se o canal estiver selecionado
+                    const selector = document.getElementById('pinned-channel-selector');
+                    if (selector && selector.value == channelId) {
+                        loadPinnedVideos(channelId);
+                    }
 
                 } catch (err) {
                     showMessage('canais-error-message', err.message, true);
@@ -3185,31 +3547,76 @@
                 if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
                 return num.toLocaleString('pt-BR');
             }
+            
+            // Variável para controlar o intervalo de atualização automática
+            let dashboardAutoRefreshInterval = null;
+            
+            // Função para iniciar atualização automática do dashboard
+            function startDashboardAutoRefresh() {
+                // Limpar intervalo anterior se existir
+                if (dashboardAutoRefreshInterval) {
+                    clearInterval(dashboardAutoRefreshInterval);
+                }
+                
+                // Atualizar a cada 10 segundos quando a tela de início estiver visível
+                dashboardAutoRefreshInterval = setInterval(() => {
+                    const inicioView = document.getElementById('view-inicio');
+                    if (inicioView && inicioView.style.display !== 'none') {
+                        console.log('[Dashboard] Atualização automática...');
+                        loadDashboard();
+                    }
+                }, 10000); // 10 segundos
+            }
+            
+            // Função para parar atualização automática
+            function stopDashboardAutoRefresh() {
+                if (dashboardAutoRefreshInterval) {
+                    clearInterval(dashboardAutoRefreshInterval);
+                    dashboardAutoRefreshInterval = null;
+                }
+            }
 
             async function loadDashboard() {
                 try {
+                    console.log('[Dashboard] Carregando dados do dashboard...', { API_BASE, hasToken: !!userToken });
                     const response = await fetch(`${API_BASE}/api/analytics/dashboard`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
                     
                     if (!response.ok) {
-                        console.error('Erro ao carregar dashboard:', response.status);
+                        const errorText = await response.text();
+                        console.error('[Dashboard] Erro ao carregar dashboard:', response.status, errorText.substring(0, 200));
                         return;
                     }
                     
                     const data = await response.json();
+                    console.log('[Dashboard] Dados recebidos:', {
+                        totalVideos: data.stats?.totalVideos,
+                        totalViews: data.stats?.totalViews,
+                        recentVideos: data.recentVideos?.length
+                    });
                     
-                    // Atualizar estatísticas principais
-                    document.getElementById('stat-total-videos').textContent = formatNumber(data.stats.totalVideos || 0);
-                    document.getElementById('stat-total-views').textContent = formatNumber(data.stats.totalViews || 0);
-                    document.getElementById('stat-total-revenue').textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
-                    document.getElementById('stat-viral-videos').textContent = formatNumber(data.stats.viralVideos || 0);
+                    // Atualizar estatísticas principais (com verificação de existência)
+                    const statTotalVideos = document.getElementById('stat-total-videos');
+                    const statTotalViews = document.getElementById('stat-total-views');
+                    const statTotalRevenue = document.getElementById('stat-total-revenue');
+                    const statViralVideos = document.getElementById('stat-viral-videos');
                     
-                    // Atualizar métricas adicionais
-                    document.getElementById('stat-avg-ctr').textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                    document.getElementById('stat-total-likes').textContent = formatNumber(data.stats.totalLikes || 0);
-                    document.getElementById('stat-total-comments').textContent = formatNumber(data.stats.totalComments || 0);
-                    document.getElementById('stat-avg-rpm').textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
+                    if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
+                    if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
+                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
+                    if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
+                    
+                    // Atualizar métricas adicionais (com verificação de existência)
+                    const statAvgCtr = document.getElementById('stat-avg-ctr');
+                    const statTotalLikes = document.getElementById('stat-total-likes');
+                    const statTotalComments = document.getElementById('stat-total-comments');
+                    const statAvgRpm = document.getElementById('stat-avg-rpm');
+                    
+                    if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
+                    if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
+                    if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
+                    if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
                     
                     // Carregar vídeos recentes
                     loadRecentVideos(data.recentVideos || []);
@@ -3511,6 +3918,7 @@
             checkUserRoleAndLoadAdmin();
             loadFolders();
             loadDashboard(); // Carregar dashboard na tela inicial
+            startDashboardAutoRefresh(); // Iniciar atualização automática do dashboard
             setupAdminListeners();
 
         });
@@ -3544,29 +3952,47 @@
         // === FUNCIONALIDADES DE ANALYTICS ===
         async function loadAnalytics() {
             try {
-                const response = await fetch(`${API_BASE}/api/analytics/dashboard`, {
-                    headers: { 'Authorization': `Bearer ${userToken}` }
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                if (!token) {
+                    console.error('[Analytics] Token não encontrado');
+                    return;
+                }
+                
+                console.log('[Analytics] Carregando analytics...', { apiBase, hasToken: !!token });
+                
+                const response = await fetch(`${apiBase}/api/analytics/dashboard`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!response.ok) throw new Error('Falha ao carregar analytics.');
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Analytics] Erro na resposta:', response.status, errorText.substring(0, 200));
+                    throw new Error('Falha ao carregar analytics.');
+                }
+                
                 const data = await response.json();
+                console.log('[Analytics] Dados recebidos:', data);
 
                 const totalViewsEl = document.getElementById('stats-total-views');
                 const avgCtrEl = document.getElementById('stats-avg-ctr');
                 const totalRevenueEl = document.getElementById('stats-total-revenue');
                 const viralVideosEl = document.getElementById('stats-viral-videos');
 
-                if (totalViewsEl) totalViewsEl.textContent = formatNumber(data.stats.totalViews || 0);
-                if (avgCtrEl) avgCtrEl.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                if (totalRevenueEl) totalRevenueEl.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
-                if (viralVideosEl) viralVideosEl.textContent = data.stats.viralVideos || 0;
+                if (totalViewsEl) totalViewsEl.textContent = formatNumber(data.stats?.totalViews || 0);
+                if (avgCtrEl) avgCtrEl.textContent = (data.stats?.avgCtr || 0).toFixed(1) + '%';
+                if (totalRevenueEl) totalRevenueEl.textContent = '$' + formatNumber(data.stats?.totalRevenue || 0);
+                if (viralVideosEl) viralVideosEl.textContent = data.stats?.viralVideos || 0;
 
                 const videosList = document.getElementById('analytics-videos-list');
                 if (videosList) {
-                    if (data.recentVideos && data.recentVideos.length > 0) {
-                        videosList.innerHTML = data.recentVideos.map(video => `
+                    const recentVideos = Array.isArray(data.recentVideos) ? data.recentVideos : [];
+                    if (recentVideos.length > 0) {
+                        videosList.innerHTML = recentVideos.map(video => `
                             <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
                                 <div class="flex-1">
-                                    <h3 class="text-white font-semibold">${video.title_used}</h3>
+                                    <h3 class="text-white font-semibold">${video.title_used || 'Sem título'}</h3>
                                     <p class="text-gray-400 text-sm">${formatNumber(video.actual_views || 0)} views • CTR: ${(video.actual_ctr || 0).toFixed(1)}% • Receita: $${formatNumber(video.revenue_estimate || 0)}</p>
                                 </div>
                                 <button onclick="updateVideoMetrics(${video.id})" class="ml-4 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-bold text-sm">
@@ -3575,71 +4001,172 @@
                             </div>
                         `).join('');
                     } else {
-                        videosList.innerHTML = '<p class="text-gray-400">Nenhum vídeo trackado ainda.</p>';
+                        videosList.innerHTML = '<p class="text-gray-400">Nenhum vídeo trackado ainda. Publique um vídeo usando nossos títulos/thumbnails e registre o tracking.</p>';
                     }
                 }
             } catch (err) {
+                console.error('[Analytics] Erro:', err);
                 const errorMsg = document.getElementById('analytics-error-message');
-                if (errorMsg) showMessage('analytics-error-message', err.message, true);
+                if (errorMsg && typeof window.showMessage === 'function') {
+                    window.showMessage('analytics-error-message', err.message, true);
+                } else if (errorMsg) {
+                    errorMsg.innerHTML = err.message;
+                    errorMsg.style.display = 'block';
+                } else {
+                    console.error('Erro ao carregar analytics:', err.message);
+                }
             }
         }
 
         window.updateVideoMetrics = async function(trackingId) {
             try {
-                const response = await fetch(`${API_BASE}/api/analytics/update/${trackingId}`, {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                const response = await fetch(`${apiBase}/api/analytics/update/${trackingId}`, {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${userToken}` }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!response.ok) throw new Error('Falha ao atualizar métricas.');
                 await loadAnalytics();
                 // Atualizar dashboard se estiver visível
                 refreshDashboardIfVisible();
             } catch (err) {
-                showMessage('analytics-error-message', err.message, true);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('analytics-error-message', err.message, true);
+                } else {
+                    alert('Erro ao atualizar métricas: ' + err.message);
+                }
             }
         };
 
-        const registerVideoForm = document.getElementById('register-video-form');
-        if (registerVideoForm) {
-            registerVideoForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const url = document.getElementById('register-video-url').value;
-                const title = document.getElementById('register-video-title').value;
-                const ctr = document.getElementById('register-video-ctr').value;
-                const views = document.getElementById('register-video-views').value;
-
-                try {
-                    const videoId = url.match(/[?&]v=([^&]+)/)?.[1];
-                    if (!videoId) throw new Error('URL do YouTube inválida.');
-
-                    const response = await fetch(`${API_BASE}/api/analytics/track`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${userToken}`
-                        },
-                        body: JSON.stringify({
-                            youtubeVideoId: videoId,
-                            titleUsed: title,
-                            predictedCtr: ctr ? parseFloat(ctr) : null,
-                            predictedViews: views ? parseInt(views) : null
-                        })
-                    });
-                    if (!response.ok) {
-                        const data = await response.json();
-                        throw new Error(data.msg || 'Falha ao registrar vídeo.');
+        // Event listener para o formulário de registrar vídeo
+        window.setupRegisterVideoForm = function() {
+            const registerVideoForm = document.getElementById('register-video-form');
+            if (registerVideoForm) {
+                console.log('[Analytics] Formulário encontrado, adicionando event listener');
+                
+                // Remover event listeners anteriores se existirem
+                const newForm = registerVideoForm.cloneNode(true);
+                registerVideoForm.parentNode.replaceChild(newForm, registerVideoForm);
+                
+                newForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Usar API_BASE global ou do escopo
+                    const apiBase = window.API_BASE || API_BASE || '';
+                    const token = localStorage.getItem('core_token');
+                    
+                    console.log('[Analytics] Submit do formulário detectado!', { apiBase, hasToken: !!token });
+                    
+                    const urlInput = document.getElementById('register-video-url');
+                    const titleInput = document.getElementById('register-video-title');
+                    const ctrInput = document.getElementById('register-video-ctr');
+                    const viewsInput = document.getElementById('register-video-views');
+                    
+                    if (!urlInput || !titleInput) {
+                        console.error('[Analytics] Campos do formulário não encontrados');
+                        alert('Erro: Campos do formulário não encontrados. Recarregue a página.');
+                        return;
                     }
                     
-                    registerVideoForm.reset();
-                    await loadAnalytics();
-                    showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
-                    // Atualizar dashboard se estiver visível
-                    refreshDashboardIfVisible();
-                } catch (err) {
-                    showMessage('analytics-error-message', err.message, true);
-                }
-            });
-        }
+                    const url = urlInput.value.trim();
+                    const title = titleInput.value.trim();
+                    const ctr = ctrInput?.value?.trim();
+                    const views = viewsInput?.value?.trim();
+
+                    console.log('[Analytics] Valores do formulário:', { url, title, ctr, views });
+
+                    if (!url || !title) {
+                        const errorMsg = document.getElementById('analytics-error-message');
+                        if (errorMsg && typeof window.showMessage === 'function') {
+                            window.showMessage('analytics-error-message', 'URL e título são obrigatórios.', true);
+                        } else {
+                            alert('URL e título são obrigatórios.');
+                        }
+                        return;
+                    }
+
+                    try {
+                        const videoId = url.match(/[?&]v=([^&]+)/)?.[1];
+                        if (!videoId) {
+                            throw new Error('URL do YouTube inválida. Use o formato: https://www.youtube.com/watch?v=VIDEO_ID');
+                        }
+
+                        console.log('[Analytics] Enviando dados para API:', { videoId, title, ctr, views });
+                        
+                        const response = await fetch(`${apiBase}/api/analytics/track`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                youtubeVideoId: videoId,
+                                titleUsed: title,
+                                predictedCtr: ctr ? parseFloat(ctr) : null,
+                                predictedViews: views ? parseInt(views) : null
+                            })
+                        });
+                        
+                        console.log('[Analytics] Resposta da API:', { status: response.status, ok: response.ok });
+                        
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            console.error('[Analytics] Erro na resposta:', errorText);
+                            let errorData;
+                            try {
+                                errorData = JSON.parse(errorText);
+                            } catch {
+                                throw new Error(`Erro ao registrar vídeo: ${response.status} - ${errorText.substring(0, 100)}`);
+                            }
+                            throw new Error(errorData.msg || 'Falha ao registrar vídeo.');
+                        }
+                        
+                        const data = await response.json();
+                        console.log('[Analytics] Vídeo registrado com sucesso:', data);
+                        
+                        newForm.reset();
+                        await loadAnalytics();
+                        
+                        // Mostrar mensagem de sucesso
+                        const successMsg = document.getElementById('analytics-success-message');
+                        if (successMsg && typeof window.showMessage === 'function') {
+                            window.showMessage('analytics-success-message', 'Vídeo registrado com sucesso!');
+                        } else if (successMsg) {
+                            successMsg.innerHTML = 'Vídeo registrado com sucesso!';
+                            successMsg.style.display = 'block';
+                            setTimeout(() => { successMsg.style.display = 'none'; }, 5000);
+                        }
+                        
+                        // Atualizar dashboard se estiver visível
+                        if (typeof window.refreshDashboardIfVisible === 'function') {
+                            window.refreshDashboardIfVisible();
+                        }
+                    } catch (err) {
+                        console.error('[Analytics] Erro ao registrar vídeo:', err);
+                        const errorMsg = document.getElementById('analytics-error-message');
+                        if (errorMsg && typeof window.showMessage === 'function') {
+                            window.showMessage('analytics-error-message', err.message, true);
+                        } else if (errorMsg) {
+                            errorMsg.innerHTML = err.message;
+                            errorMsg.style.display = 'block';
+                            setTimeout(() => { errorMsg.style.display = 'none'; }, 5000);
+                        } else {
+                            alert('Erro ao registrar vídeo: ' + err.message);
+                        }
+                    }
+                });
+                
+                console.log('[Analytics] Event listener adicionado com sucesso');
+            } else {
+                console.warn('[Analytics] Formulário register-video-form não encontrado');
+            }
+        };
+        
+        // Configurar o formulário quando a página carregar
+        window.setupRegisterVideoForm();
 
         // === FUNCIONALIDADES DE BIBLIOTECA ===
         let currentBibliotecaTab = 'titles';
@@ -3675,96 +4202,499 @@
 
         async function loadBibliotecaTitles() {
             try {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                if (!token) {
+                    console.error('[Biblioteca] Token não encontrado');
+                    const list = document.getElementById('biblioteca-titles-list');
+                    if (list) {
+                        list.innerHTML = '<p class="text-red-400">Token de autenticação não encontrado. Por favor, faça login novamente.</p>';
+                    }
+                    return;
+                }
+                
+                console.log('[Biblioteca] Carregando títulos...', { apiBase, hasToken: !!token });
+                
                 const search = document.getElementById('biblioteca-search')?.value || '';
                 const niche = document.getElementById('biblioteca-niche-filter')?.value || '';
                 const minViews = document.getElementById('biblioteca-views-filter')?.value || '';
                 const favoritesBtn = document.getElementById('biblioteca-favorites-only');
                 const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
 
-                let url = `${API_BASE}/api/library/titles?`;
+                let url = `${apiBase}/api/library/titles?`;
                 if (search) url += `search=${encodeURIComponent(search)}&`;
                 if (niche) url += `niche=${encodeURIComponent(niche)}&`;
                 if (minViews) url += `minViews=${minViews}&`;
                 if (favorites) url += `favorite=${favorites}&`;
 
                 const response = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${userToken}` }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!response.ok) throw new Error('Falha ao carregar títulos.');
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Biblioteca] Erro na resposta:', response.status, errorText.substring(0, 200));
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        throw new Error(`Erro ao carregar títulos: ${response.status}`);
+                    }
+                    throw new Error(errorData.msg || 'Falha ao carregar títulos.');
+                }
+                
                 const titles = await response.json();
+                const titlesArray = Array.isArray(titles) ? titles : [];
+                console.log('[Biblioteca] Títulos recebidos:', titlesArray.length);
 
                 const list = document.getElementById('biblioteca-titles-list');
                 if (list) {
-                    if (titles.length > 0) {
-                        list.innerHTML = titles.map(title => `
-                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
-                                <div class="flex-1">
-                                    <h3 class="text-white font-semibold mb-1">${title.title}</h3>
-                                    <p class="text-gray-400 text-sm">${title.niche || 'N/A'} • ${title.subniche || 'N/A'} • ${formatNumber(title.original_views || 0)} views • Score: ${title.viral_score || 'N/A'}/10</p>
+                    if (titlesArray.length > 0) {
+                        list.innerHTML = titlesArray.map(title => {
+                            const escapedTitle = (title.title || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                            return `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+                                    <div class="flex-1">
+                                        <h3 class="text-white font-semibold mb-1">${escapedTitle}</h3>
+                                        <p class="text-gray-400 text-sm">${title.niche || 'N/A'} • ${title.subniche || 'N/A'} • ${formatNumber(title.original_views || 0)} views • Score: ${title.viral_score || 'N/A'}/10</p>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <button onclick="copyToClipboard('${escapedTitle.replace(/'/g, "\\'")}', 'Título copiado!')" class="p-2 text-gray-400 hover:text-amber-500" title="Copiar título">
+                                            <i data-lucide="copy"></i>
+                                        </button>
+                                        <button onclick="toggleTitleFavorite(${title.id}, ${title.is_favorite || 0})" class="p-2 ${title.is_favorite ? 'text-red-500' : 'text-gray-400'} hover:text-red-500" title="Favoritar">
+                                            <i data-lucide="heart"></i>
+                                        </button>
+                                        <button onclick="deleteTitle(${title.id})" class="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Excluir título">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                                <button onclick="toggleTitleFavorite(${title.id}, ${title.is_favorite || 0})" class="ml-4 p-2 ${title.is_favorite ? 'text-red-500' : 'text-gray-400'} hover:text-red-500">
-                                    <i data-lucide="heart"></i>
-                                </button>
-                            </div>
-                        `).join('');
+                            `;
+                        }).join('');
                         if (typeof lucide !== 'undefined') lucide.createIcons();
                     } else {
-                        list.innerHTML = '<p class="text-gray-400">Nenhum título encontrado.</p>';
+                        list.innerHTML = '<p class="text-gray-400">Nenhum título encontrado. Marque títulos no analisador de vídeos para que apareçam aqui.</p>';
                     }
                 }
             } catch (err) {
-                console.error('Erro ao carregar títulos:', err);
+                console.error('[Biblioteca] Erro ao carregar títulos:', err);
+                const list = document.getElementById('biblioteca-titles-list');
+                if (list) {
+                    list.innerHTML = `<p class="text-red-400">Erro ao carregar títulos: ${err.message}</p>`;
+                }
             }
         }
 
         async function loadBibliotecaThumbnails() {
             try {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                if (!token) {
+                    console.error('[Biblioteca] Token não encontrado');
+                    const list = document.getElementById('biblioteca-thumbnails-list');
+                    if (list) {
+                        list.innerHTML = '<p class="text-red-400">Token de autenticação não encontrado. Por favor, faça login novamente.</p>';
+                    }
+                    return;
+                }
+                
+                console.log('[Biblioteca] Carregando thumbnails...', { apiBase, hasToken: !!token });
+                
                 const niche = document.getElementById('biblioteca-niche-filter')?.value || '';
                 const minViews = document.getElementById('biblioteca-views-filter')?.value || '';
                 const favoritesBtn = document.getElementById('biblioteca-favorites-only');
                 const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
 
-                let url = `${API_BASE}/api/library/thumbnails?`;
+                let url = `${apiBase}/api/library/thumbnails?`;
                 if (niche) url += `niche=${encodeURIComponent(niche)}&`;
                 if (minViews) url += `minViews=${minViews}&`;
                 if (favorites) url += `favorite=${favorites}&`;
 
                 const response = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${userToken}` }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!response.ok) throw new Error('Falha ao carregar thumbnails.');
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[Biblioteca] Erro na resposta:', response.status, errorText.substring(0, 200));
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        throw new Error(`Erro ao carregar thumbnails: ${response.status}`);
+                    }
+                    throw new Error(errorData.msg || 'Falha ao carregar thumbnails.');
+                }
+                
                 const thumbnails = await response.json();
+                const thumbnailsArray = Array.isArray(thumbnails) ? thumbnails : [];
+                console.log('[Biblioteca] Thumbnails recebidos:', thumbnailsArray.length);
 
                 const list = document.getElementById('biblioteca-thumbnails-list');
                 if (list) {
-                    if (thumbnails.length > 0) {
-                        list.innerHTML = thumbnails.map(thumb => `
-                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                                ${thumb.thumbnail_url ? `<img src="${thumb.thumbnail_url}" alt="Thumbnail" class="w-full h-48 object-cover rounded-lg mb-2">` : ''}
-                                <h3 class="text-white font-semibold text-sm mb-1 truncate">${thumb.niche || 'N/A'} • ${thumb.subniche || 'N/A'}</h3>
-                                <p class="text-gray-400 text-xs mb-2">${formatNumber(thumb.original_views || 0)} views • CTR: ${(thumb.original_ctr || 0).toFixed(1)}%</p>
-                                <button onclick="toggleThumbnailFavorite(${thumb.id}, ${thumb.is_favorite || 0})" class="p-2 ${thumb.is_favorite ? 'text-red-500' : 'text-gray-400'} hover:text-red-500">
-                                    <i data-lucide="heart"></i>
-                                </button>
-                            </div>
-                        `).join('');
-                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    if (thumbnailsArray.length > 0) {
+                        list.innerHTML = thumbnailsArray.map(thumb => {
+                            const description = thumb.thumbnail_description || '';
+                            const descriptionPreview = description.length > 100 ? description.substring(0, 100) + '...' : description;
+                            const escapedDescription = description.replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>');
+                            const escapedPreview = descriptionPreview.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                            const copyData = {
+                                image: thumb.thumbnail_url || '',
+                                description: description,
+                                niche: thumb.niche || 'N/A',
+                                subniche: thumb.subniche || 'N/A',
+                                views: thumb.original_views || 0
+                            };
+                            const copyDataJson = JSON.stringify(copyData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                            const hasLongDescription = description.length > 100;
+                            
+                            return `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    ${thumb.thumbnail_url ? `
+                                        <div class="relative mb-2">
+                                            <img src="${thumb.thumbnail_url}" alt="Thumbnail" class="w-full h-48 object-contain bg-gray-900 rounded-lg" style="object-fit: contain;">
+                                        </div>
+                                    ` : '<div class="w-full h-48 bg-gray-900 rounded-lg mb-2 flex items-center justify-center text-gray-500 text-xs">Sem imagem</div>'}
+                                    <h3 class="text-white font-semibold text-sm mb-1">${thumb.niche || 'N/A'} • ${thumb.subniche || 'N/A'}</h3>
+                                    <p class="text-gray-400 text-xs mb-2">${formatNumber(thumb.original_views || 0)} views • Score: ${thumb.viral_score || 'N/A'}/10</p>
+                                    ${description ? `
+                                        <div class="bg-gray-900 rounded p-2 mb-2">
+                                            <p class="text-gray-300 text-xs" id="thumb-desc-${thumb.id}">${escapedPreview}</p>
+                                            ${hasLongDescription ? `
+                                                <button class="btn-toggle-thumb-desc text-amber-500 hover:text-amber-400 text-xs mt-1 font-semibold" 
+                                                        data-thumb-id="${thumb.id}"
+                                                        data-full-desc="${escapedDescription.replace(/"/g, '&quot;')}"
+                                                        data-preview-desc="${escapedPreview.replace(/"/g, '&quot;')}"
+                                                        id="thumb-toggle-${thumb.id}">
+                                                    Ver prompt completo
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    ` : ''}
+                                    <div class="flex items-center justify-between gap-2 mt-2">
+                                        <div class="flex items-center gap-2">
+                                            <button class="btn-download-thumb px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold flex items-center space-x-1" 
+                                                    data-thumb-url="${thumb.thumbnail_url || ''}"
+                                                    data-thumb-filename="${(thumb.niche || 'thumbnail').replace(/"/g, '&quot;')}"
+                                                    title="Baixar thumbnail"
+                                                    ${!thumb.thumbnail_url ? 'style="display: none;"' : ''}>
+                                                <i data-lucide="download" class="w-3 h-3"></i>
+                                                <span>Download</span>
+                                            </button>
+                                            ${description ? `
+                                                <button class="btn-copy-prompt px-2 py-1 bg-amber-600 hover:bg-amber-500 text-black rounded text-xs font-bold flex items-center space-x-1" 
+                                                        data-prompt="${description.replace(/"/g, '&quot;')}"
+                                                        title="Copiar prompt">
+                                                    <i data-lucide="copy" class="w-3 h-3"></i>
+                                                    <span>Copiar Prompt</span>
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <button class="btn-toggle-fav-thumb p-2 ${thumb.is_favorite ? 'text-red-500' : 'text-gray-400'} hover:text-red-500 transition-colors" 
+                                                    data-thumb-id="${thumb.id}"
+                                                    data-is-favorite="${thumb.is_favorite || 0}"
+                                                    title="${thumb.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                                                <i data-lucide="heart" class="w-5 h-5"></i>
+                                            </button>
+                                            <button class="btn-delete-thumb p-2 text-gray-400 hover:text-red-500 transition-colors" 
+                                                    data-thumb-id="${thumb.id}"
+                                                    title="Excluir thumbnail">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                        if (typeof lucide !== 'undefined') {
+                            lucide.createIcons();
+                            // Adicionar event listeners usando event delegation
+                            setupThumbnailEventListeners();
+                        }
                     } else {
-                        list.innerHTML = '<p class="text-gray-400">Nenhuma thumbnail encontrada.</p>';
+                        list.innerHTML = '<p class="text-gray-400">Nenhuma thumbnail encontrada. Gere thumbnails no analisador de vídeos para que apareçam aqui.</p>';
                     }
                 }
             } catch (err) {
-                console.error('Erro ao carregar thumbnails:', err);
+                console.error('[Biblioteca] Erro ao carregar thumbnails:', err);
+                const list = document.getElementById('biblioteca-thumbnails-list');
+                if (list) {
+                    list.innerHTML = `<p class="text-red-400">Erro ao carregar thumbnails: ${err.message}</p>`;
+                }
             }
         }
 
+        // Função para copiar texto para a área de transferência
+        window.copyToClipboard = async function(text, successMessage = 'Copiado!') {
+            try {
+                await navigator.clipboard.writeText(text);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-success-message', successMessage);
+                } else {
+                    alert(successMessage);
+                }
+            } catch (err) {
+                console.error('Erro ao copiar:', err);
+                // Fallback para navegadores antigos
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    if (typeof window.showMessage === 'function') {
+                        window.showMessage('biblioteca-success-message', successMessage);
+                    } else {
+                        alert(successMessage);
+                    }
+                } catch (fallbackErr) {
+                    alert('Erro ao copiar. Tente selecionar e copiar manualmente.');
+                }
+                document.body.removeChild(textArea);
+            }
+        };
+
+        // Função para baixar thumbnail
+        window.downloadThumbnail = async function(imageUrl, filename) {
+            try {
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${filename || 'thumbnail'}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-success-message', 'Thumbnail baixada com sucesso!');
+                }
+            } catch (err) {
+                console.error('Erro ao baixar thumbnail:', err);
+                alert('Erro ao baixar thumbnail. Tente novamente.');
+            }
+        };
+
+        // Função para excluir título
+        window.deleteTitle = async function(titleId) {
+            if (!confirm('Tem certeza que deseja excluir este título da biblioteca?')) {
+                return;
+            }
+            
+            try {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                const response = await fetch(`${apiBase}/api/library/titles/${titleId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        throw new Error(`Erro ao excluir título: ${response.status}`);
+                    }
+                    throw new Error(errorData.msg || 'Falha ao excluir título.');
+                }
+                
+                await loadBibliotecaTitles();
+                
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-success-message', 'Título excluído com sucesso!');
+                }
+            } catch (err) {
+                console.error('Erro ao excluir título:', err);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-error-message', err.message, true);
+                } else {
+                    alert('Erro ao excluir título: ' + err.message);
+                }
+            }
+        };
+
+        // Função para excluir thumbnail
+        window.deleteThumbnail = async function(thumbId) {
+            if (!confirm('Tem certeza que deseja excluir esta thumbnail da biblioteca?')) {
+                return;
+            }
+            
+            try {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                const response = await fetch(`${apiBase}/api/library/thumbnails/${thumbId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        throw new Error(`Erro ao excluir thumbnail: ${response.status}`);
+                    }
+                    throw new Error(errorData.msg || 'Falha ao excluir thumbnail.');
+                }
+                
+                await loadBibliotecaThumbnails();
+                
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-success-message', 'Thumbnail excluída com sucesso!');
+                }
+            } catch (err) {
+                console.error('Erro ao excluir thumbnail:', err);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-error-message', err.message, true);
+                } else {
+                    alert('Erro ao excluir thumbnail: ' + err.message);
+                }
+            }
+        };
+
+        // Configurar event listeners para thumbnails usando event delegation
+        function setupThumbnailEventListeners() {
+            const thumbnailsList = document.getElementById('biblioteca-thumbnails-list');
+            if (!thumbnailsList) return;
+            
+            // Remover listeners anteriores para evitar duplicação
+            const newList = thumbnailsList.cloneNode(true);
+            thumbnailsList.parentNode.replaceChild(newList, thumbnailsList);
+            
+            // Ver prompt completo
+            newList.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-toggle-thumb-desc');
+                if (btn) {
+                    const thumbId = btn.dataset.thumbId;
+                    const fullDesc = btn.dataset.fullDesc.replace(/&quot;/g, '"');
+                    const previewDesc = btn.dataset.previewDesc.replace(/&quot;/g, '"');
+                    const descElement = document.getElementById(`thumb-desc-${thumbId}`);
+                    
+                    if (descElement) {
+                        const currentText = descElement.innerHTML;
+                        const isShowingFull = currentText.length > previewDesc.length;
+                        
+                        if (isShowingFull) {
+                            descElement.innerHTML = previewDesc.replace(/\n/g, '<br>');
+                            btn.textContent = 'Ver prompt completo';
+                        } else {
+                            descElement.innerHTML = fullDesc.replace(/\n/g, '<br>');
+                            btn.textContent = 'Ver menos';
+                        }
+                    }
+                }
+            });
+            
+            // Download thumbnail
+            newList.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-download-thumb');
+                if (btn) {
+                    const url = btn.dataset.thumbUrl;
+                    const filename = btn.dataset.thumbFilename.replace(/&quot;/g, '"');
+                    if (url) {
+                        window.downloadThumbnail(url, filename);
+                    } else {
+                        alert('Esta thumbnail não possui imagem para download.');
+                    }
+                }
+            });
+            
+            // Copiar prompt
+            newList.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-copy-prompt');
+                if (btn) {
+                    const prompt = btn.dataset.prompt.replace(/&quot;/g, '"');
+                    window.copyToClipboard(prompt, 'Prompt copiado!');
+                }
+            });
+            
+            // Toggle favorito
+            newList.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-toggle-fav-thumb');
+                if (btn) {
+                    const thumbId = parseInt(btn.dataset.thumbId);
+                    const isFavorite = parseInt(btn.dataset.isFavorite) === 1;
+                    window.toggleThumbnailFavorite(thumbId, isFavorite);
+                }
+            });
+            
+            // Deletar thumbnail
+            newList.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-delete-thumb');
+                if (btn) {
+                    const thumbId = parseInt(btn.dataset.thumbId);
+                    window.deleteThumbnail(thumbId);
+                }
+            });
+        }
+
+        // Função para alternar exibição do prompt completo/resumido (mantida para compatibilidade)
+        window.toggleThumbnailDescription = function(thumbId, fullDescription, previewDescription) {
+            const descElement = document.getElementById(`thumb-desc-${thumbId}`);
+            const toggleButton = document.getElementById(`thumb-toggle-${thumbId}`);
+            
+            if (descElement && toggleButton) {
+                const currentText = descElement.innerHTML;
+                const isShowingFull = currentText.length > previewDescription.length;
+                
+                if (isShowingFull) {
+                    descElement.innerHTML = previewDescription.replace(/\n/g, '<br>');
+                    toggleButton.textContent = 'Ver prompt completo';
+                } else {
+                    descElement.innerHTML = fullDescription.replace(/\n/g, '<br>');
+                    toggleButton.textContent = 'Ver menos';
+                }
+            }
+        };
+
+        // Função para copiar dados completos da thumbnail
+        window.copyThumbnailData = async function(thumbId, copyDataJson) {
+            try {
+                const copyData = JSON.parse(copyDataJson.replace(/&quot;/g, '"'));
+                let textToCopy = '';
+                
+                if (copyData.image) {
+                    textToCopy += `URL da Imagem: ${copyData.image}\n\n`;
+                }
+                
+                if (copyData.description) {
+                    textToCopy += `Descrição/Prompt:\n${copyData.description}\n\n`;
+                }
+                
+                textToCopy += `Nicho: ${copyData.niche}\n`;
+                textToCopy += `Sub-nicho: ${copyData.subniche}\n`;
+                textToCopy += `Views Originais: ${formatNumber(copyData.views)}\n`;
+                
+                await window.copyToClipboard(textToCopy.trim(), 'Dados da thumbnail copiados!');
+            } catch (err) {
+                console.error('Erro ao copiar dados da thumbnail:', err);
+                alert('Erro ao copiar dados. Tente novamente.');
+            }
+        };
+
         window.toggleTitleFavorite = async function(id, currentState) {
             try {
-                const response = await fetch(`${API_BASE}/api/library/titles/${id}/favorite`, {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                const response = await fetch(`${apiBase}/api/library/titles/${id}/favorite`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${userToken}`
+                        'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({ isFavorite: !currentState })
                 });
@@ -3772,23 +4702,54 @@
                 await loadBibliotecaTitles();
             } catch (err) {
                 console.error('Erro ao atualizar favorito:', err);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-error-message', err.message, true);
+                }
             }
         };
 
         window.toggleThumbnailFavorite = async function(id, currentState) {
             try {
-                const response = await fetch(`${API_BASE}/api/library/thumbnails/${id}/favorite`, {
+                const apiBase = window.API_BASE || API_BASE || '';
+                const token = localStorage.getItem('core_token');
+                
+                const response = await fetch(`${apiBase}/api/library/thumbnails/${id}/favorite`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${userToken}`
+                        'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({ isFavorite: !currentState })
                 });
                 if (!response.ok) throw new Error('Falha ao atualizar favorito.');
+                
+                // Atualizar visualmente o coração antes de recarregar
+                const heartButton = document.querySelector(`button[onclick*="toggleThumbnailFavorite(${id}"]`);
+                if (heartButton) {
+                    const heartIcon = heartButton.querySelector('i[data-lucide="heart"]');
+                    if (!currentState) {
+                        // Marcando como favorito
+                        heartButton.classList.remove('text-gray-400');
+                        heartButton.classList.add('text-red-500');
+                        if (heartIcon) {
+                            heartIcon.style.fill = 'currentColor';
+                        }
+                    } else {
+                        // Removendo favorito
+                        heartButton.classList.remove('text-red-500');
+                        heartButton.classList.add('text-gray-400');
+                        if (heartIcon) {
+                            heartIcon.style.fill = 'none';
+                        }
+                    }
+                }
+                
                 await loadBibliotecaThumbnails();
             } catch (err) {
                 console.error('Erro ao atualizar favorito:', err);
+                if (typeof window.showMessage === 'function') {
+                    window.showMessage('biblioteca-error-message', err.message, true);
+                }
             }
         };
 
@@ -3848,20 +4809,50 @@
 
         async function loadScheduledPosts() {
             try {
+                if (!userToken) {
+                    console.warn('[YouTube Integration] Token não encontrado');
+                    return;
+                }
+                
+                if (typeof API_BASE === 'undefined') {
+                    console.error('[YouTube Integration] API_BASE não está definido');
+                    const list = document.getElementById('scheduled-posts-list');
+                    if (list) {
+                        list.innerHTML = '<p class="text-red-400">Erro: API_BASE não está definido. Recarregue a página.</p>';
+                    }
+                    return;
+                }
+                
+                console.log('[YouTube Integration] Carregando publicações agendadas...', { API_BASE, hasToken: !!userToken });
                 const response = await fetch(`${API_BASE}/api/youtube/scheduled`, {
                     headers: { 'Authorization': `Bearer ${userToken}` }
                 });
-                if (!response.ok) throw new Error('Falha ao carregar publicações agendadas.');
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('[YouTube Integration] Erro na resposta:', response.status, errorText.substring(0, 200));
+                    
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        throw new Error(`Erro ao carregar publicações: ${response.status} - ${errorText.substring(0, 100)}`);
+                    }
+                    throw new Error(errorData.msg || 'Falha ao carregar publicações agendadas.');
+                }
+                
                 const scheduled = await response.json();
+                console.log('[YouTube Integration] Publicações recebidas:', Array.isArray(scheduled) ? scheduled.length : 0);
 
                 const list = document.getElementById('scheduled-posts-list');
                 if (list) {
-                    if (scheduled.length > 0) {
-                        list.innerHTML = scheduled.map(post => `
+                    const scheduledArray = Array.isArray(scheduled) ? scheduled : [];
+                    if (scheduledArray.length > 0) {
+                        list.innerHTML = scheduledArray.map(post => `
                             <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                                <h3 class="text-white font-semibold">${post.title}</h3>
-                                <p class="text-gray-400 text-sm">Agendado para: ${new Date(post.scheduled_time).toLocaleString('pt-BR')}</p>
-                                <p class="text-gray-400 text-sm">Status: ${post.status}</p>
+                                <h3 class="text-white font-semibold">${post.title || 'Sem título'}</h3>
+                                <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
+                                <p class="text-gray-400 text-sm">Status: ${post.status || 'N/A'}</p>
                             </div>
                         `).join('');
                     } else {
@@ -3869,7 +4860,11 @@
                     }
                 }
             } catch (err) {
-                console.error('Erro ao carregar publicações agendadas:', err);
+                console.error('[YouTube Integration] Erro ao carregar publicações agendadas:', err);
+                const list = document.getElementById('scheduled-posts-list');
+                if (list) {
+                    list.innerHTML = `<p class="text-red-400">Erro ao carregar publicações: ${err.message}</p>`;
+                }
             }
         }
 
