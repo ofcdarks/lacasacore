@@ -2047,6 +2047,12 @@
                     loadYouTubeIntegrationStatus();
                     loadScheduledPosts();
                     switchYouTubeTab('channels'); // Definir tab padrão
+                } else {
+                    // Parar atualização automática quando sair da view de YouTube
+                    if (youtubeChannelsRefreshInterval) {
+                        clearInterval(youtubeChannelsRefreshInterval);
+                        youtubeChannelsRefreshInterval = null;
+                    }
                 }
                 
                 if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -5725,6 +5731,9 @@
             }
 
             // === FUNCIONALIDADES DE INTEGRAÇÃO YOUTUBE ===
+            // Variável para controlar atualização automática de canais
+            let youtubeChannelsRefreshInterval = null;
+
             async function loadYouTubeIntegrationStatus() {
                 try {
                     // Obter token dentro da função para garantir que está disponível
@@ -5816,6 +5825,11 @@
                     const channelsList = document.getElementById('youtube-channels-list');
                     if (channelsList) {
                         channelsList.innerHTML = `<p class="text-red-400">Erro ao carregar canais: ${err.message}</p>`;
+                    }
+                    // Parar atualização automática em caso de erro
+                    if (youtubeChannelsRefreshInterval) {
+                        clearInterval(youtubeChannelsRefreshInterval);
+                        youtubeChannelsRefreshInterval = null;
                     }
                 }
             }

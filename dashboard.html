@@ -1960,6 +1960,12 @@
                     loadScheduledPosts();
                     // Inicializar na tab de canais por padrão
                     switchYouTubeTab('channels');
+                } else {
+                    // Parar atualização automática quando sair da view de YouTube
+                    if (youtubeChannelsRefreshInterval) {
+                        clearInterval(youtubeChannelsRefreshInterval);
+                        youtubeChannelsRefreshInterval = null;
+                    }
                 }
                 
                 if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -5387,10 +5393,13 @@
         }
 
         // === FUNCIONALIDADES DE INTEGRAÇÃO YOUTUBE ===
-        async function loadYouTubeIntegrationStatus() {
-            try {
-                // Obter token dentro da função para garantir que está disponível
-                const token = localStorage.getItem('core_token');
+            // Variável para controlar atualização automática de canais
+            let youtubeChannelsRefreshInterval = null;
+
+            async function loadYouTubeIntegrationStatus() {
+                try {
+                    // Obter token dentro da função para garantir que está disponível
+                    const token = localStorage.getItem('core_token');
                 if (!token) {
                     console.warn('[YouTube Integration] Token não encontrado');
                     const channelsList = document.getElementById('youtube-channels-list');
@@ -5462,11 +5471,38 @@
                             btnConnect.disabled = false;
                             btnConnect.innerHTML = '<i data-lucide="plus"></i><span>Adicionar Canal</span>';
                         }
+                        
+                        // Verificar se há canais sendo analisados (sem niche/subniche)
+                        const hasAnalyzingChannels = data.channels.some(ch => !ch.niche && !ch.subniche);
+                        
+                        // Se houver canais sendo analisados, atualizar automaticamente a cada 5 segundos
+                        if (hasAnalyzingChannels) {
+                            // Limpar intervalo anterior se existir
+                            if (youtubeChannelsRefreshInterval) {
+                                clearInterval(youtubeChannelsRefreshInterval);
+                            }
+                            // Atualizar a cada 5 segundos
+                            youtubeChannelsRefreshInterval = setInterval(() => {
+                                console.log('[YouTube Integration] Atualizando canais (análise em andamento)...');
+                                loadYouTubeIntegrationStatus();
+                            }, 5000);
+                        } else {
+                            // Se não há canais sendo analisados, parar a atualização automática
+                            if (youtubeChannelsRefreshInterval) {
+                                clearInterval(youtubeChannelsRefreshInterval);
+                                youtubeChannelsRefreshInterval = null;
+                            }
+                        }
                     } else {
                         channelsList.innerHTML = '<p class="text-gray-400">Nenhum canal conectado. Clique em "Adicionar Canal" para começar.</p>';
                         const statusDiv = document.getElementById('youtube-integration-status');
                         if (statusDiv) {
                             statusDiv.innerHTML = '';
+                        }
+                        // Parar atualização automática se não há canais
+                        if (youtubeChannelsRefreshInterval) {
+                            clearInterval(youtubeChannelsRefreshInterval);
+                            youtubeChannelsRefreshInterval = null;
                         }
                     }
                 }
@@ -5474,6 +5510,11 @@
                 // Atualizar ícones do Lucide
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             } catch (err) {
+                // Parar atualização automática em caso de erro
+                if (youtubeChannelsRefreshInterval) {
+                    clearInterval(youtubeChannelsRefreshInterval);
+                    youtubeChannelsRefreshInterval = null;
+                }
                 console.error('[YouTube Integration] Erro ao carregar canais:', err);
                 const channelsList = document.getElementById('youtube-channels-list');
                 if (channelsList) {

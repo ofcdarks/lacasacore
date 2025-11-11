@@ -4067,8 +4067,8 @@ async function analyzeChannelNiche(channelId, channelName, accessToken, userId) 
     try {
         console.log(`[Análise Canal] Analisando canal ${channelId} (${channelName})...`);
         
-        // Buscar os 10 vídeos mais recentes do canal
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&maxResults=10&type=video`;
+        // Buscar os 5 vídeos mais recentes do canal (reduzido para ser mais rápido)
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&maxResults=5&type=video`;
         const searchResponse = await fetch(searchUrl, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -4088,7 +4088,7 @@ async function analyzeChannelNiche(channelId, channelName, accessToken, userId) 
         const videoTitles = searchData.items
             .map(item => item.snippet?.title || '')
             .filter(title => title.length > 0)
-            .slice(0, 10); // Limitar a 10 títulos
+            .slice(0, 5); // Limitar a 5 títulos para análise mais rápida
         
         if (videoTitles.length === 0) {
             return { niche: null, subniche: null };
@@ -6152,38 +6152,50 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                 [userIdNum, channelId]
             );
 
-            // Analisar canal para detectar nicho e subnicho automaticamente
-            let detectedNiche = null;
-            let detectedSubniche = null;
-            try {
-                const nicheAnalysis = await analyzeChannelNiche(channelId, channelName, accessToken, userIdNum);
-                detectedNiche = nicheAnalysis.niche;
-                detectedSubniche = nicheAnalysis.subniche;
-                console.log(`[YouTube OAuth] Nicho detectado para ${channelName}: ${detectedNiche} / ${detectedSubniche}`);
-            } catch (nicheErr) {
-                console.warn(`[YouTube OAuth] Erro ao analisar nicho do canal ${channelId}:`, nicheErr.message);
-                // Continuar mesmo se a análise falhar
-            }
-
+            // Conectar o canal primeiro (sem bloquear na análise)
+            let integrationId;
             if (existingIntegration) {
                 // Atualizar integração existente
                 await db.run(
                     `UPDATE youtube_integrations 
                      SET access_token = ?, refresh_token = ?, token_expires_at = ?, 
-                         channel_name = ?, niche = ?, subniche = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                         channel_name = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
                      WHERE id = ?`,
-                    [accessToken, refreshToken || null, expiresAt, channelName, detectedNiche, detectedSubniche, existingIntegration.id]
+                    [accessToken, refreshToken || null, expiresAt, channelName, existingIntegration.id]
                 );
+                integrationId = existingIntegration.id;
                 updatedCount++;
             } else {
                 // Criar nova integração
-                await db.run(
-                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, niche, subniche, is_active)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt, detectedNiche, detectedSubniche]
+                const result = await db.run(
+                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt]
                 );
+                integrationId = result.lastID;
                 connectedCount++;
             }
+
+            // Analisar canal em background (não bloqueia a resposta)
+            analyzeChannelNiche(channelId, channelName, accessToken, userIdNum)
+                .then(nicheAnalysis => {
+                    if (nicheAnalysis.niche || nicheAnalysis.subniche) {
+                        console.log(`[YouTube OAuth] Nicho detectado para ${channelName}: ${nicheAnalysis.niche} / ${nicheAnalysis.subniche}`);
+                        // Atualizar o canal com o nicho detectado
+                        db.run(
+                            `UPDATE youtube_integrations 
+                             SET niche = ?, subniche = ?, updated_at = CURRENT_TIMESTAMP 
+                             WHERE id = ?`,
+                            [nicheAnalysis.niche, nicheAnalysis.subniche, integrationId]
+                        ).catch(err => {
+                            console.error(`[YouTube OAuth] Erro ao salvar nicho detectado:`, err.message);
+                        });
+                    }
+                })
+                .catch(nicheErr => {
+                    console.warn(`[YouTube OAuth] Erro ao analisar nicho do canal ${channelId}:`, nicheErr.message);
+                    // Não fazer nada, o canal já está conectado
+                });
         }
 
         console.log(`[YouTube OAuth] Canais conectados: ${connectedCount} novos, ${updatedCount} atualizados para userId: ${userIdNum}`);
