@@ -519,19 +519,21 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
     // Mapeamento de nomes amigáveis para nomes corretos da API da Anthropic
     // Modelos Claude mais recentes e disponíveis (2024-2025)
     const modelMapping = {
-        // Modelos Claude válidos e disponíveis (versões mais recentes)
-        'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
+        // Modelos Claude válidos e estáveis
+        'claude-3-5-sonnet-20240620': 'claude-3-5-sonnet-20240620',
         'claude-3-5-haiku-20241022': 'claude-3-5-haiku-20241022',
         'claude-3-opus-20240229': 'claude-3-opus-20240229',
-        // Fallbacks para modelos antigos (mapeamento para versões mais recentes)
-        'claude-3-sonnet-20240229': 'claude-3-5-sonnet-20241022', // Fallback para versão mais recente
-        'claude-3-haiku-20240307': 'claude-3-5-haiku-20241022', // Fallback para versão mais recente
-        'claude-sonnet-4-20250514': 'claude-3-5-sonnet-20241022', // Fallback para Sonnet
-        'claude-3.5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
-        'claude-3.5-haiku-20241022': 'claude-3-5-haiku-20241022'
+        // Fallbacks para modelos antigos (mapeamento para versões estáveis)
+        'claude-3-sonnet-20240229': 'claude-3-5-sonnet-20240620',
+        'claude-3-haiku-20240307': 'claude-3-5-haiku-20241022',
+        'claude-sonnet-4-20250514': 'claude-3-5-sonnet-20240620',
+        'claude-3.5-sonnet-20241022': 'claude-3-5-sonnet-20240620',
+        'claude-3.5-haiku-20241022': 'claude-3-5-haiku-20241022',
+        // Mapeamento de modelo descontinuado para versão estável
+        'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20240620'
     };
     
-    // Modelos válidos mais recentes: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022, claude-3-opus-20240229
+    // Modelos válidos estáveis: claude-3-5-sonnet-20240620, claude-3-5-haiku-20241022, claude-3-opus-20240229
     // Converter nome do modelo usando mapeamento ou determinar pelo tipo
     let modelName = modelMapping[model];
     
@@ -542,17 +544,17 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
         } else if (model.includes('opus')) {
             modelName = 'claude-3-opus-20240229';
         } else {
-            // Padrão: usar Sonnet mais recente (para sonnet ou qualquer outro)
-            modelName = 'claude-3-5-sonnet-20241022';
+            // Padrão: usar Sonnet estável (para sonnet ou qualquer outro)
+            modelName = 'claude-3-5-sonnet-20240620';
         }
     }
     
     // Garantir que apenas os modelos válidos sejam usados
-    const validModels = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
+    const validModels = ['claude-3-5-sonnet-20240620', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
     if (!validModels.includes(modelName)) {
-        // Se por algum motivo o modelo não for válido, usar Sonnet mais recente como padrão
-        console.warn(`[Claude API] Modelo ${modelName} não é válido, usando claude-3-5-sonnet-20241022 como padrão`);
-        modelName = 'claude-3-5-sonnet-20241022';
+        // Se por algum motivo o modelo não for válido, usar Sonnet estável como padrão
+        console.warn(`[Claude API] Modelo ${modelName} não é válido, usando claude-3-5-sonnet-20240620 como padrão`);
+        modelName = 'claude-3-5-sonnet-20240620';
     }
     
     console.log(`[Claude API] Modelo original: ${model}, Modelo mapeado: ${modelName}`);
@@ -600,7 +602,7 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
             const errorMsg = result.error?.message || response.statusText;
             if (errorMsg.includes('model') || errorMsg.includes('invalid') || errorMsg.includes('not found') || errorMsg.includes('does not exist')) {
                 // Tentar fallback automático com os modelos válidos mais recentes
-                const validModels = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
+                const validModels = ['claude-3-5-sonnet-20240620', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'];
                 
                 // Tentar outros modelos válidos se o atual falhou
                 for (const altModel of validModels) {
@@ -1300,6 +1302,27 @@ const isAdmin = (req, res, next) => {
         } catch (migrationErr) {
             console.warn('Aviso na migração de youtube_integrations:', migrationErr.message);
         }
+
+        // === MIGRAÇÃO: Adicionar campos niche e subniche em youtube_integrations ===
+        try {
+            const youtubeIntegrationsInfo = await db.all("PRAGMA table_info(youtube_integrations)");
+            const hasNiche = youtubeIntegrationsInfo.some(c => c.name === 'niche');
+            const hasSubniche = youtubeIntegrationsInfo.some(c => c.name === 'subniche');
+            
+            if (!hasNiche) {
+                console.log('MIGRATION: Adicionando coluna "niche" em youtube_integrations...');
+                await db.exec(`ALTER TABLE youtube_integrations ADD COLUMN niche TEXT`);
+            }
+            if (!hasSubniche) {
+                console.log('MIGRATION: Adicionando coluna "subniche" em youtube_integrations...');
+                await db.exec(`ALTER TABLE youtube_integrations ADD COLUMN subniche TEXT`);
+            }
+            if (!hasNiche || !hasSubniche) {
+                console.log('✅ Migração concluída: campos niche e subniche adicionados em youtube_integrations');
+            }
+        } catch (migrationErr) {
+            console.warn('Aviso na migração de youtube_integrations (niche/subniche):', migrationErr.message);
+        }
         
         // === MIGRAÇÃO: Corrigir tabela viral_thumbnails_library ===
         try {
@@ -1852,7 +1875,7 @@ Tradução em PT-BR:`;
             console.log('[Análise-All] A chamar IA em paralelo...');
             // Usando os modelos específicos para a comparação
             const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-sonnet-20241022');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-5-sonnet-20240620');
             const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4.1');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
@@ -4039,6 +4062,124 @@ app.post('/api/analytics/track', authenticateToken, async (req, res) => {
 });
 
 // Função helper para obter RPM baseado no nicho (usada em múltiplas rotas)
+// Função para analisar canal e detectar nicho/subnicho automaticamente
+async function analyzeChannelNiche(channelId, channelName, accessToken, userId) {
+    try {
+        console.log(`[Análise Canal] Analisando canal ${channelId} (${channelName})...`);
+        
+        // Buscar os 10 vídeos mais recentes do canal
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&maxResults=10&type=video`;
+        const searchResponse = await fetch(searchUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        
+        if (!searchResponse.ok) {
+            console.warn(`[Análise Canal] Erro ao buscar vídeos do canal ${channelId}`);
+            return { niche: null, subniche: null };
+        }
+        
+        const searchData = await searchResponse.json();
+        if (!searchData.items || searchData.items.length === 0) {
+            console.warn(`[Análise Canal] Nenhum vídeo encontrado no canal ${channelId}`);
+            return { niche: null, subniche: null };
+        }
+        
+        // Extrair títulos dos vídeos
+        const videoTitles = searchData.items
+            .map(item => item.snippet?.title || '')
+            .filter(title => title.length > 0)
+            .slice(0, 10); // Limitar a 10 títulos
+        
+        if (videoTitles.length === 0) {
+            return { niche: null, subniche: null };
+        }
+        
+        // Buscar chaves de API do usuário para análise
+        const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+        const keys = {};
+        keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+        
+        // Tentar usar Gemini, Claude ou OpenAI (nesta ordem)
+        let detectedNiche = null;
+        let detectedSubniche = null;
+        
+        const analysisPrompt = `Você é um especialista em análise de conteúdo do YouTube. Analise os seguintes títulos de vídeos de um canal do YouTube e identifique o NICHO e SUBNICHE do canal.
+
+Títulos dos vídeos:
+${videoTitles.map((title, i) => `${i + 1}. ${title}`).join('\n')}
+
+Nome do canal: ${channelName}
+
+Analise os padrões, temas e assuntos recorrentes nos títulos para identificar:
+- O NICHO principal (categoria ampla: Entretenimento, Educação, Tecnologia, Finanças, Gaming, etc.)
+- O SUBNICHE específico (área mais específica dentro do nicho: Gaming FPS, Finanças Pessoais, Programação Web, etc.)
+
+IMPORTANTE: Responda APENAS com um objeto JSON válido, sem nenhum texto adicional antes ou depois:
+{
+  "niche": "Nome do nicho principal",
+  "subniche": "Nome do subnicho específico ou null se não houver subnicho claro"
+}
+
+Seja específico e preciso. Se não conseguir identificar claramente, use "Entretenimento" como nicho padrão e deixe subniche como null.`;
+
+        // Tentar Gemini primeiro
+        if (keys.gemini) {
+            try {
+                const response = await callGeminiAPI(analysisPrompt, keys.gemini, 'gemini-2.0-flash');
+                const parsed = parseAIResponse(response.titles, 'gemini');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via Gemini: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar Gemini: ${err.message}`);
+            }
+        }
+        
+        // Tentar Claude
+        if (keys.claude) {
+            try {
+                const response = await callClaudeAPI(analysisPrompt, keys.claude, 'claude-3-5-haiku-20241022');
+                const parsed = parseAIResponse(response.titles, 'claude');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via Claude: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar Claude: ${err.message}`);
+            }
+        }
+        
+        // Tentar OpenAI
+        if (keys.openai) {
+            try {
+                const response = await callOpenAIAPI(analysisPrompt, keys.openai, 'gpt-4o-mini');
+                const parsed = parseAIResponse(response.titles, 'openai');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via OpenAI: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar OpenAI: ${err.message}`);
+            }
+        }
+        
+        // Se nenhuma IA funcionou, retornar null
+        console.warn(`[Análise Canal] Não foi possível detectar nicho para o canal ${channelId}`);
+        return { niche: null, subniche: null };
+        
+    } catch (err) {
+        console.error(`[Análise Canal] Erro ao analisar canal ${channelId}:`, err.message);
+        return { niche: null, subniche: null };
+    }
+}
+
 function getRPMByNiche(niche) {
     if (!niche) return { usd: 2.0, brl: 11.0 }; // Padrão: Entretenimento
     
@@ -5868,6 +6009,8 @@ app.get('/api/youtube/channels', authenticateToken, async (req, res) => {
                 id: integration.id,
                 channelId: integration.channel_id,
                 channelName: integration.channel_name,
+                niche: integration.niche || null,
+                subniche: integration.subniche || null,
                 isExpired: isExpired,
                 createdAt: integration.created_at
             };
@@ -6009,22 +6152,35 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                 [userIdNum, channelId]
             );
 
+            // Analisar canal para detectar nicho e subnicho automaticamente
+            let detectedNiche = null;
+            let detectedSubniche = null;
+            try {
+                const nicheAnalysis = await analyzeChannelNiche(channelId, channelName, accessToken, userIdNum);
+                detectedNiche = nicheAnalysis.niche;
+                detectedSubniche = nicheAnalysis.subniche;
+                console.log(`[YouTube OAuth] Nicho detectado para ${channelName}: ${detectedNiche} / ${detectedSubniche}`);
+            } catch (nicheErr) {
+                console.warn(`[YouTube OAuth] Erro ao analisar nicho do canal ${channelId}:`, nicheErr.message);
+                // Continuar mesmo se a análise falhar
+            }
+
             if (existingIntegration) {
                 // Atualizar integração existente
                 await db.run(
                     `UPDATE youtube_integrations 
                      SET access_token = ?, refresh_token = ?, token_expires_at = ?, 
-                         channel_name = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                         channel_name = ?, niche = ?, subniche = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
                      WHERE id = ?`,
-                    [accessToken, refreshToken || null, expiresAt, channelName, existingIntegration.id]
+                    [accessToken, refreshToken || null, expiresAt, channelName, detectedNiche, detectedSubniche, existingIntegration.id]
                 );
                 updatedCount++;
             } else {
                 // Criar nova integração
                 await db.run(
-                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, is_active)
-                     VALUES (?, ?, ?, ?, ?, ?, 1)`,
-                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt]
+                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, niche, subniche, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt, detectedNiche, detectedSubniche]
                 );
                 connectedCount++;
             }

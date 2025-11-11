@@ -5770,6 +5770,12 @@
                                             <div class="flex-1">
                                                 <p class="text-white font-semibold">${escapeHtml(channel.channelName || 'Canal do YouTube')}</p>
                                                 <p class="text-gray-400 text-xs">ID: ${escapeHtml(channel.channelId || 'N/A')}</p>
+                                                ${channel.niche || channel.subniche ? `
+                                                    <div class="mt-2 flex flex-wrap gap-2">
+                                                        ${channel.niche ? `<span class="px-2 py-1 bg-amber-600/20 text-amber-400 rounded text-xs border border-amber-600/30">📌 ${escapeHtml(channel.niche)}</span>` : ''}
+                                                        ${channel.subniche ? `<span class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs border border-blue-600/30">🎯 ${escapeHtml(channel.subniche)}</span>` : ''}
+                                                    </div>
+                                                ` : '<p class="text-gray-500 text-xs mt-1">⏳ Analisando nicho...</p>'}
                                                 ${channel.isExpired ? '<p class="text-yellow-400 text-xs mt-1">⚠️ Token expirado</p>' : ''}
                                             </div>
                                         </div>
