@@ -241,8 +241,19 @@ class ImageFX {
         if (response.status === 429) {
           specificErrorMessage = `O servidor ImageFX atingiu o limite de taxa (429). Por favor, tente novamente mais tarde. Detalhes: ${errorText}`;
         }
-        // Pass response.status as code to ImageFXError for detailed debugging
-        throw new ImageFXError(specificErrorMessage, response.status);
+        // Create error with full details for policy error detection
+        const error = new ImageFXError(specificErrorMessage, response.status);
+        // Attach raw error text for policy error detection
+        error.rawError = errorText;
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.error) {
+            error.errorDetails = errorJson.error;
+          }
+        } catch (e) {
+          // Ignore JSON parse errors
+        }
+        throw error;
       }
 
       const jsonResponse = await response.json();

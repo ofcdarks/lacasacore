@@ -32,7 +32,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly allow methods
   allowedHeaders: ['Content-Type', 'Authorization'] // Explicitly allow headers
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Aumentar limite para suportar URLs de imagens grandes
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(__dirname));
 
 // Middleware para garantir que todas as respostas sejam JSON válido
@@ -1183,6 +1184,78 @@ const isAdmin = (req, res, next) => {
             );
         `);
 
+        // === PARTE 2: TABELAS PARA MONITORAMENTO AUTOMÁTICO ===
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                competitor_channel_id TEXT,
+                competitor_channel_name TEXT,
+                video_id TEXT NOT NULL,
+                video_title TEXT,
+                video_url TEXT,
+                views INTEGER,
+                views_per_day REAL,
+                detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                notified INTEGER DEFAULT 0,
+                notified_at DATETIME,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS trend_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                niche TEXT,
+                subniche TEXT,
+                video_id TEXT NOT NULL,
+                video_title TEXT,
+                video_url TEXT,
+                channel_id TEXT,
+                channel_name TEXT,
+                views INTEGER,
+                views_per_day REAL,
+                detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                analyzed INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS competitor_monitoring (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                competitor_channel_id TEXT NOT NULL,
+                competitor_channel_name TEXT,
+                niche TEXT,
+                subniche TEXT,
+                auto_analyze INTEGER DEFAULT 1,
+                last_checked DATETIME,
+                check_frequency TEXT DEFAULT 'daily',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, competitor_channel_id)
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS ai_suggestions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                suggestion_type TEXT NOT NULL,
+                title TEXT,
+                description TEXT,
+                niche TEXT,
+                subniche TEXT,
+                reason TEXT,
+                priority INTEGER DEFAULT 5,
+                viewed INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
         console.log('✅ Novas tabelas criadas: Analytics, Biblioteca e Integração YouTube');
         
         // === MIGRAÇÃO: Remover constraint UNIQUE de youtube_integrations (permitir múltiplos canais) ===
@@ -1526,6 +1599,33 @@ app.post('/api/keys/validate-all', authenticateToken, async (req, res) => {
 });
 
 
+// === FUNÇÕES AUXILIARES DE ANÁLISE ===
+
+// Função para determinar se um vídeo é realmente viral
+function isViralVideo(views, days, viewsPerDay) {
+    // Critérios para considerar um vídeo como viral:
+    // 1. Mínimo de 100.000 views totais
+    // 2. Mínimo de 10.000 views/dia (para vídeos recentes)
+    // 3. Ou mínimo de 50.000 views/dia nos primeiros 7 dias
+    // 4. Para vídeos mais antigos (>30 dias), mínimo de 500.000 views totais
+    
+    if (days <= 0) {
+        // Sem informação de dias, usar apenas views totais
+        return views >= 500000; // 500k+ views sem info de tempo = provavelmente viral
+    }
+    
+    if (days <= 7) {
+        // Vídeo muito recente: precisa de crescimento explosivo
+        return viewsPerDay >= 50000 || views >= 500000;
+    } else if (days <= 30) {
+        // Vídeo recente: precisa de bom crescimento
+        return viewsPerDay >= 10000 || views >= 300000;
+    } else {
+        // Vídeo mais antigo: precisa de views totais altas
+        return views >= 1000000; // 1M+ views para vídeos antigos
+    }
+}
+
 // === ROTAS DE ANÁLISE (O CORAÇÃO DO SAAS) ===
 
 app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
@@ -1602,31 +1702,6 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 2: IA - Análise de Título e Geração (PROMPT REFINADO) ---
-        // Função para determinar se um vídeo é realmente viral
-        function isViralVideo(views, days, viewsPerDay) {
-            // Critérios para considerar um vídeo como viral:
-            // 1. Mínimo de 100.000 views totais
-            // 2. Mínimo de 10.000 views/dia (para vídeos recentes)
-            // 3. Ou mínimo de 50.000 views/dia nos primeiros 7 dias
-            // 4. Para vídeos mais antigos (>30 dias), mínimo de 500.000 views totais
-            
-            if (days <= 0) {
-                // Sem informação de dias, usar apenas views totais
-                return views >= 500000; // 500k+ views sem info de tempo = provavelmente viral
-            }
-            
-            if (days <= 7) {
-                // Vídeo muito recente: precisa de crescimento explosivo
-                return viewsPerDay >= 50000 || views >= 500000;
-            } else if (days <= 30) {
-                // Vídeo recente: precisa de bom crescimento
-                return viewsPerDay >= 10000 || views >= 300000;
-            } else {
-                // Vídeo mais antigo: precisa de views totais altas
-                return views >= 1000000; // 1M+ views para vídeos antigos
-            }
-        }
-        
         const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
         const isViral = isViralVideo(videoDetails.views, videoDetails.days, viewsPerDay);
         
@@ -2806,36 +2881,9 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
 
         // --- 5. Enviar resposta ---
 
-        // Salvar thumbnails geradas na biblioteca automaticamente
-        try {
-            for (const ideia of parsedData.ideias) {
-                if (ideia.descricaoThumbnail) {
-                    await db.run(
-                        `INSERT INTO viral_thumbnails_library (user_id, thumbnail_url, thumbnail_description, niche, subniche, original_views, style, viral_score)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [userId, null, ideia.descricaoThumbnail, niche, subniche, videoDetails?.views || null, style, 8] // Score padrão 8 para thumbnails geradas, thumbnail_url como NULL
-                    );
-                }
-            }
-            console.log(`[Biblioteca] ${parsedData.ideias.length} thumbnails salvas na biblioteca`);
-        } catch (libErr) {
-            console.error('[Biblioteca] Erro ao salvar thumbnails na biblioteca:', libErr);
-            // Tentar novamente sem thumbnail_url se falhar
-            try {
-                for (const ideia of parsedData.ideias) {
-                    if (ideia.descricaoThumbnail) {
-                        await db.run(
-                            `INSERT INTO viral_thumbnails_library (user_id, thumbnail_description, niche, subniche, original_views, style, viral_score)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                            [userId, ideia.descricaoThumbnail, niche, subniche, videoDetails?.views || null, style, 8]
-                        );
-                    }
-                }
-                console.log(`[Biblioteca] ${parsedData.ideias.length} thumbnails salvas na biblioteca (segunda tentativa)`);
-            } catch (retryErr) {
-                console.error('[Biblioteca] Erro persistente ao salvar thumbnails:', retryErr);
-            }
-        }
+        // NÃO salvar thumbnails automaticamente - apenas quando o usuário gerar a imagem e salvar na biblioteca
+        // As thumbnails serão salvas apenas quando o usuário gerar a imagem com ImageFX e clicar em "Salvar na Biblioteca"
+        console.log(`[Biblioteca] ${parsedData.ideias.length} ideias de thumbnails geradas. Aguardando geração de imagem pelo usuário para salvar na biblioteca.`);
 
         res.status(200).json(parsedData.ideias);
 
@@ -2868,15 +2916,204 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
         
         console.log('[ImageFX] A iniciar geração...');
         const imageFx = new ImageFX(decryptedCookies);
-        const enhancedPrompt = `${prompt}, photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting`;
+        let currentPrompt = `${prompt}, photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting`;
         
-        const images = await imageFx.generateImage(enhancedPrompt, {
-            numberOfImages: 1,
-            aspectRatio: AspectRatio.LANDSCAPE 
-        });
+        const maxRetries = 5;
+        let attempt = 0;
+        let images = null;
+        let lastError = null;
+        
+        // Função para detectar se o erro é de política de conteúdo
+        const isPolicyError = (error) => {
+            if (!error || !error.message) return false;
+            const errorStr = error.message.toLowerCase();
+            const errorCode = error.code;
+            
+            // Verificar códigos de erro de política (400 Bad Request com códigos específicos)
+            if (errorCode === 400) {
+                // Verificar na mensagem de erro
+                const hasPolicyIndicator = (
+                    errorStr.includes('public_error') ||
+                    errorStr.includes('prominent_people') ||
+                    errorStr.includes('filter_failed') ||
+                    errorStr.includes('invalid_argument') ||
+                    errorStr.includes('policy') ||
+                    errorStr.includes('prohibited') ||
+                    errorStr.includes('content policy') ||
+                    errorStr.includes('public_error_prominent_people_filter_failed')
+                );
+                
+                // Verificar também nos detalhes do erro se existirem
+                if (error.rawError) {
+                    try {
+                        const errorJson = JSON.parse(error.rawError);
+                        if (errorJson.error) {
+                            const errorDetails = errorJson.error;
+                            if (errorDetails.details) {
+                                for (const detail of errorDetails.details) {
+                                    if (detail.reason && (
+                                        detail.reason.includes('PUBLIC_ERROR') ||
+                                        detail.reason.includes('PROMINENT_PEOPLE') ||
+                                        detail.reason.includes('FILTER_FAILED')
+                                    )) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Ignorar erros de parsing
+                    }
+                }
+                
+                return hasPolicyIndicator;
+            }
+            
+            return false;
+        };
+        
+        // Função para reformular o prompt usando IA
+        const reformulatePrompt = async (originalPrompt, errorMessage) => {
+            try {
+                // Tentar usar Gemini primeiro (mais rápido), depois Claude, depois OpenAI
+                const services = ['gemini', 'claude', 'openai'];
+                let reformulatedPrompt = null;
+                
+                for (const service of services) {
+                    try {
+                        const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                        if (!serviceKeyData) continue;
+                        
+                        const decryptedKey = decrypt(serviceKeyData.api_key);
+                        if (!decryptedKey) continue;
+                        
+                        let apiCallFunction;
+                        let model;
+                        if (service === 'gemini') {
+                            apiCallFunction = callGeminiAPI;
+                            model = 'gemini-2.0-flash';
+                        } else if (service === 'claude') {
+                            apiCallFunction = callClaudeAPI;
+                            model = 'claude-3-5-haiku-20241022';
+                        } else {
+                            apiCallFunction = callOpenAIAPI;
+                            model = 'gpt-4o-mini';
+                        }
+                        
+                        const reformulationPrompt = `Você é um especialista em criar prompts para geração de imagens que respeitam políticas de conteúdo.
+
+O prompt original foi rejeitado pelo gerador de imagens com o seguinte erro:
+"${errorMessage}"
+
+PROMPT ORIGINAL (que foi rejeitado):
+"${originalPrompt}"
+
+Sua tarefa é criar uma NOVA versão do prompt que:
+1. Mantenha a essência visual e o conceito do prompt original
+2. Remova ou substitua quaisquer elementos que possam violar políticas de conteúdo (como pessoas reais, conteúdo sensível, etc.)
+3. Use descrições genéricas em vez de específicas (ex: "pessoa" em vez de "pessoa específica", "figura histórica genérica" em vez de nomes reais)
+4. Foque em elementos visuais, composição, cores, atmosfera, objetos, cenários
+5. Mantenha o estilo profissional, fotográfico e cinematográfico
+6. Garanta que o prompt seja adequado para criar thumbnails virais do YouTube
+
+IMPORTANTE:
+- NÃO mencione pessoas reais, celebridades, figuras históricas específicas
+- Use descrições genéricas de pessoas: "uma pessoa", "figura humana", "personagem genérico"
+- Foque em elementos visuais: objetos, cenários, composição, cores, iluminação, atmosfera
+- Mantenha elementos que geram curiosidade e alto CTR (contraste, cores vibrantes, composição impactante)
+- O prompt deve ser em inglês e descrever uma imagem fotográfica realista
+
+Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
+
+                        const response = await apiCallFunction(reformulationPrompt, decryptedKey, model);
+                        
+                        // Todas as APIs retornam o texto em response.titles
+                        let extractedText = response.titles || response.text || '';
+                        
+                        // Limpar o texto extraído (remover markdown, código, explicações, etc.)
+                        reformulatedPrompt = extractedText
+                            .replace(/```[\s\S]*?```/g, '') // Remover blocos de código
+                            .replace(/`/g, '') // Remover backticks
+                            .replace(/^[^"]*["']|["'][^"]*$/g, '') // Remover aspas no início/fim
+                            .replace(/^(Prompt|Prompt reformulado|Nova versão|Versão reformulada)[:：]\s*/i, '') // Remover prefixos comuns
+                            .replace(/\n+/g, ' ') // Substituir quebras de linha por espaços
+                            .replace(/\s+/g, ' ') // Normalizar espaços
+                            .trim();
+                        
+                        // Garantir que o prompt tenha conteúdo válido
+                        if (reformulatedPrompt && reformulatedPrompt.length > 50 && reformulatedPrompt.length < 2000) {
+                            console.log(`[ImageFX] Prompt reformulado usando ${service} (${reformulatedPrompt.length} caracteres)`);
+                            // Adicionar os sufixos de qualidade de volta se não estiverem presentes
+                            if (!reformulatedPrompt.includes('photorealistic')) {
+                                reformulatedPrompt += ', photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography';
+                            }
+                            break;
+                        } else {
+                            console.warn(`[ImageFX] Prompt reformulado muito curto ou muito longo (${reformulatedPrompt?.length || 0} caracteres). Tentando próximo serviço...`);
+                        }
+                    } catch (serviceErr) {
+                        console.warn(`[ImageFX] Falha ao reformular com ${service}:`, serviceErr.message);
+                        continue;
+                    }
+                }
+                
+                if (!reformulatedPrompt) {
+                    // Fallback: remover manualmente elementos problemáticos comuns
+                    console.log('[ImageFX] Usando fallback para reformular prompt');
+                    reformulatedPrompt = originalPrompt
+                        .replace(/real person|actual person|specific person|celebrity|famous person/gi, 'generic person')
+                        .replace(/historical figure|famous figure|known person/gi, 'generic historical character')
+                        .replace(/named person|person named/gi, 'person')
+                        .replace(/real people|actual people/gi, 'people')
+                        + ', generic characters, no specific individuals, artistic representation';
+                }
+                
+                return reformulatedPrompt;
+            } catch (err) {
+                console.error('[ImageFX] Erro ao reformular prompt:', err);
+                // Fallback simples
+                return originalPrompt
+                    .replace(/real person|actual person|specific person/gi, 'generic person')
+                    .replace(/celebrity|famous person/gi, 'person')
+                    + ', generic characters, artistic representation';
+            }
+        };
+        
+        // Loop de tentativas com reformulação automática
+        while (attempt < maxRetries && !images) {
+            attempt++;
+            try {
+                console.log(`[ImageFX] Tentativa ${attempt}/${maxRetries} com prompt: ${currentPrompt.substring(0, 100)}...`);
+                
+                images = await imageFx.generateImage(currentPrompt, {
+                    numberOfImages: 1,
+                    aspectRatio: AspectRatio.LANDSCAPE 
+                });
+
+                if (images && images.length > 0) {
+                    console.log(`[ImageFX] Imagem gerada com sucesso na tentativa ${attempt}`);
+                    break;
+                }
+            } catch (err) {
+                lastError = err;
+                console.warn(`[ImageFX] Erro na tentativa ${attempt}:`, err.message);
+                
+                // Verificar se é erro de política de conteúdo
+                if (isPolicyError(err) && attempt < maxRetries) {
+                    console.log(`[ImageFX] Erro de política detectado. Reformulando prompt...`);
+                    currentPrompt = await reformulatePrompt(currentPrompt, err.message);
+                    // Adicionar um pequeno delay antes de tentar novamente
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
+                } else {
+                    // Se não for erro de política ou atingiu max retries, lançar o erro
+                    throw err;
+                }
+            }
+        }
 
         if (!images || images.length === 0) {
-            throw new Error('O ImageFX não retornou imagens.');
+            throw new Error(lastError?.message || 'O ImageFX não retornou imagens após múltiplas tentativas.');
         }
 
         const imageUrl = images[0].getImageData().url;
@@ -2901,11 +3138,24 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
             msg: 'Imagem gerada com sucesso!',
             imageUrl: imageUrl,
             savedToLibrary: savedId !== null,
-            libraryId: savedId
+            libraryId: savedId,
+            attempts: attempt
         });
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/generate/imagefx]:', err);
+        
+        // Verificar se é erro do ImageFX com código específico
+        if (err.code === 400 && err.message) {
+            const errorMsg = err.message;
+            if (errorMsg.includes('PUBLIC_ERROR') || errorMsg.includes('filter_failed')) {
+                return res.status(500).json({ 
+                    msg: 'Não foi possível gerar a imagem após múltiplas tentativas de reformulação. O conteúdo pode violar políticas do gerador de imagens. Tente modificar o prompt manualmente para remover referências a pessoas reais ou conteúdo sensível.',
+                    error: errorMsg
+                });
+            }
+        }
+        
         res.status(500).json({ msg: err.message || 'Erro interno do servidor ao gerar imagem.' });
     }
 });
@@ -5322,9 +5572,232 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
     }
 });
 
-// Agendar publicação de vídeo
+// === PARTE 2: AUTOMAÇÃO E INTEGRAÇÃO COM YOUTUBE ===
+
+// A.1 - Agendamento Inteligente: IA sugere melhor horário para publicar baseado no nicho
+app.post('/api/youtube/suggest-best-time', authenticateToken, async (req, res) => {
+    const { niche, subniche, timezone } = req.body;
+    const userId = req.user.id;
+
+    if (!niche) {
+        return res.status(400).json({ msg: 'Nicho é obrigatório para sugerir horário.' });
+    }
+
+    try {
+        // Tentar usar Gemini primeiro, depois Claude, depois OpenAI
+        const services = ['gemini', 'claude', 'openai'];
+        let bestTime = null;
+        let explanation = '';
+
+        for (const service of services) {
+            try {
+                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (!serviceKeyData) continue;
+
+                const decryptedKey = decrypt(serviceKeyData.api_key);
+                if (!decryptedKey) continue;
+
+                let apiCallFunction;
+                let model;
+                if (service === 'gemini') {
+                    apiCallFunction = callGeminiAPI;
+                    model = 'gemini-2.0-flash';
+                } else if (service === 'claude') {
+                    apiCallFunction = callClaudeAPI;
+                    model = 'claude-3-5-haiku-20241022';
+                } else {
+                    apiCallFunction = callOpenAIAPI;
+                    model = 'gpt-4o-mini';
+                }
+
+                const prompt = `Você é um especialista em estratégia de YouTube e análise de dados de engajamento.
+
+Analise o nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''} e sugira o MELHOR horário para publicar vídeos neste nicho.
+
+Considere:
+1. Horários de pico de engajamento para este nicho específico
+2. Fuso horário do público-alvo (principalmente Brasil/América Latina)
+3. Dias da semana que performam melhor
+4. Padrões de comportamento do público deste nicho
+
+Responda APENAS com um JSON válido no formato:
+{
+  "bestTime": "HH:MM" (formato 24h, ex: "18:00"),
+  "bestDays": ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] (array com os melhores dias),
+  "explanation": "Explicação detalhada do porquê este horário é ideal",
+  "alternativeTimes": ["HH:MM", "HH:MM"] (2-3 horários alternativos)
+}
+
+IMPORTANTE: Responda APENAS com o JSON, sem texto adicional.`;
+
+                const response = await apiCallFunction(prompt, decryptedKey, model);
+                const responseText = response.titles || response.text || '';
+                
+                // Tentar extrair JSON da resposta
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        if (parsed.bestTime) {
+                            bestTime = parsed;
+                            explanation = parsed.explanation || '';
+                            console.log(`[Agendamento Inteligente] Horário sugerido usando ${service}: ${parsed.bestTime}`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`[Agendamento Inteligente] Falha ao parsear JSON de ${service}:`, e.message);
+                    }
+                }
+            } catch (serviceErr) {
+                console.warn(`[Agendamento Inteligente] Falha com ${service}:`, serviceErr.message);
+                continue;
+            }
+        }
+
+        // Fallback: horários padrão baseados em pesquisas gerais
+        if (!bestTime) {
+            const defaultTimes = {
+                'Entretenimento': { bestTime: '18:00', bestDays: ['sexta', 'sábado', 'domingo'], explanation: 'Horário de pico para entretenimento: fim de tarde e fins de semana' },
+                'Educação': { bestTime: '19:00', bestDays: ['segunda', 'terça', 'quarta', 'quinta'], explanation: 'Horário ideal para conteúdo educativo: início da noite em dias úteis' },
+                'Tecnologia': { bestTime: '20:00', bestDays: ['terça', 'quarta', 'quinta'], explanation: 'Público de tecnologia mais ativo no início da noite' },
+                'Finanças': { bestTime: '08:00', bestDays: ['segunda', 'terça', 'quarta'], explanation: 'Horário de trabalho: público financeiro mais ativo pela manhã' }
+            };
+            
+            const nicheKey = Object.keys(defaultTimes).find(k => niche.toLowerCase().includes(k.toLowerCase()));
+            bestTime = nicheKey ? defaultTimes[nicheKey] : { bestTime: '18:00', bestDays: ['sexta', 'sábado'], explanation: 'Horário padrão otimizado para engajamento geral' };
+            bestTime.alternativeTimes = ['16:00', '20:00'];
+        }
+
+        res.status(200).json({
+            suggestedTime: bestTime.bestTime,
+            suggestedDays: bestTime.bestDays || ['sexta', 'sábado'],
+            explanation: bestTime.explanation || explanation,
+            alternativeTimes: bestTime.alternativeTimes || []
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/suggest-best-time]:', err);
+        res.status(500).json({ msg: 'Erro ao sugerir horário de publicação.' });
+    }
+});
+
+// A.3 - Auto-tags e Descrição: Preencher automaticamente tags e descrição otimizadas
+app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) => {
+    const { title, niche, subniche, videoDescription } = req.body;
+    const userId = req.user.id;
+
+    if (!title) {
+        return res.status(400).json({ msg: 'Título é obrigatório para gerar metadata.' });
+    }
+
+    try {
+        // Tentar usar Gemini primeiro, depois Claude, depois OpenAI
+        const services = ['gemini', 'claude', 'openai'];
+        let metadata = null;
+
+        for (const service of services) {
+            try {
+                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (!serviceKeyData) continue;
+
+                const decryptedKey = decrypt(serviceKeyData.api_key);
+                if (!decryptedKey) continue;
+
+                let apiCallFunction;
+                let model;
+                if (service === 'gemini') {
+                    apiCallFunction = callGeminiAPI;
+                    model = 'gemini-2.0-flash';
+                } else if (service === 'claude') {
+                    apiCallFunction = callClaudeAPI;
+                    model = 'claude-3-5-haiku-20241022';
+                } else {
+                    apiCallFunction = callOpenAIAPI;
+                    model = 'gpt-4o-mini';
+                }
+
+                const prompt = `Você é um especialista em SEO e otimização de conteúdo para YouTube.
+
+Título do vídeo: "${title}"
+${niche ? `Nicho: "${niche}"` : ''}
+${subniche ? `Subnicho: "${subniche}"` : ''}
+${videoDescription ? `Descrição do conteúdo: "${videoDescription}"` : ''}
+
+Sua tarefa é gerar:
+1. Uma descrição otimizada para SEO (mínimo 200 palavras) que inclua:
+   - Hook inicial poderoso
+   - Palavras-chave principais
+   - Resumo do conteúdo
+   - Call-to-action
+   - Links relevantes (use [LINK] como placeholder)
+   - Timestamps se aplicável (use [TIMESTAMP] como placeholder)
+
+2. Tags otimizadas (15-20 tags) que incluam:
+   - Palavras-chave principais
+   - Variações de palavras-chave
+   - Termos relacionados
+   - Termos de busca longa
+
+Responda APENAS com um JSON válido no formato:
+{
+  "description": "Descrição completa otimizada para SEO...",
+  "tags": ["tag1", "tag2", "tag3", ...]
+}
+
+IMPORTANTE: 
+- A descrição deve ser em português (Brasil)
+- As tags devem ser em português e inglês (quando relevante)
+- Foque em palavras-chave com alto volume de busca
+- Otimize para aparecer nas sugestões do YouTube
+
+Responda APENAS com o JSON, sem texto adicional.`;
+
+                const response = await apiCallFunction(prompt, decryptedKey, model);
+                const responseText = response.titles || response.text || '';
+                
+                // Tentar extrair JSON da resposta
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        if (parsed.description && parsed.tags && Array.isArray(parsed.tags)) {
+                            metadata = parsed;
+                            console.log(`[Auto-metadata] Metadata gerada usando ${service} (${parsed.tags.length} tags)`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`[Auto-metadata] Falha ao parsear JSON de ${service}:`, e.message);
+                    }
+                }
+            } catch (serviceErr) {
+                console.warn(`[Auto-metadata] Falha com ${service}:`, serviceErr.message);
+                continue;
+            }
+        }
+
+        // Fallback: gerar metadata básica
+        if (!metadata) {
+            const keywords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            metadata = {
+                description: `${title}\n\n${videoDescription || 'Conteúdo exclusivo sobre ' + (subniche || niche || 'este tema') + '. Não perca!'}\n\n🔔 Inscreva-se no canal para mais conteúdo!\n👍 Deixe seu like se gostou!\n💬 Comente o que achou!\n\n#${(subniche || niche || 'youtube').replace(/\s+/g, '')}`,
+                tags: keywords.slice(0, 15).concat([niche, subniche].filter(Boolean))
+            };
+        }
+
+        res.status(200).json({
+            description: metadata.description,
+            tags: metadata.tags
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/generate-metadata]:', err);
+        res.status(500).json({ msg: 'Erro ao gerar metadata.' });
+    }
+});
+
+// Agendar publicação de vídeo (mantido para compatibilidade, mas agora com suporte a auto-metadata)
 app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
-    const { youtubeIntegrationId, videoFilePath, title, description, tags, thumbnailUrl, scheduledTime } = req.body;
+    const { youtubeIntegrationId, videoFilePath, title, description, tags, thumbnailUrl, scheduledTime, autoGenerateMetadata } = req.body;
     const userId = req.user.id;
 
     if (!title || !scheduledTime) {
@@ -5332,10 +5805,42 @@ app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
     }
 
     try {
+        let finalDescription = description;
+        let finalTags = tags;
+
+        // Se autoGenerateMetadata estiver ativado, gerar automaticamente
+        if (autoGenerateMetadata) {
+            try {
+                // Buscar niche/subniche do usuário ou do vídeo
+                const userChannel = await db.get('SELECT niche, subniche FROM user_channels WHERE user_id = ? LIMIT 1', [userId]);
+                const metadata = await fetch(`${req.protocol}://${req.get('host')}/api/youtube/generate-metadata`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': req.headers['authorization']
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        niche: userChannel?.niche || null,
+                        subniche: userChannel?.subniche || null
+                    })
+                });
+
+                if (metadata.ok) {
+                    const metadataData = await metadata.json();
+                    finalDescription = metadataData.description || description;
+                    finalTags = metadataData.tags || tags;
+                    console.log('[Agendamento] Metadata gerada automaticamente');
+                }
+            } catch (metaErr) {
+                console.warn('[Agendamento] Falha ao gerar metadata automática, usando valores fornecidos:', metaErr.message);
+            }
+        }
+
         const result = await db.run(
             `INSERT INTO scheduled_posts (user_id, youtube_integration_id, video_file_path, title, description, tags, thumbnail_url, scheduled_time)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [userId, youtubeIntegrationId || null, videoFilePath || null, title, description || null, tags ? JSON.stringify(tags) : null, thumbnailUrl || null, scheduledTime]
+            [userId, youtubeIntegrationId || null, videoFilePath || null, title, finalDescription || null, finalTags ? JSON.stringify(finalTags) : null, thumbnailUrl || null, scheduledTime]
         );
         res.status(201).json({ id: result.lastID, msg: 'Publicação agendada com sucesso.' });
     } catch (err) {
@@ -5597,6 +6102,378 @@ app.get('/api/youtube/scheduled', authenticateToken, async (req, res) => {
         console.error('[ERRO NA ROTA /api/youtube/scheduled]:', err);
         // Retornar array vazio se a tabela não existir
         res.status(200).json([]);
+    }
+});
+
+// === PARTE 2.B: MONITORAMENTO AUTOMÁTICO ===
+
+// B.1 - Alertas de Vídeos Virais: Verificar e notificar sobre vídeos virais de competidores
+app.get('/api/youtube/viral-alerts', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const alerts = await db.all(
+            `SELECT * FROM viral_alerts 
+             WHERE user_id = ? AND notified = 0 
+             ORDER BY detected_at DESC 
+             LIMIT 50`,
+            [userId]
+        );
+
+        res.status(200).json({ alerts: alerts || [] });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/viral-alerts]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar alertas virais.' });
+    }
+});
+
+// B.2 - Análise Automática de Tendências: Escanear YouTube por novos vídeos virais
+app.post('/api/youtube/scan-trends', authenticateToken, async (req, res) => {
+    const { niche, subniche, maxResults = 10 } = req.body;
+    const userId = req.user.id;
+
+    if (!niche) {
+        return res.status(400).json({ msg: 'Nicho é obrigatório para escanear tendências.' });
+    }
+
+    try {
+        // Buscar chave do Gemini (necessária para YouTube API)
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+        if (!geminiKeyData) {
+            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária para escanear tendências.' });
+        }
+
+        const geminiApiKey = decrypt(geminiKeyData.api_key);
+        if (!geminiApiKey) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
+        }
+
+        // Buscar vídeos virais recentes usando YouTube Data API
+        const searchQuery = `${niche} ${subniche || ''}`.trim();
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&order=viewCount&maxResults=${maxResults}&publishedAfter=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}&key=${geminiApiKey}`;
+        
+        const searchResponse = await fetch(searchUrl);
+        if (!searchResponse.ok) {
+            throw new Error('Falha ao buscar vídeos do YouTube.');
+        }
+
+        const searchData = await searchResponse.json();
+        const videoIds = searchData.items.map(item => item.id.videoId).join(',');
+        
+        if (!videoIds) {
+            return res.status(200).json({ trends: [], msg: 'Nenhum vídeo encontrado.' });
+        }
+
+        // Buscar detalhes dos vídeos
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${geminiApiKey}`;
+        const detailsResponse = await fetch(detailsUrl);
+        const detailsData = await detailsResponse.json();
+
+        const trends = [];
+        for (const video of detailsData.items || []) {
+            const views = parseInt(video.statistics.viewCount || 0);
+            const publishedAt = new Date(video.snippet.publishedAt);
+            const daysSince = Math.round((new Date() - publishedAt) / (1000 * 60 * 60 * 24));
+            const viewsPerDay = daysSince > 0 ? views / daysSince : views;
+
+            // Verificar se é viral
+            if (isViralVideo(views, daysSince, viewsPerDay)) {
+                const videoData = {
+                    videoId: video.id,
+                    title: video.snippet.title,
+                    url: `https://www.youtube.com/watch?v=${video.id}`,
+                    channelId: video.snippet.channelId,
+                    channelName: video.snippet.channelTitle,
+                    views: views,
+                    viewsPerDay: Math.round(viewsPerDay),
+                    daysSince: daysSince,
+                    thumbnailUrl: video.snippet.thumbnails.high?.url || video.snippet.thumbnails.default?.url
+                };
+
+                // Salvar na tabela de tendências
+                await db.run(
+                    `INSERT INTO trend_analysis (user_id, niche, subniche, video_id, video_title, video_url, channel_id, channel_name, views, views_per_day)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [userId, niche, subniche || null, video.id, video.snippet.title, videoData.url, video.snippet.channelId, video.snippet.channelTitle, views, viewsPerDay]
+                );
+
+                trends.push(videoData);
+            }
+        }
+
+        res.status(200).json({ 
+            trends: trends,
+            count: trends.length,
+            msg: `${trends.length} vídeo(s) viral(is) encontrado(s) no nicho ${niche}.`
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/scan-trends]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao escanear tendências.' });
+    }
+});
+
+// B.3 - Auto-análise de Canais Competidores: Adicionar canal para monitoramento automático
+app.post('/api/youtube/monitor-competitor', authenticateToken, async (req, res) => {
+    const { competitorChannelId, competitorChannelName, niche, subniche, autoAnalyze = true, checkFrequency = 'daily' } = req.body;
+    const userId = req.user.id;
+
+    if (!competitorChannelId) {
+        return res.status(400).json({ msg: 'ID do canal competidor é obrigatório.' });
+    }
+
+    try {
+        // Verificar se já está sendo monitorado
+        const existing = await db.get(
+            'SELECT * FROM competitor_monitoring WHERE user_id = ? AND competitor_channel_id = ?',
+            [userId, competitorChannelId]
+        );
+
+        if (existing) {
+            // Atualizar configurações
+            await db.run(
+                `UPDATE competitor_monitoring 
+                 SET competitor_channel_name = ?, niche = ?, subniche = ?, auto_analyze = ?, check_frequency = ?
+                 WHERE id = ?`,
+                [competitorChannelName || existing.competitor_channel_name, niche || null, subniche || null, autoAnalyze ? 1 : 0, checkFrequency, existing.id]
+            );
+            return res.status(200).json({ id: existing.id, msg: 'Configurações de monitoramento atualizadas.' });
+        } else {
+            // Criar novo monitoramento
+            const result = await db.run(
+                `INSERT INTO competitor_monitoring (user_id, competitor_channel_id, competitor_channel_name, niche, subniche, auto_analyze, check_frequency)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, competitorChannelId, competitorChannelName || null, niche || null, subniche || null, autoAnalyze ? 1 : 0, checkFrequency]
+            );
+            return res.status(201).json({ id: result.lastID, msg: 'Canal adicionado para monitoramento automático.' });
+        }
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/monitor-competitor]:', err);
+        res.status(500).json({ msg: 'Erro ao configurar monitoramento.' });
+    }
+});
+
+// Listar canais monitorados
+app.get('/api/youtube/monitored-competitors', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const competitors = await db.all(
+            'SELECT * FROM competitor_monitoring WHERE user_id = ? ORDER BY created_at DESC',
+            [userId]
+        );
+
+        res.status(200).json({ competitors: competitors || [] });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/monitored-competitors]:', err);
+        res.status(500).json({ msg: 'Erro ao listar canais monitorados.' });
+    }
+});
+
+// Remover canal do monitoramento
+app.delete('/api/youtube/monitor-competitor/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        const result = await db.run(
+            'DELETE FROM competitor_monitoring WHERE id = ? AND user_id = ?',
+            [id, userId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Monitoramento não encontrado.' });
+        }
+
+        res.status(200).json({ msg: 'Monitoramento removido com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/monitor-competitor DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao remover monitoramento.' });
+    }
+});
+
+// B.4 - Sugestões Automáticas: IA sugere novos vídeos baseado em tendências
+app.get('/api/youtube/ai-suggestions', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { limit = 10 } = req.query;
+
+    try {
+        const suggestions = await db.all(
+            `SELECT * FROM ai_suggestions 
+             WHERE user_id = ? AND viewed = 0 
+             ORDER BY priority DESC, created_at DESC 
+             LIMIT ?`,
+            [userId, parseInt(limit)]
+        );
+
+        res.status(200).json({ suggestions: suggestions || [] });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/ai-suggestions]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar sugestões.' });
+    }
+});
+
+// Gerar sugestões automáticas baseadas em tendências
+app.post('/api/youtube/generate-suggestions', authenticateToken, async (req, res) => {
+    const { niche, subniche } = req.body;
+    const userId = req.user.id;
+
+    if (!niche) {
+        return res.status(400).json({ msg: 'Nicho é obrigatório para gerar sugestões.' });
+    }
+
+    try {
+        // Buscar tendências recentes do usuário
+        const recentTrends = await db.all(
+            `SELECT * FROM trend_analysis 
+             WHERE user_id = ? AND niche = ? AND analyzed = 0 
+             ORDER BY detected_at DESC LIMIT 5`,
+            [userId, niche]
+        );
+
+        if (recentTrends.length === 0) {
+            return res.status(200).json({ 
+                suggestions: [],
+                msg: 'Nenhuma tendência recente encontrada. Execute uma análise de tendências primeiro.'
+            });
+        }
+
+        // Tentar usar IA para gerar sugestões baseadas nas tendências
+        const services = ['gemini', 'claude', 'openai'];
+        let suggestions = [];
+
+        for (const service of services) {
+            try {
+                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (!serviceKeyData) continue;
+
+                const decryptedKey = decrypt(serviceKeyData.api_key);
+                if (!decryptedKey) continue;
+
+                let apiCallFunction;
+                let model;
+                if (service === 'gemini') {
+                    apiCallFunction = callGeminiAPI;
+                    model = 'gemini-2.0-flash';
+                } else if (service === 'claude') {
+                    apiCallFunction = callClaudeAPI;
+                    model = 'claude-3-5-haiku-20241022';
+                } else {
+                    apiCallFunction = callOpenAIAPI;
+                    model = 'gpt-4o-mini';
+                }
+
+                const trendsSummary = recentTrends.map(t => `- "${t.video_title}" (${t.views} views em ${t.views_per_day} views/dia)`).join('\n');
+
+                const prompt = `Você é um especialista em criação de conteúdo viral para YouTube.
+
+Analise as seguintes tendências virais no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}:
+
+${trendsSummary}
+
+Com base nessas tendências virais, sugira 5 NOVOS vídeos que o criador poderia fazer para aproveitar essas tendências e potencialmente viralizar também.
+
+Para cada sugestão, forneça:
+1. Um título viral e chamativo
+2. Uma breve descrição do conceito do vídeo
+3. O motivo pelo qual esta ideia tem potencial de viralizar
+
+Responda APENAS com um JSON válido no formato:
+{
+  "suggestions": [
+    {
+      "title": "Título viral sugerido",
+      "description": "Descrição do conceito do vídeo",
+      "reason": "Por que esta ideia tem potencial de viralizar",
+      "priority": 8 (1-10, sendo 10 o maior potencial)
+    },
+    ...
+  ]
+}
+
+IMPORTANTE: 
+- Os títulos devem ser em português (Brasil)
+- Foque em ideias que aproveitem os padrões das tendências analisadas
+- Seja específico e criativo
+- Priorize ideias com alto potencial de engajamento
+
+Responda APENAS com o JSON, sem texto adicional.`;
+
+                const response = await apiCallFunction(prompt, decryptedKey, model);
+                const responseText = response.titles || response.text || '';
+                
+                // Tentar extrair JSON da resposta
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
+                            // Salvar sugestões no banco
+                            for (const suggestion of parsed.suggestions) {
+                                await db.run(
+                                    `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority)
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                    [userId, 'trend_based', suggestion.title, suggestion.description, niche, subniche || null, suggestion.reason, suggestion.priority || 5]
+                                );
+                            }
+                            suggestions = parsed.suggestions;
+                            console.log(`[Sugestões IA] ${suggestions.length} sugestões geradas usando ${service}`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`[Sugestões IA] Falha ao parsear JSON de ${service}:`, e.message);
+                    }
+                }
+            } catch (serviceErr) {
+                console.warn(`[Sugestões IA] Falha com ${service}:`, serviceErr.message);
+                continue;
+            }
+        }
+
+        // Fallback: gerar sugestões básicas baseadas nos títulos das tendências
+        if (suggestions.length === 0) {
+            for (const trend of recentTrends.slice(0, 3)) {
+                await db.run(
+                    `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [userId, 'trend_based', `Versão adaptada: ${trend.video_title}`, `Crie uma versão adaptada deste vídeo viral para seu canal`, niche, subniche || null, `Baseado no vídeo viral "${trend.video_title}" com ${trend.views} views`, 7]
+                );
+            }
+            suggestions = recentTrends.slice(0, 3).map(t => ({
+                title: `Versão adaptada: ${t.video_title}`,
+                description: `Crie uma versão adaptada deste vídeo viral para seu canal`,
+                reason: `Baseado no vídeo viral com ${t.views} views`,
+                priority: 7
+            }));
+        }
+
+        res.status(200).json({ 
+            suggestions: suggestions,
+            count: suggestions.length,
+            msg: `${suggestions.length} sugestão(ões) gerada(s) com sucesso.`
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/generate-suggestions]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar sugestões.' });
+    }
+});
+
+// Marcar sugestão como visualizada
+app.put('/api/youtube/ai-suggestions/:id/viewed', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        await db.run(
+            'UPDATE ai_suggestions SET viewed = 1 WHERE id = ? AND user_id = ?',
+            [id, userId]
+        );
+
+        res.status(200).json({ msg: 'Sugestão marcada como visualizada.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/ai-suggestions PUT]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar sugestão.' });
     }
 });
 

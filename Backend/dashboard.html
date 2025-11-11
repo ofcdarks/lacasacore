@@ -333,25 +333,25 @@
                 </div>
 
                 <!-- Dicas da IA e Próximos Passos -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <!-- Dicas da IA -->
-                    <div class="bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-6">
-                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                    <!-- Dicas da IA - Coluna Direita Compacta -->
+                    <div class="lg:col-span-1 bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-4">
+                        <h2 class="text-lg font-semibold text-white mb-3 flex items-center">
                             <i data-lucide="sparkles" class="w-5 h-5 mr-2 text-amber-400"></i>
                             Dicas da IA
                         </h2>
-                        <div id="ai-tips" class="space-y-3">
-                            <div class="bg-gray-800/50 rounded-lg p-4 border border-amber-700/30">
-                                <div class="flex items-start space-x-3">
-                                    <i data-lucide="loader" class="w-5 h-5 text-amber-400 mt-0.5 animate-spin"></i>
-                                    <p class="text-gray-300 text-sm">Analisando seus dados para gerar dicas personalizadas...</p>
+                        <div id="ai-tips" class="space-y-2 max-h-[500px] overflow-y-auto pr-2" style="scrollbar-width: thin; scrollbar-color: rgba(251, 191, 36, 0.5) transparent;">
+                            <div class="bg-gray-800/50 rounded-lg p-3 border border-amber-700/30">
+                                <div class="flex items-start space-x-2">
+                                    <i data-lucide="loader" class="w-4 h-4 text-amber-400 mt-0.5 animate-spin flex-shrink-0"></i>
+                                    <p class="text-gray-300 text-xs">Analisando seus dados para gerar dicas personalizadas...</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Próximos Passos -->
-                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <!-- Próximos Passos - Colunas Centrais -->
+                    <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-lg p-6">
                         <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
                             <i data-lucide="target" class="w-5 h-5 mr-2 text-amber-500"></i>
                             Próximos Passos
@@ -2520,11 +2520,12 @@
                 setButtonLoading(targetButton, true);
 
                 try {
-                    // Buscar dados do contexto (niche, subniche, style) do card ou do formulário
-                    const niche = card.getAttribute('data-niche') || document.getElementById('input-niche')?.value || '';
-                    const subniche = card.getAttribute('data-subniche') || document.getElementById('input-subniche')?.value || '';
-                    const style = card.getAttribute('data-style') || document.getElementById('input-style')?.value || '';
-
+                    // Obter dados do contexto atual (niche, subniche, style, etc.)
+                    const nicheData = card.getAttribute('data-niche') || currentAnalysisData?.niche || '';
+                    const subnicheData = card.getAttribute('data-subniche') || currentAnalysisData?.subniche || '';
+                    const styleData = card.getAttribute('data-style') || document.getElementById('input-style')?.value || '';
+                    const views = currentAnalysisData?.videoDetails?.views || 0;
+                    
                     const response = await fetch(`${API_BASE}/api/generate/imagefx`, {
                         method: 'POST',
                         headers: {
@@ -2533,10 +2534,10 @@
                         },
                         body: JSON.stringify({ 
                             prompt: promptDesc,
-                            niche: niche,
-                            subniche: subniche,
-                            style: style,
-                            saveToLibrary: true // Sempre salvar na biblioteca quando gerar
+                            niche: nicheData,
+                            subniche: subnicheData,
+                            style: styleData,
+                            saveToLibrary: true // Salvar automaticamente na biblioteca
                         })
                     });
 
@@ -2544,13 +2545,30 @@
                     if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
 
                     if (imageFxResult) {
+                        const imageUrl = data.imageUrl;
+                        const savedToLibrary = data.savedToLibrary || false;
+                        const libraryId = data.libraryId || null;
+                        
                         imageFxResult.innerHTML = `
-                            <img src="${data.imageUrl}" alt="Imagem gerada" class="rounded-lg w-full mb-2">
-                            ${data.savedToLibrary ? '<p class="text-green-400 text-xs mb-2">✓ Imagem salva na biblioteca automaticamente!</p>' : ''}
-                            <button type="button" class="btn-download-image mt-2 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs w-full" data-url="${data.imageUrl}" data-title="${promptDesc.substring(0, 20)}">
-                                <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
-                                <span>Baixar Imagem</span>
-                            </button>
+                            <img src="${imageUrl}" alt="Imagem gerada" class="rounded-lg w-full mb-3" style="max-height: 400px; object-fit: contain;">
+                            <div class="flex gap-2">
+                                <button type="button" class="btn-download-image flex-1 py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs" data-url="${imageUrl}" data-title="${promptDesc.substring(0, 20)}">
+                                    <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
+                                    <span>Baixar Imagem</span>
+                                </button>
+                                <button type="button" class="btn-save-to-library py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold ${savedToLibrary ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'} text-white text-xs" 
+                                        data-image-url="${imageUrl}"
+                                        data-prompt="${promptDesc.replace(/"/g, '&quot;')}"
+                                        data-niche="${nicheData}"
+                                        data-subniche="${subnicheData}"
+                                        data-style="${styleData}"
+                                        data-views="${views}"
+                                        data-library-id="${libraryId || ''}"
+                                        ${savedToLibrary ? 'disabled' : ''}>
+                                    <i data-lucide="${savedToLibrary ? 'check' : 'save'}" class="w-4 h-4 mr-1.5"></i>
+                                    <span>${savedToLibrary ? 'Salvo!' : 'Salvar na Biblioteca'}</span>
+                                </button>
+                            </div>
                         `;
                         imageFxResult.style.display = 'block';
                         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -2569,13 +2587,15 @@
             });
             
             thumbResultadosDiv.addEventListener('click', (e) => {
-                const targetButton = e.target.closest('.btn-download-image');
-                if (!targetButton) return;
-                
-                e.preventDefault();
-                const url = targetButton.getAttribute('data-url');
-                const title = targetButton.getAttribute('data-title');
-                downloadBase64Image(url, title);
+                // Download de imagem
+                const downloadButton = e.target.closest('.btn-download-image');
+                if (downloadButton) {
+                    e.preventDefault();
+                    const url = downloadButton.getAttribute('data-url');
+                    const title = downloadButton.getAttribute('data-title');
+                    downloadBase64Image(url, title);
+                    return;
+                }
             });
 
 
@@ -2865,7 +2885,8 @@
                                 niche: data.niche,
                                 subniche: data.subniche,
                                 model: data.modelUsed,
-                                generatedTitles: data.titulosSugeridos
+                                generatedTitles: data.titulosSugeridos,
+                                videoDetails: data.videoDetails // Incluir videoDetails para acesso a views, etc.
                             };
                             
                         } catch (err) {
@@ -4212,7 +4233,7 @@
                     return (priority[b.type] || 0) - (priority[a.type] || 0);
                 });
                 
-                const topTips = tips.slice(0, 8);
+                const topTips = tips.slice(0, 6); // Reduzir para 6 dicas para layout mais compacto
                 
                 // Se não houver dicas, adicionar uma padrão
                 if (topTips.length === 0) {
@@ -4224,21 +4245,34 @@
                     });
                 }
                 
-                const tipsHtml = topTips.map(tip => `
-                    <div class="bg-gray-800/50 rounded-lg p-4 border border-amber-700/30 hover:border-amber-600/50 transition-colors">
-                        <div class="flex items-start space-x-3">
-                            <div class="p-2 bg-amber-500/20 rounded-lg flex-shrink-0">
-                                <i data-lucide="${tip.icon}" class="w-5 h-5 text-amber-400"></i>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <h4 class="text-white font-semibold mb-1.5">${tip.title}</h4>
-                                <p class="text-gray-300 text-sm leading-relaxed">${tip.text}</p>
+                // Renderizar dicas de forma mais compacta
+                container.innerHTML = '';
+                topTips.forEach(tip => {
+                    const tipClass = tip.type === 'warning' 
+                        ? 'bg-red-900/20 border-red-700/30' 
+                        : tip.type === 'success' 
+                        ? 'bg-green-900/20 border-green-700/30' 
+                        : 'bg-gray-800/40 border-amber-700/20';
+                    
+                    const iconClass = tip.type === 'warning' 
+                        ? 'text-red-400' 
+                        : tip.type === 'success' 
+                        ? 'text-green-400' 
+                        : 'text-amber-400';
+                    
+                    container.innerHTML += `
+                        <div class="${tipClass} rounded-lg p-2.5 border">
+                            <div class="flex items-start space-x-2">
+                                <i data-lucide="${tip.icon}" class="w-4 h-4 ${iconClass} mt-0.5 flex-shrink-0"></i>
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="text-xs font-semibold text-white mb-1 leading-tight">${tip.title}</h3>
+                                    <p class="text-gray-300 text-xs leading-relaxed">${tip.text}</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                `).join('');
+                    `;
+                });
                 
-                container.innerHTML = tipsHtml;
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
 

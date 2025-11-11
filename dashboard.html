@@ -342,25 +342,25 @@
                 </div>
 
                 <!-- Dicas da IA e Próximos Passos -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <!-- Dicas da IA -->
-                    <div class="bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-6">
-                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                    <!-- Dicas da IA - Coluna Direita Compacta -->
+                    <div class="lg:col-span-1 bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-4">
+                        <h2 class="text-lg font-semibold text-white mb-3 flex items-center">
                             <i data-lucide="sparkles" class="w-5 h-5 mr-2 text-amber-400"></i>
                             Dicas da IA
                         </h2>
-                        <div id="ai-tips" class="space-y-3">
-                            <div class="bg-gray-800/50 rounded-lg p-4 border border-amber-700/30">
-                                <div class="flex items-start space-x-3">
-                                    <i data-lucide="loader" class="w-5 h-5 text-amber-400 mt-0.5 animate-spin"></i>
-                                    <p class="text-gray-300 text-sm">Analisando seus dados para gerar dicas personalizadas...</p>
+                        <div id="ai-tips" class="space-y-2 max-h-[500px] overflow-y-auto pr-2" style="scrollbar-width: thin; scrollbar-color: rgba(251, 191, 36, 0.5) transparent;">
+                            <div class="bg-gray-800/50 rounded-lg p-3 border border-amber-700/30">
+                                <div class="flex items-start space-x-2">
+                                    <i data-lucide="loader" class="w-4 h-4 text-amber-400 mt-0.5 animate-spin flex-shrink-0"></i>
+                                    <p class="text-gray-300 text-xs">Analisando seus dados para gerar dicas personalizadas...</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Próximos Passos -->
-                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <!-- Próximos Passos - Colunas Centrais -->
+                    <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-lg p-6">
                         <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
                             <i data-lucide="target" class="w-5 h-5 mr-2 text-amber-500"></i>
                             Próximos Passos
@@ -948,32 +948,237 @@
             <div id="view-youtube-integration" style="display: none;">
                 <header class="mb-8">
                     <h1 class="text-3xl md:text-4xl font-bold text-white">🎬 Integração com YouTube</h1>
-                    <p class="text-lg text-gray-400">Publique vídeos automaticamente e gerencie seu canal</p>
+                    <p class="text-lg text-gray-400">Publique vídeos automaticamente, monitore tendências e gerencie seu canal</p>
                 </header>
 
                 <div id="youtube-integration-error-message" class="error-message mb-6"></div>
                 <div id="youtube-integration-success-message" class="success-message mb-6"></div>
 
-                <!-- Status da Integração -->
-                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-semibold text-white">Canais Conectados</h2>
-                        <button id="btn-connect-youtube" class="py-2 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-red-600 hover:bg-red-500 text-white text-sm">
-                            <i data-lucide="plus"></i>
-                            <span>Adicionar Canal</span>
+                <!-- Tabs de Navegação -->
+                <div class="border-b border-gray-700 mb-6">
+                    <nav class="flex space-x-8">
+                        <button onclick="switchYouTubeTab('channels')" id="youtube-tab-channels" class="youtube-tab-button py-4 px-1 border-b-2 border-amber-500 font-medium text-sm text-amber-500">
+                            <i data-lucide="tv" class="w-4 h-4 inline mr-2"></i> Canais
                         </button>
-                    </div>
-                    <div id="youtube-channels-list" class="space-y-3 mb-4">
-                        <p class="text-gray-400">Carregando canais...</p>
-                    </div>
-                    <div id="youtube-integration-status" class="text-gray-400"></div>
+                        <button onclick="switchYouTubeTab('schedule')" id="youtube-tab-schedule" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="calendar" class="w-4 h-4 inline mr-2"></i> Agendamento
+                        </button>
+                        <button onclick="switchYouTubeTab('trends')" id="youtube-tab-trends" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="trending-up" class="w-4 h-4 inline mr-2"></i> Tendências
+                        </button>
+                        <button onclick="switchYouTubeTab('competitors')" id="youtube-tab-competitors" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="users" class="w-4 h-4 inline mr-2"></i> Competidores
+                        </button>
+                        <button onclick="switchYouTubeTab('suggestions')" id="youtube-tab-suggestions" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="sparkles" class="w-4 h-4 inline mr-2"></i> Sugestões IA
+                        </button>
+                        <button onclick="switchYouTubeTab('alerts')" id="youtube-tab-alerts" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="bell" class="w-4 h-4 inline mr-2"></i> Alertas
+                        </button>
+                    </nav>
                 </div>
 
-                <!-- Publicações Agendadas -->
-                <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-                    <h2 class="text-xl font-semibold text-white mb-4">Publicações Agendadas</h2>
-                    <div id="scheduled-posts-list" class="space-y-4">
-                        <p class="text-gray-400">Nenhuma publicação agendada.</p>
+                <!-- TAB 1: Canais Conectados -->
+                <div id="youtube-tab-content-channels" class="youtube-tab-content">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold text-white">Canais Conectados</h2>
+                            <button id="btn-connect-youtube" class="py-2 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-red-600 hover:bg-red-500 text-white text-sm">
+                                <i data-lucide="plus"></i>
+                                <span>Adicionar Canal</span>
+                            </button>
+                        </div>
+                        <div id="youtube-channels-list" class="space-y-3 mb-4">
+                            <p class="text-gray-400">Carregando canais...</p>
+                        </div>
+                        <div id="youtube-integration-status" class="text-gray-400"></div>
+                    </div>
+
+                    <!-- Publicações Agendadas -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">Publicações Agendadas</h2>
+                        <div id="scheduled-posts-list" class="space-y-4">
+                            <p class="text-gray-400">Nenhuma publicação agendada.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Agendamento Inteligente -->
+                <div id="youtube-tab-content-schedule" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">🤖 Agendamento Inteligente</h2>
+                        <p class="text-gray-400 mb-6">A IA sugere o melhor horário para publicar baseado no seu nicho</p>
+                        
+                        <form id="suggest-time-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
+                                <input type="text" id="suggest-time-niche" placeholder="Ex: Entretenimento, Educação, Tecnologia" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho (Opcional)</label>
+                                <input type="text" id="suggest-time-subniche" placeholder="Ex: Gaming, Finanças Pessoais" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                <i data-lucide="sparkles" class="w-4 h-4 inline mr-2"></i> Sugerir Melhor Horário
+                            </button>
+                        </form>
+                        
+                        <div id="suggested-time-result" class="mt-6 hidden">
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-white font-semibold mb-2">⏰ Horário Sugerido</h3>
+                                <p id="suggested-time" class="text-amber-400 text-2xl font-bold mb-2"></p>
+                                <p id="suggested-days" class="text-gray-300 mb-3"></p>
+                                <p id="suggested-explanation" class="text-gray-400 text-sm"></p>
+                                <div id="suggested-alternatives" class="mt-3">
+                                    <p class="text-gray-400 text-sm mb-2">Horários alternativos:</p>
+                                    <div id="alternative-times" class="flex flex-wrap gap-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">🏷️ Gerador Automático de Tags e Descrição</h2>
+                        <p class="text-gray-400 mb-6">Gere automaticamente tags e descrição otimizadas para SEO usando IA</p>
+                        
+                        <form id="generate-metadata-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Título do Vídeo</label>
+                                <input type="text" id="metadata-title" placeholder="Digite o título do vídeo" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho (Opcional)</label>
+                                <input type="text" id="metadata-niche" placeholder="Ex: Entretenimento" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Descrição do Conteúdo (Opcional)</label>
+                                <textarea id="metadata-description" rows="3" placeholder="Descreva brevemente o conteúdo do vídeo" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500"></textarea>
+                            </div>
+                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                <i data-lucide="wand-2" class="w-4 h-4 inline mr-2"></i> Gerar Metadata
+                            </button>
+                        </form>
+                        
+                        <div id="generated-metadata-result" class="mt-6 hidden">
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-4">
+                                <div>
+                                    <h3 class="text-white font-semibold mb-2">Descrição Otimizada:</h3>
+                                    <textarea id="generated-description" rows="6" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm" readonly></textarea>
+                                    <button onclick="copyToClipboard('generated-description')" class="mt-2 py-1 px-3 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs">
+                                        <i data-lucide="copy" class="w-3 h-3 inline mr-1"></i> Copiar
+                                    </button>
+                                </div>
+                                <div>
+                                    <h3 class="text-white font-semibold mb-2">Tags Otimizadas:</h3>
+                                    <div id="generated-tags" class="flex flex-wrap gap-2 mb-2"></div>
+                                    <button onclick="copyTagsToClipboard()" class="py-1 px-3 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs">
+                                        <i data-lucide="copy" class="w-3 h-3 inline mr-1"></i> Copiar Tags
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: Análise de Tendências -->
+                <div id="youtube-tab-content-trends" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">📈 Análise Automática de Tendências</h2>
+                        <p class="text-gray-400 mb-6">Escanee o YouTube por vídeos virais recentes no seu nicho</p>
+                        
+                        <form id="scan-trends-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
+                                <input type="text" id="trends-niche" placeholder="Ex: Entretenimento, Educação" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho (Opcional)</label>
+                                <input type="text" id="trends-subniche" placeholder="Ex: Gaming, Finanças" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Número de Resultados</label>
+                                <input type="number" id="trends-max-results" value="10" min="1" max="50" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                <i data-lucide="search" class="w-4 h-4 inline mr-2"></i> Escanear Tendências
+                            </button>
+                        </form>
+                    </div>
+
+                    <div id="trends-results" class="space-y-4">
+                        <!-- Resultados serão inseridos aqui -->
+                    </div>
+                </div>
+
+                <!-- TAB 4: Monitoramento de Competidores -->
+                <div id="youtube-tab-content-competitors" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">👥 Monitoramento de Competidores</h2>
+                        <p class="text-gray-400 mb-6">Adicione canais competidores para monitoramento automático</p>
+                        
+                        <form id="monitor-competitor-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">URL ou ID do Canal Competidor</label>
+                                <input type="text" id="competitor-channel-id" placeholder="https://youtube.com/@canal ou UC..." class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nome do Canal (Opcional)</label>
+                                <input type="text" id="competitor-channel-name" placeholder="Nome do canal" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho (Opcional)</label>
+                                <input type="text" id="competitor-niche" placeholder="Ex: Entretenimento" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div class="flex items-center">
+                                <input type="checkbox" id="competitor-auto-analyze" checked class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
+                                <label for="competitor-auto-analyze" class="ml-2 text-sm text-gray-300">Análise automática ativada</label>
+                            </div>
+                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                <i data-lucide="plus" class="w-4 h-4 inline mr-2"></i> Adicionar Competidor
+                            </button>
+                        </form>
+                    </div>
+
+                    <div id="monitored-competitors-list" class="space-y-4">
+                        <p class="text-gray-400">Carregando competidores monitorados...</p>
+                    </div>
+                </div>
+
+                <!-- TAB 5: Sugestões IA -->
+                <div id="youtube-tab-content-suggestions" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">✨ Sugestões Automáticas de Vídeos</h2>
+                        <p class="text-gray-400 mb-6">A IA analisa tendências e sugere novos vídeos com potencial viral</p>
+                        
+                        <form id="generate-suggestions-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
+                                <input type="text" id="suggestions-niche" placeholder="Ex: Entretenimento" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho (Opcional)</label>
+                                <input type="text" id="suggestions-subniche" placeholder="Ex: Gaming" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                <i data-lucide="sparkles" class="w-4 h-4 inline mr-2"></i> Gerar Sugestões
+                            </button>
+                        </form>
+                    </div>
+
+                    <div id="ai-suggestions-list" class="space-y-4">
+                        <p class="text-gray-400">Carregando sugestões...</p>
+                    </div>
+                </div>
+
+                <!-- TAB 6: Alertas Virais -->
+                <div id="youtube-tab-content-alerts" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">🔔 Alertas de Vídeos Virais</h2>
+                        <p class="text-gray-400 mb-6">Notificações sobre vídeos virais de competidores monitorados</p>
+                        
+                        <div id="viral-alerts-list" class="space-y-4">
+                            <p class="text-gray-400">Carregando alertas...</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1753,6 +1958,8 @@
                 if (viewName === 'youtube-integration') {
                     loadYouTubeIntegrationStatus();
                     loadScheduledPosts();
+                    // Inicializar na tab de canais por padrão
+                    switchYouTubeTab('channels');
                 }
                 
                 if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -1926,8 +2133,9 @@
                         videoId: data.videoDetails.videoId,
                         niche: data.niche,
                         subniche: data.subniche,
-                        model: model, 
-                        generatedTitles: data.titulosSugeridos
+                        model: model,
+                        generatedTitles: data.titulosSugeridos,
+                        videoDetails: data.videoDetails // Incluir videoDetails para acesso a views, etc.
                     };
 
                     populateAnalysisResults(data, videoUrl);
@@ -2463,25 +2671,69 @@
                 setButtonLoading(targetButton, true);
 
                 try {
+                    // Obter dados do contexto atual (niche, subniche, style, etc.)
+                    const niche = currentAnalysisData?.niche || '';
+                    const subniche = currentAnalysisData?.subniche || '';
+                    const style = thumbStyleSelect?.value || '';
+                    // Tentar obter views do vídeo - buscar do contexto da análise
+                    let views = 0;
+                    try {
+                        // Verificar se há dados do vídeo no contexto
+                        if (currentAnalysisData?.videoDetails?.views) {
+                            views = currentAnalysisData.videoDetails.views;
+                        } else {
+                            // Tentar obter do card atual (se houver)
+                            const card = targetButton.closest('.bg-gray-800');
+                            // Se não houver views disponíveis, usar 0 (será atualizado quando o vídeo for rastreado)
+                            views = 0;
+                        }
+                    } catch (e) {
+                        views = 0;
+                    }
+                    
                     const response = await fetch(`${API_BASE}/api/generate/imagefx`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}`
                         },
-                        body: JSON.stringify({ prompt: promptDesc })
+                        body: JSON.stringify({ 
+                            prompt: promptDesc,
+                            niche: niche,
+                            subniche: subniche,
+                            style: style,
+                            saveToLibrary: true // Salvar automaticamente na biblioteca
+                        })
                     });
 
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.msg || 'Erro desconhecido');
 
                     if (imageFxResult) {
+                        const imageUrl = data.imageUrl;
+                        const savedToLibrary = data.savedToLibrary || false;
+                        const libraryId = data.libraryId || null;
+                        
                         imageFxResult.innerHTML = `
-                            <img src="${data.imageUrl}" alt="Imagem gerada" class="rounded-lg w-full">
-                            <button type="button" class="btn-download-image mt-2 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs w-full" data-url="${data.imageUrl}" data-title="${promptDesc.substring(0, 20)}">
-                                <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
-                                <span>Baixar Imagem</span>
-                            </button>
+                            <img src="${imageUrl}" alt="Imagem gerada" class="rounded-lg w-full mb-3" style="max-height: 400px; object-fit: contain;">
+                            <div class="flex gap-2">
+                                <button type="button" class="btn-download-image flex-1 py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs" data-url="${imageUrl}" data-title="${promptDesc.substring(0, 20)}">
+                                    <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
+                                    <span>Baixar Imagem</span>
+                                </button>
+                                <button type="button" class="btn-save-to-library py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold ${savedToLibrary ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'} text-white text-xs" 
+                                        data-image-url="${imageUrl}"
+                                        data-prompt="${promptDesc.replace(/"/g, '&quot;')}"
+                                        data-niche="${niche}"
+                                        data-subniche="${subniche}"
+                                        data-style="${style}"
+                                        data-views="${views}"
+                                        data-library-id="${libraryId || ''}"
+                                        ${savedToLibrary ? 'disabled' : ''}>
+                                    <i data-lucide="${savedToLibrary ? 'check' : 'save'}" class="w-4 h-4 mr-1.5"></i>
+                                    <span>${savedToLibrary ? 'Salvo!' : 'Salvar na Biblioteca'}</span>
+                                </button>
+                            </div>
                         `;
                         imageFxResult.style.display = 'block';
                         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -2500,13 +2752,15 @@
             });
             
             thumbResultadosDiv.addEventListener('click', (e) => {
-                const targetButton = e.target.closest('.btn-download-image');
-                if (!targetButton) return;
-                
-                e.preventDefault();
-                const url = targetButton.getAttribute('data-url');
-                const title = targetButton.getAttribute('data-title');
-                downloadBase64Image(url, title);
+                // Download de imagem
+                const downloadButton = e.target.closest('.btn-download-image');
+                if (downloadButton) {
+                    e.preventDefault();
+                    const url = downloadButton.getAttribute('data-url');
+                    const title = downloadButton.getAttribute('data-title');
+                    downloadBase64Image(url, title);
+                    return;
+                }
             });
 
 
@@ -4686,7 +4940,11 @@
                                 <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
                                     ${thumb.thumbnail_url ? `
                                         <div class="relative mb-2">
-                                            <img src="${thumb.thumbnail_url}" alt="Thumbnail" class="w-full h-48 object-contain bg-gray-900 rounded-lg" style="object-fit: contain;">
+                                            <img src="${thumb.thumbnail_url}" 
+                                                 alt="Thumbnail" 
+                                                 class="w-full h-48 object-cover bg-gray-900 rounded-lg" 
+                                                 style="object-fit: cover;"
+                                                 onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'w-full h-48 bg-gray-900 rounded-lg flex items-center justify-center text-gray-500 text-xs\\'>Erro ao carregar imagem</div>';">
                                         </div>
                                     ` : '<div class="w-full h-48 bg-gray-900 rounded-lg mb-2 flex items-center justify-center text-gray-500 text-xs">Sem imagem</div>'}
                                     <h3 class="text-white font-semibold text-sm mb-1">${thumb.niche || 'N/A'} • ${thumb.subniche || 'N/A'}</h3>
@@ -4707,14 +4965,15 @@
                                     ` : ''}
                                     <div class="flex items-center justify-between gap-2 mt-2">
                                         <div class="flex items-center gap-2">
+                                            ${thumb.thumbnail_url ? `
                                             <button class="btn-download-thumb px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold flex items-center space-x-1" 
-                                                    data-thumb-url="${thumb.thumbnail_url || ''}"
+                                                    data-thumb-url="${thumb.thumbnail_url}"
                                                     data-thumb-filename="${(thumb.niche || 'thumbnail').replace(/"/g, '&quot;')}"
-                                                    title="Baixar thumbnail"
-                                                    ${!thumb.thumbnail_url ? 'style="display: none;"' : ''}>
+                                                    title="Baixar thumbnail">
                                                 <i data-lucide="download" class="w-3 h-3"></i>
                                                 <span>Download</span>
                                             </button>
+                                            ` : ''}
                                             ${description ? `
                                                 <button class="btn-copy-prompt px-2 py-1 bg-amber-600 hover:bg-amber-500 text-black rounded text-xs font-bold flex items-center space-x-1" 
                                                         data-prompt="${description.replace(/"/g, '&quot;')}"
@@ -5346,6 +5605,346 @@
             if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
             if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
             return num.toString();
+        }
+
+        // === FUNCIONALIDADES PARTE 2: AUTOMAÇÃO YOUTUBE ===
+
+        // Função para trocar de tab no YouTube Integration
+        window.switchYouTubeTab = function(tabName) {
+            document.querySelectorAll('.youtube-tab-content').forEach(content => content.style.display = 'none');
+            document.querySelectorAll('.youtube-tab-button').forEach(btn => {
+                btn.classList.remove('border-amber-500', 'text-amber-500');
+                btn.classList.add('border-transparent', 'text-gray-400');
+            });
+            const content = document.getElementById(`youtube-tab-content-${tabName}`);
+            if (content) content.style.display = 'block';
+            const button = document.getElementById(`youtube-tab-${tabName}`);
+            if (button) {
+                button.classList.add('border-amber-500', 'text-amber-500');
+                button.classList.remove('border-transparent', 'text-gray-400');
+            }
+            if (tabName === 'competitors') loadMonitoredCompetitors();
+            else if (tabName === 'suggestions') loadAISuggestions();
+            else if (tabName === 'alerts') loadViralAlerts();
+        };
+
+        // A.1 - Agendamento Inteligente
+        const suggestTimeForm = document.getElementById('suggest-time-form');
+        if (suggestTimeForm) {
+            suggestTimeForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/suggest-best-time`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            niche: document.getElementById('suggest-time-niche').value,
+                            subniche: document.getElementById('suggest-time-subniche').value
+                        })
+                    });
+                    if (!response.ok) throw new Error('Falha ao sugerir horário');
+                    const data = await response.json();
+                    const resultDiv = document.getElementById('suggested-time-result');
+                    if (resultDiv) {
+                        document.getElementById('suggested-time').textContent = data.suggestedTime;
+                        document.getElementById('suggested-days').textContent = `Melhores dias: ${data.suggestedDays.join(', ')}`;
+                        document.getElementById('suggested-explanation').textContent = data.explanation;
+                        const altDiv = document.getElementById('alternative-times');
+                        if (altDiv && data.alternativeTimes) {
+                            altDiv.innerHTML = data.alternativeTimes.map(t => 
+                                `<span class="px-3 py-1 bg-gray-700 text-gray-300 rounded text-sm">${t}</span>`
+                            ).join('');
+                        }
+                        resultDiv.classList.remove('hidden');
+                    }
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            });
+        }
+
+        // A.3 - Gerador de Metadata
+        const generateMetadataForm = document.getElementById('generate-metadata-form');
+        if (generateMetadataForm) {
+            generateMetadataForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/generate-metadata`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            title: document.getElementById('metadata-title').value,
+                            niche: document.getElementById('metadata-niche').value,
+                            videoDescription: document.getElementById('metadata-description').value
+                        })
+                    });
+                    if (!response.ok) throw new Error('Falha ao gerar metadata');
+                    const data = await response.json();
+                    const resultDiv = document.getElementById('generated-metadata-result');
+                    if (resultDiv) {
+                        document.getElementById('generated-description').value = data.description;
+                        const tagsDiv = document.getElementById('generated-tags');
+                        if (tagsDiv && data.tags) {
+                            tagsDiv.innerHTML = data.tags.map(tag => 
+                                `<span class="px-3 py-1 bg-amber-600/20 text-amber-400 rounded text-sm border border-amber-600/30">${tag}</span>`
+                            ).join('');
+                        }
+                        resultDiv.classList.remove('hidden');
+                    }
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            });
+        }
+
+        window.copyToClipboard = function(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) { el.select(); document.execCommand('copy'); showMessage('youtube-integration-success-message', 'Copiado!'); }
+        };
+        window.copyTagsToClipboard = function() {
+            const tags = Array.from(document.querySelectorAll('#generated-tags span')).map(s => s.textContent).join(', ');
+            navigator.clipboard.writeText(tags).then(() => showMessage('youtube-integration-success-message', 'Tags copiadas!'));
+        };
+
+        // B.2 - Análise de Tendências
+        const scanTrendsForm = document.getElementById('scan-trends-form');
+        if (scanTrendsForm) {
+            scanTrendsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/scan-trends`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            niche: document.getElementById('trends-niche').value,
+                            subniche: document.getElementById('trends-subniche').value,
+                            maxResults: parseInt(document.getElementById('trends-max-results').value || 10)
+                        })
+                    });
+                    if (!response.ok) throw new Error('Falha ao escanear tendências');
+                    const data = await response.json();
+                    const resultsDiv = document.getElementById('trends-results');
+                    if (resultsDiv) {
+                        if (data.trends && data.trends.length > 0) {
+                            resultsDiv.innerHTML = data.trends.map(t => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <div class="flex items-start space-x-4">
+                                        ${t.thumbnailUrl ? `<img src="${t.thumbnailUrl}" alt="${t.title}" class="w-32 h-24 object-cover rounded">` : ''}
+                                        <div class="flex-1">
+                                            <h3 class="text-white font-semibold mb-2"><a href="${t.url}" target="_blank" class="hover:text-amber-400">${t.title}</a></h3>
+                                            <p class="text-gray-400 text-sm mb-2">${t.channelName}</p>
+                                            <div class="flex flex-wrap gap-4 text-sm">
+                                                <span class="text-gray-300">👁️ ${formatNumber(t.views)} views</span>
+                                                <span class="text-gray-300">📊 ${formatNumber(t.viewsPerDay)} views/dia</span>
+                                                <span class="text-gray-300">📅 ${t.daysSince} dias</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('');
+                        } else {
+                            resultsDiv.innerHTML = '<p class="text-gray-400">Nenhum vídeo viral encontrado.</p>';
+                        }
+                    }
+                    showMessage('youtube-integration-success-message', data.msg || `${data.count} vídeo(s) encontrado(s).`);
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            });
+        }
+
+        // B.3 - Monitoramento de Competidores
+        const monitorCompetitorForm = document.getElementById('monitor-competitor-form');
+        if (monitorCompetitorForm) {
+            monitorCompetitorForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/monitor-competitor`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            competitorChannelId: document.getElementById('competitor-channel-id').value,
+                            competitorChannelName: document.getElementById('competitor-channel-name').value,
+                            niche: document.getElementById('competitor-niche').value,
+                            autoAnalyze: document.getElementById('competitor-auto-analyze').checked
+                        })
+                    });
+                    if (!response.ok) throw new Error('Falha ao adicionar competidor');
+                    const data = await response.json();
+                    showMessage('youtube-integration-success-message', data.msg);
+                    monitorCompetitorForm.reset();
+                    loadMonitoredCompetitors();
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            });
+        }
+
+        async function loadMonitoredCompetitors() {
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`${API_BASE}/api/youtube/monitored-competitors`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Falha ao carregar competidores');
+                const data = await response.json();
+                const listDiv = document.getElementById('monitored-competitors-list');
+                if (listDiv) {
+                    if (data.competitors && data.competitors.length > 0) {
+                        listDiv.innerHTML = data.competitors.map(c => `
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <h3 class="text-white font-semibold">${c.competitor_channel_name || c.competitor_channel_id}</h3>
+                                        <p class="text-gray-400 text-sm">${c.niche || 'Nicho não especificado'}</p>
+                                        <p class="text-gray-500 text-xs">Frequência: ${c.check_frequency || 'daily'}</p>
+                                    </div>
+                                    <button onclick="removeCompetitor(${c.id})" class="py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded text-sm">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('');
+                    } else {
+                        listDiv.innerHTML = '<p class="text-gray-400">Nenhum competidor monitorado.</p>';
+                    }
+                }
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            } catch (err) {
+                console.error('Erro ao carregar competidores:', err);
+            }
+        }
+
+        window.removeCompetitor = async function(id) {
+            if (!confirm('Remover este competidor?')) return;
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`${API_BASE}/api/youtube/monitor-competitor/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Falha ao remover');
+                showMessage('youtube-integration-success-message', 'Competidor removido!');
+                loadMonitoredCompetitors();
+            } catch (err) {
+                showMessage('youtube-integration-error-message', err.message, true);
+            }
+        };
+
+        // B.4 - Sugestões Automáticas
+        const generateSuggestionsForm = document.getElementById('generate-suggestions-form');
+        if (generateSuggestionsForm) {
+            generateSuggestionsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/generate-suggestions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            niche: document.getElementById('suggestions-niche').value,
+                            subniche: document.getElementById('suggestions-subniche').value
+                        })
+                    });
+                    if (!response.ok) throw new Error('Falha ao gerar sugestões');
+                    const data = await response.json();
+                    showMessage('youtube-integration-success-message', data.msg || `${data.count} sugestão(ões) gerada(s).`);
+                    loadAISuggestions();
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            });
+        }
+
+        async function loadAISuggestions() {
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`${API_BASE}/api/youtube/ai-suggestions?limit=20`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Falha ao carregar sugestões');
+                const data = await response.json();
+                const listDiv = document.getElementById('ai-suggestions-list');
+                if (listDiv) {
+                    if (data.suggestions && data.suggestions.length > 0) {
+                        listDiv.innerHTML = data.suggestions.map(s => `
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex-1">
+                                        <h3 class="text-white font-semibold mb-2">${s.title}</h3>
+                                        <p class="text-gray-400 text-sm mb-2">${s.description || ''}</p>
+                                        <p class="text-gray-500 text-xs mb-2">${s.reason || ''}</p>
+                                        <div class="flex items-center space-x-4 text-xs">
+                                            <span class="text-amber-400">⭐ Prioridade: ${s.priority}/10</span>
+                                            <span class="text-gray-500">${s.niche || ''}</span>
+                                        </div>
+                                    </div>
+                                    <button onclick="markSuggestionViewed(${s.id})" class="ml-4 py-2 px-3 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm">
+                                        <i data-lucide="check" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('');
+                    } else {
+                        listDiv.innerHTML = '<p class="text-gray-400">Nenhuma sugestão disponível.</p>';
+                    }
+                }
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            } catch (err) {
+                console.error('Erro ao carregar sugestões:', err);
+            }
+        }
+
+        window.markSuggestionViewed = async function(id) {
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`${API_BASE}/api/youtube/ai-suggestions/${id}/viewed`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Falha ao marcar');
+                loadAISuggestions();
+            } catch (err) {
+                showMessage('youtube-integration-error-message', err.message, true);
+            }
+        };
+
+        // B.1 - Alertas Virais
+        async function loadViralAlerts() {
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`${API_BASE}/api/youtube/viral-alerts`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Falha ao carregar alertas');
+                const data = await response.json();
+                const listDiv = document.getElementById('viral-alerts-list');
+                if (listDiv) {
+                    if (data.alerts && data.alerts.length > 0) {
+                        listDiv.innerHTML = data.alerts.map(a => `
+                            <div class="bg-gray-800 border border-amber-600/30 rounded-lg p-4">
+                                <h3 class="text-white font-semibold mb-2">
+                                    <a href="${a.video_url || '#'}" target="_blank" class="hover:text-amber-400">${a.video_title || 'Vídeo Viral'}</a>
+                                </h3>
+                                <p class="text-gray-400 text-sm mb-2">Canal: ${a.competitor_channel_name || a.competitor_channel_id}</p>
+                                <div class="flex flex-wrap gap-4 text-sm">
+                                    <span class="text-gray-300">👁️ ${formatNumber(a.views || 0)} views</span>
+                                    <span class="text-gray-300">📊 ${formatNumber(a.views_per_day || 0)} views/dia</span>
+                                </div>
+                                <p class="text-gray-500 text-xs mt-2">${new Date(a.detected_at).toLocaleString('pt-BR')}</p>
+                            </div>
+                        `).join('');
+                    } else {
+                        listDiv.innerHTML = '<p class="text-gray-400">Nenhum alerta viral no momento.</p>';
+                    }
+                }
+            } catch (err) {
+                console.error('Erro ao carregar alertas:', err);
+            }
         }
     </script>
 
