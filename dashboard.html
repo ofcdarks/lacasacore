@@ -2215,8 +2215,8 @@
                     
                     const viewsFormatted = new Intl.NumberFormat('pt-BR').format(views);
                     const commentsFormatted = new Intl.NumberFormat('pt-BR').format(comments);
-                    const revenueUSDFormatted = estimatedRevenueUSD > 0 ? '$' + new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(estimatedRevenueUSD) : 'N/A';
-                    const revenueBRLFormatted = estimatedRevenueBRL > 0 ? 'R$ ' + new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(estimatedRevenueBRL) : 'N/A';
+                    const revenueUSDFormatted = estimatedRevenueUSD > 0 ? '$' + new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(estimatedRevenueUSD)) : 'N/A';
+                    const revenueBRLFormatted = estimatedRevenueBRL > 0 ? 'R$ ' + new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(estimatedRevenueBRL)) : 'N/A';
                     const rpmUSDFormatted = rpmUSD > 0 ? '$' + rpmUSD.toFixed(2) : 'N/A';
                     const rpmBRLFormatted = rpmBRL > 0 ? 'R$ ' + rpmBRL.toFixed(2) : 'N/A';
                     
@@ -3892,13 +3892,13 @@
                     if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
                     if (statTotalRevenue) {
                         const revenueUSD = data.stats.totalRevenue || 0;
-                        statTotalRevenue.textContent = '$' + formatNumber(revenueUSD);
+                        statTotalRevenue.textContent = '$' + formatNumber(Math.round(revenueUSD));
                     }
                     const statTotalRevenueBRL = document.getElementById('stat-total-revenue-brl-dashboard');
                     if (statTotalRevenueBRL) {
                         const revenueUSD = data.stats.totalRevenue || 0;
                         const revenueBRL = revenueUSD * 5.50; // Taxa de câmbio USD para BRL
-                        statTotalRevenueBRL.textContent = 'R$ ' + formatNumber(revenueBRL);
+                        statTotalRevenueBRL.textContent = 'R$ ' + formatNumber(Math.round(revenueBRL));
                     }
                     if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
                     
@@ -3949,8 +3949,8 @@
                 const videosHtml = videos.slice(0, 5).map(video => {
                     const views = formatNumber(video.actual_views || 0);
                     const ctr = (video.actual_ctr || 0).toFixed(1);
-                    const revenueUSD = video.revenue_estimate ? '$' + formatNumber(video.revenue_estimate) : 'N/A';
-                    const revenueBRL = video.revenue_estimate ? 'R$ ' + formatNumber(video.revenue_estimate * 5.50) : 'N/A';
+                    const revenueUSD = video.revenue_estimate ? '$' + formatNumber(Math.round(video.revenue_estimate)) : 'N/A';
+                    const revenueBRL = video.revenue_estimate ? 'R$ ' + formatNumber(Math.round(video.revenue_estimate * 5.50)) : 'N/A';
                     const revenue = revenueUSD !== 'N/A' ? `${revenueUSD} / ${revenueBRL}` : 'N/A';
                     const channelName = video.channel_name || 'Canal Desconhecido';
                     
@@ -4009,7 +4009,7 @@
                 if (data.stats.totalRevenue > 0) {
                     activities.push({
                         icon: 'dollar-sign',
-                        text: `$${formatNumber(data.stats.totalRevenue)} (R$ ${formatNumber(data.stats.totalRevenue * 5.50)}) em receita estimada`,
+                        text: `$${formatNumber(Math.round(data.stats.totalRevenue))} (R$ ${formatNumber(Math.round(data.stats.totalRevenue * 5.50))}) em receita estimada`,
                         time: 'Total'
                     });
                 }
@@ -4508,13 +4508,13 @@
                 if (avgCtrEl) avgCtrEl.textContent = (data.stats?.avgCtr || 0).toFixed(1) + '%';
                 if (totalRevenueEl) {
                     const revenueUSD = data.stats?.totalRevenue || 0;
-                    totalRevenueEl.textContent = '$' + formatNumber(revenueUSD);
+                    totalRevenueEl.textContent = '$' + formatNumber(Math.round(revenueUSD));
                 }
                 const totalRevenueBRL = document.getElementById('stats-total-revenue-brl');
                 if (totalRevenueBRL) {
                     const revenueUSD = data.stats?.totalRevenue || 0;
                     const revenueBRL = revenueUSD * 5.50; // Taxa de câmbio USD para BRL
-                    totalRevenueBRL.textContent = 'R$ ' + formatNumber(revenueBRL);
+                    totalRevenueBRL.textContent = 'R$ ' + formatNumber(Math.round(revenueBRL));
                 }
                 if (viralVideosEl) viralVideosEl.textContent = data.stats?.viralVideos || 0;
 
@@ -4526,7 +4526,7 @@
                             <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
                                 <div class="flex-1">
                                     <h3 class="text-white font-semibold">${video.title_used || 'Sem título'}</h3>
-                                    <p class="text-gray-400 text-sm">${formatNumber(video.actual_views || 0)} views • CTR: ${(video.actual_ctr || 0).toFixed(1)}% • Receita: $${formatNumber(video.revenue_estimate || 0)} / R$ ${formatNumber((video.revenue_estimate || 0) * 5.50)}</p>
+                                    <p class="text-gray-400 text-sm">${formatNumber(video.actual_views || 0)} views • CTR: ${(video.actual_ctr || 0).toFixed(1)}% • Receita: $${formatNumber(Math.round(video.revenue_estimate || 0))} / R$ ${formatNumber(Math.round((video.revenue_estimate || 0) * 5.50))}</p>
                                     ${video.youtube_video_id ? `<p class="text-gray-500 text-xs mt-1">${video.youtube_video_id}</p>` : ''}
                                 </div>
                                 <div class="flex items-center space-x-2 ml-4">

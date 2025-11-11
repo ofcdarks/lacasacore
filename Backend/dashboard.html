@@ -2120,8 +2120,8 @@
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                         <div>
                                             <span class="text-gray-400 block mb-1">Receita Estimada:</span>
-                                            ${revenueUSD > 0 ? `<span class="text-yellow-400 font-semibold">$${revenueUSD.toFixed(2)}</span>` : '<span class="text-gray-500">N/A</span>'}
-                                            ${revenueBRL > 0 ? `<span class="text-yellow-300 block">R$ ${revenueBRL.toFixed(2)}</span>` : ''}
+                                            ${revenueUSD > 0 ? `<span class="text-yellow-400 font-semibold">$${Math.round(revenueUSD)}</span>` : '<span class="text-gray-500">N/A</span>'}
+                                            ${revenueBRL > 0 ? `<span class="text-yellow-300 block">R$ ${Math.round(revenueBRL)}</span>` : ''}
                                         </div>
                                         <div>
                                             <span class="text-gray-400 block mb-1">RPM (por 1K views):</span>
@@ -3147,7 +3147,7 @@
                                             </div>
                                             ${revenueUSD > 0 || rpmUSD > 0 ? `
                                             <div class="mt-2 text-xs">
-                                                <span class="text-green-400 font-semibold">$${revenueUSD.toFixed(2)}</span>
+                                                <span class="text-green-400 font-semibold">$${Math.round(revenueUSD)}</span>
                                                 <span class="text-gray-500 mx-1">•</span>
                                                 <span class="text-amber-400 font-semibold">RPM: $${rpmUSD.toFixed(2)}</span>
                                             </div>
@@ -3383,7 +3383,7 @@
                                     <div class="mt-2 p-2 bg-gray-800 rounded text-xs">
                                         <div class="flex items-center justify-between mb-1">
                                             <span class="text-gray-400">Receita:</span>
-                                            <span class="text-green-400 font-bold">$${(video.estimatedRevenueUSD || 0).toFixed(2)}</span>
+                                            <span class="text-green-400 font-bold">$${Math.round(video.estimatedRevenueUSD || 0)}</span>
                                         </div>
                                         <div class="flex items-center justify-between">
                                             <span class="text-gray-400">RPM:</span>
@@ -3802,7 +3802,7 @@
                     
                     if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
                     if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
-                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(data.stats.totalRevenue || 0);
+                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
                     if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
                     
                     // Atualizar métricas adicionais (com verificação de existência)
@@ -3852,7 +3852,7 @@
                 const videosHtml = videos.slice(0, 5).map(video => {
                     const views = formatNumber(video.actual_views || 0);
                     const ctr = (video.actual_ctr || 0).toFixed(1);
-                    const revenue = video.revenue_estimate ? '$' + formatNumber(video.revenue_estimate) : 'N/A';
+                    const revenue = video.revenue_estimate ? '$' + formatNumber(Math.round(video.revenue_estimate)) : 'N/A';
                     const channelName = video.channel_name || 'Canal Desconhecido';
                     
                     return `
@@ -4388,13 +4388,13 @@
                     if (avgCtrEl) avgCtrEl.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
                     if (totalRevenueEl) {
                         const revenueUSD = data.stats.totalRevenue || 0;
-                        totalRevenueEl.textContent = '$' + formatNumber(revenueUSD);
+                        totalRevenueEl.textContent = '$' + formatNumber(Math.round(revenueUSD));
                     }
                     const totalRevenueBrlEl = document.getElementById('stats-total-revenue-brl');
                     if (totalRevenueBrlEl) {
                         const revenueUSD = data.stats.totalRevenue || 0;
                         const revenueBRL = revenueUSD * 5.50; // Taxa de câmbio USD para BRL
-                        totalRevenueBrlEl.textContent = 'R$ ' + formatNumber(revenueBRL);
+                        totalRevenueBrlEl.textContent = 'R$ ' + formatNumber(Math.round(revenueBRL));
                     }
                     const rpmEl = document.getElementById('stats-rpm');
                     if (rpmEl) rpmEl.textContent = `RPM: $${(data.stats.rpmUSD || 0).toFixed(2)} / R$ ${(data.stats.rpmBRL || 0).toFixed(2)}`;
@@ -4408,7 +4408,7 @@
                                     <div class="flex-1">
                                         <h3 class="text-white font-semibold mb-1">${escapeHtml(video.title_used || 'Sem título')}</h3>
                                         <p class="text-gray-400 text-sm mb-1">${formatNumber(parseInt(video.actual_views || 0))} views • CTR: ${(parseFloat(video.actual_ctr || 0)).toFixed(1)}%</p>
-                                        <p class="text-gray-400 text-xs mb-1">Receita: $${formatNumber(parseFloat(video.revenue_estimate || 0))} / R$ ${formatNumber(parseFloat(video.revenue_estimate || 0) * 5.50)}</p>
+                                        <p class="text-gray-400 text-xs mb-1">Receita: $${formatNumber(Math.round(parseFloat(video.revenue_estimate || 0)))} / R$ ${formatNumber(Math.round(parseFloat(video.revenue_estimate || 0) * 5.50))}</p>
                                         ${video.channel_name ? `<p class="text-blue-400 text-xs mb-1">Canal: ${escapeHtml(video.channel_name)}</p>` : ''}
                                         ${video.youtube_video_id ? `<a href="https://www.youtube.com/watch?v=${video.youtube_video_id}" target="_blank" class="text-amber-500 hover:text-amber-400 text-xs">Ver no YouTube</a>` : ''}
                                         ${video.published_at ? `<p class="text-gray-500 text-xs mt-1">Publicado: ${new Date(video.published_at).toLocaleDateString('pt-BR')}</p>` : ''}
