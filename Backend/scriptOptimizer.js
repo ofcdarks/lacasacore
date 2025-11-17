@@ -421,8 +421,8 @@ class ScriptOptimizer {
         // 3. Quebrar frases longas
         optimized = this._breakLongSentences(optimized);
         
-        // 4. Humanizar texto
-        optimized = this._humanizeText(optimized);
+        // 4. Humanizar texto (método público)
+        optimized = this.humanizeText(optimized);
         
         return optimized;
     }

@@ -26,6 +26,7 @@ const { exec, execSync } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 const ScriptOptimizer = require('./scriptOptimizer.js');
+const AIScriptValidator = require('./aiScriptValidator.js');
 
 // Configurar caminho do FFmpeg e FFprobe automaticamente
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
@@ -434,15 +435,30 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
         });
     }
 
+    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    const isScriptRequest = typeof prompt === 'string' && (
+        prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
+        prompt.includes('roteiro em TEXTO SIMPLES') ||
+        prompt.includes('NÃO use JSON') ||
+        prompt.includes('Escreva APENAS o texto') ||
+        prompt.includes('SEM JSON')
+    );
+
+    const generationConfig = {
+        temperature: 0.7, 
+        topK: 1, 
+        topP: 1, 
+        maxOutputTokens: 8192
+    };
+    
+    // CRÍTICO: Só adicionar responseMimeType se NÃO for pedido de roteiro
+    if (!isScriptRequest) {
+        generationConfig.responseMimeType = "application/json";
+    }
+
     const payload = {
         contents: [{ parts: parts }],
-        generationConfig: { 
-            responseMimeType: "application/json",
-            temperature: 0.7, 
-            topK: 1, 
-            topP: 1, 
-            maxOutputTokens: 8192 
-        },
+        generationConfig: generationConfig,
     };
 
     // Retry logic com backoff exponencial para erro 429 (Resource exhausted)
@@ -485,7 +501,16 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
             
             // Sucesso - processar resposta
             if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0].text) {
-                return { titles: result.candidates[0].content.parts[0].text, model: model };
+                const content = result.candidates[0].content.parts[0].text;
+                
+                // Se for pedido de roteiro, retornar texto direto
+                if (isScriptRequest) {
+                    console.log('[Gemini API] Retornando texto puro de script');
+                    return content; // Retorna string diretamente
+                } else {
+                    // Para JSON, manter comportamento antigo
+                    return { titles: content, model: model };
+                }
             } else {
                 console.error('Resposta inesperada da API Gemini:', result);
                 throw new Error('A resposta da IA (Gemini) foi bloqueada ou retornou vazia.');
@@ -522,16 +547,34 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
         });
     }
 
+    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    const isScriptRequest = typeof prompt === 'string' && (
+        prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
+        prompt.includes('roteiro em TEXTO SIMPLES') ||
+        prompt.includes('NÃO use JSON') ||
+        prompt.includes('Escreva APENAS o texto') ||
+        prompt.includes('SEM JSON')
+    );
+
     const payload = {
         model: modelName,
-        response_format: { type: "json_object" },
         messages: [
-            { role: "system", content: "You are a helpful assistant designed to output JSON." },
+            { 
+                role: "system", 
+                content: isScriptRequest 
+                    ? "You are a professional scriptwriter. Respond ONLY with the script text in plain text format. Do NOT use JSON, objects, or special formatting. Write natural, flowing text."
+                    : "You are a helpful assistant designed to output JSON."
+            },
             { role: "user", content: content }
         ],
         temperature: 0.7,
         max_tokens: 4096,
     };
+    
+    // CRÍTICO: Só adicionar response_format se NÃO for pedido de roteiro
+    if (!isScriptRequest) {
+        payload.response_format = { type: "json_object" };
+    }
 
     try {
         const response = await fetch(OPENAI_API_URL, {
@@ -552,7 +595,16 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
             throw new Error(`Erro da API OpenAI: ${result.error?.message || response.statusText}`);
         }
         if (result.choices && result.choices[0].message && result.choices[0].message.content) {
-            return { titles: result.choices[0].message.content, model: model };
+            const content = result.choices[0].message.content;
+            
+            // Se for pedido de roteiro, retornar texto direto sem envolver em "titles"
+            if (isScriptRequest) {
+                console.log('[OpenAI API] Retornando texto puro de script');
+                return content; // Retorna string diretamente
+            } else {
+                // Para JSON, manter comportamento antigo
+                return { titles: content, model: model };
+            }
         } else {
             throw new Error('A resposta da IA (OpenAI) retornou vazia.');
         }
@@ -628,7 +680,7 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
         prompt.includes('roteiro em TEXTO SIMPLES') ||
         prompt.includes('NÃO use JSON')
     );
-    
+
     const payload = {
         model: modelName,
         system: isScriptRequest 
@@ -808,13 +860,25 @@ function extractTextFromAIResponse(response) {
             return response.content;
         }
         
-        // ÚLTIMO RECURSO: "titles" (só se nada mais funcionar - geralmente ERRADO para roteiros)
-        if (typeof response.titles === 'string' && response.titles.trim().length > 0) {
-            console.warn('[extractTextFromAIResponse] ⚠️ Using "titles" field as fallback - this might be wrong for scripts!');
-            return response.titles;
+        // ÚLTIMO RECURSO: "titles" (só se nada mais funcionar e tiver conteúdo real)
+        if (typeof response.titles === 'string') {
+            const trimmedTitles = response.titles.trim();
+            // Verificar se tem conteúdo real (não apenas espaços/tabs/newlines)
+            const hasRealContent = trimmedTitles.length > 50 && /[a-zA-Z0-9]{10,}/.test(trimmedTitles);
+            if (hasRealContent) {
+                console.warn('[extractTextFromAIResponse] ⚠️ Using "titles" field as fallback - this might be wrong for scripts!');
+                return trimmedTitles;
+            } else if (trimmedTitles.length > 0) {
+                console.error(`[extractTextFromAIResponse] ❌ "titles" field has only whitespace (${trimmedTitles.length} chars): "${trimmedTitles.substring(0, 100)}"`);
+            }
         }
         
-        // Tentar JSON.stringify como último recurso
+        // Log completo do objeto para debug
+        console.error('[extractTextFromAIResponse] ❌ Não encontrou texto em nenhum campo conhecido!');
+        console.error('[extractTextFromAIResponse] Campos disponíveis:', Object.keys(response));
+        console.error('[extractTextFromAIResponse] Objeto completo (primeiros 500 chars):', JSON.stringify(response).substring(0, 500));
+        
+        // Tentar JSON.stringify como último recurso (provavelmente vai falhar)
         try {
             const stringified = JSON.stringify(response);
             console.warn('[extractTextFromAIResponse] ⚠️ Had to stringify entire object:', stringified.substring(0, 200) + '...');
@@ -5331,20 +5395,196 @@ INSTRUÇÕES FINAIS:
             }
             
             try {
-                // Aplicar otimizações do ScriptOptimizer
+                const originalWordCount = scriptContent.split(/\s+/).filter(w => w.length > 0).length;
+                
+                // FASE 1: Otimizações Básicas
+                if (sessionId) {
+                    sendProgress(sessionId, {
+                        stage: 'optimizing',
+                        progress: 93,
+                        message: '🔧 Normalizando nomes de personagens...',
+                        details: {
+                            phase: 'basic',
+                            step: 'normalize_names'
+                        }
+                    });
+                }
+                
                 finalScriptContent = optimizer.optimizeScript(scriptContent);
                 
-                // Remover frases repetidas (problema comum com IA)
-                finalScriptContent = removeRepetitions(finalScriptContent);
+                if (sessionId) {
+                    sendProgress(sessionId, {
+                        stage: 'optimizing',
+                        progress: 94,
+                        message: '🧹 Removendo repetições e clichês...',
+                        details: {
+                            phase: 'basic',
+                            step: 'remove_repetitions'
+                        }
+                    });
+                }
                 
-                // Humanizar ainda mais
+                finalScriptContent = removeRepetitions(finalScriptContent);
                 finalScriptContent = optimizer.humanizeText(finalScriptContent);
                 
-                // Re-analisar após otimizações
-                const finalAnalysis = optimizer.analyzeScript(finalScriptContent);
-                console.log(`[Otimizador] ✅ Otimização concluída! Score melhorado: ${analysis.overallScore}/10 → ${finalAnalysis.overallScore}/10`);
+                // Garantir que não diminuiu muito o tamanho
+                const currentWordCount = finalScriptContent.split(/\s+/).filter(w => w.length > 0).length;
+                if (currentWordCount < originalWordCount * 0.85) {
+                    console.warn(`[Otimizador] ⚠️ Roteiro reduziu muito: ${originalWordCount} → ${currentWordCount} palavras. Revertendo...`);
+                    finalScriptContent = scriptContent; // Reverter para o original
+                }
                 
-                // Atualizar análise
+                // Re-analisar após otimizações básicas
+                let finalAnalysis = optimizer.analyzeScript(finalScriptContent);
+                console.log(`[Otimizador] ✅ Otimização básica concluída! Score: ${analysis.overallScore}/10 → ${finalAnalysis.overallScore}/10`);
+                
+                if (sessionId) {
+                    sendProgress(sessionId, {
+                        stage: 'optimizing',
+                        progress: 94,
+                        message: `✅ Fase 1 concluída - Score: ${finalAnalysis.overallScore}/10`,
+                        details: {
+                            phase: 'basic',
+                            step: 'complete',
+                            score: finalAnalysis.overallScore,
+                            wordCount: currentWordCount
+                        }
+                    });
+                }
+                
+                // FASE 2: 🤖 VALIDAÇÃO INTELIGENTE COM CLAUDE AI (se score ainda baixo)
+                const needsAICorrection = (
+                    finalAnalysis.overallScore < 7 ||
+                    (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) ||
+                    finalAnalysis.aiIndicators.length > 2 ||
+                    finalAnalysis.cliches.length > 5
+                );
+                
+                if (needsAICorrection) {
+                    console.log(`[Otimizador] 🤖 Score ${finalAnalysis.overallScore}/10 ainda baixo. Ativando VALIDADOR INTELIGENTE (Claude AI)...`);
+                    
+                    if (sessionId) {
+                        sendProgress(sessionId, {
+                            stage: 'ai_correction',
+                            progress: 95,
+                            message: '🤖 Claude AI analisando problemas...',
+                            details: {
+                                phase: 'ai',
+                                step: 'analyzing',
+                                currentScore: finalAnalysis.overallScore,
+                                problems: finalAnalysis.problems.length,
+                                nameInconsistencies: finalAnalysis.nameInconsistencies?.length || 0
+                            }
+                        });
+                    }
+                    
+                    try {
+                        // Buscar API key do Claude
+                        const claudeKeyData = await db.get(
+                            'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                            [userId, 'claude']
+                        );
+                        
+                        if (claudeKeyData && claudeKeyData.api_key) {
+                            const claudeApiKey = decrypt(claudeKeyData.api_key);
+                            const aiValidator = new AIScriptValidator();
+                            
+                            if (sessionId) {
+                                sendProgress(sessionId, {
+                                    stage: 'ai_correction',
+                                    progress: 96,
+                                    message: '✍️ Claude AI reescrevendo roteiro...',
+                                    details: {
+                                        phase: 'ai',
+                                        step: 'rewriting'
+                                    }
+                                });
+                            }
+                            
+                            const validationResult = await aiValidator.validateAndFixScript(
+                                finalScriptContent,
+                                finalAnalysis,
+                                claudeApiKey,
+                                agent.niche,
+                                title
+                            );
+                            
+                            if (validationResult.success) {
+                                const newWordCount = validationResult.correctedScript.split(/\s+/).filter(w => w.length > 0).length;
+                                
+                                // Validar que não diminuiu o tamanho
+                                if (newWordCount < originalWordCount * 0.85) {
+                                    console.warn(`[Otimizador] ⚠️ Claude reduziu muito o roteiro: ${originalWordCount} → ${newWordCount}. Mantendo versão anterior.`);
+                                    if (sessionId) {
+                                        sendProgress(sessionId, {
+                                            stage: 'ai_correction',
+                                            progress: 97,
+                                            message: '⚠️ Roteiro corrigido muito curto, mantendo versão anterior',
+                                            details: {
+                                                phase: 'ai',
+                                                step: 'rejected',
+                                                reason: 'too_short'
+                                            }
+                                        });
+                                    }
+                                } else {
+                                    finalScriptContent = validationResult.correctedScript;
+                                    console.log('[Otimizador] 🎉 Claude AI corrigiu o roteiro!');
+                                    console.log(`[Otimizador] 📊 Melhorias: ${validationResult.improvements.join(', ')}`);
+                                    
+                                    if (sessionId) {
+                                        sendProgress(sessionId, {
+                                            stage: 'ai_correction',
+                                            progress: 97,
+                                            message: '✅ Claude AI finalizou correção!',
+                                            details: {
+                                                phase: 'ai',
+                                                step: 'corrected',
+                                                improvements: validationResult.improvements,
+                                                newWordCount: newWordCount
+                                            }
+                                        });
+                                    }
+                                    
+                                    // Re-analisar após correção da IA
+                                    finalAnalysis = optimizer.analyzeScript(finalScriptContent);
+                                    console.log(`[Otimizador] 🚀 Score FINAL após Claude: ${finalAnalysis.overallScore}/10`);
+                                }
+                            }
+                        } else {
+                            console.warn('[Otimizador] ⚠️ API Key do Claude não encontrada. Pulando validação inteligente.');
+                            if (sessionId) {
+                                sendProgress(sessionId, {
+                                    stage: 'ai_correction',
+                                    progress: 95,
+                                    message: '⚠️ API Key do Claude não configurada',
+                                    details: {
+                                        phase: 'ai',
+                                        step: 'skipped',
+                                        reason: 'no_api_key'
+                                    }
+                                });
+                            }
+                        }
+                    } catch (aiErr) {
+                        console.error('[Otimizador] ⚠️ Erro na validação com Claude:', aiErr.message);
+                        console.log('[Otimizador] Continuando com otimização básica.');
+                        if (sessionId) {
+                            sendProgress(sessionId, {
+                                stage: 'ai_correction',
+                                progress: 95,
+                                message: `⚠️ Erro no Claude: ${aiErr.message}`,
+                                details: {
+                                    phase: 'ai',
+                                    step: 'error',
+                                    error: aiErr.message
+                                }
+                            });
+                        }
+                    }
+                }
+                
+                // Atualizar análise final
                 analysis.overallScore = finalAnalysis.overallScore;
                 analysis.retentionScore = finalAnalysis.retentionScore;
                 analysis.authenticityScore = finalAnalysis.authenticityScore;
@@ -5354,10 +5594,69 @@ INSTRUÇÕES FINAIS:
                 analysis.aiIndicators = finalAnalysis.aiIndicators;
                 analysis.nameInconsistencies = finalAnalysis.nameInconsistencies || [];
                 
-                // Log se ainda houver inconsistências após otimização
-                if (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) {
-                    console.warn(`[Otimizador] ⚠️ ATENÇÃO: Ainda há ${finalAnalysis.nameInconsistencies.length} inconsistências após otimização. Roteiro pode precisar de revisão manual.`);
+                // 🚨 VALIDAÇÃO CRÍTICA: NOTA MÍNIMA 8.5/10
+                const MIN_SCORE_REQUIRED = 8.5;
+                if (finalAnalysis.overallScore < MIN_SCORE_REQUIRED) {
+                    const errorMsg = `Roteiro não atingiu a nota mínima de ${MIN_SCORE_REQUIRED}/10. Score atual: ${finalAnalysis.overallScore}/10`;
+                    console.error(`[Otimizador] ❌ ${errorMsg}`);
+                    
+                    if (sessionId) {
+                        sendProgress(sessionId, {
+                            stage: 'failed',
+                            progress: 98,
+                            message: `❌ Score ${finalAnalysis.overallScore}/10 abaixo do mínimo (${MIN_SCORE_REQUIRED})`,
+                            details: {
+                                phase: 'validation',
+                                step: 'failed',
+                                score: finalAnalysis.overallScore,
+                                minRequired: MIN_SCORE_REQUIRED,
+                                problems: finalAnalysis.problems,
+                                suggestions: finalAnalysis.suggestions
+                            }
+                        });
+                    }
+                    
+                    throw new Error(`${errorMsg}\n\nProblemas encontrados:\n${finalAnalysis.problems.join('\n')}\n\nSugestões:\n${finalAnalysis.suggestions.join('\n')}\n\nPor favor, tente:\n1. Usar outro modelo de IA (Claude recomendado)\n2. Fornecer um título mais específico\n3. Revisar o agente de roteiro\n4. Gerar novamente com instruções mais detalhadas`);
                 }
+                
+                // Validar que não há inconsistências críticas
+                if (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) {
+                    const errorMsg = `Roteiro ainda contém ${finalAnalysis.nameInconsistencies.length} inconsistências de nomes após otimização`;
+                    console.error(`[Otimizador] ❌ ${errorMsg}`);
+                    console.error(`Inconsistências: ${finalAnalysis.nameInconsistencies.join(', ')}`);
+                    
+                    if (sessionId) {
+                        sendProgress(sessionId, {
+                            stage: 'failed',
+                            progress: 98,
+                            message: '❌ Inconsistências de nomes não corrigidas',
+                            details: {
+                                phase: 'validation',
+                                step: 'failed',
+                                nameInconsistencies: finalAnalysis.nameInconsistencies
+                            }
+                        });
+                    }
+                    
+                    throw new Error(`${errorMsg}:\n${finalAnalysis.nameInconsistencies.join('\n')}\n\nO roteiro não pode ser finalizado com nomes de personagens inconsistentes. Tente gerar novamente.`);
+                }
+                
+                console.log(`[Otimizador] ✅ Validação final aprovada! Score: ${finalAnalysis.overallScore}/10`);
+                
+                if (sessionId) {
+                    sendProgress(sessionId, {
+                        stage: 'validating',
+                        progress: 98,
+                        message: `✅ Validação aprovada! Score: ${finalAnalysis.overallScore}/10`,
+                        details: {
+                            phase: 'validation',
+                            step: 'passed',
+                            score: finalAnalysis.overallScore,
+                            wordCount: finalScriptContent.split(/\s+/).filter(w => w.length > 0).length
+                        }
+                    });
+                }
+                
             } catch (optErr) {
                 console.error('[Otimizador] Erro na otimização:', optErr.message);
                 console.log('[Otimizador] Usando roteiro original sem otimizações');
@@ -5399,7 +5698,7 @@ INSTRUÇÕES FINAIS:
                 viralScore: analysis.overallScore
             });
         }
-        
+
         res.status(200).json({
             msg: 'Roteiro gerado com sucesso!',
             script: scriptContent,
