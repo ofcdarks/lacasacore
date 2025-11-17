@@ -112,6 +112,22 @@
             font-weight: 600;
         }
 
+        /* --- ANIMAÇÕES PARA MODAL --- */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.2s ease-out;
+        }
+
         /* --- CARDS E LAYOUT (ANÁLISE) --- */
         .niche-tag {
             background-color: #3f3f46;
@@ -408,16 +424,19 @@
                                 <select id="model-select" name="model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="all">Comparar (Multimodal)</option>
                                     <optgroup label="Anthropic Claude">
-                                        <option value="claude-sonnet-4-20250514">Claude 4.0 Sonnet</option>
-                                        <option value="claude-3.5-haiku-20241022">Claude 3.5 Haiku</option>
+                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Mai/25)</option>
+                                        <option value="claude-opus-4-20250514">Claude Opus 4 (Mai/25)</option>
                                     </optgroup>
                                     <optgroup label="Google Gemini">
-                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-2.0-flash" selected>Gemini 2.0 Flash</option>
+                                        <option value="gemini-2.5-pro" selected>Gemini 2.5 Pro (2025)</option>
+                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (2025)</option>
+                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                                     </optgroup>
                                     <optgroup label="OpenAI GPT">
-                                        <option value="gpt-4.1">GPT-4.1</option>
+                                        <option value="gpt-4o">GPT-4o (2025)</option>
                                         <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
                                     </optgroup>
                                 </select>
                             </div>
@@ -470,16 +489,19 @@
                             <label for="thumb-model-select" class="block text-sm font-medium mb-2">2. Modelo de IA</label>
                             <select id="thumb-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                 <optgroup label="Anthropic Claude">
-                                    <option value="claude-3-sonnet-20240229" selected>Claude 3 Sonnet</option>
-                                    <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                                    <option value="claude-3-7-sonnet-20250219" selected>Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Out/24)</option>
+                                    <option value="claude-3-opus-20240229">Claude 3 Opus (Fev/24)</option>
                                 </optgroup>
                                 <optgroup label="Google Gemini">
-                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (2025)</option>
                                     <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                                 </optgroup>
                                 <optgroup label="OpenAI GPT">
-                                    <option value="gpt-4.1">GPT-4.1</option>
+                                    <option value="gpt-4o">GPT-4o (2025)</option>
                                     <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
                                 </optgroup>
                             </select>
                         </div>
@@ -599,8 +621,9 @@
                                 <label for="niche-model-select" class="block text-sm font-medium mb-2">Motor de IA (Recomendado: Sonnet ou GPT-4.1)</label>
                                 <select id="niche-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <optgroup label="Anthropic Claude">
-                                        <option value="claude-sonnet-4-20250514" selected>Claude 4.0 Sonnet</option>
-                                        <option value="claude-3.5-haiku-20241022">Claude 3.5 Haiku</option>
+                                        <option value="claude-3-7-sonnet-20250219" selected>Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Out/24)</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus (Fev/24)</option>
                                     </optgroup>
                                     <optgroup label="Google Gemini">
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
@@ -638,9 +661,10 @@
                                 <label for="competitor-model-select" class="block text-sm font-medium mb-2">Motor de IA (Recomendado: Sonnet ou GPT-4.1)</label>
                                 <select id="competitor-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                      <optgroup label="Anthropic Claude">
-                                        <option value="claude-sonnet-4-20250514" selected>Claude 4.0 Sonnet</option>
-                                        <option value="claude-3.5-haiku-20241022">Claude 3.5 Haiku</option>
-                                    </optgroup>
+                                        <option value="claude-3-7-sonnet-20250219" selected>Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Out/24)</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus (Fev/24)</option>
+                                     </optgroup>
                                     <optgroup label="Google Gemini">
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                                         <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
@@ -989,6 +1013,12 @@
                     <button id="biblioteca-tab-thumbnails" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
                         Thumbnails Virais
                     </button>
+                    <button id="biblioteca-tab-agents" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
+                        Agentes de Roteiro
+                    </button>
+                    <button id="biblioteca-tab-scripts" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
+                        Roteiros Gerados
+                    </button>
                 </div>
 
                 <!-- Filtros -->
@@ -1022,6 +1052,20 @@
                 <div id="biblioteca-thumbnails-section" class="space-y-4" style="display: none;">
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="biblioteca-thumbnails-list">
                         <p class="text-gray-400">Carregando thumbnails...</p>
+                    </div>
+                </div>
+
+                <!-- Lista de Agentes de Roteiro -->
+                <div id="biblioteca-agents-section" class="space-y-4" style="display: none;">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="biblioteca-agents-list">
+                        <p class="text-gray-400">Carregando agentes...</p>
+                    </div>
+                </div>
+
+                <!-- Lista de Roteiros Gerados -->
+                <div id="biblioteca-scripts-section" class="space-y-4" style="display: none;">
+                    <div class="grid grid-cols-1 gap-4" id="biblioteca-scripts-list">
+                        <p class="text-gray-400">Carregando roteiros...</p>
                     </div>
                 </div>
             </div>
@@ -1296,6 +1340,7 @@
                             <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                         </div>
 
+
                         <hr class="border-gray-700">
 
                         <h2 class="text-xl font-semibold text-white">Configurações de Midia (Opcional)</h2>
@@ -1485,6 +1530,99 @@
         </div>
     </div>
 
+    <!-- Modal Personalizado para Mensagens -->
+    <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-[100]" style="display: none;">
+        <div id="custom-modal-box" class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all animate-fade-in">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                    <div id="custom-modal-icon-container" class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                        <i data-lucide="alert-circle" class="w-6 h-6 text-amber-500"></i>
+                    </div>
+                    <h3 id="custom-modal-title" class="text-xl font-bold text-white">Aviso</h3>
+                </div>
+                <button id="custom-modal-close" class="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-gray-800">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            <div class="mb-6">
+                <p id="custom-modal-message" class="text-gray-300 leading-relaxed"></p>
+            </div>
+            <div class="flex justify-end">
+                <button id="custom-modal-ok" class="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors shadow-lg">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Criar Agente de Roteiro -->
+    <div id="create-agent-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold text-white">Criar Agente de Roteiro</h3>
+                <button id="btn-close-agent-modal" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            <form id="create-agent-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2 text-gray-300">Nome do Agente</label>
+                    <input type="text" id="agent-name-input" required class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2 text-gray-300">Nicho</label>
+                        <input type="text" id="agent-niche-input" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2 text-gray-300">Subnicho</label>
+                        <input type="text" id="agent-subniche-input" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2 text-gray-300">
+                        Transcrição Manual (Opcional)
+                        <span class="text-xs text-gray-400 ml-2">Cole aqui a transcrição do vídeo se a automática não funcionar</span>
+                    </label>
+                    <textarea id="agent-manual-transcript" rows="8" placeholder="Cole aqui a transcrição completa do vídeo..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                    <p class="text-xs text-gray-400 mt-1">Se você colar uma transcrição manual aqui, ela será usada em vez da transcrição automática.</p>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="btn-cancel-agent" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                    <button type="submit" id="btn-submit-agent" class="py-2 px-4 rounded-lg bg-green-600 hover:bg-green-500 text-white font-semibold flex items-center space-x-2">
+                        <span>Criar Agente</span>
+                        <div class="btn-spinner hidden"></div>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmação da Fórmula do Agente -->
+    <div id="agent-formula-modal" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 border border-amber-500 rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 class="text-2xl font-semibold text-white">Revisar Fórmula do Agente</h3>
+                    <p class="text-sm text-gray-400">A IA vai replicar exatamente os elementos abaixo no novo agente.</p>
+                </div>
+                <button id="agent-formula-close" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div id="agent-formula-content" class="space-y-4 text-sm text-gray-200">
+                <!-- Conteúdo preenchido dinamicamente -->
+            </div>
+            <div class="mt-6 flex flex-col md:flex-row md:justify-end gap-3">
+                <button id="agent-formula-cancel" class="w-full md:w-auto px-4 py-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-white font-semibold">Voltar e editar</button>
+                <button id="agent-formula-confirm" class="w-full md:w-auto px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-semibold flex items-center justify-center gap-2">
+                    <i data-lucide="check-circle"></i>
+                    <span>Confirmar e Criar Agente</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal para Trocar Senha (Admin) -->
     <div id="change-password-modal" class="fixed inset-0 bg-black/70 z-40 hidden items-center justify-center p-4">
         <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
@@ -1543,6 +1681,93 @@
             let userFolders = [];
 
             // --- FUNÇÕES GLOBAIS DE MENSAGEM (Genéricas) ---
+            // Função para mostrar modal personalizado
+            function showCustomModal(title, message, type = 'info') {
+                const modal = document.getElementById('custom-modal');
+                const modalTitle = document.getElementById('custom-modal-title');
+                const modalMessage = document.getElementById('custom-modal-message');
+                const modalClose = document.getElementById('custom-modal-close');
+                const modalOk = document.getElementById('custom-modal-ok');
+                const modalBox = document.getElementById('custom-modal-box');
+                const modalIconContainer = document.getElementById('custom-modal-icon-container');
+
+                if (!modal || !modalTitle || !modalMessage) {
+                    console.error('[Modal] Elementos não encontrados');
+                    alert(title + ': ' + message); // Fallback
+                    return;
+                }
+
+                // Configurar título e mensagem
+                modalTitle.textContent = title;
+                modalMessage.textContent = message;
+
+                // Configurar cores baseado no tipo
+                if (type === 'error') {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'alert-circle');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-red-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-colors';
+                    }
+                } else if (type === 'success') {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'check-circle');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-green-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors';
+                    }
+                } else {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'info');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors';
+                    }
+                }
+
+                // Mostrar modal
+                modal.style.display = 'flex';
+                
+                // Atualizar ícones
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+
+                // Fechar modal ao clicar em OK ou X
+                const closeModal = () => {
+                    modal.style.display = 'none';
+                };
+
+                if (modalClose) {
+                    modalClose.onclick = closeModal;
+                }
+                if (modalOk) {
+                    modalOk.onclick = closeModal;
+                }
+
+                // Fechar ao clicar fora do modal
+                modal.onclick = (e) => {
+                    if (e.target === modal) {
+                        closeModal();
+                    }
+                };
+            }
+
             function showMessage(elementId, message, isError = false) {
                 const msgBox = document.getElementById(elementId);
                 if (!msgBox) return;
@@ -2042,6 +2267,10 @@
                 }
                 if (viewName === 'biblioteca') {
                     loadBibliotecaTitles();
+                    // Garantir que a tab de agentes está disponível
+                    if (currentBibliotecaTab === 'agents') {
+                        loadBibliotecaAgents();
+                    }
                 }
                 if (viewName === 'youtube-integration') {
                     loadYouTubeIntegrationStatus();
@@ -2690,10 +2919,16 @@
                                     </div>
                                     ${data.niche ? `<p class="text-gray-500 text-xs mt-2">* Valores baseados no nicho "${data.niche}"</p>` : ''}
                                 </div>
-                                <button id="btn-download-thumb" data-url="${thumbnailUrl}" data-title="${title}" class="mt-4 py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
-                                    <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
-                                    Baixar Thumbnail Original
-                                </button>
+                                <div class="flex flex-wrap gap-2 mt-4">
+                                    <button id="btn-download-thumb" data-url="${thumbnailUrl}" data-title="${title}" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
+                                        <i data-lucide="download" class="w-4 h-4 mr-1.5"></i>
+                                        Baixar Thumbnail Original
+                                    </button>
+                                    <button id="btn-load-transcript" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs">
+                                        <i data-lucide="file-text" class="w-4 h-4 mr-1.5"></i>
+                                        Carregar Transcrição
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -2728,6 +2963,63 @@
                             <p class="text-sm text-gray-300">
                                 <strong>Fórmula:</strong> <code class="text-amber-400">${data.analiseOriginal.formulaTitulo || 'N/A'}</code>
                             </p>
+                        </div>
+
+                        <!-- Seção de Transcrição e Agente de Roteiro -->
+                        <div id="transcript-section" class="bg-gray-800 p-4 rounded-lg border border-gray-700 mb-6">
+                            <div class="mb-4">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                    <h4 class="text-lg font-semibold text-white">📝 Transcrição Completa do Vídeo</h4>
+                                    <span class="text-xs text-gray-400">Cole o roteiro manualmente ou clique em "Carregar Transcrição"</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Assim que o campo estiver preenchido, o botão "Criar Agente de Roteiro" será liberado automaticamente.</p>
+                            </div>
+                            <div id="transcript-container">
+                                <textarea id="full-transcript-text" class="w-full h-64 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm resize-none" placeholder="Cole aqui a transcrição completa do vídeo ou aguarde o carregamento automático."></textarea>
+                                <p class="text-xs text-gray-500 mt-2">Você pode colar manualmente o roteiro completo, colar direto da área de transferência ou utilizar o botão de transcrição automática após analisar o vídeo.</p>
+                                <div class="flex flex-wrap gap-2 mt-3">
+                                    <button id="btn-paste-transcript" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold text-sm flex items-center space-x-2">
+                                        <i data-lucide="clipboard-paste" class="w-4 h-4"></i>
+                                        <span>Colar do Clipboard</span>
+                                    </button>
+                                    <button id="btn-copy-transcript" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold text-sm flex items-center space-x-2">
+                                        <i data-lucide="copy" class="w-4 h-4"></i>
+                                        <span>Copiar Transcrição</span>
+                                    </button>
+                                    <button id="btn-clear-transcript" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold text-sm flex items-center space-x-2">
+                                        <i data-lucide="eraser" class="w-4 h-4"></i>
+                                        <span>Limpar Campo</span>
+                                    </button>
+                                    <button id="btn-analyze-transcript" class="py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-semibold text-sm flex items-center space-x-2">
+                                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                        <span>Analisar Fórmula Viral</span>
+                                    </button>
+                                    <button id="btn-create-agent" class="py-2 px-4 rounded-lg bg-green-600 hover:bg-green-500 text-white font-semibold text-sm flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                        <span>Criar Agente de Roteiro</span>
+                                    </button>
+                                </div>
+                                <div id="transcript-insights-panel" class="mt-5 bg-gray-900/60 border border-gray-800 rounded-lg p-4">
+                                    <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <h5 class="text-base font-semibold text-white">Fórmula de Sucesso Detectada</h5>
+                                    <p id="transcript-insights-status" class="text-xs text-gray-400">1) Cole ou carregue o roteiro. 2) Clique em “Analisar Fórmula Viral”.</p>
+                                        </div>
+                                    </div>
+                                    <div id="transcript-insights-loading" class="hidden text-sm text-amber-400 mt-3">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="loader w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                                            <span>A IA está estudando o roteiro completo...</span>
+                                        </div>
+                                    </div>
+                                    <div id="transcript-insights-error" class="hidden text-sm text-red-400 mt-3"></div>
+                                    <div id="transcript-insights-content" class="hidden mt-4 space-y-4 text-sm text-gray-100"></div>
+                                </div>
+                            </div>
+                            <div id="transcript-loading" class="text-center py-4 hidden">
+                                <div class="loader mx-auto"></div>
+                                <p class="text-amber-500 mt-2 text-sm">Carregando transcrição...</p>
+                            </div>
                         </div>
 
                         <div class="flex justify-between items-center mb-4">
@@ -2784,10 +3076,33 @@
                     titlesHtml += '</ul>';
                     
                     resultadosDiv.innerHTML = videoSummaryHtml + nicheHtml + titlesHtml;
+                    resultadosDiv.style.display = 'block'; // Garantir que está visível
+                    
+                    // Debug: verificar se a seção de transcrição está no HTML
+                    console.log('[DEBUG] Seção de transcrição no HTML:', resultadosDiv.innerHTML.includes('Transcrição Completa'));
+                    console.log('[DEBUG] Video ID:', data.videoDetails.videoId);
+                    console.log('[DEBUG] Tamanho do HTML gerado:', resultadosDiv.innerHTML.length);
+                    console.log('[DEBUG] HTML contém "btn-load-transcript":', resultadosDiv.innerHTML.includes('btn-load-transcript'));
+                    
+                    // Verificar se a seção de transcrição está visível no DOM
+                    setTimeout(() => {
+                        const transcriptSection = resultadosDiv.querySelector('[id*="transcript"]') || resultadosDiv.querySelector('button[id="btn-load-transcript"]');
+                        console.log('[DEBUG] Seção de transcrição encontrada no DOM:', !!transcriptSection);
+                        if (!transcriptSection) {
+                            console.error('[ERRO] Seção de transcrição NÃO encontrada no DOM após renderização!');
+                            console.log('[DEBUG] Primeiros 2000 caracteres do HTML:', resultadosDiv.innerHTML.substring(0, 2000));
+                        }
+                    }, 200);
                     
                     if (typeof lucide !== 'undefined') {
                         lucide.createIcons();
                     }
+
+                    // Inicializar funcionalidades de transcrição e agente de roteiro
+                    // Aguardar um pouco para garantir que o DOM foi atualizado
+                    setTimeout(() => {
+                        initializeTranscriptAndAgentFeatures(data.videoDetails.videoId, data.videoDetails.title, data.videoDetails.translatedTitle || data.videoDetails.title, data.niche, data.subniche);
+                    }, 100);
 
                     const downloadBtn = document.getElementById('btn-download-thumb');
                     if (downloadBtn) {
@@ -2798,6 +3113,8 @@
                             downloadThumbnail(url, title);
                         });
                     }
+
+                    // O botão de transcrição agora é configurado dentro de initializeTranscriptAndAgentFeatures
                     
                     const btnMoreTitles = document.getElementById('btn-generate-more-titles');
                     if (btnMoreTitles) {
@@ -2810,7 +3127,7 @@
                         const modelValue = data.modelUsed;
                         // Se o modelo usado for "Comparação", usar Claude como padrão
                         if (modelValue.includes('Comparação') || modelValue === 'all') {
-                            thumbModelSelect.value = 'claude-3-sonnet-20240229';
+                            thumbModelSelect.value = 'claude-3-7-sonnet-20250219';
                         } else {
                             // Tentar encontrar o modelo exato ou usar o primeiro disponível
                             const option = Array.from(thumbModelSelect.options).find(opt => 
@@ -2831,6 +3148,665 @@
                         errorBox.style.display = 'block';
                     }
                     throw renderError; // Re-lançar para ser capturado pelo catch externo
+                }
+            }
+
+            // Função para inicializar funcionalidades de transcrição e agente de roteiro
+            function initializeTranscriptAndAgentFeatures(videoId, videoTitle, translatedTitle, niche, subniche) {
+                console.log('[DEBUG] Inicializando funcionalidades de transcrição para videoId:', videoId);
+                
+                const btnLoadTranscript = document.getElementById('btn-load-transcript');
+                const btnCopyTranscript = document.getElementById('btn-copy-transcript');
+                const btnCreateAgent = document.getElementById('btn-create-agent');
+                const btnAnalyzeTranscript = document.getElementById('btn-analyze-transcript');
+                const btnPasteTranscript = document.getElementById('btn-paste-transcript');
+                const btnClearTranscript = document.getElementById('btn-clear-transcript');
+                const agentFormulaModal = document.getElementById('agent-formula-modal');
+                const agentFormulaContent = document.getElementById('agent-formula-content');
+                const agentFormulaConfirm = document.getElementById('agent-formula-confirm');
+                const agentFormulaCancel = document.getElementById('agent-formula-cancel');
+                const agentFormulaClose = document.getElementById('agent-formula-close');
+                const transcriptSection = document.getElementById('transcript-section');
+                const transcriptContainer = document.getElementById('transcript-container');
+                const transcriptLoading = document.getElementById('transcript-loading');
+                const transcriptTextarea = document.getElementById('full-transcript-text');
+                const insightsStatus = document.getElementById('transcript-insights-status');
+                const insightsContent = document.getElementById('transcript-insights-content');
+                const insightsLoading = document.getElementById('transcript-insights-loading');
+                const insightsError = document.getElementById('transcript-insights-error');
+                const createAgentModal = document.getElementById('create-agent-modal');
+                const createAgentForm = document.getElementById('create-agent-form');
+                const btnCloseAgentModal = document.getElementById('btn-close-agent-modal');
+                const btnCancelAgent = document.getElementById('btn-cancel-agent');
+                const btnSubmitAgent = document.getElementById('btn-submit-agent');
+
+                console.log('[DEBUG] Elementos encontrados:', {
+                    btnLoadTranscript: !!btnLoadTranscript,
+                    btnCopyTranscript: !!btnCopyTranscript,
+                    btnCreateAgent: !!btnCreateAgent,
+                    transcriptContainer: !!transcriptContainer,
+                    createAgentModal: !!createAgentModal
+                });
+
+                if (transcriptSection) transcriptSection.style.display = 'block';
+                if (transcriptContainer) transcriptContainer.style.display = 'block';
+
+                let currentVideoId = videoId;
+                let currentVideoTitle = videoTitle;
+                let currentTranslatedTitle = translatedTitle;
+                let currentNiche = niche;
+                let currentSubniche = subniche;
+                let currentViralInsights = null;
+                let isAnalyzingViralFormula = false;
+                let autoInsightsTriggered = false;
+                let hasViralInsights = false;
+                let pendingAgentPayload = null;
+                let isSubmittingAgent = false;
+                const MIN_WORDS_FOR_INSIGHTS = 120;
+
+                function resetInsightsUI(message = 'Cole ou carregue o roteiro e clique em “Analisar Fórmula Viral”.') {
+                    currentViralInsights = null;
+                    autoInsightsTriggered = false;
+                    hasViralInsights = false;
+                    if (insightsContent) {
+                        insightsContent.innerHTML = '';
+                        insightsContent.classList.add('hidden');
+                    }
+                    if (insightsError) {
+                        insightsError.textContent = '';
+                        insightsError.classList.add('hidden');
+                    }
+                    if (insightsStatus && message) {
+                        insightsStatus.textContent = message;
+                    }
+                }
+
+                function renderTranscriptInsights(analysis, provider) {
+                    if (!insightsContent || !analysis) return;
+
+                    const motivos = Array.isArray(analysis.motivosVirais) ? analysis.motivosVirais : [];
+                    const gatilhos = Array.isArray(analysis.gatilhosEmocionais) ? analysis.gatilhosEmocionais : [];
+                    const estrutura = Array.isArray(analysis.estruturaNarrativa) ? analysis.estruturaNarrativa : [];
+                    const checklist = Array.isArray(analysis.formulaChecklist) ? analysis.formulaChecklist : [];
+                    const sugestoes = Array.isArray(analysis.sugestoesAplicacao) ? analysis.sugestoesAplicacao : [];
+                    const alertas = Array.isArray(analysis.alertas) ? analysis.alertas : [];
+
+                    let html = '';
+
+                    if (analysis.resumo) {
+                        html += `<p class="text-gray-200">${analysis.resumo}</p>`;
+                    }
+
+                    if (motivos.length) {
+                        html += `
+                            <div>
+                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Por que viralizou</h6>
+                                <ul class="space-y-1">
+                                    ${motivos.map(item => `
+                                        <li class="flex items-start space-x-2">
+                                            <i data-lucide="check-circle" class="w-4 h-4 text-green-400 mt-0.5"></i>
+                                            <span>${item}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+
+                    if (estrutura.length) {
+                        html += `
+                            <div>
+                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Estrutura narrativa</h6>
+                                <div class="space-y-1">
+                                    ${estrutura.map(step => `
+                                        <div class="bg-gray-800/70 rounded-md px-3 py-2">
+                                            <p class="text-xs uppercase text-gray-400 tracking-wide">${step.tempoAproximado || ''}</p>
+                                            <p class="text-sm font-semibold text-white">${step.etapa || 'Etapa'}</p>
+                                            <p class="text-sm text-gray-300">${step.descricao || ''}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (checklist.length) {
+                        html += `
+                            <div>
+                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Checklist da fórmula (ticado pela IA)</h6>
+                                <div class="space-y-2">
+                                    ${checklist.map(item => {
+                                        const statusOk = (item.status || '').toLowerCase() === 'aplicado';
+                                        const icon = statusOk ? 'check-circle-2' : 'circle';
+                                        const color = statusOk ? 'text-green-400' : 'text-yellow-400';
+                                        return `
+                                            <div class="flex items-start space-x-3 bg-gray-800/60 rounded-md p-3">
+                                                <i data-lucide="${icon}" class="w-5 h-5 ${color} mt-0.5"></i>
+                                                <div class="text-sm text-gray-200">
+                                                    <p class="font-semibold">${item.item || 'Elemento da fórmula'}</p>
+                                                    <p class="text-gray-400 text-xs">${item.porqueFunciona || ''}</p>
+                                                    ${item.comoAplicarNoMeuConteudo ? `<p class="text-gray-300 mt-1"><span class="text-amber-400 font-semibold">Como aplicar:</span> ${item.comoAplicarNoMeuConteudo}</p>` : ''}
+                                                    ${item.upgradeSugerido ? `<p class="text-gray-300 mt-1"><span class="text-amber-400 font-semibold">Upgrade 10/10:</span> ${item.upgradeSugerido}</p>` : ''}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (gatilhos.length) {
+                        html += `
+                            <div>
+                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Gatilhos emocionais</h6>
+                                <div class="flex flex-wrap gap-2">
+                                    ${gatilhos.map(trigger => `
+                                        <span class="px-3 py-1 rounded-full bg-gray-800 text-xs text-gray-200 border border-gray-700">${trigger}</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (analysis.diferencialProposto) {
+                        html += `
+                            <div class="bg-green-600/20 border border-green-500/40 rounded-lg p-3">
+                                <p class="text-sm text-green-200"><strong>Diferencial sugerido 10/10:</strong> ${analysis.diferencialProposto}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (sugestoes.length) {
+                        html += `
+                            <div>
+                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Como aplicar no meu roteiro</h6>
+                                <ul class="list-disc pl-5 space-y-1 text-gray-300">
+                                    ${sugestoes.map(item => `<li>${item}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+
+                    if (alertas.length) {
+                        html += `
+                            <div class="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3">
+                                <h6 class="text-sm font-semibold text-amber-300 mb-1">Alertas / pontos de atenção</h6>
+                                <ul class="list-disc pl-5 text-sm text-amber-100 space-y-1">
+                                    ${alertas.map(item => `<li>${item}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+
+                    insightsContent.innerHTML = html || '<p class="text-gray-400">A IA não conseguiu explicar o motivo do viral. Tente novamente.</p>';
+                    insightsContent.classList.remove('hidden');
+                    hasViralInsights = true;
+                    if (insightsStatus) {
+                        insightsStatus.textContent = provider
+                            ? `Checklist gerado automaticamente (${provider}).`
+                            : 'Checklist gerado automaticamente.';
+                    }
+                    updateCreateAgentAvailability();
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }
+
+                async function requestTranscriptInsights(triggerSource = 'manual') {
+                    if (!transcriptTextarea || !transcriptTextarea.value.trim()) {
+                        showCustomModal('Roteiro necessário', 'Cole ou carregue a transcrição completa antes de analisar a fórmula viral.', 'info');
+                        return;
+                    }
+
+                    const wordCount = transcriptTextarea.value.trim().split(/\s+/).length;
+                    if (wordCount < MIN_WORDS_FOR_INSIGHTS) {
+                        showCustomModal('Roteiro muito curto', `Precisamos de pelo menos ${MIN_WORDS_FOR_INSIGHTS} palavras para analisar a fórmula do vídeo.`, 'info');
+                        return;
+                    }
+
+                    if (isAnalyzingViralFormula) return;
+                    isAnalyzingViralFormula = true;
+                    if (insightsLoading) insightsLoading.classList.remove('hidden');
+                    if (insightsError) insightsError.classList.add('hidden');
+                    if (btnAnalyzeTranscript) btnAnalyzeTranscript.disabled = true;
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/video/transcript/analyze`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({
+                                transcript: transcriptTextarea.value.trim(),
+                                videoId: currentVideoId,
+                                videoTitle: currentVideoTitle,
+                                niche: currentNiche,
+                                subniche: currentSubniche
+                            })
+                        });
+
+                        const data = await response.json();
+                        if (!response.ok) {
+                            throw new Error(data.msg || 'Erro ao analisar o roteiro.');
+                        }
+
+                        currentViralInsights = data;
+                        renderTranscriptInsights(data.analysis, data.provider);
+                        autoInsightsTriggered = true;
+                    } catch (err) {
+                        console.error('Erro ao analisar fórmula viral:', err);
+                        if (insightsError) {
+                            insightsError.textContent = err.message || 'Erro ao analisar o roteiro.';
+                            insightsError.classList.remove('hidden');
+                        } else {
+                            showCustomModal('Erro', err.message || 'Erro ao analisar o roteiro.', 'error');
+                        }
+                    } finally {
+                        isAnalyzingViralFormula = false;
+                        if (insightsLoading) insightsLoading.classList.add('hidden');
+                        if (btnAnalyzeTranscript) btnAnalyzeTranscript.disabled = false;
+                    }
+                }
+
+                function autoAnalyzeIfPossible() {
+                    if (autoInsightsTriggered) return;
+                    if (!transcriptTextarea || !transcriptTextarea.value.trim()) return;
+                    const wordCount = transcriptTextarea.value.trim().split(/\s+/).length;
+                    if (wordCount < MIN_WORDS_FOR_INSIGHTS) return;
+                    autoInsightsTriggered = true;
+                    requestTranscriptInsights('auto');
+                }
+
+                resetInsightsUI();
+
+                const hasTranscriptContent = () => {
+                    return transcriptTextarea && transcriptTextarea.value.trim().length > 0;
+                };
+
+                const updateCreateAgentAvailability = () => {
+                    if (!btnCreateAgent) return;
+                    const hasContent = transcriptTextarea && transcriptTextarea.value.trim().length > 0;
+                    const ready = hasContent && hasViralInsights;
+                    btnCreateAgent.disabled = !ready;
+                    btnCreateAgent.classList.toggle('opacity-50', !ready);
+                    btnCreateAgent.classList.toggle('cursor-not-allowed', !ready);
+                    if (!hasContent) {
+                        btnCreateAgent.setAttribute('title', 'Cole ou carregue a transcrição completa para habilitar');
+                    } else if (!hasViralInsights) {
+                        btnCreateAgent.setAttribute('title', 'Clique em “Analisar Fórmula Viral” para desbloquear o agente.');
+                    } else {
+                        btnCreateAgent.removeAttribute('title');
+                    }
+                };
+
+                const setTranscriptLoadingState = (isLoading) => {
+                    if (transcriptLoading) {
+                        transcriptLoading.classList.toggle('hidden', !isLoading);
+                        transcriptLoading.style.display = isLoading ? 'block' : 'none';
+                    }
+                    if (transcriptTextarea) {
+                        transcriptTextarea.readOnly = isLoading;
+                        transcriptTextarea.classList.toggle('opacity-60', isLoading);
+                    }
+                };
+
+                if (transcriptTextarea) {
+                    transcriptTextarea.readOnly = false;
+                    transcriptTextarea.addEventListener('input', () => {
+                        updateCreateAgentAvailability();
+                        resetInsightsUI('O roteiro foi atualizado. Clique em “Analisar Fórmula Viral”.');
+                    });
+                }
+                updateCreateAgentAvailability();
+
+                if (agentFormulaCancel) {
+                    agentFormulaCancel.addEventListener('click', () => {
+                        closeAgentFormulaModal();
+                    });
+                }
+
+                if (agentFormulaClose) {
+                    agentFormulaClose.addEventListener('click', () => {
+                        closeAgentFormulaModal();
+                    });
+                }
+
+                if (agentFormulaConfirm) {
+                    agentFormulaConfirm.addEventListener('click', () => {
+                        const payload = pendingAgentPayload;
+                        closeAgentFormulaModal();
+                        submitAgentRequest(payload);
+                    });
+                }
+
+                function buildAgentFormulaPreview(insights) {
+                    if (!insights) return '<p class="text-gray-400">Sem dados suficientes para exibir a fórmula.</p>';
+                    const analysis = insights.analysis || insights;
+                    let html = '';
+
+                    if (analysis.resumo) {
+                        html += `<p class="text-base text-white mb-3">${analysis.resumo}</p>`;
+                    }
+
+                    if (Array.isArray(analysis.formulaChecklist) && analysis.formulaChecklist.length) {
+                        html += `
+                            <div>
+                                <h4 class="text-sm font-semibold text-amber-400 mb-2">Checklist replicado</h4>
+                                <div class="space-y-2">
+                                    ${analysis.formulaChecklist.map(item => `
+                                        <div class="bg-gray-800/70 rounded-md p-3">
+                                            <p class="text-white font-semibold">${item.item || 'Elemento da fórmula'}</p>
+                                            <p class="text-gray-300 text-sm">${item.porqueFunciona || ''}</p>
+                                            ${item.comoAplicarNoMeuConteudo ? `<p class="text-gray-200 text-xs mt-1"><span class="text-amber-400 font-semibold">Como aplicar:</span> ${item.comoAplicarNoMeuConteudo}</p>` : ''}
+                                            ${item.upgradeSugerido ? `<p class="text-gray-200 text-xs mt-1"><span class="text-amber-400 font-semibold">Upgrade 10/10:</span> ${item.upgradeSugerido}</p>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (Array.isArray(analysis.estruturaNarrativa) && analysis.estruturaNarrativa.length) {
+                        html += `
+                            <div>
+                                <h4 class="text-sm font-semibold text-amber-400 mb-2">Estrutura replicada</h4>
+                                <div class="space-y-1">
+                                    ${analysis.estruturaNarrativa.map(step => `
+                                        <div class="bg-gray-800/50 rounded-md px-3 py-2">
+                                            <p class="text-xs uppercase text-gray-400 tracking-wide">${step.tempoAproximado || ''}</p>
+                                            <p class="text-white font-semibold text-sm">${step.etapa || ''}</p>
+                                            <p class="text-gray-300 text-sm">${step.descricao || ''}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (analysis.diferencialProposto) {
+                        html += `
+                            <div class="bg-green-600/20 border border-green-500/40 rounded-lg p-3">
+                                <p class="text-sm text-green-200"><strong>Diferencial 10/10:</strong> ${analysis.diferencialProposto}</p>
+                            </div>
+                        `;
+                    }
+
+                    if (!html) {
+                        html = '<p class="text-gray-400">A IA não retornou detalhes da fórmula.</p>';
+                    }
+                    return html;
+                }
+
+                function openAgentFormulaModal(payload) {
+                    if (!agentFormulaModal || !agentFormulaContent) {
+                        submitAgentRequest(payload);
+                        return;
+                    }
+                    pendingAgentPayload = payload;
+                    agentFormulaContent.innerHTML = buildAgentFormulaPreview(currentViralInsights);
+                    agentFormulaModal.style.display = 'flex';
+                    agentFormulaModal.classList.remove('hidden');
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }
+
+                function closeAgentFormulaModal() {
+                    pendingAgentPayload = null;
+                    if (agentFormulaModal) {
+                        agentFormulaModal.style.display = 'none';
+                        agentFormulaModal.classList.add('hidden');
+                    }
+                }
+
+                async function submitAgentRequest(payload) {
+                    if (!payload || isSubmittingAgent) return;
+                    isSubmittingAgent = true;
+                    const spinner = btnSubmitAgent ? btnSubmitAgent.querySelector('.btn-spinner') : null;
+                    if (btnSubmitAgent) btnSubmitAgent.disabled = true;
+                    if (spinner) spinner.classList.remove('hidden');
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/script-agents/create`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.msg || 'Erro ao criar agente.');
+                        }
+
+                        await response.json();
+                        showCustomModal('Agente viral criado', 'A fórmula foi clonada e aprimorada para o novo agente!', 'success');
+                        if (createAgentModal) createAgentModal.style.display = 'none';
+                        createAgentForm.reset();
+
+                        if (typeof currentBibliotecaTab !== 'undefined' && currentBibliotecaTab === 'agents') {
+                            if (typeof loadBibliotecaAgents === 'function') {
+                                loadBibliotecaAgents();
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Erro ao criar agente:', err);
+                        showCustomModal('Erro ao criar agente', err.message || 'Tente novamente.', 'error');
+                    } finally {
+                        isSubmittingAgent = false;
+                        pendingAgentPayload = null;
+                        if (btnSubmitAgent) btnSubmitAgent.disabled = false;
+                        if (spinner) spinner.classList.add('hidden');
+                    }
+                }
+
+
+                // Carregar transcrição
+                if (btnLoadTranscript) {
+                    btnLoadTranscript.addEventListener('click', async () => {
+                        if (!currentVideoId) {
+                            alert('ID do vídeo não disponível.');
+                            return;
+                        }
+
+                        if (hasTranscriptContent()) {
+                            const shouldReplace = confirm('Já existe um roteiro/transcrição preenchido manualmente. Deseja substituí-lo pela transcrição automática?');
+                            if (!shouldReplace) {
+                                return;
+                            }
+                        }
+
+                        setTranscriptLoadingState(true);
+                        btnLoadTranscript.disabled = true;
+
+                        try {
+                            const response = await fetch(`${API_BASE}/api/video/transcript/${currentVideoId}`, {
+                                headers: {
+                                    'Authorization': `Bearer ${userToken}`
+                                }
+                            });
+
+                            if (!response.ok) {
+                                throw new Error('Erro ao carregar transcrição.');
+                            }
+
+                            const data = await response.json();
+                            if (data.transcript) {
+                                transcriptTextarea.value = data.transcript;
+                                resetInsightsUI('Gerando checklist automaticamente...');
+                                updateCreateAgentAvailability();
+                                autoAnalyzeIfPossible();
+                            } else {
+                                alert('Transcrição não disponível para este vídeo.');
+                            }
+                        } catch (err) {
+                            console.error('Erro ao carregar transcrição:', err);
+                            alert('Erro ao carregar transcrição: ' + err.message);
+                        } finally {
+                            setTranscriptLoadingState(false);
+                            btnLoadTranscript.disabled = false;
+                        }
+                    });
+                }
+
+                if (btnPasteTranscript) {
+                    if (!(navigator.clipboard && navigator.clipboard.readText)) {
+                        btnPasteTranscript.disabled = true;
+                        btnPasteTranscript.classList.add('opacity-50', 'cursor-not-allowed');
+                        btnPasteTranscript.title = 'Clipboard API não disponível neste navegador. Use Ctrl+V para colar.';
+                    } else {
+                        btnPasteTranscript.addEventListener('click', async () => {
+                            try {
+                                const text = await navigator.clipboard.readText();
+                                if (!text) {
+                                    alert('Não encontramos texto na área de transferência.');
+                                    return;
+                                }
+                                if (transcriptTextarea) {
+                                    transcriptTextarea.value = text.trim();
+                                    updateCreateAgentAvailability();
+                                    resetInsightsUI('Texto colado. Clique em “Analisar Fórmula Viral”.');
+                                }
+                                alert('Transcrição colada a partir do clipboard!');
+                            } catch (clipboardErr) {
+                                console.error('Erro ao ler clipboard:', clipboardErr);
+                                alert('Não foi possível acessar o clipboard. Cole usando Ctrl+V.');
+                            }
+                        });
+                    }
+                }
+
+                if (btnAnalyzeTranscript) {
+                    btnAnalyzeTranscript.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        requestTranscriptInsights('manual');
+                    });
+                }
+
+                if (btnClearTranscript) {
+                    btnClearTranscript.addEventListener('click', () => {
+                        if (!transcriptTextarea) return;
+                        if (!transcriptTextarea.value.trim().length) {
+                            return;
+                        }
+                        const confirmClear = confirm('Tem certeza de que deseja limpar a transcrição atual?');
+                        if (!confirmClear) return;
+                        transcriptTextarea.value = '';
+                        updateCreateAgentAvailability();
+                        resetInsightsUI();
+                    });
+                }
+
+                // Copiar transcrição
+                if (btnCopyTranscript) {
+                    btnCopyTranscript.addEventListener('click', async () => {
+                        if (!transcriptTextarea || !transcriptTextarea.value.trim()) {
+                            alert('Cole ou carregue uma transcrição antes de copiar.');
+                            return;
+                        }
+                        try {
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                await navigator.clipboard.writeText(transcriptTextarea.value);
+                            } else {
+                                transcriptTextarea.select();
+                                document.execCommand('copy');
+                            }
+                            alert('Transcrição copiada para a área de transferência!');
+                        } catch (copyErr) {
+                            console.error('Erro ao copiar transcrição:', copyErr);
+                            alert('Não foi possível copiar automaticamente. Selecione e copie manualmente (Ctrl+C).');
+                        }
+                    });
+                }
+
+                // Abrir modal de criação de agente
+                if (btnCreateAgent) {
+                    btnCreateAgent.addEventListener('click', () => {
+                        const hasTranscript = transcriptTextarea && transcriptTextarea.value.trim().length > 0;
+                        if (!hasTranscript) {
+                            alert('Cole ou carregue a transcrição completa antes de criar o agente.');
+                            return;
+                        }
+                        if (!hasViralInsights) {
+                            alert('Antes de criar o agente, clique em “Analisar Fórmula Viral” para que a IA leia o roteiro e gere a estrutura 10/10.');
+                            return;
+                        }
+                        if (createAgentModal) {
+                            // Preencher campos do modal com valores atuais
+                            const agentNicheInput = document.getElementById('agent-niche-input');
+                            const agentSubnicheInput = document.getElementById('agent-subniche-input');
+                            const agentManualTranscript = document.getElementById('agent-manual-transcript');
+                            
+                            if (agentNicheInput) agentNicheInput.value = currentNiche || '';
+                            if (agentSubnicheInput) agentSubnicheInput.value = currentSubniche || '';
+                            
+                            // Preencher transcrição manual com a transcrição carregada (se disponível)
+                            if (agentManualTranscript && transcriptTextarea && transcriptTextarea.value) {
+                                agentManualTranscript.value = transcriptTextarea.value.trim();
+                            }
+                            
+                            createAgentModal.style.display = 'flex';
+                            if (typeof lucide !== 'undefined') {
+                                lucide.createIcons();
+                            }
+                        }
+                    });
+                }
+
+                // Fechar modal
+                if (btnCloseAgentModal) {
+                    btnCloseAgentModal.addEventListener('click', () => {
+                        if (createAgentModal) createAgentModal.style.display = 'none';
+                    });
+                }
+
+                if (btnCancelAgent) {
+                    btnCancelAgent.addEventListener('click', () => {
+                        if (createAgentModal) createAgentModal.style.display = 'none';
+                    });
+                }
+
+                // Criar agente
+                if (createAgentForm) {
+                    createAgentForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+
+                        const agentName = document.getElementById('agent-name-input').value;
+                        const agentNiche = document.getElementById('agent-niche-input').value;
+                        const agentSubniche = document.getElementById('agent-subniche-input').value;
+                        const manualTranscriptField = document.getElementById('agent-manual-transcript');
+                        const manualTranscript = manualTranscriptField ? manualTranscriptField.value.trim() : '';
+
+                        if (!agentName) {
+                            alert('Por favor, informe o nome do agente.');
+                            return;
+                        }
+
+                        // Se não houver transcrição manual e não houver transcrição carregada, avisar
+                        const transcriptToSend = manualTranscript || (transcriptTextarea ? transcriptTextarea.value.trim() : '');
+
+                        if (!transcriptToSend) {
+                            const useManual = confirm('Nenhuma transcrição foi carregada automaticamente e você não forneceu uma transcrição manual. Deseja continuar mesmo assim? O agente será criado sem base de roteiro.');
+                            if (!useManual) {
+                                return;
+                            }
+                        }
+
+                        openAgentFormulaModal({
+                            videoId: currentVideoId,
+                            videoUrl: window.location.href,
+                            videoTitle: currentTranslatedTitle || currentVideoTitle,
+                            agentName: agentName,
+                            niche: agentNiche || currentNiche || null,
+                            subniche: agentSubniche || currentSubniche || null,
+                            manualTranscript: transcriptToSend || null,
+                            viralInsights: currentViralInsights || null
+                        });
+                    });
                 }
             }
             
@@ -5364,16 +6340,21 @@
             
             const bibliotecaTabTitles = document.getElementById('biblioteca-tab-titles');
             const bibliotecaTabThumbnails = document.getElementById('biblioteca-tab-thumbnails');
+            const bibliotecaTabAgents = document.getElementById('biblioteca-tab-agents');
+            const bibliotecaTabScripts = document.getElementById('biblioteca-tab-scripts');
             
             if (bibliotecaTabTitles) {
                 bibliotecaTabTitles.addEventListener('click', () => {
                     currentBibliotecaTab = 'titles';
                     document.getElementById('biblioteca-titles-section').style.display = 'block';
                     document.getElementById('biblioteca-thumbnails-section').style.display = 'none';
+                    document.getElementById('biblioteca-agents-section').style.display = 'none';
                     bibliotecaTabTitles.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
                     bibliotecaTabTitles.classList.remove('text-gray-400');
-                    bibliotecaTabThumbnails.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
-                    bibliotecaTabThumbnails.classList.add('text-gray-400');
+                    bibliotecaTabThumbnails?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabThumbnails?.classList.add('text-gray-400');
+                    bibliotecaTabAgents?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabAgents?.classList.add('text-gray-400');
                     loadBibliotecaTitles();
                 });
             }
@@ -5383,11 +6364,52 @@
                     currentBibliotecaTab = 'thumbnails';
                     document.getElementById('biblioteca-titles-section').style.display = 'none';
                     document.getElementById('biblioteca-thumbnails-section').style.display = 'block';
+                    document.getElementById('biblioteca-agents-section').style.display = 'none';
                     bibliotecaTabThumbnails.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
                     bibliotecaTabThumbnails.classList.remove('text-gray-400');
                     bibliotecaTabTitles.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
                     bibliotecaTabTitles.classList.add('text-gray-400');
+                    bibliotecaTabAgents?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabAgents?.classList.add('text-gray-400');
                     loadBibliotecaThumbnails();
+                });
+            }
+
+            if (bibliotecaTabAgents) {
+                bibliotecaTabAgents.addEventListener('click', () => {
+                    currentBibliotecaTab = 'agents';
+                    document.getElementById('biblioteca-titles-section').style.display = 'none';
+                    document.getElementById('biblioteca-thumbnails-section').style.display = 'none';
+                    document.getElementById('biblioteca-agents-section').style.display = 'block';
+                    document.getElementById('biblioteca-scripts-section').style.display = 'none';
+                    bibliotecaTabAgents.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabAgents.classList.remove('text-gray-400');
+                    bibliotecaTabTitles.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabTitles.classList.add('text-gray-400');
+                    bibliotecaTabThumbnails?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabThumbnails?.classList.add('text-gray-400');
+                    bibliotecaTabScripts?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabScripts?.classList.add('text-gray-400');
+                    loadBibliotecaAgents();
+                });
+            }
+
+            if (bibliotecaTabScripts) {
+                bibliotecaTabScripts.addEventListener('click', () => {
+                    currentBibliotecaTab = 'scripts';
+                    document.getElementById('biblioteca-titles-section').style.display = 'none';
+                    document.getElementById('biblioteca-thumbnails-section').style.display = 'none';
+                    document.getElementById('biblioteca-agents-section').style.display = 'none';
+                    document.getElementById('biblioteca-scripts-section').style.display = 'block';
+                    bibliotecaTabScripts.classList.add('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabScripts.classList.remove('text-gray-400');
+                    bibliotecaTabTitles.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabTitles.classList.add('text-gray-400');
+                    bibliotecaTabThumbnails?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabThumbnails?.classList.add('text-gray-400');
+                    bibliotecaTabAgents?.classList.remove('text-amber-500', 'border-b-2', 'border-amber-500');
+                    bibliotecaTabAgents?.classList.add('text-gray-400');
+                    loadBibliotecaScripts();
                 });
             }
 
@@ -5453,6 +6475,1065 @@
                         list.innerHTML = `<p class="text-red-400">Erro ao carregar títulos: ${err.message}</p>`;
                     }
                 }
+            }
+
+            async function loadBibliotecaScripts() {
+                console.log('[Biblioteca] Carregando roteiros gerados...');
+                if (!userToken) {
+                    console.error('[Biblioteca] Token de usuário não encontrado');
+                    return;
+                }
+                try {
+                    const list = document.getElementById('biblioteca-scripts-list');
+                    if (!list) {
+                        console.error('[Biblioteca] Elemento biblioteca-scripts-list não encontrado');
+                        return;
+                    }
+
+                    list.innerHTML = '<p class="text-gray-400">Carregando roteiros...</p>';
+
+                    const response = await fetch(`${API_BASE}/api/scripts`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar roteiros: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const scripts = data.scripts || [];
+                    console.log('[Biblioteca] Roteiros recebidos:', scripts.length);
+
+                    if (list) {
+                        if (scripts.length > 0) {
+                            list.innerHTML = scripts.map(script => {
+                                const createdDate = new Date(script.created_at || script.createdAt || Date.now());
+                                const dateStr = createdDate.toLocaleDateString('pt-BR', { 
+                                    day: '2-digit', 
+                                    month: '2-digit', 
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                });
+                                
+                                return `
+                                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-amber-500 transition-colors">
+                                        <div class="flex justify-between items-start mb-4">
+                                            <div class="flex-1">
+                                                <h3 class="text-lg font-semibold text-white mb-2">${escapeHtml(script.title || 'Sem título')}</h3>
+                                                <div class="space-y-1 text-sm text-gray-400">
+                                                    ${script.niche ? `<p><span class="text-amber-500">Nicho:</span> ${escapeHtml(script.niche)}</p>` : ''}
+                                                    ${script.subniche ? `<p><span class="text-amber-500">Sub-nicho:</span> ${escapeHtml(script.subniche)}</p>` : ''}
+                                                    ${script.model_used ? `<p><span class="text-amber-500">Modelo:</span> ${escapeHtml(script.model_used)}</p>` : ''}
+                                                    <p class="text-xs text-gray-500 mt-2">Gerado em: ${dateStr}</p>
+                                                    <p class="text-xs text-gray-500">Tamanho: ${(script.script_content?.length || 0)} caracteres</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-2 mt-4">
+                                            <button class="btn-view-script flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2" data-script-id="${script.id}" data-script-title="${escapeHtml(script.title)}">
+                                                <i data-lucide="eye"></i>
+                                                <span>Ver Roteiro</span>
+                                            </button>
+                                            <button class="btn-download-script-srt py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors" data-script-id="${script.id}" data-script-content="${escapeHtml((script.script_content || '').substring(0, 1000))}" data-script-title="${escapeHtml(script.title)}" title="Baixar SRT">
+                                                <i data-lucide="download"></i>
+                                            </button>
+                                            <button class="btn-delete-script py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-script-id="${script.id}" title="Excluir roteiro">
+                                                <i data-lucide="trash-2"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('');
+                            
+                            // Adicionar event listeners
+                            document.querySelectorAll('.btn-view-script').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const scriptId = btn.getAttribute('data-script-id');
+                                    const scriptTitle = btn.getAttribute('data-script-title');
+                                    try {
+                                        const response = await fetch(`${API_BASE}/api/scripts/${scriptId}`, {
+                                            headers: { 'Authorization': `Bearer ${userToken}` }
+                                        });
+                                        if (!response.ok) throw new Error('Erro ao carregar roteiro');
+                                        const data = await response.json();
+                                        showScriptResult(data.script.script_content || data.script.content || '', scriptTitle, 5);
+                                    } catch (err) {
+                                        alert('Erro ao carregar roteiro: ' + err.message);
+                                    }
+                                });
+                            });
+
+                            document.querySelectorAll('.btn-download-script-srt').forEach(btn => {
+                                btn.addEventListener('click', () => {
+                                    const scriptContent = btn.getAttribute('data-script-content');
+                                    const scriptTitle = btn.getAttribute('data-script-title');
+                                    // Carregar conteúdo completo
+                                    fetch(`${API_BASE}/api/scripts/${btn.getAttribute('data-script-id')}`, {
+                                        headers: { 'Authorization': `Bearer ${userToken}` }
+                                    })
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        const fullContent = data.script?.script_content || data.script?.content || '';
+                                        // Estimar duração baseado no tamanho (150 palavras/minuto, ~5 caracteres/palavra)
+                                        const estimatedDuration = Math.max(5, Math.ceil(fullContent.length / (150 * 5)));
+                                        const srtContent = generateSRT(fullContent, estimatedDuration);
+                                        downloadSRT(srtContent, scriptTitle || 'roteiro');
+                                    })
+                                    .catch(err => {
+                                        alert('Erro ao baixar SRT: ' + err.message);
+                                    });
+                                });
+                            });
+
+                            document.querySelectorAll('.btn-delete-script').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const scriptId = btn.getAttribute('data-script-id');
+                                    if (confirm('Tem certeza que deseja excluir este roteiro?')) {
+                                        try {
+                                            const response = await fetch(`${API_BASE}/api/scripts/${scriptId}`, {
+                                                method: 'DELETE',
+                                                headers: { 'Authorization': `Bearer ${userToken}` }
+                                            });
+                                            if (!response.ok) throw new Error('Erro ao excluir roteiro');
+                                            loadBibliotecaScripts();
+                                            showMessage('biblioteca-success-message', 'Roteiro excluído com sucesso!');
+                                        } catch (err) {
+                                            showMessage('biblioteca-error-message', 'Erro ao excluir roteiro: ' + err.message, true);
+                                        }
+                                    }
+                                });
+                            });
+
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            list.innerHTML = `
+                                <div class="col-span-full text-center py-12">
+                                    <i data-lucide="file-text" class="w-16 h-16 text-gray-600 mx-auto mb-4"></i>
+                                    <p class="text-gray-400 text-lg mb-2">Nenhum roteiro gerado ainda</p>
+                                    <p class="text-gray-500 text-sm">Os roteiros gerados pelos agentes aparecerão aqui</p>
+                                </div>
+                            `;
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Biblioteca] Erro ao carregar roteiros:', err);
+                    const list = document.getElementById('biblioteca-scripts-list');
+                    if (list) {
+                        list.innerHTML = `<p class="text-red-400">Erro ao carregar roteiros: ${err.message}</p>`;
+                    }
+                }
+            }
+
+            async function loadBibliotecaAgents() {
+                console.log('[Biblioteca] Carregando agentes de roteiro...');
+                if (!userToken) {
+                    console.error('[Biblioteca] Token de usuário não encontrado');
+                    return;
+                }
+                try {
+                    const list = document.getElementById('biblioteca-agents-list');
+                    if (!list) {
+                        console.error('[Biblioteca] Elemento biblioteca-agents-list não encontrado');
+                        return;
+                    }
+
+                    list.innerHTML = '<p class="text-gray-400">Carregando agentes...</p>';
+
+                    const response = await fetch(`${API_BASE}/api/script-agents`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(errorData.msg || `Falha ao carregar agentes: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const agents = data.agents || [];
+                    console.log('[Biblioteca] Agentes recebidos:', agents.length);
+
+                    if (list) {
+                        if (agents.length > 0) {
+                            list.innerHTML = agents.map(agent => `
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-amber-500 transition-colors">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div class="flex-1">
+                                            <h3 class="text-lg font-semibold text-white mb-2">${escapeHtml(agent.agent_name || 'Sem nome')}</h3>
+                                            <div class="space-y-1 text-sm text-gray-400">
+                                                ${agent.niche ? `<p><span class="text-amber-500">Nicho:</span> ${escapeHtml(agent.niche)}</p>` : ''}
+                                                ${agent.subniche ? `<p><span class="text-amber-500">Sub-nicho:</span> ${escapeHtml(agent.subniche)}</p>` : ''}
+                                                ${agent.source_video_title ? `<p class="text-xs text-gray-500 mt-2">Baseado em: ${escapeHtml(agent.source_video_title.substring(0, 50))}${agent.source_video_title.length > 50 ? '...' : ''}</p>` : ''}
+                                                <p class="text-xs text-gray-500 mt-2">Usado ${agent.usage_count || 0} vez${agent.usage_count !== 1 ? 'es' : ''}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex space-x-2 mt-4">
+                                        <button class="btn-use-agent flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2" data-agent-id="${agent.id}" data-agent-name="${escapeHtml(agent.agent_name)}">
+                                            <i data-lucide="play"></i>
+                                            <span>Usar Agente</span>
+                                        </button>
+                                        <button class="btn-delete-agent py-2 px-3 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-agent-id="${agent.id}" title="Excluir agente">
+                                            <i data-lucide="trash-2"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('');
+                            
+                            // Adicionar event listeners
+                            document.querySelectorAll('.btn-use-agent').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const agentId = btn.getAttribute('data-agent-id');
+                                    const agentName = btn.getAttribute('data-agent-name');
+                                    openGenerateScriptModal(agentId, agentName);
+                                });
+                            });
+
+                            document.querySelectorAll('.btn-delete-agent').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const agentId = btn.getAttribute('data-agent-id');
+                                    if (confirm('Tem certeza que deseja excluir este agente?')) {
+                                        try {
+                                            const response = await fetch(`${API_BASE}/api/script-agents/${agentId}`, {
+                                                method: 'DELETE',
+                                                headers: { 'Authorization': `Bearer ${userToken}` }
+                                            });
+                                            if (!response.ok) throw new Error('Erro ao excluir agente');
+                                            loadBibliotecaAgents();
+                                            showMessage('biblioteca-success-message', 'Agente excluído com sucesso!');
+                                        } catch (err) {
+                                            showMessage('biblioteca-error-message', 'Erro ao excluir agente: ' + err.message, true);
+                                        }
+                                    }
+                                });
+                            });
+
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        } else {
+                            list.innerHTML = `
+                                <div class="col-span-full text-center py-12">
+                                    <i data-lucide="bot" class="w-16 h-16 text-gray-600 mx-auto mb-4"></i>
+                                    <p class="text-gray-400 text-lg mb-2">Nenhum agente de roteiro criado ainda</p>
+                                    <p class="text-gray-500 text-sm">Crie seu primeiro agente a partir de um vídeo analisado</p>
+                                </div>
+                            `;
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Biblioteca] Erro ao carregar agentes:', err);
+                    const list = document.getElementById('biblioteca-agents-list');
+                    if (list) {
+                        list.innerHTML = `<p class="text-red-400">Erro ao carregar agentes: ${err.message}</p>`;
+                    }
+                }
+            }
+
+            function openGenerateScriptModal(agentId, agentName) {
+                // Criar modal dinamicamente ou usar existente
+                let modal = document.getElementById('generate-script-modal');
+                if (!modal) {
+                    modal = document.createElement('div');
+                    modal.id = 'generate-script-modal';
+                    modal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
+                    modal.innerHTML = `
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Gerar Roteiro com Agente</h3>
+                                <button id="close-generate-script-modal" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x"></i>
+                                </button>
+                            </div>
+                            <form id="generate-script-form" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Agente <span class="text-amber-500">*</span></label>
+                                    <input type="text" id="generate-script-agent-name" readonly class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed" required>
+                                    <p class="text-xs text-gray-400 mt-1">Agente selecionado para gerar o roteiro</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Título do Vídeo <span class="text-amber-500">*</span></label>
+                                    <input type="text" id="generate-script-title" placeholder="Cole aqui o título do vídeo para o qual deseja gerar o roteiro..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                                    <p class="text-xs text-gray-400 mt-1">O agente irá analisar o título e gerar um roteiro completo seguindo a estrutura do vídeo viral original.</p>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 text-gray-300">Duração (min) <span class="text-amber-500">*</span></label>
+                                        <input type="number" id="generate-script-duration" min="3" max="120" value="5" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                                        <p class="text-xs text-gray-400 mt-1">Palavras: ~<span id="duration-words">750</span></p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 text-gray-300">Partes (Automático)</label>
+                                        <input type="text" id="generate-script-parts" readonly class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed">
+                                        <p class="text-xs text-gray-400 mt-1">Partes de 3 minutos cada</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 text-gray-300">Idioma do Roteiro <span class="text-amber-500">*</span></label>
+                                        <select id="generate-script-language" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                                            <option value="pt" selected>Português (Brasil)</option>
+                                            <option value="pt-PT">Português (Portugal)</option>
+                                            <option value="es">Español</option>
+                                            <option value="en">English</option>
+                                            <option value="fr">Français</option>
+                                            <option value="de">Deutsch</option>
+                                            <option value="it">Italiano</option>
+                                            <option value="ru">Русский</option>
+                                            <option value="ja">日本語</option>
+                                            <option value="zh">中文</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Call to Action (CTA) - Onde incluir?</label>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="cta-inicio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
+                                            <span class="text-sm text-gray-300">CTA no Início (primeiros 30 segundos)</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="cta-meio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
+                                            <span class="text-sm text-gray-300">CTA no Meio (aproximadamente na metade do vídeo)</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="cta-final" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500" checked>
+                                            <span class="text-sm text-gray-300">CTA no Final (últimos 30 segundos)</span>
+                                        </label>
+                                    </div>
+                                    <p class="text-xs text-gray-400 mt-1">Marque onde deseja incluir chamadas para ação (like, subscribe, comentar, etc.)</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
+                                    <select id="generate-script-model" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025 - Recomendado)</option>
+                                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (2025)</option>
+                                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet</option>
+                                        <option value="gpt-4o">GPT-4o (2025)</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Tópico Adicional (Opcional)</label>
+                                    <textarea id="generate-script-topic" rows="3" placeholder="Se desejar, adicione informações adicionais sobre o tópico ou contexto específico..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                                    <p class="text-xs text-gray-400 mt-1">Opcional: Use apenas se quiser fornecer contexto adicional além do título.</p>
+                                </div>
+                                <div class="flex space-x-4">
+                                    <button type="button" id="cancel-generate-script" class="flex-1 py-3 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                    <button type="submit" id="submit-generate-script" class="flex-1 py-3 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-semibold flex items-center justify-center space-x-2">
+                                        <span>Gerar Roteiro</span>
+                                        <div class="btn-spinner hidden"></div>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    
+                    document.getElementById('close-generate-script-modal').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                    });
+                    
+                    // Atualizar partes quando a duração mudar
+                    const durationInput = document.getElementById('generate-script-duration');
+                    if (durationInput) {
+                        durationInput.addEventListener('input', updateScriptParts);
+                        durationInput.addEventListener('change', updateScriptParts);
+                    }
+                    document.getElementById('cancel-generate-script').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                    });
+
+                    document.getElementById('generate-script-form').addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        
+                        const agentNameField = document.getElementById('generate-script-agent-name');
+                        const title = document.getElementById('generate-script-title').value.trim();
+                        const topic = document.getElementById('generate-script-topic').value.trim();
+                        const duration = document.getElementById('generate-script-duration').value;
+                        const language = document.getElementById('generate-script-language').value;
+                        const model = document.getElementById('generate-script-model').value;
+                        const ctaInicio = document.getElementById('cta-inicio').checked;
+                        const ctaMeio = document.getElementById('cta-meio').checked;
+                        const ctaFinal = document.getElementById('cta-final').checked;
+                        
+                        if (!agentNameField || !agentNameField.value) {
+                            alert('Erro: Agente não encontrado. Por favor, selecione um agente novamente.');
+                            return;
+                        }
+                        
+                        if (!title) {
+                            alert('Por favor, informe o título do vídeo.');
+                            return;
+                        }
+
+                        if (!duration) {
+                            alert('Por favor, selecione a duração do roteiro.');
+                            return;
+                        }
+
+                        if (!language) {
+                            alert('Por favor, selecione o idioma do roteiro.');
+                            return;
+                        }
+
+                        const btn = document.getElementById('submit-generate-script');
+                        setButtonLoading(btn, true);
+                        
+                        // Mostrar modal de progresso
+                        showProgressModal(parseInt(duration));
+
+                        try {
+                            // Simular progresso das partes enquanto aguarda resposta
+                            const partDuration = parseInt(duration) > 5 ? 3 : parseInt(duration);
+                            const numberOfParts = Math.ceil(parseInt(duration) / partDuration);
+                            
+                            if (numberOfParts > 1) {
+                                // Simular progresso das partes gradualmente
+                                let currentPartSim = 1;
+                                const progressModal = document.getElementById('script-progress-modal');
+                                
+                                const partSimInterval = setInterval(() => {
+                                    if (currentPartSim <= numberOfParts) {
+                                        // Marcar parte anterior como concluída (exceto a primeira)
+                                        if (currentPartSim > 1) {
+                                            updatePartProgress(currentPartSim - 1, 'completed', 100);
+                                            if (progressModal) {
+                                                progressModal.dataset.completedParts = currentPartSim - 1;
+                                            }
+                                        }
+                                        
+                                        // Marcar parte atual como gerando
+                                        updatePartProgress(currentPartSim, 'generating', 50);
+                                        if (progressModal) {
+                                            progressModal.dataset.currentPart = currentPartSim;
+                                        }
+                                        currentPartSim++;
+                                    } else {
+                                        clearInterval(partSimInterval);
+                                    }
+                                }, 4000); // Atualizar a cada 4 segundos (simulando tempo de geração)
+                                
+                                // Limpar intervalo quando receber resposta
+                                window.partSimInterval = partSimInterval;
+                            }
+                            
+                            const response = await fetch(`${API_BASE}/api/script-agents/${agentId}/generate`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${userToken}`
+                                },
+                                body: JSON.stringify({ 
+                                    title: title,
+                                    topic: topic || null,
+                                    duration: parseInt(duration),
+                                    language: language,
+                                    cta: {
+                                        inicio: ctaInicio,
+                                        meio: ctaMeio,
+                                        final: ctaFinal
+                                    },
+                                    model: model || 'gemini-2.0-flash'
+                                })
+                            });
+
+                            if (!response.ok) {
+                                // Limpar intervalo de simulação se existir
+                                if (window.partSimInterval) {
+                                    clearInterval(window.partSimInterval);
+                                    window.partSimInterval = null;
+                                }
+                                const errorData = await response.json();
+                                throw new Error(errorData.msg || 'Erro ao gerar roteiro');
+                            }
+
+                            // Limpar intervalo de simulação se existir
+                            if (window.partSimInterval) {
+                                clearInterval(window.partSimInterval);
+                                window.partSimInterval = null;
+                            }
+                            
+                            const data = await response.json();
+                            console.log('[Roteiro] Dados recebidos:', data);
+                            
+                            // Marcar todas as partes como concluídas
+                            const progressModal = document.getElementById('script-progress-modal');
+                            if (progressModal) {
+                                const totalParts = parseInt(progressModal.dataset.numberOfParts) || 1;
+                                if (totalParts > 1) {
+                                    for (let i = 1; i <= totalParts; i++) {
+                                        updatePartProgress(i, 'completed', 100);
+                                    }
+                                    progressModal.dataset.completedParts = totalParts;
+                                    progressModal.dataset.currentPart = 0;
+                                    
+                                    // Atualizar progresso para 100%
+                                    const progressBar = document.getElementById('progress-bar');
+                                    const progressPercentage = document.getElementById('progress-percentage');
+                                    const progressText = document.getElementById('progress-text');
+                                    if (progressBar) progressBar.style.width = '100%';
+                                    if (progressPercentage) progressPercentage.textContent = '100%';
+                                    if (progressText) progressText.textContent = `Roteiro gerado com sucesso! (${totalParts}/${totalParts} partes concluídas)`;
+                                }
+                            }
+                            
+                            modal.style.display = 'none';
+                            
+                            // Extrair o roteiro (pode vir em diferentes formatos)
+                            let scriptText = '';
+                            if (typeof data.script === 'string') {
+                                scriptText = data.script;
+                            } else if (data.script && typeof data.script === 'object') {
+                                // Se for objeto, tentar extrair conteúdo
+                                if (data.script.content) {
+                                    scriptText = data.script.content;
+                                } else if (data.script.script && Array.isArray(data.script.script)) {
+                                    // Se for array de objetos (formato JSON)
+                                    scriptText = data.script.script.map(item => {
+                                        if (item.content) {
+                                            const timeStr = item.time ? `[${item.time}] ` : '';
+                                            return timeStr + item.content;
+                                        }
+                                        return '';
+                                    }).filter(Boolean).join('\n\n');
+                                } else if (data.script.roteiro) {
+                                    scriptText = data.script.roteiro;
+                                } else {
+                                    scriptText = JSON.stringify(data.script, null, 2);
+                                }
+                            } else {
+                                scriptText = data.script || '';
+                            }
+                            
+                            console.log('[Roteiro] Script extraído (primeiros 200 caracteres):', scriptText.substring(0, 200));
+                            
+                            // Limpar JSON se ainda houver
+                            scriptText = scriptText
+                                .replace(/\{[\s\S]*?"roteiro"[\s\S]*?\}/g, '')
+                                .replace(/"roteiro"\s*:\s*"([^"]+)"/gi, '$1')
+                                .replace(/"duracao"\s*:\s*"([^"]+)"/gi, '')
+                                .replace(/"estrutura"\s*:\s*"([^"]+)"/gi, '')
+                                .replace(/\{[\s\S]*\}/g, '')
+                                .trim();
+                            
+                            if (!scriptText || scriptText.length === 0) {
+                                console.error('[Roteiro] Script vazio após processamento');
+                                hideProgressModal();
+                                alert('Erro: O roteiro gerado está vazio. Por favor, tente novamente.');
+                                return;
+                            }
+                            
+                            // Validar quantidade de palavras antes de fechar o modal
+                            const wordCount = scriptText.trim().split(/\s+/).filter(w => w.length > 0).length;
+                            const expectedWords = parseInt(duration) * 150;
+                            const minWords = expectedWords - 50;
+                            const maxWords = expectedWords + 100;
+                            
+                            console.log(`[Roteiro] Validação: ${wordCount} palavras encontradas, esperado: ${expectedWords} (tolerância: ${minWords}-${maxWords})`);
+                            
+                            // Atualizar barra de progresso com informação de palavras
+                            const progressBar = document.getElementById('progress-bar');
+                            const progressText = document.getElementById('progress-text');
+                            
+                            // Se estiver muito abaixo do mínimo, avisar mas continuar (o backend já tentou expandir)
+                            if (wordCount < minWords) {
+                                const percentage = Math.round((wordCount / expectedWords) * 100);
+                                if (progressBar) progressBar.style.width = '95%';
+                                if (progressText) {
+                                    progressText.textContent = `Roteiro gerado: ${wordCount} palavras (${percentage}% da meta de ${expectedWords}). Finalizando...`;
+                                }
+                                
+                                // Avisar que está abaixo do ideal, mas continuar
+                                console.warn(`[Roteiro] Roteiro abaixo do ideal: ${wordCount} palavras (meta: ${expectedWords}), mas continuando...`);
+                            }
+                            
+                            if (wordCount > maxWords) {
+                                console.warn(`[Roteiro] Roteiro muito longo: ${wordCount} palavras (máximo: ${maxWords}), mas continuando...`);
+                            }
+                            
+                            // Atualizar barra de progresso para 100% antes de fechar
+                            if (progressBar) progressBar.style.width = '100%';
+                            if (progressText) {
+                                progressText.textContent = `Roteiro gerado com sucesso! ${wordCount} palavras (Meta: ${expectedWords})`;
+                            }
+                            
+                            // Aguardar um pouco para mostrar 100% e todas as partes concluídas
+                            setTimeout(() => {
+                                hideProgressModal();
+                                
+                                // Mostrar resultado em um modal ou área específica
+                                showScriptResult(scriptText, agentName, parseInt(duration));
+                            }, 1500);
+                        } catch (err) {
+                            hideProgressModal();
+                            alert('Erro ao gerar roteiro: ' + err.message);
+                        } finally {
+                            setButtonLoading(btn, false);
+                        }
+                    });
+                }
+
+                const agentNameInput = document.getElementById('generate-script-agent-name');
+                if (agentNameInput) {
+                    agentNameInput.value = agentName || '';
+                }
+                
+                document.getElementById('generate-script-title').value = '';
+                document.getElementById('generate-script-topic').value = '';
+                document.getElementById('generate-script-duration').value = '5';
+                document.getElementById('generate-script-language').value = 'pt';
+                document.getElementById('generate-script-model').value = 'gemini-2.0-flash';
+                document.getElementById('cta-inicio').checked = false;
+                document.getElementById('cta-meio').checked = false;
+                document.getElementById('cta-final').checked = true;
+                
+                // Atualizar partes automaticamente
+                setTimeout(() => {
+                    updateScriptParts();
+                }, 100);
+                
+                modal.style.display = 'flex';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            function updateScriptParts() {
+                const durationInput = document.getElementById('generate-script-duration');
+                const partsInput = document.getElementById('generate-script-parts');
+                const wordsSpan = document.getElementById('duration-words');
+                
+                if (durationInput && partsInput && wordsSpan) {
+                    const duration = parseInt(durationInput.value) || 5;
+                    const partDuration = duration > 5 ? 3 : duration;
+                    const numberOfParts = Math.ceil(duration / partDuration);
+                    const wordsTarget = duration * 150;
+                    
+                    partsInput.value = numberOfParts;
+                    wordsSpan.textContent = wordsTarget.toLocaleString('pt-BR');
+                }
+            }
+
+            function showProgressModal(duration) {
+                let progressModal = document.getElementById('script-progress-modal');
+                if (!progressModal) {
+                    progressModal = document.createElement('div');
+                    progressModal.id = 'script-progress-modal';
+                    progressModal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
+                    progressModal.innerHTML = `
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
+                            <div class="text-center mb-4">
+                                <h3 class="text-xl font-semibold text-white mb-2">Gerando Roteiro...</h3>
+                                <p class="text-gray-400 text-sm">Isso pode levar alguns segundos</p>
+                            </div>
+                            <div class="mb-3">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-sm text-gray-300">Progresso Geral</span>
+                                    <span id="progress-percentage" class="text-sm font-semibold text-amber-500">0%</span>
+                                </div>
+                                <div class="w-full bg-gray-800 rounded-full h-3 mb-2">
+                                    <div id="progress-bar" class="bg-amber-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div id="parts-progress" class="mb-2" style="display: none;">
+                                <p class="text-xs text-gray-400 mb-1">Partes:</p>
+                                <div id="parts-list" class="space-y-1 max-h-32 overflow-y-auto"></div>
+                            </div>
+                            <p id="progress-text" class="text-center text-gray-400 text-xs">Iniciando...</p>
+                        </div>
+                    `;
+                    document.body.appendChild(progressModal);
+                }
+                
+                // Calcular número de partes
+                const partDuration = duration > 5 ? 3 : duration;
+                const numberOfParts = Math.ceil(duration / partDuration);
+                const wordsTarget = duration * 150;
+                const minWords = wordsTarget - 50;
+                const maxWords = wordsTarget + 100;
+                
+                // Guardar informações no modal
+                progressModal.dataset.wordsTarget = wordsTarget;
+                progressModal.dataset.minWords = minWords;
+                progressModal.dataset.maxWords = maxWords;
+                progressModal.dataset.duration = duration;
+                progressModal.dataset.numberOfParts = numberOfParts;
+                progressModal.dataset.currentPart = 0;
+                progressModal.dataset.completedParts = 0;
+                
+                // Criar lista de partes (só se tiver mais de 1 parte)
+                const partsProgress = document.getElementById('parts-progress');
+                const partsList = document.getElementById('parts-list');
+                if (numberOfParts > 1 && partsList && partsProgress) {
+                    partsProgress.style.display = 'block';
+                    partsList.innerHTML = '';
+                    for (let i = 1; i <= numberOfParts; i++) {
+                        const partDiv = document.createElement('div');
+                        partDiv.id = `part-${i}`;
+                        partDiv.className = 'flex items-center space-x-2 text-xs';
+                        partDiv.innerHTML = `
+                            <div class="w-2 h-2 rounded-full bg-gray-700" id="part-${i}-indicator"></div>
+                            <span class="text-gray-400">Parte ${i}/${numberOfParts}</span>
+                            <span class="text-gray-500 ml-auto" id="part-${i}-status">Aguardando...</span>
+                        `;
+                        partsList.appendChild(partDiv);
+                    }
+                } else if (partsProgress) {
+                    partsProgress.style.display = 'none';
+                }
+                
+                // Animar barra de progresso
+                let progress = 0;
+                const progressBar = document.getElementById('progress-bar');
+                const progressText = document.getElementById('progress-text');
+                const progressPercentage = document.getElementById('progress-percentage');
+                
+                // Função para atualizar progresso baseado nas partes
+                const updateProgress = () => {
+                    const currentPart = parseInt(progressModal.dataset.currentPart) || 0;
+                    const completedParts = parseInt(progressModal.dataset.completedParts) || 0;
+                    const totalParts = numberOfParts;
+                    
+                    // Calcular progresso baseado nas partes
+                    let calculatedProgress = 0;
+                    if (totalParts > 1) {
+                        // Progresso baseado nas partes: cada parte completa = 100/totalParts %
+                        calculatedProgress = (completedParts / totalParts) * 100;
+                        // Adicionar progresso da parte atual (estimado)
+                        if (currentPart > 0 && currentPart <= totalParts) {
+                            calculatedProgress += (1 / totalParts) * 50; // 50% da parte atual
+                        }
+                    } else {
+                        // Se for uma parte só, usar progresso aleatório
+                        calculatedProgress = progress;
+                    }
+                    
+                    if (calculatedProgress > 95) calculatedProgress = 95; // Não completar até receber resposta
+                    
+                    if (progressBar) progressBar.style.width = calculatedProgress + '%';
+                    if (progressPercentage) progressPercentage.textContent = Math.round(calculatedProgress) + '%';
+                    
+                    if (totalParts > 1) {
+                        if (progressText) {
+                            progressText.textContent = `Gerando parte ${currentPart || 1}/${totalParts}... (${completedParts}/${totalParts} concluídas)`;
+                        }
+                    } else {
+                        if (progressText) {
+                            progressText.textContent = `Gerando roteiro... (Meta: ${wordsTarget.toLocaleString('pt-BR')} palavras)`;
+                        }
+                    }
+                };
+                
+                const interval = setInterval(() => {
+                    if (numberOfParts === 1) {
+                        progress += Math.random() * 8;
+                        if (progress > 90) progress = 90;
+                    }
+                    updateProgress();
+                }, 500);
+                
+                // Guardar intervalo para limpar depois
+                progressModal.dataset.interval = interval;
+                
+                progressModal.style.display = 'flex';
+            }
+            
+            function updatePartProgress(partNumber, status, percentage = 0) {
+                const partIndicator = document.getElementById(`part-${partNumber}-indicator`);
+                const partStatus = document.getElementById(`part-${partNumber}-status`);
+                
+                if (partIndicator && partStatus) {
+                    if (status === 'generating') {
+                        partIndicator.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+                        partStatus.textContent = `Gerando... ${percentage}%`;
+                        partStatus.className = 'text-amber-400 ml-auto';
+                    } else if (status === 'completed') {
+                        partIndicator.className = 'w-2 h-2 rounded-full bg-green-500';
+                        partStatus.textContent = 'Concluída';
+                        partStatus.className = 'text-green-400 ml-auto';
+                    } else if (status === 'expanding') {
+                        partIndicator.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+                        partStatus.textContent = 'Expandindo...';
+                        partStatus.className = 'text-blue-400 ml-auto';
+                    } else if (status === 'waiting') {
+                        partIndicator.className = 'w-2 h-2 rounded-full bg-gray-700';
+                        partStatus.textContent = 'Aguardando...';
+                        partStatus.className = 'text-gray-500 ml-auto';
+                    }
+                }
+            }
+            
+            function hideProgressModal() {
+                const progressModal = document.getElementById('script-progress-modal');
+                if (progressModal) {
+                    const interval = progressModal.dataset.interval;
+                    if (interval) clearInterval(interval);
+                    
+                    const progressBar = document.getElementById('progress-bar');
+                    if (progressBar) progressBar.style.width = '100%';
+                    
+                    setTimeout(() => {
+                        progressModal.style.display = 'none';
+                    }, 500);
+                }
+            }
+            
+            function showScriptResult(script, agentName, duration = 5) {
+                let resultModal = document.getElementById('script-result-modal');
+                if (!resultModal) {
+                    resultModal = document.createElement('div');
+                    resultModal.id = 'script-result-modal';
+                    resultModal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
+                    resultModal.innerHTML = `
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Roteiro Gerado</h3>
+                                <button id="close-script-result-modal" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x"></i>
+                                </button>
+                            </div>
+                            <div id="script-result-content" class="prose prose-invert max-w-none text-gray-300 whitespace-pre-wrap"></div>
+                            <div class="mt-4 flex space-x-2">
+                                <button id="copy-script-result" class="flex-1 py-3 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-semibold flex items-center justify-center space-x-2">
+                                    <i data-lucide="copy"></i>
+                                    <span>Copiar Roteiro</span>
+                                </button>
+                                <button id="download-srt-result" class="flex-1 py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold flex items-center justify-center space-x-2">
+                                    <i data-lucide="download"></i>
+                                    <span>Baixar SRT</span>
+                                </button>
+                                <button id="close-script-result-btn" class="flex-1 py-3 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Fechar</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(resultModal);
+
+                    document.getElementById('close-script-result-modal').addEventListener('click', () => {
+                        resultModal.style.display = 'none';
+                    });
+                    document.getElementById('close-script-result-btn').addEventListener('click', () => {
+                        resultModal.style.display = 'none';
+                    });
+                    document.getElementById('copy-script-result').addEventListener('click', () => {
+                        const content = document.getElementById('script-result-content').textContent;
+                        navigator.clipboard.writeText(content).then(() => {
+                            alert('Roteiro copiado para a área de transferência!');
+                        });
+                    });
+                    
+                    document.getElementById('download-srt-result').addEventListener('click', () => {
+                        const content = document.getElementById('script-result-content').textContent;
+                        const savedDuration = resultModal.dataset.duration || duration || 5;
+                        const srtContent = generateSRT(content, parseInt(savedDuration));
+                        downloadSRT(srtContent, agentName || 'roteiro');
+                    });
+                }
+                
+                // Guardar duração para gerar SRT
+                resultModal.dataset.duration = duration || 5;
+
+                // Processar e limpar o script antes de exibir
+                console.log('[Roteiro] showScriptResult chamado com:', typeof script, script?.substring?.(0, 100));
+                
+                let cleanScript = '';
+                if (script) {
+                    if (typeof script === 'string') {
+                        cleanScript = script;
+                    } else if (typeof script === 'object') {
+                        cleanScript = JSON.stringify(script);
+                    } else {
+                        cleanScript = String(script);
+                    }
+                }
+                
+                // Se script estiver vazio, mostrar mensagem de erro
+                if (!cleanScript || cleanScript.trim().length === 0) {
+                    cleanScript = 'Erro: O roteiro não foi gerado ou está vazio. Por favor, tente novamente.';
+                    console.error('[Roteiro] Script vazio recebido');
+                }
+                
+                // Se o script contém JSON, extrair o conteúdo
+                if (typeof cleanScript === 'string' && cleanScript.includes('{')) {
+                    try {
+                        // Tentar parsear JSON
+                        const jsonMatch = cleanScript.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            const jsonObj = JSON.parse(jsonMatch[0]);
+                            
+                            // Extrair conteúdo baseado na estrutura
+                            if (jsonObj.script && Array.isArray(jsonObj.script)) {
+                                cleanScript = jsonObj.script.map(item => {
+                                    if (item.content) {
+                                        const timeStr = item.time ? `[${item.time}] ` : '';
+                                        return timeStr + item.content;
+                                    }
+                                    return '';
+                                }).filter(Boolean).join('\n\n');
+                            } else if (jsonObj.roteiro) {
+                                cleanScript = jsonObj.roteiro;
+                            } else if (jsonObj.content) {
+                                cleanScript = jsonObj.content;
+                            } else if (jsonObj.script && typeof jsonObj.script === 'string') {
+                                cleanScript = jsonObj.script;
+                            }
+                        }
+                    } catch (e) {
+                        // Se falhar, tentar extração por regex
+                        const roteiroMatch = cleanScript.match(/"roteiro"\s*:\s*"([^"]+)"/i);
+                        if (roteiroMatch) {
+                            cleanScript = roteiroMatch[1];
+                        } else {
+                            // Remover JSON manualmente
+                            cleanScript = cleanScript
+                                .replace(/\{[\s\S]*?"roteiro"[\s\S]*?\}/g, '')
+                                .replace(/"roteiro"\s*:\s*"([^"]+)"/gi, '$1')
+                                .replace(/"duracao"\s*:\s*"([^"]+)"/gi, '')
+                                .replace(/"estrutura"\s*:\s*"([^"]+)"/gi, '')
+                                .replace(/\{[\s\S]*\}/g, '')
+                                .trim();
+                        }
+                    }
+                }
+                
+                // Remover marcações de tempo para voice over (limpar para narração)
+                cleanScript = cleanScript
+                    .replace(/\[?\d{1,2}:\d{2}-\d{1,2}:\d{2}\]?\s*/g, '') // Remove [0:00-0:30]
+                    .replace(/\(\d{1,2}:\d{2}\)\s*/g, '') // Remove (0:30)
+                    .replace(/^\d{1,2}:\d{2}\s*/gm, '') // Remove 0:30 no início da linha
+                    .replace(/\n{3,}/g, '\n\n') // Remove múltiplas quebras
+                    .trim();
+                
+                document.getElementById('script-result-content').textContent = cleanScript;
+                resultModal.style.display = 'flex';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+            
+            function generateSRT(text, duration) {
+                // Remover marcações de tempo se houver
+                let cleanText = text
+                    .replace(/\[?\d{1,2}:\d{2}-\d{1,2}:\d{2}\]?\s*/g, '')
+                    .replace(/\(\d{1,2}:\d{2}\)\s*/g, '')
+                    .replace(/^\d{1,2}:\d{2}\s*/gm, '')
+                    .trim();
+                
+                // Dividir por pontos finais e dois pontos (mantendo naturalidade)
+                // Usar regex para dividir mantendo os delimitadores
+                const sentenceMatches = cleanText.match(/[^.:]+[.:]\s*/g) || [];
+                let completeSentences = sentenceMatches.map(s => s.trim()).filter(s => s.length > 0);
+                
+                // Se não encontrou frases com regex, dividir manualmente
+                if (completeSentences.length === 0) {
+                    // Dividir por ponto ou dois pontos seguido de espaço
+                    const parts = cleanText.split(/(?<=[.:])\s+/);
+                    completeSentences = parts
+                        .map(s => s.trim())
+                        .filter(s => s.length > 0)
+                        .map(s => {
+                            // Garantir que termine com ponto ou dois pontos
+                            if (!s.match(/[.:]$/)) {
+                                s += '.';
+                            }
+                            return s;
+                        });
+                }
+                
+                // Calcular tempo total (duração em segundos)
+                const totalSeconds = duration * 60;
+                const gapBetweenSubtitles = 10; // 10 segundos de espaço entre partes
+                
+                // Calcular tempo por frase considerando os espaços de 10 segundos
+                // Tempo total disponível = duração total - (número de frases - 1) * 10 segundos
+                const totalGapTime = (completeSentences.length - 1) * gapBetweenSubtitles;
+                const availableTime = Math.max(totalSeconds - totalGapTime, totalSeconds * 0.5); // Garantir pelo menos 50% do tempo
+                const secondsPerSentence = availableTime / Math.max(completeSentences.length, 1);
+                
+                // Gerar SRT
+                let srtContent = '';
+                let currentTime = 0;
+                let subtitleIndex = 1;
+                
+                for (let i = 0; i < completeSentences.length; i++) {
+                    const sentence = completeSentences[i];
+                    
+                    // Se a frase for muito longa (>500 caracteres), dividir por vírgulas
+                    if (sentence.length > 500) {
+                        const commaParts = sentence.split(/(,\s+)/);
+                        let currentPart = '';
+                        
+                        for (let j = 0; j < commaParts.length; j++) {
+                            const testPart = currentPart + commaParts[j];
+                            if (testPart.length <= 500) {
+                                currentPart = testPart;
+                            } else {
+                                if (currentPart.trim()) {
+                                    const startTime = formatSRTTime(currentTime);
+                                    const displayDuration = Math.max(secondsPerSentence, 3); // Mínimo 3 segundos por parte
+                                    currentTime += displayDuration;
+                                    const endTime = formatSRTTime(currentTime);
+                                    
+                                    srtContent += `${subtitleIndex}\n${startTime} --> ${endTime}\n${currentPart.trim()}\n\n`;
+                                    subtitleIndex++;
+                                    
+                                    // Adicionar espaço de 10 segundos antes da próxima parte
+                                    if (i < completeSentences.length - 1 || j < commaParts.length - 1) {
+                                        currentTime += gapBetweenSubtitles;
+                                    }
+                                }
+                                currentPart = commaParts[j];
+                            }
+                        }
+                        
+                        if (currentPart.trim()) {
+                            const startTime = formatSRTTime(currentTime);
+                            const displayDuration = Math.max(secondsPerSentence, 3);
+                            currentTime += displayDuration;
+                            const endTime = formatSRTTime(currentTime);
+                            
+                            srtContent += `${subtitleIndex}\n${startTime} --> ${endTime}\n${currentPart.trim()}\n\n`;
+                            subtitleIndex++;
+                            
+                            // Adicionar espaço de 10 segundos antes da próxima frase
+                            if (i < completeSentences.length - 1) {
+                                currentTime += gapBetweenSubtitles;
+                            }
+                        }
+                    } else {
+                        const startTime = formatSRTTime(currentTime);
+                        const displayDuration = Math.max(secondsPerSentence, 3); // Mínimo 3 segundos por frase
+                        currentTime += displayDuration;
+                        const endTime = formatSRTTime(Math.min(currentTime, totalSeconds));
+                        
+                        srtContent += `${subtitleIndex}\n${startTime} --> ${endTime}\n${sentence}\n\n`;
+                        subtitleIndex++;
+                        
+                        // Adicionar espaço de 10 segundos antes da próxima frase (exceto na última)
+                        if (i < completeSentences.length - 1) {
+                            currentTime += gapBetweenSubtitles;
+                        }
+                    }
+                }
+                
+                return srtContent;
+            }
+            
+            function formatSRTTime(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                const milliseconds = Math.floor((seconds % 1) * 1000);
+                
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds).padStart(3, '0')}`;
+            }
+            
+            function downloadSRT(content, filename) {
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${filename.replace(/[^a-z0-9]/gi, '_')}.srt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
 
             async function loadBibliotecaThumbnails() {
@@ -5702,21 +7783,24 @@
             if (bibliotecaSearch) {
                 bibliotecaSearch.addEventListener('input', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
-                    else loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
 
             if (bibliotecaNicheFilter) {
                 bibliotecaNicheFilter.addEventListener('change', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
-                    else loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
 
             if (bibliotecaViewsFilter) {
                 bibliotecaViewsFilter.addEventListener('change', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
-                    else loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
 
@@ -5726,7 +7810,8 @@
                     this.classList.toggle('bg-amber-600');
                     this.classList.toggle('text-white');
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
-                    else loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
 
