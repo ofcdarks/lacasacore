@@ -5216,14 +5216,16 @@ INSTRUÇÕES CRÍTICAS:
 4. Expanda CADA seção do roteiro proporcionalmente
 5. Adicione mais detalhes, exemplos concretos, explicações profundas, desenvolvimento de ideias, contexto histórico, curiosidades, análises mais detalhadas
 6. NÃO altere o início ou o final, mas expanda significativamente o conteúdo do meio
-7. O roteiro deve continuar sendo texto corrido, sem marcações JSON, sem objetos, sem arrays
+7. O roteiro deve continuar sendo texto corrido, SEM JSON, sem objetos, sem arrays
 8. Cada parágrafo deve ser expandido com mais informações relevantes
 9. Adicione transições mais elaboradas entre as seções
 10. Desenvolva mais profundamente cada ideia apresentada
-11. Responda APENAS com o roteiro expandido, sem explicações adicionais, sem metadados, sem JSON
-12. CRÍTICO: O roteiro final DEVE ter entre ${expectedWords} e ${expectedWords + 50} palavras
+11. CRÍTICO: O roteiro final DEVE ter entre ${expectedWords} e ${expectedWords + 50} palavras
+12. Conte mentalmente as palavras enquanto escreve. Se o roteiro não tiver pelo menos ${expectedWords} palavras, continue expandindo até atingir essa quantidade.
 
-IMPORTANTE: Conte mentalmente as palavras enquanto escreve. Se o roteiro não tiver pelo menos ${expectedWords} palavras, continue expandindo até atingir essa quantidade.`;
+RESPOSTA FINAL - CRÍTICO:
+Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, sem explicações adicionais, sem metadados, NÃO use JSON.
+Responda com o roteiro expandido imediatamente, sem envolver em objetos ou formatação especial.`;
 
             try {
                 let expansionResponse;
@@ -5285,8 +5287,11 @@ INSTRUÇÕES FINAIS:
 2. Mantenha a estrutura e o estilo, mas EXPANDA CADA IDEIA significativamente
 3. Adicione exemplos, detalhes, explicações, contexto, curiosidades
 4. Desenvolva cada parágrafo com muito mais profundidade
-5. NÃO use JSON, objetos ou arrays - apenas texto corrido
-6. Responda APENAS com o roteiro expandido`;
+5. SEM JSON, objetos ou arrays - apenas texto corrido
+6. Responda APENAS com o roteiro expandido
+
+RESPOSTA FINAL - CRÍTICO:
+Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
 
             try {
                 let finalResponse;
