@@ -27,6 +27,7 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const ScriptOptimizer = require('./scriptOptimizer.js');
 const AIScriptValidator = require('./aiScriptValidator.js');
+const ViralFormulaReplicator = require('./viralFormulaReplicator.js');
 
 // Configurar caminho do FFmpeg e FFprobe automaticamente
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
@@ -445,10 +446,10 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
     );
 
     const generationConfig = {
-        temperature: 0.7, 
-        topK: 1, 
-        topP: 1, 
-        maxOutputTokens: 8192
+            temperature: 0.7, 
+            topK: 1, 
+            topP: 1, 
+            maxOutputTokens: 8192 
     };
     
     // CRÍTICO: Só adicionar responseMimeType se NÃO for pedido de roteiro
@@ -5229,12 +5230,72 @@ Responda com o roteiro expandido imediatamente, sem envolver em objetos ou forma
 
             try {
                 let expansionResponse;
+                let usedService = service;
+                
+                // Tentar com a API principal
+                try {
                 if (service === 'gemini') {
                     expansionResponse = await callGeminiAPI(expansionPrompt, decryptedKey, selectedModel);
                 } else if (service === 'claude') {
                     expansionResponse = await callClaudeAPI(expansionPrompt, decryptedKey, selectedModel);
                 } else {
                     expansionResponse = await callOpenAIAPI(expansionPrompt, decryptedKey, selectedModel);
+                    }
+                } catch (apiErr) {
+                    // Se falhou (503, timeout, etc), tentar API alternativa
+                    const errorMsg = apiErr.message || '';
+                    if (errorMsg.includes('overloaded') || errorMsg.includes('503') || errorMsg.includes('timeout') || errorMsg.includes('UNAVAILABLE')) {
+                        console.warn(`[Roteiro] ⚠️ ${service} falhou (${errorMsg.substring(0, 100)}). Tentando API alternativa...`);
+                        
+                        // Tentar fallback: Gemini → Claude → OpenAI → (loop)
+                        const fallbackOrder = service === 'gemini' 
+                            ? ['claude', 'openai'] 
+                            : service === 'claude'
+                            ? ['openai', 'gemini']
+                            : ['claude', 'gemini'];
+                        
+                        let fallbackSuccess = false;
+                        for (const fallbackService of fallbackOrder) {
+                            try {
+                                const fallbackKey = await db.get(
+                                    'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                                    [userId, fallbackService]
+                                );
+                                
+                                if (fallbackKey) {
+                                    const fallbackDecryptedKey = decrypt(fallbackKey.api_key);
+                                    const fallbackModel = fallbackService === 'gemini' 
+                                        ? 'gemini-2.5-pro' 
+                                        : fallbackService === 'claude'
+                                        ? 'claude-3-7-sonnet-20250219'
+                                        : 'gpt-4o';
+                                    
+                                    console.log(`[Roteiro] 🔄 Tentando ${fallbackService} como fallback...`);
+                                    
+                                    if (fallbackService === 'gemini') {
+                                        expansionResponse = await callGeminiAPI(expansionPrompt, fallbackDecryptedKey, fallbackModel);
+                                    } else if (fallbackService === 'claude') {
+                                        expansionResponse = await callClaudeAPI(expansionPrompt, fallbackDecryptedKey, fallbackModel);
+                                    } else {
+                                        expansionResponse = await callOpenAIAPI(expansionPrompt, fallbackDecryptedKey, fallbackModel);
+                                    }
+                                    
+                                    usedService = fallbackService;
+                                    fallbackSuccess = true;
+                                    console.log(`[Roteiro] ✅ Fallback para ${fallbackService} bem-sucedido!`);
+                                    break;
+                                }
+                            } catch (fallbackErr) {
+                                console.warn(`[Roteiro] ⚠️ Fallback ${fallbackService} também falhou: ${fallbackErr.message.substring(0, 100)}`);
+                            }
+                        }
+                        
+                        if (!fallbackSuccess) {
+                            throw apiErr; // Se todos falharam, lançar erro original
+                        }
+                    } else {
+                        throw apiErr; // Se não é erro de sobrecarga, lançar erro
+                    }
                 }
 
                 // Limpar resposta de expansão
@@ -5457,12 +5518,113 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                     });
                 }
                 
-                // FASE 2: 🤖 VALIDAÇÃO INTELIGENTE COM CLAUDE AI (se score ainda baixo)
+                // FASE 2: 🎯 REPLICADOR DE FÓRMULA VIRAL (se agente tem roteiro original)
+                const hasOriginalScript = agent.full_transcript && agent.full_transcript.trim().length > 500;
+                const needsViralReplication = hasOriginalScript && finalAnalysis.overallScore < 9;
+                
+                if (needsViralReplication) {
+                    console.log('[Otimizador] 🎯 Agente tem roteiro original! Ativando REPLICADOR DE FÓRMULA VIRAL...');
+                    
+                    if (sessionId) {
+                        sendProgress(sessionId, {
+                            stage: 'viral_replication',
+                            progress: 95,
+                            message: '🎯 Analisando fórmula viral do roteiro original...',
+                            details: {
+                                phase: 'viral',
+                                step: 'analyzing_formula'
+                            }
+                        });
+                    }
+                    
+                    try {
+                        const claudeKeyData = await db.get(
+                            'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                            [userId, 'claude']
+                        );
+                        
+                        if (claudeKeyData && claudeKeyData.api_key) {
+                            const claudeApiKey = decrypt(claudeKeyData.api_key);
+                            const viralReplicator = new ViralFormulaReplicator();
+                            
+                            // Passo 1: Analisar fórmula viral do roteiro original
+                            const viralFormula = await viralReplicator.analyzeViralFormula(
+                                agent.full_transcript,
+                                claudeApiKey,
+                                agent.source_video_title || title,
+                                agent.niche
+                            );
+                            
+                            if (sessionId) {
+                                sendProgress(sessionId, {
+                                    stage: 'viral_replication',
+                                    progress: 96,
+                                    message: '🚀 Replicando fórmula viral no novo roteiro...',
+                                    details: {
+                                        phase: 'viral',
+                                        step: 'replicating_formula',
+                                        formula: viralFormula
+                                    }
+                                });
+                            }
+                            
+                            // Passo 2: Replicar fórmula no novo roteiro
+                            const replicationResult = await viralReplicator.replicateFormula(
+                                viralFormula,
+                                title,
+                                agent.full_transcript,
+                                finalScriptContent,
+                                claudeApiKey,
+                                agent.niche,
+                                scriptDuration
+                            );
+                            
+                            if (replicationResult.success) {
+                                const newWordCount = replicationResult.replicatedScript.split(/\s+/).filter(w => w.length > 0).length;
+                                
+                                // Validar que não diminuiu muito
+                                if (newWordCount < originalWordCount * 0.85) {
+                                    console.warn(`[Otimizador] ⚠️ Replicação diminuiu muito: ${originalWordCount} → ${newWordCount}. Mantendo versão anterior.`);
+                                } else {
+                                    finalScriptContent = replicationResult.replicatedScript;
+                                    console.log('[Otimizador] 🎉 Fórmula viral replicada com sucesso!');
+                                    
+                                    if (sessionId) {
+                                        sendProgress(sessionId, {
+                                            stage: 'viral_replication',
+                                            progress: 97,
+                                            message: '✅ Fórmula viral replicada! Roteiro 10/10',
+                                            details: {
+                                                phase: 'viral',
+                                                step: 'replicated',
+                                                newWordCount: newWordCount,
+                                                formula: viralFormula
+                                            }
+                                        });
+                                    }
+                                    
+                                    // Re-analisar após replicação
+                                    finalAnalysis = optimizer.analyzeScript(finalScriptContent);
+                                    console.log(`[Otimizador] 🚀 Score FINAL após replicação viral: ${finalAnalysis.overallScore}/10`);
+                                }
+                            }
+                        } else {
+                            console.warn('[Otimizador] ⚠️ API Key do Claude não encontrada para replicação viral.');
+                        }
+                    } catch (viralErr) {
+                        console.error('[Otimizador] ⚠️ Erro na replicação viral:', viralErr.message);
+                        console.log('[Otimizador] Continuando sem replicação viral.');
+                    }
+                }
+                
+                // FASE 3: 🤖 VALIDAÇÃO INTELIGENTE COM CLAUDE AI (se score ainda baixo e não tem roteiro original)
                 const needsAICorrection = (
-                    finalAnalysis.overallScore < 7 ||
-                    (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) ||
-                    finalAnalysis.aiIndicators.length > 2 ||
-                    finalAnalysis.cliches.length > 5
+                    !needsViralReplication && (
+                        finalAnalysis.overallScore < 7 ||
+                        (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) ||
+                        finalAnalysis.aiIndicators.length > 2 ||
+                        finalAnalysis.cliches.length > 5
+                    )
                 );
                 
                 if (needsAICorrection) {
