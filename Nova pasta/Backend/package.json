@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev:backend": "nodemon server.js --ignore Backend/temp_audio --ignore Backend/*player-script.js",
+    "dev:backend": "nodemon server.js",
     "dev:frontend": "live-server Backend --port=5500 --open=la-casa-dark-core-auth.html",
     "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\""
   },
@@ -15,7 +15,6 @@
     "@distube/ytdl-core": "github:distubejs/ytdl-core#master",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
-    "@google/genai": "^1.30.0",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -25,7 +24,6 @@
     "fs-extra": "^11.2.0",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.104.0",
-    "sharp": "^0.34.5",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "undici": "^6.19.2",

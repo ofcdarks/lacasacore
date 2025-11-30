@@ -15,7 +15,7 @@ const ytdl = require('@distube/ytdl-core');
 console.log('[Sistema] Usando @distube/ytdl-core do GitHub (master branch) - versão mais recente');
 const { YoutubeTranscript } = require('youtube-transcript');
 const { fetch } = require('undici');
-const { ImageFX, AspectRatio, Model } = require('./imagefx.js');
+const { ImageFX, AspectRatio, Model, AccountError, ImageFXError } = require('./imagefx.js');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const ffprobeInstaller = require('@ffprobe-installer/ffprobe');
@@ -28,6 +28,28 @@ const execAsync = promisify(exec);
 const ScriptOptimizer = require('./scriptOptimizer.js');
 const AIScriptValidator = require('./aiScriptValidator.js');
 const ViralFormulaReplicator = require('./viralFormulaReplicator.js');
+const { GoogleGenAI } = require('@google/genai');
+const LAOZHANG_CHAT_ENDPOINT = process.env.LAOZHANG_CHAT_ENDPOINT || 'https://api.laozhang.ai/v1/chat/completions';
+
+const PROVIDER_NAME_PATTERNS = [
+    { pattern: /laozhang(\.ai)?/gi, replacement: 'provedor externo' },
+    { pattern: /lao\s*zhang/gi, replacement: 'provedor externo' },
+    { pattern: /voz\s*premium/gi, replacement: 'provedor externo' },
+    { pattern: /voice\s*premium/gi, replacement: 'provedor externo' },
+    { pattern: /genaipro/gi, replacement: 'provedor externo' }
+];
+
+const sanitizeUserFacingText = (text, fallback = 'Operação') => {
+    if (!text || typeof text !== 'string') {
+        return fallback;
+    }
+    let sanitized = text;
+    for (const { pattern, replacement } of PROVIDER_NAME_PATTERNS) {
+        sanitized = sanitized.replace(pattern, replacement);
+    }
+    sanitized = sanitized.replace(/\s{2,}/g, ' ').trim();
+    return sanitized || fallback;
+};
 
 // Configurar caminho do FFmpeg e FFprobe automaticamente
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
@@ -158,12 +180,60 @@ function decrypt(hash) {
 
 // --- FUNÇÕES AUXILIARES DE MINERAÇÃO (YOUTUBE API V3) ---
 async function callYouTubeDataAPI(videoId, apiKey) {
+    if (!apiKey || !apiKey.trim()) {
+        throw new Error('Chave de API do YouTube não fornecida.');
+    }
+    
+    // Limpar a chave de espaços e caracteres inválidos
+    apiKey = apiKey.trim();
+    
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${apiKey}`;
     try {
         const response = await fetch(url);
         const data = await response.json();
-        if (!response.ok || !data.items || data.items.length === 0) {
-            throw new Error(data.error?.message || 'Vídeo não encontrado ou falha na API do YouTube.');
+        
+        if (!response.ok) {
+            // Verificar erros específicos da API do YouTube
+            if (data.error) {
+                const errorMessage = data.error.message || '';
+                const errorReason = data.error.errors?.[0]?.reason || '';
+                
+                console.log('[YouTube API] Erro recebido:', {
+                    status: response.status,
+                    errorMessage: errorMessage,
+                    errorReason: errorReason,
+                    fullError: JSON.stringify(data.error, null, 2)
+                });
+                
+                // Erro de API key inválida
+                if (errorMessage.includes('API key not valid') || 
+                    errorMessage.includes('invalid API key') ||
+                    errorMessage.includes('badRequest') ||
+                    errorReason === 'keyInvalid' ||
+                    errorReason === 'badRequest') {
+                    throw new Error('A chave de API do YouTube está inválida. Configure uma chave válida nas Configurações.');
+                }
+                
+                // Erro de API key não fornecida
+                if (errorMessage.includes('API key not found') || 
+                    errorReason === 'keyNotFound') {
+                    throw new Error('Chave de API do YouTube não configurada. Configure uma chave nas Configurações.');
+                }
+                
+                // Erro de quota excedida
+                if (errorMessage.includes('quota') || errorReason === 'quotaExceeded') {
+                    throw new Error('Cota da API do YouTube excedida. Tente novamente mais tarde.');
+                }
+                
+                // Outros erros
+                throw new Error(errorMessage || 'Erro ao buscar dados do YouTube.');
+            }
+            
+            throw new Error('Erro desconhecido ao buscar dados do YouTube.');
+        }
+        
+        if (!data.items || data.items.length === 0) {
+            throw new Error('Vídeo não encontrado. Verifique se a URL está correta.');
         }
         
         const item = data.items[0];
@@ -181,6 +251,16 @@ async function callYouTubeDataAPI(videoId, apiKey) {
         };
     } catch (err) {
         console.error("Erro ao chamar YouTube Data API v3:", err);
+        // Se o erro já tem uma mensagem amigável, manter
+        if (err.message && (
+            err.message.includes('chave de API') || 
+            err.message.includes('API key') ||
+            err.message.includes('Cota') ||
+            err.message.includes('não encontrado')
+        )) {
+            throw err;
+        }
+        // Caso contrário, lançar erro genérico
         throw new Error(`Falha ao buscar dados do YouTube: ${err.message}`);
     }
 }
@@ -449,7 +529,7 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
             temperature: 0.7, 
             topK: 1, 
             topP: 1, 
-            maxOutputTokens: 8192 
+            maxOutputTokens: 32000  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
     };
     
     // CRÍTICO: Só adicionar responseMimeType se NÃO for pedido de roteiro
@@ -569,7 +649,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
             { role: "user", content: content }
         ],
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 32000,  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
     };
     
     // CRÍTICO: Só adicionar response_format se NÃO for pedido de roteiro
@@ -689,7 +769,7 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
             : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.",
         messages: [{ role: "user", content: content }],
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 32000,  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
     };
 
     try {
@@ -798,6 +878,81 @@ function removeRepetitions(text) {
     return uniqueSentences.join('. ') + '.';
 }
 
+/**
+ * Remove marcações de roteiro (música, visual, narrador, etc.) deixando apenas texto para voice over
+ * @param {string} script - Texto do roteiro com marcações
+ * @returns {string} - Roteiro limpo apenas com texto para narração
+ */
+function cleanScriptForVoiceOver(script) {
+    if (!script || typeof script !== 'string') return script;
+    
+    let cleaned = script;
+    
+    // Remover marcações de PARTE X com intervalos de tempo (mais agressivo)
+    cleaned = cleaned.replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, ''); // Remove linha inteira com "PARTE 1 0:00 - 3:00"
+    cleaned = cleaned.replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, ''); // Remove linha inteira com "Parte 1 0:00 - 3:00"
+    cleaned = cleaned.replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, ''); // Remove "PARTE 1 0:00 - 3:00" (sem quebra de linha)
+    cleaned = cleaned.replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, ''); // Remove "Parte 1 0:00 - 3:00" (sem quebra de linha)
+    cleaned = cleaned.replace(/PARTE\s+\d+.*?(\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})/gi, ''); // Remove "PARTE 1 0:00 - 3:00" (qualquer variação)
+    cleaned = cleaned.replace(/Parte\s+\d+.*?(\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})/gi, ''); // Remove "Parte 1 0:00 - 3:00" (qualquer variação)
+    cleaned = cleaned.replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gmi, ''); // Remove linha que começa com "0:00 - 3:00"
+    cleaned = cleaned.replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*/gmi, ''); // Remove "0:00 - 3:00" no início da linha (sem quebra)
+    cleaned = cleaned.replace(/PARTE\s+\d+\s*$/gmi, ''); // Remove "PARTE 1" sozinho no final da linha
+    cleaned = cleaned.replace(/Parte\s+\d+\s*$/gmi, ''); // Remove "Parte 1" sozinho no final da linha
+    
+    // Remover marcações de música e sons entre parênteses
+    cleaned = cleaned.replace(/\([^)]*[Mm]úsica[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([^)]*[Ss]om[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([^)]*[Aa]udio[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([^)]*[Tt]ela[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([^)]*[Cc]âmera[^)]*\)/gi, '');
+    
+    // Remover marcações de visual entre parênteses
+    cleaned = cleaned.replace(/\([Vv]isual[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Vv]isualização[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Ii]magem[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Aa]nimação[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Cc]ena[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Mm]apa[^)]*\)/gi, '');
+    cleaned = cleaned.replace(/\([Rr]eencenação[^)]*\)/gi, '');
+    
+    // Remover marcações genéricas entre parênteses que começam com maiúscula (geralmente são direções)
+    cleaned = cleaned.replace(/\([A-Z][^)]*\)/g, '');
+    
+    // Remover prefixos de narrador/personagem
+    cleaned = cleaned.replace(/^NARRADOR:\s*/gmi, '');
+    cleaned = cleaned.replace(/^NARRATOR:\s*/gmi, '');
+    cleaned = cleaned.replace(/^VOZ:\s*/gmi, '');
+    cleaned = cleaned.replace(/^VOICE:\s*/gmi, '');
+    cleaned = cleaned.replace(/^[A-ZÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇ]+:\s*/gm, ''); // Remove qualquer palavra em maiúsculas seguida de dois pontos no início da linha
+    
+    // Remover linhas que são apenas direções ou marcações
+    cleaned = cleaned.split('\n')
+        .map(line => {
+            const trimmed = line.trim();
+            // Remover linhas que são apenas parênteses vazios ou com conteúdo de direção
+            if (trimmed.match(/^\([^)]*\)\s*$/)) return '';
+            // Remover linhas muito curtas que são provavelmente marcações
+            if (trimmed.length < 3 && trimmed.match(/^[A-Z\s]+$/)) return '';
+            return line;
+        })
+        .filter(line => line.trim().length > 0)
+        .join('\n');
+    
+    // Limpar múltiplas quebras de linha
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    
+    // Limpar espaços extras
+    cleaned = cleaned.replace(/[ \t]+/g, ' ');
+    cleaned = cleaned.replace(/\s+\n/g, '\n');
+    cleaned = cleaned.replace(/\n\s+/g, '\n');
+    
+    // Remover espaços no início e fim
+    cleaned = cleaned.trim();
+    
+    return cleaned;
+}
+
 function extractTextFromAIResponse(response) {
     if (response === null || response === undefined) {
         console.warn('[extractTextFromAIResponse] Response is null or undefined');
@@ -894,6 +1049,252 @@ function extractTextFromAIResponse(response) {
     return String(response);
 }
 
+function parseScenePromptsResponse(response) {
+    let rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+
+    if (!rawResponse || rawResponse.length === 0) {
+        throw new Error('A resposta da IA veio vazia.');
+    }
+
+    console.log('[Scene Prompts Parser] Pré-processando resposta...');
+    rawResponse = rawResponse
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```\s*$/i, '')
+        .trim();
+
+    const sanitizeSceneArray = (scenes) => {
+        if (!Array.isArray(scenes)) return [];
+        return scenes
+            .filter(scene => scene && (scene.prompt_text || scene.prompt || scene.text))
+            .map((scene, index) => ({
+                scene_number: scene.scene_number || scene.number || index + 1,
+                scene_description: scene.scene_description || scene.description || `Cena ${scene.scene_number || scene.number || index + 1}`,
+                prompt_text: scene.prompt_text || scene.prompt || scene.text || ''
+            }));
+    };
+
+    const tryParseJson = (text) => {
+        try {
+            return JSON.parse(text);
+        } catch {
+            return null;
+        }
+    };
+
+    let parsed = tryParseJson(rawResponse);
+    if (parsed && parsed.scenes) {
+        const scenes = sanitizeSceneArray(parsed.scenes);
+        if (scenes.length > 0) return scenes;
+    } else if (parsed && Array.isArray(parsed)) {
+        const scenes = sanitizeSceneArray(parsed);
+        if (scenes.length > 0) return scenes;
+    }
+
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        const cleaned = jsonMatch[0]
+            .replace(/```json\s*/gi, '')
+            .replace(/```\s*/g, '')
+            .replace(/^[^{]*/, '')
+            .replace(/[^}]*$/, '');
+
+        parsed = tryParseJson(cleaned);
+        if (parsed && parsed.scenes) {
+            const scenes = sanitizeSceneArray(parsed.scenes);
+            if (scenes.length > 0) return scenes;
+        }
+    }
+
+    const scenesArrayMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)\]/);
+    if (scenesArrayMatch) {
+        let scenesArrayStr = scenesArrayMatch[1];
+        if (!scenesArrayStr.trim().endsWith('}')) {
+            const sceneObjects = scenesArrayStr.match(/\{[^{}]*\}/g);
+            if (sceneObjects && sceneObjects.length > 0) {
+                scenesArrayStr = sceneObjects.join(',\n');
+            }
+        }
+
+        const fallbackJson = tryParseJson(`{"scenes":[${scenesArrayStr}]}`);
+        if (fallbackJson && fallbackJson.scenes) {
+            const scenes = sanitizeSceneArray(fallbackJson.scenes);
+            if (scenes.length > 0) return scenes;
+        }
+    }
+
+    const scenePattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]*?"scene_description"\s*:\s*"([^"]*)"[\s\S]*?"prompt_text"\s*:\s*"([^"]*)"[\s\S]*?\}/g;
+    const regexScenes = [];
+    let match;
+    while ((match = scenePattern.exec(rawResponse)) !== null) {
+        regexScenes.push({
+            scene_number: parseInt(match[1]),
+            scene_description: match[2],
+            prompt_text: match[3]
+        });
+    }
+    if (regexScenes.length > 0) {
+        console.log(`[Scene Prompts Parser] ✅ Extraídas ${regexScenes.length} cenas via regex padrão!`);
+        return regexScenes;
+    }
+
+    const simpleScenePattern = /\{\s*"scene_number"\s*:\s*\d+[\s\S]*?\}/g;
+    const simpleMatches = rawResponse.match(simpleScenePattern);
+    if (simpleMatches && simpleMatches.length > 0) {
+        const parsedScenes = [];
+        simpleMatches.forEach((sceneStr, index) => {
+            const sceneObject = tryParseJson(sceneStr);
+            if (sceneObject && (sceneObject.prompt_text || sceneObject.prompt || sceneObject.text)) {
+                parsedScenes.push({
+                    scene_number: sceneObject.scene_number || sceneObject.number || index + 1,
+                    scene_description: sceneObject.scene_description || sceneObject.description || `Cena ${sceneObject.scene_number || sceneObject.number || index + 1}`,
+                    prompt_text: sceneObject.prompt_text || sceneObject.prompt || sceneObject.text || ''
+                });
+            }
+        });
+        if (parsedScenes.length > 0) {
+            console.log(`[Scene Prompts Parser] ✅ Extraídas ${parsedScenes.length} cenas via fallback simples!`);
+            return parsedScenes;
+        }
+    }
+
+    throw new Error(`Não foi possível interpretar a resposta da IA como JSON válido. Conteúdo analisado (primeiros 500 chars): ${rawResponse.substring(0, 500)}`);
+}
+
+function buildScenePromptText({
+    script,
+    targetScenes,
+    minScenes,
+    maxScenes,
+    wordCount,
+    styleInstruction = '',
+    imageModelInstruction = '',
+    charactersInstruction = '',
+    startSceneNumber = 1,
+    isContinuation = false,
+    previousScenes = []
+}) {
+    const previousSummary = previousScenes && previousScenes.length > 0
+        ? `CENAS JÁ GERADAS (não repita):\n${previousScenes.slice(-5).map(scene => `- Cena ${scene.scene_number}: ${scene.scene_description}`).join('\n')}\n\n`
+        : '';
+
+    const continuationInstruction = isContinuation
+        ? `Você já gerou ${startSceneNumber - 1} cenas. Continue a numeração a partir da cena ${startSceneNumber} e gere EXATAMENTE ${targetScenes} novas cenas sem repetir ou alterar as anteriores.\n`
+        : `Divida o roteiro em aproximadamente ${targetScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário).\n`;
+
+    return `Você é um especialista em criação de prompts para geração de imagens usando IA.
+
+${previousSummary}${continuationInstruction}
+REGRAS IMPORTANTES:
+1. Cada prompt deve ter entre 600-1200 caracteres.
+2. Cada prompt deve ser em INGLÊS e otimizado para geração de imagens.
+3. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário.
+4. Use termos técnicos de fotografia/cinematografia quando apropriado.${styleInstruction}${imageModelInstruction}${charactersInstruction ? `\n${charactersInstruction}` : ''}
+5. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo.
+6. Se já existem cenas anteriores, continue a história sem repetir.
+
+ROTEIRO:
+"""
+${script}
+"""
+
+FORMATO DE RESPOSTA (JSON):
+{
+  "scenes": [
+    {
+      "scene_number": ${startSceneNumber},
+      "scene_description": "Breve descrição da cena em português",
+      "prompt_text": "Prompt detalhado em inglês para geração de imagem"
+    },
+    ...
+  ]
+}
+
+IMPORTANTE:
+- Retorne APENAS o JSON, sem texto adicional.
+- Gere EXATAMENTE ${targetScenes} novas cenas começando em ${startSceneNumber}.
+- Continue a história exatamente do ponto onde parou, sem reiniciar a narrativa.
+- Não repita cenas anteriores.`;
+}
+
+async function generateScenesWithRetries({
+    apiFunc,
+    apiKey,
+    model,
+    script,
+    styleInstruction,
+    imageModelInstruction,
+    charactersInstruction,
+    estimatedScenes,
+    minScenes,
+    maxScenes,
+    wordCount,
+    serviceLabel = 'AI',
+    maxAttempts = 4
+}) {
+    let allScenes = [];
+    let attempt = 0;
+    let startSceneNumber = 1;
+    let remainingScenes = estimatedScenes;
+
+    while (remainingScenes > 0 && attempt < maxAttempts) {
+        const targetScenes = remainingScenes;
+        const prompt = buildScenePromptText({
+            script,
+            targetScenes,
+            minScenes: Math.max(1, Math.min(minScenes, targetScenes)),
+            maxScenes: Math.max(targetScenes, Math.min(maxScenes, targetScenes + 2)),
+            wordCount,
+            styleInstruction,
+            imageModelInstruction,
+            charactersInstruction,
+            startSceneNumber,
+            isContinuation: attempt > 0,
+            previousScenes: allScenes
+        });
+
+        console.log(`[Scene Prompts][${serviceLabel}] Tentativa ${attempt + 1}: solicitando ${targetScenes} cenas (iniciando na cena ${startSceneNumber})`);
+
+        const response = await apiFunc(prompt, apiKey, model);
+        const parsedScenes = parseScenePromptsResponse(response);
+
+        if (!parsedScenes || parsedScenes.length === 0) {
+            console.warn(`[Scene Prompts][${serviceLabel}] Nenhuma cena retornada nesta tentativa.`);
+            attempt++;
+            continue;
+        }
+
+        const normalizedScenes = parsedScenes
+            .map((scene, idx) => {
+                const promptText = scene.prompt_text || scene.prompt || scene.text || '';
+                if (!promptText.trim()) return null;
+                return {
+                    scene_number: startSceneNumber + idx,
+                    scene_description: scene.scene_description || scene.description || `Cena ${startSceneNumber + idx}`,
+                    prompt_text: promptText
+                };
+            })
+            .filter(Boolean);
+
+        if (normalizedScenes.length === 0) {
+            console.warn(`[Scene Prompts][${serviceLabel}] As cenas retornadas estavam vazias.`);
+            attempt++;
+            continue;
+        }
+
+        allScenes = allScenes.concat(normalizedScenes);
+        if (allScenes.length > estimatedScenes) {
+            allScenes = allScenes.slice(0, estimatedScenes);
+        }
+
+        remainingScenes = estimatedScenes - allScenes.length;
+        startSceneNumber = allScenes.length + 1;
+        attempt++;
+    }
+
+    return allScenes;
+}
+
 function parseJSONFromString(text) {
     if (!text) return null;
     let cleaned = text.trim();
@@ -914,13 +1315,286 @@ function parseJSONFromString(text) {
     }
 }
 
+/**
+ * Chama a API do provedor externo
+ */
+async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, userId = null, operationType = 'api_call', details = null) {
+    if (!apiKey) throw new Error("Chave de API do provedor externo não configurada.");
+    
+    // Endpoint oficial documentado (compatível com OpenAI)
+    const possibleEndpoints = [LAOZHANG_CHAT_ENDPOINT];
+    
+    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    const isScriptRequest = typeof prompt === 'string' && (
+        prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
+        prompt.includes('roteiro em TEXTO SIMPLES') ||
+        prompt.includes('NÃO use JSON')
+    );
+    
+    // Calcular tokens aproximados (input + output estimado)
+    const promptTokens = Math.ceil((typeof prompt === 'string' ? prompt.length : JSON.stringify(prompt).length) / 4);
+    // Para roteiros longos, estimar mais tokens de saída baseado no número de partes
+    let estimatedOutputTokens = 2000; // Estimativa conservadora padrão
+    if (isScriptRequest && prompt.includes('partes')) {
+        const partsMatch = prompt.match(/dividido em.*?(\d+).*?partes/i) || prompt.match(/EXATAMENTE (\d+) PARTES/i);
+        const numParts = partsMatch ? parseInt(partsMatch[1]) : 1;
+        // Estimativa: ~450 palavras por parte × 1.3 tokens por palavra × número de partes
+        estimatedOutputTokens = Math.min(12000, Math.ceil(450 * 1.3 * numParts)); // Máximo 12000 tokens
+        console.log(`[Laozhang.ai API] Estimativa de tokens de saída para ${numParts} partes: ${estimatedOutputTokens}`);
+    }
+    const totalTokens = promptTokens + estimatedOutputTokens;
+    
+    // Debitar créditos ANTES da chamada se userId fornecido
+    let creditDebitResult = null;
+    if (userId) {
+        try {
+            const laozhangProviderId = await getLaozhangApiProviderId();
+            if (laozhangProviderId) {
+                creditDebitResult = await checkAndDebitCredits(
+                    userId,
+                    laozhangProviderId,
+                    totalTokens,
+                    operationType,
+                    details || JSON.stringify({ model: model || 'gpt-4o', service: 'laozhang' })
+                );
+                console.log(`[Laozhang.ai] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
+            }
+        } catch (creditError) {
+            console.error('[Laozhang.ai] ❌ Erro ao debitar créditos:', creditError.message);
+            // Se não tiver créditos suficientes, lançar erro
+            if (creditError.message.includes('Créditos insuficientes')) {
+                throw creditError;
+            }
+            // Se for outro erro, continuar mas logar
+        }
+    }
+    
+    const payload = {
+        model: model || 'gpt-4o',
+        messages: [
+            {
+                role: 'system',
+                content: isScriptRequest 
+                    ? "Você é um roteirista profissional. Responda APENAS com o texto do roteiro, sem usar JSON, objetos ou formatações especiais. Escreva texto corrido e natural."
+                    : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }."
+            },
+            {
+                role: 'user',
+                content: prompt
+            }
+        ],
+        temperature: 0.7,
+        max_tokens: isScriptRequest ? 16384 : 16384  // Usar 16384 tokens (limite seguro da API Laozhang)
+    };
+    
+    // Tentar diferentes endpoints até encontrar um que funcione
+    let lastError = null;
+    for (const endpoint of possibleEndpoints) {
+        try {
+            console.log(`[Laozhang.ai API] Tentando endpoint: ${endpoint}`);
+            const controller = new AbortController();
+            // Timeout dinâmico baseado no tipo de requisição: roteiros longos precisam de mais tempo
+            // Para roteiros: 10 minutos base + 1 minuto por parte (mínimo 5 minutos, máximo 20 minutos)
+            const isLongScript = isScriptRequest && prompt.includes('partes');
+            let timeoutDuration = 180000; // 3 minutos padrão
+            if (isLongScript) {
+                // Tentar extrair número de partes do prompt
+                const partsMatch = prompt.match(/dividido em.*?(\d+).*?partes/i) || prompt.match(/EXATAMENTE (\d+) PARTES/i);
+                const numParts = partsMatch ? parseInt(partsMatch[1]) : 1;
+                timeoutDuration = Math.min(1200000, Math.max(300000, 600000 + (numParts * 60000))); // 5-20 minutos
+                console.log(`[Laozhang.ai API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${numParts} partes)`);
+            }
+            const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+            
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => response.statusText);
+                console.warn(`[Laozhang.ai API] Endpoint ${endpoint} retornou erro ${response.status}:`, errorText.substring(0, 500));
+                
+                // Tentar parsear o erro JSON para mais detalhes
+                let errorDetails = errorText;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    if (errorJson.error) {
+                        errorDetails = JSON.stringify(errorJson.error);
+                        console.error(`[Laozhang.ai API] Detalhes do erro:`, errorJson.error);
+                    }
+                } catch (e) {
+                    // Não é JSON, usar texto direto
+                }
+                
+                lastError = new Error(`Erro ${response.status}: ${errorDetails.substring(0, 200)}`);
+                continue; // Tentar próximo endpoint
+            }
+            
+            const result = await response.json();
+            console.log(`[Laozhang.ai API] ✅ Sucesso com endpoint: ${endpoint}`);
+            console.log('[Laozhang.ai API] Estrutura da resposta:', JSON.stringify(result).substring(0, 300));
+            
+            // Se tiver informações de uso de tokens na resposta, ajustar créditos
+            if (userId && creditDebitResult && result.usage) {
+                const actualTokens = (result.usage.prompt_tokens || promptTokens) + (result.usage.completion_tokens || estimatedOutputTokens);
+                const actualCredits = (actualTokens / 1000) * (creditDebitResult.creditsUsed / (totalTokens / 1000));
+                const difference = actualCredits - creditDebitResult.creditsUsed;
+                
+                if (Math.abs(difference) > 0.01) { // Ajustar apenas se diferença > 0.01 créditos
+                    try {
+                        const laozhangProviderId = await getLaozhangApiProviderId();
+                        if (laozhangProviderId) {
+                            // Ajustar saldo do usuário
+                            await db.run(`
+                                UPDATE user_credits 
+                                SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP 
+                                WHERE user_id = ?
+                            `, [creditDebitResult.creditsUsed - actualCredits, userId]);
+                            
+                            // Atualizar registro de uso
+                            await db.run(`
+                                UPDATE credit_usage 
+                                SET credits_used = ?, units_consumed = ?
+                                WHERE id = (SELECT id FROM credit_usage WHERE user_id = ? AND api_provider_id = ? ORDER BY id DESC LIMIT 1)
+                            `, [actualCredits, actualTokens, userId, laozhangProviderId]);
+                            
+                            console.log(`[Laozhang.ai] 💰 Créditos ajustados: ${difference > 0 ? '+' : ''}${difference.toFixed(4)}`);
+                        }
+                    } catch (adjustError) {
+                        console.error('[Laozhang.ai] ⚠️ Erro ao ajustar créditos:', adjustError.message);
+                    }
+                }
+            }
+            
+            if (result.choices && result.choices[0] && result.choices[0].message) {
+                const content = result.choices[0].message.content;
+                
+                console.log('[Laozhang.ai API] Resposta recebida (primeiros 200 chars):', content.substring(0, 200));
+                
+                if (isScriptRequest) {
+                    console.log('[Laozhang.ai API] Retornando texto puro de script');
+                    return content; // Retorna string diretamente
+                } else {
+                    // Para requisições JSON, retornar o conteúdo diretamente
+                    return content;
+                }
+            } else if (result.content) {
+                // Algumas APIs retornam content diretamente
+                const content = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+                console.log('[Laozhang.ai API] Resposta recebida (formato alternativo)');
+                return content;
+            } else {
+                console.warn(`[Laozhang.ai API] Estrutura de resposta inesperada em ${endpoint}:`, JSON.stringify(result).substring(0, 500));
+                lastError = new Error('Estrutura de resposta inesperada');
+                continue; // Tentar próximo endpoint
+            }
+        } catch (error) {
+            // Se a chamada falhou e já debitamos créditos, reembolsar
+            if (userId && creditDebitResult) {
+                try {
+                    await refundCredits(userId, creditDebitResult.creditsUsed, 'Erro ao processar solicitação');
+                    console.log(`[Laozhang.ai] 💰 Créditos reembolsados: ${creditDebitResult.creditsUsed.toFixed(4)}`);
+                } catch (refundError) {
+                    console.error('[Laozhang.ai] ⚠️ Erro ao reembolsar créditos:', refundError.message);
+                }
+            }
+            
+            // Ignorar erros de abort (timeout) apenas se não for o último endpoint
+            if (error.name === 'AbortError' && endpoint !== possibleEndpoints[possibleEndpoints.length - 1]) {
+                console.warn(`[Laozhang.ai API] Timeout ao tentar endpoint ${endpoint}, tentando próximo...`);
+                lastError = error;
+                continue; // Tentar próximo endpoint
+            }
+            console.warn(`[Laozhang.ai API] Erro ao tentar endpoint ${endpoint}:`, error.message);
+            lastError = error;
+            continue; // Tentar próximo endpoint
+        }
+    }
+    
+    // Se chegou aqui, nenhum endpoint funcionou
+    console.error('[Laozhang.ai API] ❌ Todos os endpoints falharam');
+    throw lastError || new Error('Falha ao chamar a API Laozhang.ai: nenhum endpoint funcionou');
+}
+
 async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'openai', 'gemini']) {
     const defaultModels = {
         claude: 'claude-3-7-sonnet-20250219',  // Claude 3.7 Sonnet (Fev/2025)
         openai: 'gpt-4o',                       // GPT-4o (2025)
-        gemini: 'gemini-2.5-pro'                // Gemini 2.5 Pro (2025)
+        gemini: 'gemini-2.5-pro',               // Gemini 2.5 Pro (2025)
+        laozhang: 'gpt-4o'                      // Laozhang.ai (usa GPT-4o como padrão)
     };
 
+    // PRIMEIRO: Verificar se laozhang.ai está configurada como padrão no admin
+    try {
+        const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+        console.log('[AI Provider] Verificando laozhang_use_as_default:', laozhangDefaultSetting);
+        
+        let laozhangUseAsDefault = false;
+        if (laozhangDefaultSetting) {
+            try {
+                const parsedValue = JSON.parse(laozhangDefaultSetting.value);
+                laozhangUseAsDefault = parsedValue === true || parsedValue === 'true' || parsedValue === 1;
+            } catch (e) {
+                // Se não for JSON, verificar como string
+                laozhangUseAsDefault = laozhangDefaultSetting.value === 'true' || laozhangDefaultSetting.value === '1';
+            }
+        }
+        
+        console.log('[AI Provider] laozhangUseAsDefault:', laozhangUseAsDefault);
+        
+        if (laozhangUseAsDefault) {
+            const laozhangKey = await getLaozhangApiKey();
+            console.log('[AI Provider] Laozhang key encontrada:', laozhangKey ? 'Sim' : 'Não');
+            if (laozhangKey) {
+                console.log('[AI Provider] ✅ Usando Laozhang.ai como padrão (configuração do admin)');
+                return {
+                    service: 'laozhang',
+                    apiKey: laozhangKey,
+                    model: defaultModels.laozhang
+                };
+            } else {
+                console.warn('[AI Provider] ⚠️ Laozhang.ai configurada como padrão mas chave não encontrada');
+            }
+        } else {
+            console.log('[AI Provider] Laozhang.ai não está configurada como padrão');
+        }
+    } catch (err) {
+        console.error('[AI Provider] ❌ Erro ao verificar configuração padrão Laozhang.ai:', err.message);
+    }
+
+    // SEGUNDO: Verificar se o usuário prefere usar créditos (laozhang.ai)
+    try {
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        if (useCredits) {
+            // Se o usuário prefere usar créditos, usar laozhang.ai
+            const laozhangKey = await getLaozhangApiKey();
+            if (laozhangKey) {
+                console.log('[AI Provider] Usando Laozhang.ai (preferência: usar créditos)');
+                return {
+                    service: 'laozhang',
+                    apiKey: laozhangKey,
+                    model: defaultModels.laozhang
+                };
+            } else {
+                console.warn('[AI Provider] Laozhang.ai não configurada, usando APIs próprias do usuário');
+            }
+        }
+    } catch (err) {
+        console.warn('[AI Provider] Erro ao verificar preferência de créditos:', err.message);
+    }
+
+    // TERCEIRO: Se não usar laozhang.ai, usar APIs próprias do usuário
     for (const service of preferenceOrder) {
         try {
             const keyData = await db.get(
@@ -995,7 +1669,24 @@ ROTEIRO COMPLETO:
 """${truncatedTranscript}"""`;
 
     let aiResponse;
-    if (provider.service === 'claude') {
+        if (provider.service === 'laozhang') {
+            aiResponse = await callLaozhangAPI(
+                analysisPrompt, 
+                provider.apiKey, 
+                provider.model, 
+                null, 
+                userId, 
+                'api_call', 
+                JSON.stringify({ endpoint: '/api/scripts/generate', model: provider.model })
+            );
+        // callLaozhangAPI retorna string diretamente
+        const responseText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+        const parsed = parseJSONFromString(responseText);
+        if (!parsed) {
+            throw new Error('A IA retornou um formato inválido na análise do roteiro.');
+        }
+        return { analysis: parsed, provider: provider.service };
+    } else if (provider.service === 'claude') {
         aiResponse = await callClaudeAPI(analysisPrompt, provider.apiKey, provider.model);
     } else if (provider.service === 'openai') {
         aiResponse = await callOpenAIAPI(analysisPrompt, provider.apiKey, provider.model);
@@ -1016,16 +1707,74 @@ ROTEIRO COMPLETO:
 
 async function validateGeminiKey(apiKey) {
     try {
-        // Listar modelos para verificar se a chave é válida. É uma verificação padrão e fiável.
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-        if (response.status === 200) {
-            const data = await response.json();
-            if (data.models && data.models.length > 0) {
-                return { success: true };
+        // Tentar primeiro com API do Gemini (generativelanguage.googleapis.com)
+        // Para chaves de API do Gemini diretas
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+            if (response.status === 200) {
+                const data = await response.json();
+                if (data.models && data.models.length > 0) {
+                    return { success: true, type: 'gemini-api' };
+                }
             }
+            const error = await response.json().catch(() => ({}));
+            // Se der erro específico sobre API keys não suportadas, tentar Vertex AI
+            if (error.error?.message && error.error.message.includes('API keys are not supported')) {
+                console.log('[Validação Gemini] Chave é do Google Cloud (Vertex AI), não API key direta');
+                // Continuar para validar como Google Cloud
+            } else {
+                return { success: false, error: error.error?.message || 'Chave inválida ou sem modelos acessíveis.' };
+            }
+        } catch (geminiErr) {
+            console.log('[Validação Gemini] Erro ao validar como API direta, tentando Google Cloud...');
         }
-        const error = await response.json();
-        return { success: false, error: error.error?.message || 'Chave inválida ou sem modelos acessíveis.' };
+        
+        // Tentar validar como chave do Google Cloud
+        // Chaves do Google Cloud podem ser usadas para:
+        // 1. Google Cloud Text-to-Speech (já implementado)
+        // 2. Outros serviços do Google Cloud
+        // Nota: Vertex AI geralmente requer OAuth2, mas a chave pode ser válida para outros serviços
+        try {
+            // Validar usando Google Cloud Text-to-Speech API (que já estamos usando)
+            // Se a chave funcionar para TTS, ela é válida para serviços do Google Cloud
+            const ttsResponse = await fetch(`https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(apiKey)}&languageCode=pt-BR`);
+            
+            if (ttsResponse.status === 200) {
+                const ttsData = await ttsResponse.json();
+                if (ttsData.voices && ttsData.voices.length > 0) {
+                    return { 
+                        success: true, 
+                        type: 'google-cloud', 
+                        message: 'Chave do Google Cloud válida. Pode ser usada para Text-to-Speech e outros serviços do Google Cloud.'
+                    };
+                }
+            } else if (ttsResponse.status === 401 || ttsResponse.status === 403) {
+                const ttsError = await ttsResponse.json().catch(() => ({}));
+                // Se a mensagem menciona que a API não está habilitada, a chave é válida mas precisa habilitar a API
+                if (ttsError.error?.message && ttsError.error.message.includes('API has not been used')) {
+                    return { 
+                        success: true, 
+                        type: 'google-cloud', 
+                        message: 'Chave do Google Cloud válida. Habilite a API Text-to-Speech no Google Cloud Console para usar TTS.',
+                        warning: 'A API Text-to-Speech precisa ser habilitada no Google Cloud Console.'
+                    };
+                }
+                return { success: false, error: ttsError.error?.message || 'Chave inválida ou sem permissão para Text-to-Speech.' };
+            } else {
+                const ttsError = await ttsResponse.json().catch(() => ({}));
+                return { success: false, error: ttsError.error?.message || 'Erro ao validar chave do Google Cloud.' };
+            }
+        } catch (cloudErr) {
+            // Se ambos falharem, mas a chave parece ser do Google Cloud (baseado no erro original)
+            // Retornar como válida mas com aviso
+            console.log('[Validação Gemini] Erro ao validar Google Cloud:', cloudErr.message);
+            return { 
+                success: true, 
+                type: 'google-cloud', 
+                message: 'Chave do Google Cloud detectada. Pode ser usada para serviços do Google Cloud.',
+                warning: 'Validação completa não foi possível. Certifique-se de que as APIs necessárias estão habilitadas no Google Cloud Console.'
+            };
+        }
     } catch (err) {
         return { success: false, error: err.message };
     }
@@ -1081,6 +1830,32 @@ async function validateClaudeKey(apiKey) {
     }
 }
 
+async function validateYouTubeKey(apiKey) {
+    try {
+        // Testar a chave fazendo uma requisição simples de busca
+        const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=test&type=video&key=${apiKey}`);
+        
+        if (response.status === 200) {
+            return { success: true };
+        }
+        
+        // Verificar erros específicos
+        const data = await response.json();
+        
+        if (response.status === 400 && data.error?.errors?.[0]?.reason === 'keyInvalid') {
+            return { success: false, error: 'Chave de API inválida' };
+        }
+        
+        if (response.status === 403 && data.error?.errors?.[0]?.reason === 'quotaExceeded') {
+            // Se a cota foi excedida, a chave é válida mas sem créditos
+            return { success: true };
+        }
+        
+        return { success: false, error: data.error?.message || 'Chave inválida' };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+}
 
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
@@ -1113,6 +1888,1238 @@ const isAdmin = (req, res, next) => {
     next();
 };
 
+// ================================================
+// SISTEMA DE CRÉDITOS - FUNÇÕES PRINCIPAIS
+// ================================================
+
+/**
+ * Obtém a API padrão do admin (para uso com créditos)
+ */
+const getDefaultAdminApi = async () => {
+    try {
+        // Buscar API padrão ativa
+        let api = await db.get(`
+            SELECT * FROM api_providers 
+            WHERE is_active = 1 AND is_default = 1
+            LIMIT 1
+        `);
+        
+        if (api) {
+            return api;
+        }
+        
+        // Se não tem padrão, buscar primeira API ativa
+        api = await db.get(`
+            SELECT * FROM api_providers 
+            WHERE is_active = 1
+            ORDER BY id ASC
+            LIMIT 1
+        `);
+        
+        return api || null;
+    } catch (error) {
+        console.error('❌ Erro ao buscar API padrão do admin:', error);
+        return null;
+    }
+};
+
+// Função para buscar chave de voz configurada no admin
+const getAdminVoiceApiKey = async () => {
+    try {
+        const setting = await db.get(`
+            SELECT value FROM app_settings 
+            WHERE key = 'voice_api_key'
+        `);
+        
+        if (setting && setting.value) {
+            let apiKey = setting.value;
+            
+            // Tentar parsear como JSON (caso tenha sido salvo como JSON)
+            try {
+                const parsed = JSON.parse(setting.value);
+                // Se o resultado do parse for uma string, usar ela
+                if (typeof parsed === 'string') {
+                    apiKey = parsed;
+                }
+            } catch (parseError) {
+                // Se não for JSON, usar diretamente (já é string)
+                apiKey = setting.value;
+            }
+            
+            // Remover aspas extras se houver (caso tenha sido salvo como JSON string)
+            if (apiKey.startsWith('"') && apiKey.endsWith('"')) {
+                apiKey = apiKey.slice(1, -1);
+            }
+            
+            // Validar se não está vazia
+            if (apiKey && apiKey.trim().length > 0) {
+                console.log('[getAdminVoiceApiKey] ✅ Chave encontrada (tamanho:', apiKey.length, 'caracteres)');
+                return apiKey.trim();
+            } else {
+                console.log('[getAdminVoiceApiKey] ⚠️ Chave encontrada mas está vazia');
+                return null;
+            }
+        }
+        
+        console.log('[getAdminVoiceApiKey] ❌ Nenhuma chave de voz encontrada no admin');
+        return null;
+    } catch (error) {
+        console.error('Erro ao buscar chave de voz do admin:', error);
+        return null;
+    }
+};
+
+const normalizeAppSettingKey = (value) => {
+    if (value === null || value === undefined) return null;
+    let key = String(value);
+    if (key.startsWith('"') && key.endsWith('"')) {
+        key = key.slice(1, -1);
+    }
+    key = key.trim();
+    return key.length >= 10 ? key : null;
+};
+
+const getAdminOpenAiVoiceApiKey = async () => {
+    try {
+        const setting = await db.get("SELECT value FROM app_settings WHERE key = 'openai_voice_api_key'");
+        if (setting && setting.value) {
+            let apiKey = setting.value;
+            try {
+                const parsed = JSON.parse(setting.value);
+                if (typeof parsed === 'string') apiKey = parsed;
+            } catch {
+                apiKey = setting.value;
+            }
+            apiKey = normalizeAppSettingKey(apiKey);
+            if (apiKey) {
+                console.log('[getAdminOpenAiVoiceApiKey] ✅ Chave encontrada no admin');
+                return apiKey;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('[getAdminOpenAiVoiceApiKey] ❌ Erro ao buscar chave OpenAI:', error);
+        return null;
+    }
+};
+
+const getAdminVideoApiKey = async () => {
+    try {
+        const setting = await db.get("SELECT value FROM app_settings WHERE key = 'video_api_key'");
+        if (setting && setting.value) {
+            let apiKey = setting.value;
+            try {
+                const parsed = JSON.parse(setting.value);
+                if (typeof parsed === 'string') apiKey = parsed;
+            } catch {
+                apiKey = setting.value;
+            }
+            apiKey = normalizeAppSettingKey(apiKey);
+            if (apiKey) {
+                console.log('[getAdminVideoApiKey] ✅ Chave de vídeo encontrada no admin');
+                return apiKey;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('[getAdminVideoApiKey] ❌ Erro ao buscar chave de vídeo:', error);
+        return null;
+    }
+};
+
+const cacheVideoOperationMetadata = async (operationId, userId, meta = {}) => {
+    try {
+        await db.run(`
+            INSERT OR REPLACE INTO video_operations_cache (
+                operation_id,
+                user_id,
+                api_key_source,
+                user_key_id,
+                admin_api_id,
+                use_laozhang
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+            operationId,
+            userId,
+            meta.apiKeySource || 'unknown',
+            meta.userKeyId || null,
+            meta.adminApiId || null,
+            meta.useLaozhang ? 1 : 0
+        ]);
+        console.log('[VideoCache] Operação registrada:', operationId, meta.apiKeySource);
+    } catch (error) {
+        console.error('[VideoCache] Erro ao salvar operação:', error.message);
+    }
+};
+
+const removeVideoOperationCache = async (operationId) => {
+    try {
+        await db.run('DELETE FROM video_operations_cache WHERE operation_id = ?', [operationId]);
+    } catch (error) {
+        console.error('[VideoCache] Erro ao remover operação:', error.message);
+    }
+};
+
+const resolveCachedVideoApiKey = async (cacheRow) => {
+    try {
+        switch (cacheRow.api_key_source) {
+            case 'panel_video':
+                return await getAdminVideoApiKey();
+            case 'user_gemini':
+                if (!cacheRow.user_key_id) return null;
+                const userKey = await db.get('SELECT api_key FROM user_api_keys WHERE id = ?', [cacheRow.user_key_id]);
+                if (!userKey || !userKey.api_key) return null;
+                if (userKey.api_key.includes(':')) {
+                    try {
+                        return decrypt(userKey.api_key);
+                    } catch (err) {
+                        console.warn('[VideoCache] Erro ao descriptografar chave do usuário:', err.message);
+                        return userKey.api_key;
+                    }
+                }
+                return userKey.api_key;
+            case 'admin_provider':
+                if (!cacheRow.admin_api_id) return null;
+                const adminProvider = await db.get('SELECT * FROM api_providers WHERE id = ?', [cacheRow.admin_api_id]);
+                if (!adminProvider || !adminProvider.api_key) return null;
+                if (adminProvider.api_key.includes(':')) {
+                    try {
+                        return decrypt(adminProvider.api_key);
+                    } catch (err) {
+                        console.warn('[VideoCache] Erro ao descriptografar chave do admin provider:', err.message);
+                        return adminProvider.api_key;
+                    }
+                }
+                return adminProvider.api_key;
+            case 'laozhang':
+                return await getLaozhangApiKey();
+            default:
+                return null;
+        }
+    } catch (error) {
+        console.error('[VideoCache] Erro ao resolver chave para operação:', cacheRow.operation_id, error.message);
+        return null;
+    }
+};
+
+const rehydratePendingVideoOperations = async () => {
+    try {
+        const pending = await db.all('SELECT * FROM video_operations_cache');
+        if (!pending || pending.length === 0) {
+            console.log('[VideoCache] Nenhuma operação pendente para reidratar.');
+            return;
+        }
+        
+        console.log(`[VideoCache] Reidratando ${pending.length} operação(ões) de vídeo pendentes...`);
+        for (const row of pending) {
+            const apiKey = await resolveCachedVideoApiKey(row);
+            if (!apiKey) {
+                console.warn('[VideoCache] Não foi possível recuperar chave para operação:', row.operation_id);
+                continue;
+            }
+            
+            const operationData = {
+                userId: row.user_id,
+                operation: { name: row.operation_id },
+                status: 'processing',
+                useAdminApi: row.api_key_source === 'admin_provider',
+                adminApi: null,
+                useLaozhang: row.use_laozhang === 1
+            };
+            
+            if (row.admin_api_id) {
+                operationData.adminApi = await db.get('SELECT * FROM api_providers WHERE id = ?', [row.admin_api_id]);
+            }
+            
+            videoOperations.set(row.operation_id, operationData);
+            pollVideoOperation(row.operation_id, apiKey);
+        }
+    } catch (error) {
+        console.error('[VideoCache] Erro ao reidratar operações pendentes:', error.message);
+    }
+};
+
+/**
+ * Obtém a chave da API Laozhang.ai das configurações da aplicação
+ */
+const getLaozhangApiKey = async () => {
+    try {
+        const setting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_api_key'");
+        if (setting && setting.value) {
+            try {
+                return JSON.parse(setting.value);
+            } catch (e) {
+                return setting.value; // Se não for JSON, retornar como string
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('❌ Erro ao buscar chave Laozhang.ai:', error);
+        return null;
+    }
+};
+
+/**
+ * Obtém o ID do provider Laozhang.ai da tabela api_providers
+ */
+const getLaozhangApiProviderId = async () => {
+    try {
+        const provider = await db.get("SELECT id FROM api_providers WHERE provider = 'laozhang' AND is_active = 1 LIMIT 1");
+        if (provider) {
+            return provider.id;
+        }
+        // Se não existir, criar um provider padrão para Laozhang
+        const result = await db.run(`
+            INSERT INTO api_providers (
+                name, provider, model, api_key, unit_type, unit_size,
+                real_cost_per_unit, credits_per_unit, markup, is_premium,
+                is_active, is_default
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            'Laozhang.ai', 'laozhang', 'gpt-4o', '', 'tokens', 1000,
+            0.0, 1.0, 1.0, 0, 1, 0
+        ]);
+        return result.lastID;
+    } catch (error) {
+        console.error('❌ Erro ao buscar/criar provider Laozhang.ai:', error);
+        return null;
+    }
+};
+
+/**
+ * Verifica e debita créditos do usuário
+ */
+const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operationType = 'api_call', details = null) => {
+    try {
+        // Obter informações da API
+        const apiProvider = await db.get(`
+            SELECT credits_per_unit, unit_type, unit_size, name 
+            FROM api_providers 
+            WHERE id = ? AND is_active = 1
+        `, [apiProviderId]);
+
+        if (!apiProvider) {
+            throw new Error('API provider não encontrada ou inativa');
+        }
+
+        // Aplicar multiplicador TTS se for operação de TTS
+        let creditsPerUnit = apiProvider.credits_per_unit;
+        if (operationType && (operationType.includes('tts') || operationType.includes('TTS') || operationType === 'api_tts_generation' || operationType === 'api_tts_preview')) {
+            const ttsMultiplierSetting = await db.get("SELECT value FROM app_settings WHERE key = 'tts_credits_multiplier'");
+            const ttsMultiplier = ttsMultiplierSetting ? parseFloat(ttsMultiplierSetting.value) : 1.0;
+            
+            if (ttsMultiplier > 0 && ttsMultiplier !== 1.0) {
+                creditsPerUnit = apiProvider.credits_per_unit * ttsMultiplier;
+                console.log(`🔊 [TTS] Aplicando multiplicador de ${ttsMultiplier}x ao custo de créditos para TTS. Custo base: ${apiProvider.credits_per_unit}, Custo final: ${creditsPerUnit.toFixed(4)}`);
+            }
+        }
+
+        // Calcular créditos necessários
+        const creditsNeeded = (unitsConsumed / apiProvider.unit_size) * creditsPerUnit;
+
+        // Verificar saldo
+        let userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
+        
+        if (!userCredits) {
+            // Criar registro se não existir
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [userId]);
+            userCredits = { balance: 0 };
+        }
+
+        if (userCredits.balance < creditsNeeded) {
+            throw new Error(`Créditos insuficientes. Necessário: ${creditsNeeded.toFixed(2)}, Disponível: ${userCredits.balance.toFixed(2)}`);
+        }
+
+        // Debitar créditos
+        const newBalance = userCredits.balance - creditsNeeded;
+        await db.run(`
+            UPDATE user_credits 
+            SET balance = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE user_id = ?
+        `, [newBalance, userId]);
+
+        // Registrar uso
+        await db.run(`
+            INSERT INTO credit_usage (
+                user_id, api_provider_id, credits_used, 
+                units_consumed, operation_type, details
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        `, [userId, apiProviderId, creditsNeeded, unitsConsumed, operationType, details || JSON.stringify({ model: operationType })]);
+        
+        // Mapear operationType e endpoints para nomes amigáveis de ferramentas
+        // IMPORTANTE: NUNCA incluir nome do fornecedor de API (Laozhang.ai, etc)
+        const toolNames = {
+            // ===== GERADOR DE ROTEIRO =====
+            'api_script_agents_generate': 'Gerador de Roteiro',
+            '/api/generate': 'Gerador de Roteiro',
+            '/api/scripts': 'Gerador de Roteiro',
+            '/api/scripts/generate': 'Gerador de Roteiro',
+            '/api/script-agents/:agentId/generate': 'Gerador de Roteiro',
+            '/api/script-agents/:agentId/generate/laozhang': 'Gerador de Roteiro',
+            
+            // ===== GERADOR DE VÍDEO =====
+            'api_video_generation': 'Gerador de Vídeo',
+            
+            // ===== GERAÇÃO DE VOZ (TTS) =====
+            'api_tts_generation': 'Geração de Voz',
+            'api_tts_preview': 'Preview de Voz',
+            
+            // ===== GERAÇÃO DE IMAGEM =====
+            'api_image_generation': 'Geração de Imagem',
+            
+            // ===== GERADOR DE THUMBNAIL =====
+            'api_analyze_thumbnail': 'Gerador de Thumbnail',
+            '/api/analyze/thumbnail': 'Gerador de Thumbnail',
+            '/api/analyze/thumbnail/laozhang': 'Gerador de Thumbnail',
+            
+            // ===== GERADOR DE CENAS =====
+            '/api/generate/scene-prompts': 'Gerador de Cenas',
+            '/api/generate/scene-prompts/laozhang': 'Gerador de Cenas',
+            
+            // ===== ANÁLISE DE TÍTULOS =====
+            '/api/analyze/titles': 'Análise de Títulos',
+            '/api/analyze/titles/laozhang': 'Análise de Títulos',
+            
+            // ===== DETECÇÃO DE PERSONAGENS =====
+            'api_detect_characters': 'Detecção de Personagens',
+            '/api/detect/characters': 'Detecção de Personagens',
+            '/api/detect/characters/laozhang': 'Detecção de Personagens',
+            
+            // ===== BUSCA DE SUBNICHO =====
+            'api_niche_find_subniche': 'Busca de Subnicho',
+            '/api/niche/find-subniche': 'Busca de Subnicho',
+            '/api/niche/find-subniche/laozhang': 'Busca de Subnicho',
+            
+            // ===== ANÁLISE DE COMPETIDOR =====
+            'api_niche_analyze_competitor': 'Análise de Competidor',
+            '/api/niche/analyze-competitor': 'Análise de Competidor',
+            '/api/niche/analyze-competitor/laozhang': 'Análise de Competidor',
+            
+            // ===== CRIAÇÃO DE AGENTE =====
+            '/api/script-agents/create': 'Criação de Agente',
+            '/api/script-agents/create/laozhang': 'Criação de Agente',
+            
+            // ===== REESCREVER PROMPT =====
+            'api_rewrite_prompt': 'Reescrever Prompt',
+            '/api/rewrite/blocked-prompt': 'Reescrever Prompt',
+            '/api/rewrite/blocked-prompt/laozhang': 'Reescrever Prompt',
+            
+            // ===== ANÁLISE DE TRANSCRIÇÃO =====
+            'api_transcript_analyze': 'Análise de Transcrição',
+            '/api/video/transcript/analyze': 'Análise de Transcrição',
+            '/api/video/transcript/analyze/laozhang': 'Análise de Transcrição',
+            
+            // ===== GENÉRICOS (fallback) =====
+            'api_generation': 'Geração de Conteúdo',
+            'api_call': 'Ferramenta'
+        };
+        
+        const detailsObj = typeof details === 'string' ? JSON.parse(details) : (details || {});
+        
+        // Determinar nome da ferramenta - tentar múltiplas fontes
+        let toolName = toolNames[operationType];
+        
+        // Se não encontrou pelo operationType, tentar pelo endpoint nos details
+        if (!toolName && detailsObj?.endpoint) {
+            // Tentar match parcial do endpoint
+            for (const [key, value] of Object.entries(toolNames)) {
+                if (detailsObj.endpoint.includes(key) || key.includes(detailsObj.endpoint)) {
+                    toolName = value;
+                    break;
+                }
+            }
+        }
+        
+        // Se ainda não encontrou, tentar inferir pelo operationType ou endpoint
+        if (!toolName) {
+            const searchKey = operationType || detailsObj?.endpoint || '';
+            
+            // Buscar por palavras-chave no operationType ou endpoint
+            if (searchKey.includes('script') || searchKey.includes('roteiro') || searchKey.includes('agent')) {
+                toolName = 'Gerador de Roteiro';
+            } else if (searchKey.includes('video') || searchKey.includes('vídeo')) {
+                toolName = 'Gerador de Vídeo';
+            } else if (searchKey.includes('tts') || searchKey.includes('voz') || searchKey.includes('voice')) {
+                toolName = 'Geração de Voz';
+            } else if (searchKey.includes('image') || searchKey.includes('imagem')) {
+                toolName = 'Geração de Imagem';
+            } else if (searchKey.includes('thumbnail') || searchKey.includes('thumb')) {
+                toolName = 'Gerador de Thumbnail';
+            } else if (searchKey.includes('scene') || searchKey.includes('cena')) {
+                toolName = 'Gerador de Cenas';
+            } else if (searchKey.includes('title') || searchKey.includes('título')) {
+                toolName = 'Análise de Títulos';
+            } else if (searchKey.includes('character') || searchKey.includes('personagem')) {
+                toolName = 'Detecção de Personagens';
+            } else if (searchKey.includes('subniche') || searchKey.includes('sub-nicho')) {
+                toolName = 'Busca de Subnicho';
+            } else if (searchKey.includes('competitor') || searchKey.includes('competidor')) {
+                toolName = 'Análise de Competidor';
+            } else if (searchKey.includes('transcript') || searchKey.includes('transcrição')) {
+                toolName = 'Análise de Transcrição';
+            } else if (searchKey.includes('rewrite') || searchKey.includes('reescrever')) {
+                toolName = 'Reescrever Prompt';
+            } else {
+                // Último fallback: usar o operationType formatado (sem "api_" ou "laozhang")
+                toolName = (operationType || 'Ferramenta')
+                    .replace(/^api_/, '')
+                    .replace(/laozhang/gi, '')
+                    .replace(/_/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase())
+                    .trim() || 'Ferramenta';
+            }
+        }
+        
+        // Extrair modelo dos details
+        let modelName = detailsObj?.model || null;
+        
+        // Formatar nome do modelo para exibição amigável
+        if (modelName) {
+            // Vídeo - Veo
+            // Veo models - verificar modelos landscape primeiro
+            if (modelName.includes('veo-3.1-landscape-fast-fl') || modelName === 'veo-3.1-landscape-fast-fl') {
+                modelName = 'Veo 3.1 Landscape Fast';
+            } else if (modelName.includes('veo-3.1-landscape-fast') || modelName === 'veo-3.1-landscape-fast') {
+                modelName = 'Veo 3.1 Landscape Fast';
+            } else if (modelName.includes('veo-3.1-landscape-fl') || modelName === 'veo-3.1-landscape-fl') {
+                modelName = 'Veo 3.1 Landscape';
+            } else if (modelName.includes('veo-3.1-landscape') || modelName === 'veo-3.1-landscape') {
+                modelName = 'Veo 3.1 Landscape';
+            } else if (modelName.includes('veo-3.1-fast-fl') || modelName === 'veo-3.1-fast-fl') {
+                modelName = 'Veo 3.1 Fast';
+            } else if (modelName.includes('veo-3.1-fast') || modelName === 'veo-3.1-fast-generate-preview' || modelName === 'veo-3.1-fast') {
+                modelName = 'Veo 3.1 Fast';
+            } else if (modelName.includes('veo-3.1-fl') || modelName === 'veo-3.1-fl') {
+                modelName = 'Veo 3.1';
+            } else if (modelName.includes('veo-3.1-generate') || modelName === 'veo-3.1-generate-preview' || modelName === 'veo-3.1') {
+                modelName = 'Veo 3.1';
+            } else if (modelName.includes('veo-3.1')) {
+                modelName = 'Veo 3.1';
+            } else if (modelName.includes('veo')) {
+                modelName = modelName.replace('veo-', 'Veo ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+            // Claude
+            else if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
+                modelName = 'Claude 3.7 Sonnet';
+            } else if (modelName.includes('claude-3-5')) {
+                modelName = 'Claude 3.5';
+            } else if (modelName.includes('claude')) {
+                modelName = modelName.replace('claude-', 'Claude ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+            // GPT
+            else if (modelName === 'gpt-4o' || modelName.includes('gpt-4o')) {
+                modelName = 'GPT-4o';
+            } else if (modelName.includes('gpt-4')) {
+                modelName = 'GPT-4';
+            } else if (modelName.includes('gpt')) {
+                modelName = modelName.replace('gpt-', 'GPT-').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+            // Gemini
+            else if (modelName.includes('gemini-2.5-pro') || modelName === 'gemini-2.5-pro') {
+                modelName = 'Gemini 2.5 Pro';
+            } else if (modelName.includes('gemini-2.0')) {
+                modelName = 'Gemini 2.0';
+            } else if (modelName.includes('gemini')) {
+                modelName = modelName.replace('gemini-', 'Gemini ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+            // Outros - limpar formato técnico
+            else {
+                // Remover sufixos de data e versão
+                modelName = modelName
+                    .replace(/-\d{8}$/, '') // Remove datas como -20250219
+                    .replace(/-\d{4}$/, '') // Remove anos como -2025
+                    .replace(/-preview$/, '')
+                    .replace(/-generate$/, '')
+                    .replace(/-latest$/, '')
+                    .replace(/-exp$/, '')
+                    .replace(/-experimental$/, '')
+                    .replace(/-/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        
+        // Criar descrição apenas com nome da ferramenta e modelo (sem fornecedor de API)
+        let description = toolName;
+        if (modelName) {
+            description += ` - ${modelName}`;
+        }
+        
+        // Registrar transação para histórico do usuário
+        const sanitizedDescription = sanitizeUserFacingText(description, toolName || 'Operação');
+        await db.run(`
+            INSERT INTO credit_transactions (user_id, amount, transaction_type, description, admin_id)
+            VALUES (?, ?, 'debit', ?, NULL)
+        `, [userId, -creditsNeeded, sanitizedDescription]);
+
+        return {
+            success: true,
+            creditsUsed: creditsNeeded,
+            newBalance: newBalance
+        };
+    } catch (error) {
+        console.error('❌ Erro ao verificar/debitar créditos:', error);
+        throw error;
+    }
+};
+
+/**
+ * Reembolsa créditos ao usuário em caso de erro
+ */
+const refundCredits = async (userId, creditsAmount, reason = 'Erro na operação') => {
+    try {
+        if (!creditsAmount || creditsAmount <= 0) {
+            return { success: false, message: 'Valor inválido' };
+        }
+
+        let userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
+        
+        if (!userCredits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [userId]);
+            userCredits = { balance: 0 };
+        }
+
+        const newBalance = userCredits.balance + creditsAmount;
+        await db.run(`
+            UPDATE user_credits 
+            SET balance = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE user_id = ?
+        `, [newBalance, userId]);
+
+        // Registrar transação de reembolso
+        const sanitizedReason = sanitizeUserFacingText(reason || 'Créditos reembolsados', 'Créditos reembolsados');
+        await db.run(`
+            INSERT INTO credit_transactions (user_id, amount, transaction_type, description)
+            VALUES (?, ?, 'refund', ?)
+        `, [userId, creditsAmount, sanitizedReason]);
+
+        return {
+            success: true,
+            creditsRefunded: creditsAmount,
+            newBalance: newBalance
+        };
+    } catch (error) {
+        console.error('❌ Erro ao reembolsar créditos:', error);
+        throw error;
+    }
+};
+
+// ================================================
+// SISTEMA DE TTS (TEXT-TO-SPEECH) - FUNÇÕES
+// ================================================
+
+// Armazenamento de jobs TTS em memória
+const ttsJobs = {};
+
+// Limpar jobs antigos (mais de 1 hora)
+setInterval(() => {
+    const oneHourAgo = Date.now() - 3600000;
+    for (const [jobId, job] of Object.entries(ttsJobs)) {
+        if (job.createdAt && new Date(job.createdAt).getTime() < oneHourAgo) {
+            delete ttsJobs[jobId];
+        }
+    }
+}, 600000); // A cada 10 minutos
+
+// Diretório temporário para áudio
+const TEMP_AUDIO_DIR = path.join(__dirname, 'temp_audio');
+if (!fs.existsSync(TEMP_AUDIO_DIR)) {
+    fs.mkdirSync(TEMP_AUDIO_DIR, { recursive: true });
+}
+
+// Modelos TTS válidos
+const VALID_TTS_MODELS = [
+    'gemini-2.5-pro-preview-tts',
+    'gemini-2.5-flash-preview-tts',
+    'tts-1',
+    'tts-1-hd',
+    'genaipro-default'
+];
+const DEFAULT_TTS_MODEL = 'gemini-2.5-pro-preview-tts';
+const FALLBACK_TTS_VOICE = 'zephyr';
+const DEFAULT_TTS_SAMPLE_TEXT = 'LaCasa Dark A ferramenta de elite para canais dark.';
+
+const validateTtsModel = (model) => {
+    if (!model || !VALID_TTS_MODELS.includes(model)) {
+        return DEFAULT_TTS_MODEL;
+    }
+    return model;
+};
+
+// Função auxiliar para dividir texto tipo CapCut (máx 500 chars por bloco, respeitando frases)
+function splitLikeCapcut(text, maxLen = 500) {
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const blocks = [];
+    let current = "";
+
+    for (const sentence of sentences) {
+        if (sentence.length > maxLen) {
+            // Se uma frase sozinha ultrapassa o limite, divide por palavras
+            const words = sentence.split(" ");
+            let tempCurrent = "";
+            for (const word of words) {
+                if ((tempCurrent + " " + word).trim().length <= maxLen) {
+                    tempCurrent += " " + word;
+                } else {
+                    if (tempCurrent.trim().length > 0) {
+                        blocks.push(tempCurrent.trim());
+                    }
+                    tempCurrent = word;
+                }
+            }
+            if (tempCurrent.trim().length > 0) {
+                current = tempCurrent.trim();
+            }
+        } else {
+            if ((current + " " + sentence).trim().length <= maxLen) {
+                current += " " + sentence;
+            } else {
+                if (current.trim().length > 0) {
+                    blocks.push(current.trim());
+                }
+                current = sentence;
+            }
+        }
+    }
+    if (current.trim().length > 0) {
+        blocks.push(current.trim());
+    }
+    return blocks;
+}
+
+// Função completa de divisão de texto do DARKSCRIPT (com prioridades de quebra)
+function splitTextIntoChunks(text, charLimit) {
+    const chunks = [];
+    let remainingText = text.trim();
+
+    while (remainingText.length > 0) {
+        if (remainingText.length <= charLimit) {
+            chunks.push(remainingText);
+            break;
+        }
+
+        // Tenta usar 95% do limite para deixar margem e evitar cortes no meio de palavras
+        const safeLimit = Math.floor(charLimit * 0.95);
+        let chunk = remainingText.substring(0, safeLimit);
+        let lastSentenceEnd = -1;
+        let bestBreakPoint = -1;
+
+        // PRIORIDADE 1: Procura por finais de parágrafo (quebra de linha dupla)
+        const doubleLineBreak = chunk.lastIndexOf('\n\n');
+        if (doubleLineBreak > charLimit * 0.7) { // Se está nos últimos 30% do chunk
+            bestBreakPoint = doubleLineBreak + 2;
+        }
+
+        // PRIORIDADE 2: Procura por finais de frase (ponto, exclamação, interrogação seguidos de espaço)
+        if (bestBreakPoint === -1) {
+            const sentenceEnders = ['.', '!', '?'];
+            for (const ender of sentenceEnders) {
+                // Procura pelo padrão: "encerrador + espaço" ou "encerrador + quebra de linha"
+                const pattern1 = `${ender} `;
+                const pattern2 = `${ender}\n`;
+                const index1 = chunk.lastIndexOf(pattern1);
+                const index2 = chunk.lastIndexOf(pattern2);
+                const index = Math.max(index1, index2);
+                
+                if (index > lastSentenceEnd && index > charLimit * 0.7) {
+                    lastSentenceEnd = index + (index === index1 ? pattern1.length : pattern2.length);
+                    bestBreakPoint = lastSentenceEnd;
+                }
+            }
+        }
+
+        // PRIORIDADE 3: Procura por vírgulas ou ponto-e-vírgula (em posições adequadas)
+        if (bestBreakPoint === -1) {
+            const commaBreak = chunk.lastIndexOf(', ');
+            const semicolonBreak = chunk.lastIndexOf('; ');
+            const breakPoint = Math.max(commaBreak, semicolonBreak);
+            
+            if (breakPoint > charLimit * 0.8) { // Se está nos últimos 20% do chunk
+                bestBreakPoint = breakPoint + 2;
+            }
+        }
+
+        // PRIORIDADE 4: Se não encontrou ponto de quebra natural, quebra na última palavra
+        if (bestBreakPoint === -1) {
+            const lastSpace = chunk.lastIndexOf(' ');
+            if (lastSpace !== -1 && lastSpace > charLimit * 0.5) {
+                bestBreakPoint = lastSpace + 1;
+            } else {
+                // Último recurso: quebra no limite exato (pode cortar palavra, mas é raro)
+                bestBreakPoint = safeLimit;
+            }
+        }
+
+        // Se encontrou um ponto de quebra adequado, usa ele
+        if (bestBreakPoint > 0 && bestBreakPoint <= safeLimit) {
+            chunk = remainingText.substring(0, bestBreakPoint).trim();
+        } else {
+            // Fallback: usa o chunk até o limite seguro
+            chunk = chunk.trim();
+        }
+        
+        chunks.push(chunk);
+        remainingText = remainingText.substring(chunk.length).trim();
+    }
+
+    return chunks.filter(Boolean); // Remove chunks vazios
+}
+
+// Função para gerar áudio usando OpenAI TTS
+const generateOpenAiTtsAudio = async ({ apiKey, textInput, voiceName }) => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 3000;
+    
+    const validOpenAiVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+    
+    // Mapeamento de vozes Gemini para OpenAI
+    const voiceMapping = {
+        'Zephyr': 'nova',
+        'Puck': 'shimmer',
+        'Charon': 'onyx',
+        'Kore': 'nova',
+        'Fenrir': 'echo',
+        'Leda': 'alloy',
+        'Orus': 'onyx',
+        'Aoede': 'shimmer',
+        'Callirrhoe': 'alloy',
+        'Autonoe': 'nova',
+        'Enceladus': 'shimmer',
+        'Iapetus': 'echo',
+        'Umbriel': 'alloy',
+        'Algieba': 'onyx',
+        'Despina': 'nova',
+        'Erinome': 'shimmer',
+        'Algenib': 'onyx',
+        'Rasalgethi': 'echo',
+        'Laomedeia': 'shimmer',
+        'Achernar': 'nova',
+        'Alnilam': 'onyx',
+        'Schedar': 'echo',
+        'Gacrux': 'onyx',
+        'Pulcherrima': 'nova',
+        'Achird': 'alloy',
+        'Zubenelgenubi': 'alloy',
+        'Vindemiatrix': 'shimmer',
+        'Sadachbia': 'shimmer',
+        'Sadaltager': 'onyx',
+        'Sulafat': 'nova'
+    };
+    
+    let openAiVoice = voiceMapping[voiceName] || 'alloy';
+    if (validOpenAiVoices.includes(voiceName?.toLowerCase())) {
+        openAiVoice = voiceName.toLowerCase();
+    }
+    
+    const cleanText = textInput.trim().replace(/[\x00-\x1F\x7F]/g, '');
+    if (cleanText.length === 0) {
+        throw new Error('Texto de entrada está vazio após limpeza');
+    }
+    
+    if (cleanText.length > 4096) {
+        throw new Error(`Texto muito longo (${cleanText.length} chars). Limite da API OpenAI é 4096 caracteres.`);
+    }
+    
+    const responseFormat = 'mp3';
+    
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            const response = await axios.post(
+                'https://api.openai.com/v1/audio/speech',
+                {
+                    model: 'tts-1-hd',
+                    input: cleanText,
+                    voice: openAiVoice,
+                    response_format: responseFormat,
+                    speed: 1.0
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    responseType: 'arraybuffer',
+                    timeout: 300000
+                }
+            );
+            
+            if (!response.data || response.data.length === 0) {
+                throw new Error('A API retornou uma resposta vazia');
+            }
+            
+            const audioBuffer = Buffer.from(response.data);
+            const audioBase64 = audioBuffer.toString('base64');
+            
+            return {
+                audioBase64: audioBase64,
+                usage: null,
+                format: 'mp3'
+            };
+        } catch (error) {
+            if (attempt < MAX_RETRIES - 1) {
+                const delay = RETRY_DELAY * (attempt + 1);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                throw error;
+            }
+        }
+    }
+};
+
+// Função para gerar áudio usando Voz Premium API (GenAIPro)
+// Sistema assíncrono: cria task e consulta status
+const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) => {
+    const MAX_WAIT_TIME = 120000; // 2 minutos máximo
+    const POLL_INTERVAL = 2000; // Verificar a cada 2 segundos
+    
+    // API Voz Premium (GenAIPro) conforme documentação
+    // Base URL: https://genaipro.vn/api/v1
+    const API_BASE = 'https://genaipro.vn/api/v1';
+    
+    const cleanText = textInput.trim();
+    if (cleanText.length === 0) {
+        throw new Error('Texto de entrada está vazio');
+    }
+    
+    try {
+        // Passo 1: Criar task usando Max (melhor para português)
+        // Endpoint: POST /max/tasks
+        console.log(`[GenAIPro] Criando task TTS com voz: ${voiceName}`);
+        
+        let taskResponse;
+        try {
+            taskResponse = await axios.post(
+                `${API_BASE}/max/tasks`,
+                {
+                    text: cleanText,
+                    voice_id: voiceName,
+                    model_id: 'speech-2.5-hd-preview', // Modelo padrão
+                    speed: 1.0,
+                    language: 'Portuguese'
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 30000,
+                    validateStatus: (status) => status < 500 // Não lançar erro para 4xx, mas sim para 5xx
+                }
+            );
+        } catch (axiosError) {
+            // Tratar erros específicos da API
+            if (axiosError.response) {
+                const status = axiosError.response.status;
+                const responseData = axiosError.response.data;
+                
+                console.log(`[GenAIPro] Erro na criação da task - Status: ${status}, Data:`, responseData);
+                
+                // Verificar se é erro de autenticação
+                if (status === 401 || status === 403) {
+                    throw new Error('Chave de API inválida ou expirada. Verifique suas configurações.');
+                }
+                
+                // Verificar se é página de manutenção (503) - APENAS SE REALMENTE FOR HTML
+                if (status === 503 && typeof responseData === 'string' && responseData.includes('<!DOCTYPE') && responseData.includes('Đang Bảo Trì')) {
+                    throw new Error('A API Voz Premium está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
+                }
+                
+                // Outros erros - tentar extrair mensagem da API
+                let errorMessage = 'Erro ao criar tarefa de TTS';
+                
+                if (typeof responseData === 'object') {
+                    errorMessage = responseData.error?.message || responseData.message || responseData.error || `Erro ${status} ao gerar áudio`;
+                } else if (typeof responseData === 'string' && responseData.length < 500) {
+                    // Se for uma string curta, pode ser uma mensagem de erro JSON
+                    try {
+                        const parsed = JSON.parse(responseData);
+                        errorMessage = parsed.error?.message || parsed.message || parsed.error || errorMessage;
+                    } catch {
+                        errorMessage = responseData;
+                    }
+                }
+                
+                throw new Error(errorMessage);
+            }
+            
+            // Erro de rede ou timeout
+            if (axiosError.code === 'ECONNABORTED' || axiosError.message.includes('timeout')) {
+                throw new Error('Timeout ao conectar com a API Voz Premium. Tente novamente.');
+            }
+            
+            // Re-lançar outros erros
+            throw axiosError;
+        }
+        
+        if (!taskResponse || !taskResponse.data || !taskResponse.data.id) {
+            throw new Error('Falha ao criar task TTS');
+        }
+        
+        const taskId = taskResponse.data.id;
+        console.log(`[GenAIPro] Task criada: ${taskId}`);
+        
+        // Passo 2: Aguardar conclusão da task (polling)
+        const startTime = Date.now();
+        let taskStatus = null;
+        let audioUrl = null;
+        
+        while (Date.now() - startTime < MAX_WAIT_TIME) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+            
+            try {
+                const statusResponse = await axios.get(
+                    `${API_BASE}/max/tasks/${taskId}`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 10000
+                    }
+                );
+                
+                if (statusResponse && statusResponse.data) {
+                    taskStatus = statusResponse.data.status;
+                    const percentage = statusResponse.data.process_percentage || 0;
+                    
+                    console.log(`[GenAIPro] Task ${taskId}: ${taskStatus} (${percentage}%)`);
+                    
+                    if (taskStatus === 'completed') {
+                        audioUrl = statusResponse.data.result;
+                        if (audioUrl) {
+                            console.log(`[GenAIPro] Áudio pronto: ${audioUrl}`);
+                            break;
+                        }
+                    } else if (taskStatus === 'failed' || taskStatus === 'error') {
+                        throw new Error(statusResponse.data.error || 'Task falhou');
+                    }
+                }
+            } catch (statusError) {
+                console.error('[GenAIPro] Erro ao verificar status:', statusError.message);
+                // Continuar tentando
+            }
+        }
+        
+        if (!audioUrl) {
+            throw new Error('Timeout aguardando conclusão da task');
+        }
+        
+        // Passo 3: Baixar o áudio
+        console.log(`[GenAIPro] Baixando áudio de: ${audioUrl}`);
+        const audioResponse = await axios.get(audioUrl, {
+            responseType: 'arraybuffer',
+            timeout: 60000
+        });
+        
+        if (!audioResponse || !audioResponse.data) {
+            throw new Error('Falha ao baixar áudio');
+        }
+        
+        const audioBuffer = Buffer.from(audioResponse.data);
+        const audioBase64 = audioBuffer.toString('base64');
+        
+        console.log(`[GenAIPro] TTS gerado com sucesso. Tamanho: ${audioBuffer.length} bytes`);
+        
+        return {
+            audioBase64: audioBase64,
+            usage: null,
+            format: 'mp3'
+        };
+    } catch (error) {
+        console.error('[GenAIPro] Erro ao gerar TTS:', error.message);
+        
+        // Não verificar mais status 503 aqui, deixar a mensagem de erro original passar
+        if (error.response) {
+            console.error('[GenAIPro] Status:', error.response.status);
+            console.error('[GenAIPro] Data:', JSON.stringify(error.response.data).substring(0, 500));
+        }
+        
+        // Se o erro já tem uma mensagem amigável do catch anterior, manter
+        if (error.message && !error.message.includes('AxiosError')) {
+            throw error;
+        }
+        
+        // Erro genérico
+        throw new Error('Erro ao gerar áudio com Voz Premium. Verifique sua chave de API e tente novamente.');
+    }
+};
+
+const generateLaozhangTtsAudio = async ({ apiKey, textInput, voiceName = 'alloy', speed = 1.0, model = 'tts-1' }) => {
+    const cleanText = textInput.trim();
+    if (!cleanText) {
+        throw new Error('Texto de entrada vazio para geração de voz.');
+    }
+
+    const payload = {
+        model: model,
+        voice: voiceName || 'alloy',
+        input: cleanText,
+        speed: Math.min(Math.max(speed || 1.0, 0.25), 4.0)
+    };
+
+    try {
+        console.log(`[DarkVoz TTS] Gerando áudio com voz "${voiceName}" (speed ${payload.speed})`);
+        const response = await axios.post(
+            'https://api.laozhang.ai/v1/audio/speech',
+            payload,
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Accept': 'audio/mpeg'
+                },
+                responseType: 'arraybuffer',
+                timeout: 120000
+            }
+        );
+
+        if (!response || !response.data) {
+            throw new Error('Resposta vazia da API do provedor de voz ao gerar áudio.');
+        }
+
+        const audioBuffer = Buffer.from(response.data);
+        console.log(`[DarkVoz TTS] Áudio gerado (${audioBuffer.length} bytes)`);
+        return {
+            audioBase64: audioBuffer.toString('base64'),
+            mimeType: 'audio/mp3'
+        };
+    } catch (error) {
+        console.error('[DarkVoz TTS] Erro ao gerar áudio:', error.message);
+        if (error.response) {
+            console.error('[DarkVoz TTS] Status:', error.response.status);
+            console.error('[DarkVoz TTS] Data:', typeof error.response.data === 'string' ? error.response.data.substring(0, 500) : error.response.data);
+            if (error.response.status === 401) {
+                throw new Error('Chave do DarkVoz inválida ou expirada. Atualize a chave no painel admin.');
+            }
+            if (error.response.status === 403) {
+                throw new Error('Acesso negado pela API do DarkVoz. Verifique se a chave possui permissões para TTS.');
+            }
+            if (error.response.status === 503) {
+                throw new Error('O DarkVoz está temporariamente indisponível. Tente novamente em alguns minutos.');
+            }
+        }
+        if (error.code === 'ECONNABORTED') {
+            throw new Error('Timeout ao conectar com a API do DarkVoz. Tente novamente em instantes.');
+        }
+        throw new Error(error.message || 'Erro ao gerar áudio com o DarkVoz.');
+    }
+};
+
+// Função principal para gerar TTS
+const generateTtsAudio = async ({ apiKey, model, textInput, speakerVoiceMap, provider = 'gemini', speed = 1.0 }, retryCount = 0) => {
+    // Se o provedor for OpenAI, usa a função específica
+    if (provider === 'openai') {
+        const voiceName = Array.from(speakerVoiceMap.values())[0] || 'alloy';
+        return await generateOpenAiTtsAudio({ apiKey, textInput, voiceName });
+    }
+    
+    // Se o provedor for Voz Premium (GenAIPro)
+    if (provider === 'voice_premium' || provider === 'genaipro') {
+        const voiceName = Array.from(speakerVoiceMap.values())[0] || 'default';
+        return await generateVoicePremiumTtsAudio({ apiKey, textInput, voiceName });
+    }
+    
+    // Gemini TTS - usar API oficial do Google Gemini
+    if (provider === 'gemini') {
+        return await generateGeminiTtsAudio({ apiKey, textInput });
+    }
+
+    if (provider === 'laozhang') {
+        const voiceName = Array.from(speakerVoiceMap.values())[0] || 'alloy';
+        return await generateLaozhangTtsAudio({ apiKey, textInput, voiceName, speed, model });
+    }
+    
+    throw new Error(`Provedor TTS "${provider}" não suportado. Use OpenAI, Voz Premium, Gemini ou DarkVoz.`);
+};
+
+// Função para gerar TTS usando a API oficial do Google Cloud Text-to-Speech
+// Nota: O Google Gemini não tem TTS nativo, então usamos o Google Cloud Text-to-Speech API
+// que pode usar a mesma chave de API do Google Cloud
+const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
+    const cleanText = textInput.trim();
+    if (cleanText.length === 0) {
+        throw new Error('Texto de entrada está vazia');
+    }
+    
+    try {
+        console.log('[Gemini TTS] Gerando áudio usando Google Cloud Text-to-Speech API');
+        
+        // Usar Google Cloud Text-to-Speech API
+        // Endpoint: https://texttospeech.googleapis.com/v1/text:synthesize
+        // A chave do Google Cloud pode ser usada diretamente aqui
+        const response = await axios.post(
+            `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`,
+            {
+                input: {
+                    text: cleanText
+                },
+                voice: {
+                    languageCode: 'pt-BR',
+                    name: 'pt-BR-Neural2-C', // Voz neural em português brasileiro
+                    ssmlGender: 'FEMALE' // NEUTRAL não é suportado, usar FEMALE ou MALE
+                },
+                audioConfig: {
+                    audioEncoding: 'MP3',
+                    speakingRate: 1.0,
+                    pitch: 0.0,
+                    volumeGainDb: 0.0
+                }
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                timeout: 60000
+            }
+        );
+        
+        if (response.data && response.data.audioContent) {
+            // O audioContent já vem em base64
+            const audioBase64 = response.data.audioContent;
+            
+            console.log('[Gemini TTS] Áudio gerado com sucesso');
+            return {
+                audioBase64: audioBase64,
+                mimeType: 'audio/mp3'
+            };
+        } else {
+            throw new Error('Resposta da API não contém áudio');
+        }
+    } catch (error) {
+        console.error('[Gemini TTS] Erro ao gerar áudio:', error.message);
+        
+        if (error.response) {
+            const status = error.response.status;
+            const errorData = error.response.data;
+            
+            console.error('[Gemini TTS] Status:', status);
+            console.error('[Gemini TTS] Error Data:', JSON.stringify(errorData).substring(0, 500));
+            
+            if (status === 401 || status === 403) {
+                throw new Error('Chave de API do Google inválida ou expirada. Verifique suas configurações. A chave precisa ter a API Text-to-Speech habilitada.');
+            }
+            
+            if (status === 429) {
+                throw new Error('Limite de requisições excedido. Aguarde alguns instantes e tente novamente.');
+            }
+            
+            let errorMessage = 'Erro ao gerar áudio com Google Cloud Text-to-Speech';
+            if (typeof errorData === 'object' && errorData.error) {
+                errorMessage = errorData.error.message || errorData.error || errorMessage;
+            } else if (typeof errorData === 'string') {
+                errorMessage = errorData;
+            }
+            
+            throw new Error(errorMessage);
+        }
+        
+        if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            throw new Error('Timeout ao conectar com a API do Google. Tente novamente.');
+        }
+        
+        throw error;
+    }
+};
 
 // --- INICIALIZAÇÃO DO BANCO DE DADOS ---
 (async () => {
@@ -1529,6 +3536,116 @@ const isAdmin = (req, res, next) => {
             ON youtube_integrations(user_id, channel_id);
         `);
 
+        // Sistema de Créditos
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS api_providers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                unit_type TEXT NOT NULL DEFAULT 'tokens',
+                unit_size INTEGER NOT NULL DEFAULT 1000,
+                real_cost_per_unit REAL NOT NULL DEFAULT 0.0,
+                credits_per_unit REAL NOT NULL DEFAULT 1.0,
+                markup REAL NOT NULL DEFAULT 1.0,
+                is_premium INTEGER NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS user_credits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                balance REAL NOT NULL DEFAULT 0.0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                transaction_type TEXT NOT NULL,
+                description TEXT,
+                admin_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (admin_id) REFERENCES users(id)
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS credit_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                api_provider_id INTEGER NOT NULL,
+                credits_used REAL NOT NULL,
+                units_consumed REAL NOT NULL,
+                operation_type TEXT NOT NULL,
+                details TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (api_provider_id) REFERENCES api_providers(id)
+            );
+        `);
+
+        // Tabela de configurações da aplicação
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Tabela de preferências do usuário
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                use_credits_instead_of_own_api INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Inicializar configurações padrão
+        try {
+            const initialBonus = await db.get("SELECT value FROM app_settings WHERE key = 'initial_bonus_credits'");
+            if (!initialBonus) {
+                await db.run("INSERT INTO app_settings (key, value) VALUES ('initial_bonus_credits', '0')");
+            }
+            
+            const ttsMultiplier = await db.get("SELECT value FROM app_settings WHERE key = 'tts_credits_multiplier'");
+            if (!ttsMultiplier) {
+                await db.run("INSERT INTO app_settings (key, value) VALUES ('tts_credits_multiplier', '1.0')");
+            }
+            
+            const laozhangUseAsDefault = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+            if (!laozhangUseAsDefault) {
+                await db.run("INSERT INTO app_settings (key, value) VALUES ('laozhang_use_as_default', 'false')");
+            }
+        } catch (e) {
+            console.log('Configurações já inicializadas ou erro:', e);
+        }
+
+        // Criar índices para melhor performance
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_user_credits_user_id ON user_credits(user_id);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id ON credit_transactions(user_id);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences(user_id);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_credit_transactions_created_at ON credit_transactions(created_at);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_credit_usage_user_id ON credit_usage(user_id);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_credit_usage_api_provider_id ON credit_usage(api_provider_id);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_credit_usage_created_at ON credit_usage(created_at);`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_api_providers_is_active ON api_providers(is_active);`);
+
         await db.exec(`
             CREATE TABLE IF NOT EXISTS scheduled_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1635,12 +3752,23 @@ const isAdmin = (req, res, next) => {
                 full_transcript TEXT,
                 agent_prompt TEXT,
                 agent_instructions TEXT,
+                viral_formula_json TEXT,
                 usage_count INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         `);
+
+        // Garantir que a coluna viral_formula_json exista (migração suave)
+        try {
+            await db.run(`ALTER TABLE script_agents ADD COLUMN viral_formula_json TEXT`);
+            console.log('[DB] Coluna viral_formula_json adicionada à tabela script_agents.');
+        } catch (columnErr) {
+            if (!/duplicate column name/i.test(columnErr.message)) {
+                throw columnErr;
+            }
+        }
 
         // Tabela para roteiros gerados
         await db.exec(`
@@ -1663,7 +3791,38 @@ const isAdmin = (req, res, next) => {
             );
         `);
 
-        console.log('✅ Novas tabelas criadas: Analytics, Biblioteca, Integração YouTube e Agentes de Roteiro');
+        // Tabela para histórico de prompts de cena
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scene_prompts_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                script TEXT NOT NULL,
+                scenes_json TEXT NOT NULL,
+                model TEXT,
+                style TEXT,
+                mode TEXT,
+                words_per_scene INTEGER,
+                characters TEXT,
+                scene_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS video_operations_cache (
+                operation_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                api_key_source TEXT NOT NULL,
+                user_key_id INTEGER,
+                admin_api_id INTEGER,
+                use_laozhang INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        console.log('✅ Novas tabelas criadas: Analytics, Biblioteca, Integração YouTube, Agentes de Roteiro e Histórico de Prompts de Cena');
         
         // === MIGRAÇÃO: Remover constraint UNIQUE de youtube_integrations (permitir múltiplos canais) ===
         try {
@@ -1755,6 +3914,22 @@ const isAdmin = (req, res, next) => {
             }
             if (!hasOptimizationScore || !hasOptimizationReport || !hasRetentionScore || !hasAuthenticityScore) {
                 console.log('✅ Migração concluída: campos de otimização adicionados em generated_scripts');
+            }
+            
+            // Verificar e adicionar colunas duration_minutes e language se não existirem
+            const hasDurationMinutes = tableInfo.some(col => col.name === 'duration_minutes');
+            const hasLanguage = tableInfo.some(col => col.name === 'language');
+            
+            if (!hasDurationMinutes) {
+                console.log('MIGRATION: Adicionando coluna "duration_minutes" em generated_scripts...');
+                await db.exec(`ALTER TABLE generated_scripts ADD COLUMN duration_minutes INTEGER`);
+            }
+            if (!hasLanguage) {
+                console.log('MIGRATION: Adicionando coluna "language" em generated_scripts...');
+                await db.exec(`ALTER TABLE generated_scripts ADD COLUMN language TEXT`);
+            }
+            if (!hasDurationMinutes || !hasLanguage) {
+                console.log('✅ Migração concluída: campos duration_minutes e language adicionados em generated_scripts');
             }
         } catch (migrationErr) {
             console.warn('Aviso na migração de generated_scripts (optimization):', migrationErr.message);
@@ -1859,6 +4034,7 @@ const isAdmin = (req, res, next) => {
         }
 
         console.log('✅ Banco de dados inicializado com sucesso!');
+        await rehydratePendingVideoOperations();
         
         // Sinalizar que o banco está pronto
         global.dbReady = true;
@@ -1895,8 +4071,29 @@ app.post('/api/auth/register', async (req, res) => {
             'INSERT INTO users (name, email, whatsapp, password_hash) VALUES (?, ?, ?, ?)',
             [name, email, whatsapp, password_hash]
         );
+        
+        const userId = result.lastID;
+        
+        // Inicializar saldo de créditos para novo usuário com bônus inicial
+        try {
+            const bonusSetting = await db.get("SELECT value FROM app_settings WHERE key = 'initial_bonus_credits'");
+            const bonusAmount = bonusSetting ? parseFloat(bonusSetting.value) : 0;
 
-        res.status(201).json({ msg: 'Utilizador registado com sucesso! A aguardar aprovação.', userId: result.lastID });
+            if (bonusAmount > 0) {
+                await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, ?)', [userId, bonusAmount]);
+                await db.run(
+                    'INSERT INTO credit_transactions (user_id, amount, transaction_type, description, admin_id) VALUES (?, ?, ?, ?, NULL)',
+                    [userId, bonusAmount, 'credit', 'Bônus de boas-vindas']
+                );
+                console.log(`✅ Créditos bônus iniciais (${bonusAmount}) adicionados para novo usuário ${email}`);
+            } else {
+                await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [userId]);
+            }
+        } catch (creditError) {
+            console.error('⚠️ Erro ao inicializar créditos para novo usuário:', creditError);
+        }
+
+        res.status(201).json({ msg: 'Utilizador registado com sucesso! A aguardar aprovação.', userId: userId });
 
     } catch (err) {
         console.error('Erro no registo:', err);
@@ -1975,6 +4172,3516 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     }
 });
 
+// ================================================
+// ROTAS DO SISTEMA DE CRÉDITOS
+// ================================================
+
+// GET /api/credits/balance - Usuário consulta seu próprio saldo
+app.get('/api/credits/balance', authenticateToken, async (req, res) => {
+    try {
+        console.log('[CRÉDITOS API] Consultando saldo para usuário:', req.user.id);
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [req.user.id]);
+        if (!credits) {
+            console.log('[CRÉDITOS API] Criando registro de créditos para usuário:', req.user.id);
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [req.user.id]);
+            credits = { balance: 0 };
+        }
+        console.log('[CRÉDITOS API] Saldo encontrado:', credits.balance);
+        res.json({ balance: credits.balance });
+    } catch (error) {
+        console.error('[CRÉDITOS API] Erro ao consultar saldo:', error);
+        res.status(500).json({ message: 'Erro ao consultar saldo' });
+    }
+});
+
+// GET /api/user/credits - Alias para /api/credits/balance (compatibilidade)
+app.get('/api/user/credits', authenticateToken, async (req, res) => {
+    try {
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [req.user.id]);
+        if (!credits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [req.user.id]);
+            credits = { balance: 0 };
+        }
+        res.json({ balance: credits.balance });
+    } catch (error) {
+        console.error('Erro ao consultar saldo:', error);
+        res.status(500).json({ message: 'Erro ao consultar saldo' });
+    }
+});
+
+// GET /api/user/preferences - Buscar preferências do usuário
+app.get('/api/user/preferences', authenticateToken, async (req, res) => {
+    try {
+        let preferences = await db.get('SELECT * FROM user_preferences WHERE user_id = ?', [req.user.id]);
+        if (!preferences) {
+            // Criar preferências padrão
+            await db.run('INSERT INTO user_preferences (user_id, use_credits_instead_of_own_api) VALUES (?, 0)', [req.user.id]);
+            preferences = { use_credits_instead_of_own_api: 0 };
+        }
+        res.json({ 
+            use_credits_instead_of_own_api: preferences.use_credits_instead_of_own_api === 1 
+        });
+    } catch (error) {
+        console.error('Erro ao buscar preferências:', error);
+        res.status(500).json({ message: 'Erro ao buscar preferências' });
+    }
+});
+
+// POST /api/user/preferences - Salvar preferências do usuário
+app.post('/api/user/preferences', authenticateToken, async (req, res) => {
+    try {
+        const { use_credits_instead_of_own_api } = req.body;
+        
+        // Verificar se já existe
+        const existing = await db.get('SELECT id FROM user_preferences WHERE user_id = ?', [req.user.id]);
+        
+        if (existing) {
+            await db.run(
+                'UPDATE user_preferences SET use_credits_instead_of_own_api = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+                [use_credits_instead_of_own_api ? 1 : 0, req.user.id]
+            );
+        } else {
+            await db.run(
+                'INSERT INTO user_preferences (user_id, use_credits_instead_of_own_api) VALUES (?, ?)',
+                [req.user.id, use_credits_instead_of_own_api ? 1 : 0]
+            );
+        }
+        
+        res.json({ 
+            message: 'Preferências salvas com sucesso',
+            use_credits_instead_of_own_api: use_credits_instead_of_own_api 
+        });
+    } catch (error) {
+        console.error('Erro ao salvar preferências:', error);
+        res.status(500).json({ message: 'Erro ao salvar preferências' });
+    }
+});
+
+// GET /api/credits/transactions - Usuário consulta suas transações com detalhes
+app.get('/api/credits/transactions', authenticateToken, async (req, res) => {
+    try {
+        // Buscar transações com JOIN para obter detalhes de uso
+        const transactions = await db.all(`
+            SELECT 
+                ct.id,
+                ct.amount,
+                ct.transaction_type,
+                ct.description,
+                ct.created_at,
+                cu.operation_type,
+                cu.details,
+                cu.units_consumed,
+                ap.name as api_name,
+                ap.provider as api_provider,
+                ap.model as api_model
+            FROM credit_transactions ct
+            LEFT JOIN credit_usage cu ON ct.user_id = cu.user_id 
+                AND ABS(ct.amount) = cu.credits_used 
+                AND DATE(ct.created_at) = DATE(cu.created_at)
+                AND ct.transaction_type = 'debit'
+            LEFT JOIN api_providers ap ON cu.api_provider_id = ap.id
+            WHERE ct.user_id = ?
+            ORDER BY ct.created_at DESC
+            LIMIT 100
+        `, [req.user.id]);
+        
+        // Processar transações para adicionar informações detalhadas
+        const processedTransactions = transactions.map(t => {
+            let details = null;
+            let operationInfo = null;
+            
+            if (t.details) {
+                try {
+                    details = typeof t.details === 'string' ? JSON.parse(t.details) : t.details;
+                } catch (e) {
+                    details = { raw: t.details };
+                }
+            }
+            
+            // Montar informação detalhada sobre a operação
+            if (t.operation_type) {
+                const operationTypes = {
+                    // Roteiros
+                    'api_script_agents_generate': 'Gerador de Roteiro',
+                    '/api/generate': 'Gerador de Roteiro',
+                    '/api/scripts': 'Gerador de Roteiro',
+                    '/api/scripts/generate': 'Gerador de Roteiro',
+                    '/api/script-agents/:agentId/generate': 'Gerador de Roteiro',
+                    '/api/script-agents/:agentId/generate/laozhang': 'Gerador de Roteiro',
+                    // Vídeos
+                    'api_video_generation': 'Gerador de Vídeo',
+                    // Voz
+                    'api_tts_generation': 'Geração de Voz',
+                    'api_tts_preview': 'Preview de Voz',
+                    // Imagens
+                    'api_image_generation': 'Geração de Imagem',
+                    // Thumbnails
+                    'api_analyze_thumbnail': 'Gerador de Thumbnail',
+                    '/api/analyze/thumbnail': 'Gerador de Thumbnail',
+                    '/api/analyze/thumbnail/laozhang': 'Gerador de Thumbnail',
+                    // Cenas
+                    '/api/generate/scene-prompts': 'Gerador de Cenas',
+                    '/api/generate/scene-prompts/laozhang': 'Gerador de Cenas',
+                    // Análise de Títulos
+                    '/api/analyze/titles': 'Análise de Títulos',
+                    '/api/analyze/titles/laozhang': 'Análise de Títulos',
+                    // Detecção de Personagens
+                    'api_detect_characters': 'Detecção de Personagens',
+                    '/api/detect/characters': 'Detecção de Personagens',
+                    '/api/detect/characters/laozhang': 'Detecção de Personagens',
+                    // Busca de Subnicho
+                    'api_niche_find_subniche': 'Busca de Subnicho',
+                    '/api/niche/find-subniche': 'Busca de Subnicho',
+                    '/api/niche/find-subniche/laozhang': 'Busca de Subnicho',
+                    // Análise de Competidor
+                    'api_niche_analyze_competitor': 'Análise de Competidor',
+                    '/api/niche/analyze-competitor': 'Análise de Competidor',
+                    '/api/niche/analyze-competitor/laozhang': 'Análise de Competidor',
+                    // Criação de Agente
+                    '/api/script-agents/create': 'Criação de Agente',
+                    '/api/script-agents/create/laozhang': 'Criação de Agente',
+                    // Reescrever Prompt
+                    'api_rewrite_prompt': 'Reescrever Prompt',
+                    '/api/rewrite/blocked-prompt': 'Reescrever Prompt',
+                    '/api/rewrite/blocked-prompt/laozhang': 'Reescrever Prompt',
+                    // Análise de Transcrição
+                    'api_transcript_analyze': 'Análise de Transcrição',
+                    '/api/video/transcript/analyze': 'Análise de Transcrição',
+                    '/api/video/transcript/analyze/laozhang': 'Análise de Transcrição',
+                    // Genéricos
+                    'api_generation': 'Geração de Conteúdo',
+                    'api_call': 'Ferramenta'
+                };
+                
+                // Tentar extrair nome da ferramenta da descrição se ela contiver "Ferramenta - Laozhang.ai"
+                let toolName = operationTypes[t.operation_type];
+                
+                // Se não encontrou pelo operationType, tentar pelo endpoint nos details
+                if (!toolName && details?.endpoint) {
+                    for (const [key, value] of Object.entries(operationTypes)) {
+                        if (details.endpoint.includes(key) || key.includes(details.endpoint)) {
+                            toolName = value;
+                            break;
+                        }
+                    }
+                }
+                
+                // Se ainda não encontrou, usar fallback
+                if (!toolName) {
+                    toolName = operationTypes[t.operation_type] || t.operation_type;
+                }
+                
+                // Priorizar modelo dos details (modelo real usado), depois api_model (modelo do provider), depois descrição
+                let modelName = details?.model || t.api_model || 'N/A';
+                
+                // Se a descrição contém "Ferramenta - Laozhang.ai", tentar extrair informações
+                if ((!modelName || modelName === 'N/A') && t.description && t.description.includes('Ferramenta - Laozhang.ai')) {
+                    // Tentar extrair o modelo da descrição
+                    const modelMatch = t.description.match(/\(([^)]+)\)/);
+                    if (modelMatch && modelMatch[1]) {
+                        modelName = modelMatch[1];
+                    }
+                }
+                
+                // Se ainda não tem modelo, tentar extrair da descrição atual
+                if ((!modelName || modelName === 'N/A') && t.description && t.description.includes(' - ')) {
+                    const parts = t.description.split(' - ');
+                    if (parts.length > 1) {
+                        const possibleModel = parts[parts.length - 1];
+                        // Verificar se parece um modelo (não é apenas o nome da ferramenta)
+                        if (possibleModel && !possibleModel.includes('Gerador') && !possibleModel.includes('Ferramenta')) {
+                            modelName = possibleModel;
+                        }
+                    }
+                }
+                
+                // Formatar modelo se necessário
+                if (modelName && modelName !== 'N/A') {
+                    if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
+                        modelName = 'Claude 3.7 Sonnet';
+                    } else if (modelName.includes('gemini-2.5-pro') || modelName === 'gemini-2.5-pro') {
+                        modelName = 'Gemini 2.5 Pro';
+                    } else if (modelName === 'gpt-4o' || modelName.includes('gpt-4o')) {
+                        modelName = 'GPT-4o';
+                    } else if (modelName.includes('veo-3.1-landscape-fast-fl') || modelName === 'veo-3.1-landscape-fast-fl') {
+                        modelName = 'Veo 3.1 Landscape Fast';
+                    } else if (modelName.includes('veo-3.1-landscape-fast') || modelName === 'veo-3.1-landscape-fast') {
+                        modelName = 'Veo 3.1 Landscape Fast';
+                    } else if (modelName.includes('veo-3.1-landscape-fl') || modelName === 'veo-3.1-landscape-fl') {
+                        modelName = 'Veo 3.1 Landscape';
+                    } else if (modelName.includes('veo-3.1-landscape') || modelName === 'veo-3.1-landscape') {
+                        modelName = 'Veo 3.1 Landscape';
+                    } else if (modelName.includes('veo-3.1-fast-fl') || modelName === 'veo-3.1-fast-fl') {
+                        modelName = 'Veo 3.1 Fast';
+                    } else if (modelName.includes('veo-3.1-fast') || modelName === 'veo-3.1-fast-generate-preview' || modelName === 'veo-3.1-fast') {
+                        modelName = 'Veo 3.1 Fast';
+                    } else if (modelName.includes('veo-3.1-fl') || modelName === 'veo-3.1-fl') {
+                        modelName = 'Veo 3.1';
+                    } else if (modelName.includes('veo-3.1-generate') || modelName === 'veo-3.1-generate-preview' || modelName === 'veo-3.1') {
+                        modelName = 'Veo 3.1';
+                    } else if (modelName.includes('veo-3.1')) {
+                        modelName = 'Veo 3.1';
+                    }
+                }
+                
+                operationInfo = {
+                    type: t.operation_type,
+                    typeName: toolName,
+                    model: modelName !== 'N/A' ? modelName : null,
+                    units: t.units_consumed || null,
+                    endpoint: details?.endpoint || null,
+                    details: details
+                };
+            }
+            
+            // Se a descrição contém "Ferramenta - Laozhang.ai", substituir pela descrição correta baseada no operationInfo
+            let finalDescription = t.description;
+            if (finalDescription && finalDescription.includes('Ferramenta - Laozhang.ai')) {
+                if (operationInfo && operationInfo.typeName) {
+                    finalDescription = operationInfo.typeName;
+                    if (operationInfo.model) {
+                        finalDescription += ` - ${operationInfo.model}`;
+                    }
+                }
+            }
+            finalDescription = sanitizeUserFacingText(
+                finalDescription || (operationInfo?.typeName || 'Operação'),
+                operationInfo?.typeName || 'Operação'
+            );
+            
+            return {
+                id: t.id,
+                amount: t.amount,
+                transaction_type: t.transaction_type,
+                description: finalDescription,
+                created_at: t.created_at,
+                operation: operationInfo,
+                isCredit: t.transaction_type === 'credit'
+            };
+        });
+        
+        res.json({ data: processedTransactions });
+    } catch (error) {
+        console.error('Erro ao listar transações:', error);
+        res.status(500).json({ message: 'Erro ao listar transações' });
+    }
+});
+
+// === ROTAS ADMINISTRATIVAS DE CRÉDITOS ===
+
+// GET /api/admin/credits/balance/:userId - Consulta saldo de um usuário específico
+app.get('/api/admin/credits/balance/:userId', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId);
+        if (!userId) {
+            return res.status(400).json({ message: 'ID do usuário inválido' });
+        }
+        
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
+        if (!credits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [userId]);
+            credits = { balance: 0 };
+        }
+        res.json({ balance: credits.balance });
+    } catch (error) {
+        console.error('Erro ao consultar saldo:', error);
+        res.status(500).json({ message: 'Erro ao consultar saldo' });
+    }
+});
+
+// POST /api/admin/credits/add - Adiciona créditos a um usuário
+app.post('/api/admin/credits/add', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { user_id, amount, description } = req.body;
+        if (!user_id || !amount || amount <= 0) {
+            return res.status(400).json({ message: 'user_id e amount são obrigatórios e amount deve ser positivo' });
+        }
+        
+        const user = await db.get('SELECT id FROM users WHERE id = ?', [user_id]);
+        if (!user) return res.status(404).json({ message: 'Usuário não encontrado' });
+        
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [user_id]);
+        if (!credits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [user_id]);
+            credits = { balance: 0 };
+        }
+        
+        const newBalance = credits.balance + parseFloat(amount);
+        await db.run('UPDATE user_credits SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [newBalance, user_id]);
+        await db.run(`
+            INSERT INTO credit_transactions (user_id, amount, transaction_type, description, admin_id)
+            VALUES (?, ?, 'credit', ?, ?)
+        `, [user_id, amount, description || 'Créditos adicionados pelo administrador', req.user.id]);
+        
+        res.json({ message: 'Créditos adicionados com sucesso', new_balance: newBalance });
+    } catch (error) {
+        console.error('Erro ao adicionar créditos:', error);
+        res.status(500).json({ message: 'Erro ao adicionar créditos' });
+    }
+});
+
+// PUT /api/admin/credits/reset - Zerar créditos de um usuário
+app.put('/api/admin/credits/reset', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { user_id } = req.body;
+        if (!user_id) {
+            return res.status(400).json({ message: 'user_id é obrigatório' });
+        }
+        
+        const user = await db.get('SELECT id, email FROM users WHERE id = ?', [user_id]);
+        if (!user) return res.status(404).json({ message: 'Usuário não encontrado' });
+        
+        // Obter saldo atual antes de zerar
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [user_id]);
+        const oldBalance = credits ? credits.balance : 0;
+        
+        // Zerar saldo
+        if (!credits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [user_id]);
+        } else {
+            await db.run('UPDATE user_credits SET balance = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [user_id]);
+        }
+        
+        // Registrar transação
+        if (oldBalance > 0) {
+            await db.run(`
+                INSERT INTO credit_transactions (user_id, amount, transaction_type, description, admin_id)
+                VALUES (?, ?, 'debit', ?, ?)
+            `, [user_id, -oldBalance, `Créditos zerados pelo administrador (saldo anterior: ${oldBalance.toFixed(2)})`, req.user.id]);
+        }
+        
+        res.json({ message: 'Créditos zerados com sucesso', old_balance: oldBalance, new_balance: 0 });
+    } catch (error) {
+        console.error('Erro ao zerar créditos:', error);
+        res.status(500).json({ message: 'Erro ao zerar créditos' });
+    }
+});
+
+// ================================================
+// ROTAS ADMINISTRATIVAS DE APIs
+// ================================================
+
+// GET /api/admin/api-providers - Listar todas as APIs
+app.get('/api/admin/api-providers', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const apis = await db.all('SELECT * FROM api_providers ORDER BY created_at DESC');
+        res.json(apis);
+    } catch (error) {
+        console.error('Erro ao listar APIs:', error);
+        res.status(500).json({ message: 'Erro ao listar APIs' });
+    }
+});
+
+// POST /api/admin/api-providers - Criar nova API
+app.post('/api/admin/api-providers', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { name, provider, model, api_key, unit_type, unit_size, real_cost_per_unit, credits_per_unit, markup, is_premium, is_active, is_default } = req.body;
+        
+        if (!name || !provider || !model || !api_key) {
+            return res.status(400).json({ message: 'Nome, provedor, modelo e chave de API são obrigatórios' });
+        }
+        
+        // Se marcar como padrão, desmarcar outras
+        if (is_default) {
+            await db.run('UPDATE api_providers SET is_default = 0');
+        }
+        
+        const result = await db.run(`
+            INSERT INTO api_providers (
+                name, provider, model, api_key, unit_type, unit_size,
+                real_cost_per_unit, credits_per_unit, markup, is_premium,
+                is_active, is_default
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            name, provider, model, api_key, unit_type || 'tokens', unit_size || 1000,
+            real_cost_per_unit || 0.0, credits_per_unit || 1.0, markup || 1.0,
+            is_premium || 0, is_active !== undefined ? is_active : 1, is_default || 0
+        ]);
+        
+        res.json({ message: 'API criada com sucesso', id: result.lastID });
+    } catch (error) {
+        console.error('Erro ao criar API:', error);
+        res.status(500).json({ message: 'Erro ao criar API' });
+    }
+});
+
+// PUT /api/admin/api-providers/:id - Editar API
+app.put('/api/admin/api-providers/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, provider, model, api_key, unit_type, unit_size, real_cost_per_unit, credits_per_unit, markup, is_premium, is_active, is_default } = req.body;
+        
+        // Se marcar como padrão, desmarcar outras
+        if (is_default) {
+            await db.run('UPDATE api_providers SET is_default = 0 WHERE id != ?', [id]);
+        }
+        
+        await db.run(`
+            UPDATE api_providers SET
+                name = ?, provider = ?, model = ?, api_key = ?,
+                unit_type = ?, unit_size = ?, real_cost_per_unit = ?,
+                credits_per_unit = ?, markup = ?, is_premium = ?,
+                is_active = ?, is_default = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `, [
+            name, provider, model, api_key, unit_type, unit_size,
+            real_cost_per_unit, credits_per_unit, markup, is_premium,
+            is_active, is_default, id
+        ]);
+        
+        res.json({ message: 'API atualizada com sucesso' });
+    } catch (error) {
+        console.error('Erro ao atualizar API:', error);
+        res.status(500).json({ message: 'Erro ao atualizar API' });
+    }
+});
+
+// DELETE /api/admin/api-providers/:id - Deletar API
+app.delete('/api/admin/api-providers/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM api_providers WHERE id = ?', [id]);
+        res.json({ message: 'API excluída com sucesso' });
+    } catch (error) {
+        console.error('Erro ao excluir API:', error);
+        res.status(500).json({ message: 'Erro ao excluir API' });
+    }
+});
+
+// GET /api/admin/credits/statistics - Estatísticas de créditos (completo)
+app.get('/api/admin/credits/statistics', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { startDate, endDate, userId, tool } = req.query;
+        
+        let dateFilter = '';
+        let params = [];
+        
+        if (startDate && endDate) {
+            dateFilter = 'AND DATE(cu.created_at) BETWEEN DATE(?) AND DATE(?)';
+            params.push(startDate, endDate);
+        } else if (startDate) {
+            dateFilter = 'AND DATE(cu.created_at) >= DATE(?)';
+            params.push(startDate);
+        } else if (endDate) {
+            dateFilter = 'AND DATE(cu.created_at) <= DATE(?)';
+            params.push(endDate);
+        } else {
+            // Padrão: últimos 30 dias
+            dateFilter = 'AND DATE(cu.created_at) >= DATE("now", "-30 days")';
+        }
+        
+        if (userId) {
+            dateFilter += ' AND cu.user_id = ?';
+            params.push(userId);
+        }
+        
+        // Estatísticas gerais
+        const totalStats = await db.get(`
+            SELECT 
+                COUNT(*) as total_operations,
+                SUM(cu.credits_used) as total_credits,
+                AVG(cu.credits_used) as avg_credits_per_operation,
+                MIN(cu.credits_used) as min_credits,
+                MAX(cu.credits_used) as max_credits,
+                COUNT(DISTINCT cu.user_id) as unique_users,
+                COUNT(DISTINCT DATE(cu.created_at)) as days_with_usage
+            FROM credit_usage cu
+            WHERE 1=1 ${dateFilter}
+        `, params);
+        
+        // Estatísticas por dia
+        const dailyStats = await db.all(`
+            SELECT 
+                DATE(cu.created_at) as date,
+                COUNT(*) as operations,
+                SUM(cu.credits_used) as total_credits,
+                COUNT(DISTINCT cu.user_id) as unique_users
+            FROM credit_usage cu
+            WHERE 1=1 ${dateFilter}
+            GROUP BY DATE(cu.created_at)
+            ORDER BY date DESC
+            LIMIT 90
+        `, params);
+        
+        // Estatísticas por ferramenta
+        let toolFilter = '';
+        let toolParams = [...params];
+        if (tool) {
+            toolFilter = 'AND ct.description = ?';
+            toolParams.push(tool);
+        }
+        
+        let ctDateFilter = '';
+        if (startDate && endDate) {
+            ctDateFilter = 'AND DATE(ct.created_at) BETWEEN DATE(?) AND DATE(?)';
+        } else if (startDate) {
+            ctDateFilter = 'AND DATE(ct.created_at) >= DATE(?)';
+        } else if (endDate) {
+            ctDateFilter = 'AND DATE(ct.created_at) <= DATE(?)';
+        } else {
+            ctDateFilter = 'AND DATE(ct.created_at) >= DATE("now", "-30 days")';
+        }
+        
+        const toolStats = await db.all(`
+            SELECT 
+                ct.description as tool_name,
+                COUNT(*) as operations,
+                SUM(ABS(ct.amount)) as total_credits,
+                AVG(ABS(ct.amount)) as avg_credits,
+                COUNT(DISTINCT ct.user_id) as unique_users
+            FROM credit_transactions ct
+            WHERE ct.transaction_type = 'debit' ${ctDateFilter} ${toolFilter}
+            GROUP BY ct.description
+            ORDER BY total_credits DESC
+        `, toolParams);
+        
+        // Estatísticas por usuário (top 20)
+        const userStats = await db.all(`
+            SELECT 
+                u.id,
+                u.email,
+                u.whatsapp,
+                COUNT(cu.id) as operations,
+                SUM(cu.credits_used) as total_credits,
+                AVG(cu.credits_used) as avg_credits
+            FROM credit_usage cu
+            JOIN users u ON cu.user_id = u.id
+            WHERE 1=1 ${dateFilter}
+            GROUP BY u.id, u.email, u.whatsapp
+            ORDER BY total_credits DESC
+            LIMIT 20
+        `, params);
+        
+        // Estatísticas por API Provider
+        const apiStats = await db.all(`
+            SELECT 
+                ap.id,
+                ap.name,
+                ap.provider,
+                ap.model,
+                COUNT(cu.id) as operations,
+                SUM(cu.credits_used) as total_credits,
+                SUM(cu.units_consumed) as total_units
+            FROM credit_usage cu
+            JOIN api_providers ap ON cu.api_provider_id = ap.id
+            WHERE 1=1 ${dateFilter}
+            GROUP BY ap.id, ap.name, ap.provider, ap.model
+            ORDER BY total_credits DESC
+        `, params);
+        
+        // Total distribuído (créditos adicionados)
+        const totalDistributed = await db.get(`
+            SELECT SUM(amount) as total FROM credit_transactions WHERE transaction_type = 'credit'
+        `);
+        
+        // Usuários com créditos
+        const usersWithCredits = await db.get(`
+            SELECT COUNT(*) as count FROM user_credits WHERE balance > 0
+        `);
+        
+        res.json({
+            summary: totalStats,
+            daily: dailyStats,
+            byTool: toolStats,
+            byUser: userStats,
+            byApi: apiStats,
+            totalDistributed: totalDistributed?.total || 0,
+            usersWithCredits: usersWithCredits?.count || 0,
+            creditsUsed30Days: totalStats?.total_credits || 0
+        });
+    } catch (error) {
+        console.error('Erro ao buscar estatísticas de créditos:', error);
+        res.status(500).json({ message: 'Erro ao buscar estatísticas', details: error.message });
+    }
+});
+
+// GET /api/admin/credits/export - Exportar dados de créditos (CSV)
+app.get('/api/admin/credits/export', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { startDate, endDate, format = 'csv' } = req.query;
+        
+        let dateFilter = '';
+        let params = [];
+        
+        if (startDate && endDate) {
+            dateFilter = 'WHERE DATE(cu.created_at) BETWEEN DATE(?) AND DATE(?)';
+            params.push(startDate, endDate);
+        } else if (startDate) {
+            dateFilter = 'WHERE DATE(cu.created_at) >= DATE(?)';
+            params.push(startDate);
+        } else if (endDate) {
+            dateFilter = 'WHERE DATE(cu.created_at) <= DATE(?)';
+            params.push(endDate);
+        }
+        
+        const data = await db.all(`
+            SELECT 
+                cu.created_at as data,
+                u.email,
+                u.whatsapp,
+                ap.name as api_name,
+                ap.provider,
+                ap.model,
+                cu.operation_type as tipo_operacao,
+                cu.credits_used as creditos_usados,
+                cu.units_consumed as unidades_consumidas
+            FROM credit_usage cu
+            JOIN users u ON cu.user_id = u.id
+            JOIN api_providers ap ON cu.api_provider_id = ap.id
+            ${dateFilter}
+            ORDER BY cu.created_at DESC
+        `, params);
+        
+        if (format === 'json') {
+            res.json({ data });
+        } else {
+            // CSV
+            const headers = ['Data', 'Email', 'WhatsApp', 'API', 'Provider', 'Modelo', 'Tipo Operação', 'Créditos Usados', 'Unidades Consumidas'];
+            const csvRows = [
+                headers.join(','),
+                ...data.map(row => [
+                    row.data || '',
+                    `"${(row.email || '').replace(/"/g, '""')}"`,
+                    `"${(row.whatsapp || '').replace(/"/g, '""')}"`,
+                    `"${(row.api_name || '').replace(/"/g, '""')}"`,
+                    `"${(row.provider || '').replace(/"/g, '""')}"`,
+                    `"${(row.model || '').replace(/"/g, '""')}"`,
+                    `"${(row.tipo_operacao || '').replace(/"/g, '""')}"`,
+                    row.creditos_usados || 0,
+                    row.unidades_consumidas || 0
+                ].join(','))
+            ];
+            
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="creditos_${Date.now()}.csv"`);
+            res.send('\ufeff' + csvRows.join('\n')); // BOM para Excel
+        }
+    } catch (error) {
+        console.error('Erro ao exportar créditos:', error);
+        res.status(500).json({ message: 'Erro ao exportar créditos' });
+    }
+});
+
+// GET /api/admin/credits/transactions/:userId - Histórico de transações de um usuário com detalhes
+app.get('/api/admin/credits/transactions/:userId', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        // Buscar transações com JOIN para obter detalhes de uso
+        const transactions = await db.all(`
+            SELECT 
+                ct.id,
+                ct.amount,
+                ct.transaction_type,
+                ct.description,
+                ct.created_at,
+                cu.operation_type,
+                cu.details,
+                cu.units_consumed,
+                ap.name as api_name,
+                ap.provider as api_provider,
+                ap.model as api_model
+            FROM credit_transactions ct
+            LEFT JOIN credit_usage cu ON ct.user_id = cu.user_id 
+                AND ABS(ct.amount) = cu.credits_used 
+                AND DATE(ct.created_at) = DATE(cu.created_at)
+                AND ct.transaction_type = 'debit'
+            LEFT JOIN api_providers ap ON cu.api_provider_id = ap.id
+            WHERE ct.user_id = ?
+            ORDER BY ct.created_at DESC
+            LIMIT 100
+        `, [userId]);
+        
+        // Processar transações para adicionar informações detalhadas
+        const processedTransactions = transactions.map(t => {
+            let details = null;
+            let operationInfo = null;
+            
+            if (t.details) {
+                try {
+                    details = typeof t.details === 'string' ? JSON.parse(t.details) : t.details;
+                } catch (e) {
+                    details = { raw: t.details };
+                }
+            }
+            
+            // Montar informação detalhada sobre a operação
+            if (t.operation_type) {
+                const operationTypes = {
+                    // Roteiros
+                    'api_script_agents_generate': 'Gerador de Roteiro',
+                    '/api/generate': 'Gerador de Roteiro',
+                    '/api/scripts': 'Gerador de Roteiro',
+                    '/api/scripts/generate': 'Gerador de Roteiro',
+                    '/api/script-agents/:agentId/generate': 'Gerador de Roteiro',
+                    '/api/script-agents/:agentId/generate/laozhang': 'Gerador de Roteiro',
+                    // Vídeos
+                    'api_video_generation': 'Gerador de Vídeo',
+                    // Voz
+                    'api_tts_generation': 'Geração de Voz',
+                    'api_tts_preview': 'Preview de Voz',
+                    // Imagens
+                    'api_image_generation': 'Geração de Imagem',
+                    // Thumbnails
+                    'api_analyze_thumbnail': 'Gerador de Thumbnail',
+                    '/api/analyze/thumbnail': 'Gerador de Thumbnail',
+                    '/api/analyze/thumbnail/laozhang': 'Gerador de Thumbnail',
+                    // Cenas
+                    '/api/generate/scene-prompts': 'Gerador de Cenas',
+                    '/api/generate/scene-prompts/laozhang': 'Gerador de Cenas',
+                    // Análise de Títulos
+                    '/api/analyze/titles': 'Análise de Títulos',
+                    '/api/analyze/titles/laozhang': 'Análise de Títulos',
+                    // Detecção de Personagens
+                    'api_detect_characters': 'Detecção de Personagens',
+                    '/api/detect/characters': 'Detecção de Personagens',
+                    '/api/detect/characters/laozhang': 'Detecção de Personagens',
+                    // Busca de Subnicho
+                    'api_niche_find_subniche': 'Busca de Subnicho',
+                    '/api/niche/find-subniche': 'Busca de Subnicho',
+                    '/api/niche/find-subniche/laozhang': 'Busca de Subnicho',
+                    // Análise de Competidor
+                    'api_niche_analyze_competitor': 'Análise de Competidor',
+                    '/api/niche/analyze-competitor': 'Análise de Competidor',
+                    '/api/niche/analyze-competitor/laozhang': 'Análise de Competidor',
+                    // Criação de Agente
+                    '/api/script-agents/create': 'Criação de Agente',
+                    '/api/script-agents/create/laozhang': 'Criação de Agente',
+                    // Reescrever Prompt
+                    'api_rewrite_prompt': 'Reescrever Prompt',
+                    '/api/rewrite/blocked-prompt': 'Reescrever Prompt',
+                    '/api/rewrite/blocked-prompt/laozhang': 'Reescrever Prompt',
+                    // Análise de Transcrição
+                    'api_transcript_analyze': 'Análise de Transcrição',
+                    '/api/video/transcript/analyze': 'Análise de Transcrição',
+                    '/api/video/transcript/analyze/laozhang': 'Análise de Transcrição',
+                    // Genéricos
+                    'api_generation': 'Geração de Conteúdo',
+                    'api_call': 'Ferramenta'
+                };
+                
+                // Tentar extrair nome da ferramenta da descrição se ela contiver "Ferramenta - Laozhang.ai"
+                let toolName = operationTypes[t.operation_type];
+                
+                // Se não encontrou pelo operationType, tentar pelo endpoint nos details
+                if (!toolName && details?.endpoint) {
+                    for (const [key, value] of Object.entries(operationTypes)) {
+                        if (details.endpoint.includes(key) || key.includes(details.endpoint)) {
+                            toolName = value;
+                            break;
+                        }
+                    }
+                }
+                
+                // Se ainda não encontrou, usar fallback
+                if (!toolName) {
+                    toolName = operationTypes[t.operation_type] || t.operation_type;
+                }
+                
+                // Priorizar modelo dos details (modelo real usado), depois api_model (modelo do provider), depois descrição
+                let modelName = details?.model || t.api_model || 'N/A';
+                
+                // Se a descrição contém "Ferramenta - Laozhang.ai", tentar extrair informações
+                if ((!modelName || modelName === 'N/A') && t.description && t.description.includes('Ferramenta - Laozhang.ai')) {
+                    // Tentar extrair o modelo da descrição
+                    const modelMatch = t.description.match(/\(([^)]+)\)/);
+                    if (modelMatch && modelMatch[1]) {
+                        modelName = modelMatch[1];
+                    }
+                }
+                
+                // Se ainda não tem modelo, tentar extrair da descrição atual
+                if ((!modelName || modelName === 'N/A') && t.description && t.description.includes(' - ')) {
+                    const parts = t.description.split(' - ');
+                    if (parts.length > 1) {
+                        const possibleModel = parts[parts.length - 1];
+                        // Verificar se parece um modelo (não é apenas o nome da ferramenta)
+                        if (possibleModel && !possibleModel.includes('Gerador') && !possibleModel.includes('Ferramenta')) {
+                            modelName = possibleModel;
+                        }
+                    }
+                }
+                
+                // Formatar modelo se necessário
+                if (modelName && modelName !== 'N/A') {
+                    if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
+                        modelName = 'Claude 3.7 Sonnet';
+                    } else if (modelName.includes('gemini-2.5-pro') || modelName === 'gemini-2.5-pro') {
+                        modelName = 'Gemini 2.5 Pro';
+                    } else if (modelName === 'gpt-4o' || modelName.includes('gpt-4o')) {
+                        modelName = 'GPT-4o';
+                    } else if (modelName.includes('veo-3.1-landscape-fast-fl') || modelName === 'veo-3.1-landscape-fast-fl') {
+                        modelName = 'Veo 3.1 Landscape Fast';
+                    } else if (modelName.includes('veo-3.1-landscape-fast') || modelName === 'veo-3.1-landscape-fast') {
+                        modelName = 'Veo 3.1 Landscape Fast';
+                    } else if (modelName.includes('veo-3.1-landscape-fl') || modelName === 'veo-3.1-landscape-fl') {
+                        modelName = 'Veo 3.1 Landscape';
+                    } else if (modelName.includes('veo-3.1-landscape') || modelName === 'veo-3.1-landscape') {
+                        modelName = 'Veo 3.1 Landscape';
+                    } else if (modelName.includes('veo-3.1-fast-fl') || modelName === 'veo-3.1-fast-fl') {
+                        modelName = 'Veo 3.1 Fast';
+                    } else if (modelName.includes('veo-3.1-fast') || modelName === 'veo-3.1-fast-generate-preview' || modelName === 'veo-3.1-fast') {
+                        modelName = 'Veo 3.1 Fast';
+                    } else if (modelName.includes('veo-3.1-fl') || modelName === 'veo-3.1-fl') {
+                        modelName = 'Veo 3.1';
+                    } else if (modelName.includes('veo-3.1-generate') || modelName === 'veo-3.1-generate-preview' || modelName === 'veo-3.1') {
+                        modelName = 'Veo 3.1';
+                    } else if (modelName.includes('veo-3.1')) {
+                        modelName = 'Veo 3.1';
+                    }
+                }
+                
+                operationInfo = {
+                    type: t.operation_type,
+                    typeName: toolName,
+                    model: modelName !== 'N/A' ? modelName : null,
+                    units: t.units_consumed || null,
+                    endpoint: details?.endpoint || null,
+                    details: details
+                };
+            }
+            
+            // Se a descrição contém "Ferramenta - Laozhang.ai", substituir pela descrição correta baseada no operationInfo
+            let finalDescription = t.description;
+            if (finalDescription && finalDescription.includes('Ferramenta - Laozhang.ai')) {
+                if (operationInfo && operationInfo.typeName) {
+                    finalDescription = operationInfo.typeName;
+                    if (operationInfo.model) {
+                        finalDescription += ` - ${operationInfo.model}`;
+                    }
+                }
+            }
+            
+            return {
+                id: t.id,
+                amount: t.amount,
+                transaction_type: t.transaction_type,
+                description: finalDescription,
+                created_at: t.created_at,
+                operation: operationInfo,
+                isCredit: t.transaction_type === 'credit'
+            };
+        });
+        
+        res.json({ data: processedTransactions });
+    } catch (error) {
+        console.error('Erro ao buscar transações:', error);
+        res.status(500).json({ message: 'Erro ao buscar transações' });
+    }
+});
+
+// DELETE /api/admin/credits/transactions/:userId/clear - Zerar histórico de transações de um usuário
+app.delete('/api/admin/credits/transactions/:userId/clear', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const userIdInt = parseInt(userId);
+        
+        if (!userIdInt || isNaN(userIdInt)) {
+            return res.status(400).json({ message: 'ID do usuário inválido' });
+        }
+        
+        // Verificar se o usuário existe
+        const user = await db.get('SELECT id, email FROM users WHERE id = ?', [userIdInt]);
+        if (!user) {
+            return res.status(404).json({ message: 'Usuário não encontrado' });
+        }
+        
+        // Deletar todas as transações do usuário
+        const deleteResult = await db.run(
+            'DELETE FROM credit_transactions WHERE user_id = ?',
+            [userIdInt]
+        );
+        
+        // Deletar também os registros de uso de créditos relacionados
+        await db.run(
+            'DELETE FROM credit_usage WHERE user_id = ?',
+            [userIdInt]
+        );
+        
+        console.log(`[Admin] Histórico de transações zerado para usuário ${userIdInt} (${user.email}) por admin ${req.user.id}`);
+        
+        res.json({ 
+            success: true, 
+            message: 'Histórico de transações zerado com sucesso',
+            deletedTransactions: deleteResult.changes || 0
+        });
+    } catch (error) {
+        console.error('Erro ao zerar histórico de transações:', error);
+        res.status(500).json({ message: 'Erro ao zerar histórico de transações' });
+    }
+});
+
+// GET /api/admin/credits/users-with-balance - Lista usuários com saldo (com paginação e busca)
+app.get('/api/admin/credits/users-with-balance', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { min_balance = 0, limit = 100, offset = 0, search = '' } = req.query;
+        
+        // Construir cláusula WHERE com busca opcional
+        let whereClause = 'WHERE COALESCE(uc.balance, 0) >= ?';
+        let queryParams = [parseFloat(min_balance)];
+        
+        if (search && search.trim()) {
+            const searchTerm = `%${search.trim()}%`;
+            whereClause += ` AND (
+                LOWER(u.email) LIKE LOWER(?) 
+                OR LOWER(COALESCE(u.whatsapp, '')) LIKE LOWER(?)
+                OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?)
+            )`;
+            queryParams.push(searchTerm, searchTerm, searchTerm);
+        }
+        
+        const users = await db.all(`
+            SELECT 
+                u.id,
+                u.email,
+                u.whatsapp,
+                u.name,
+                COALESCE(uc.balance, 0) as balance,
+                uc.updated_at as last_updated
+            FROM users u
+            LEFT JOIN user_credits uc ON u.id = uc.user_id
+            ${whereClause}
+            ORDER BY uc.balance DESC, u.email ASC
+            LIMIT ? OFFSET ?
+        `, [...queryParams, parseInt(limit), parseInt(offset)]);
+        
+        // Query para total com mesma busca
+        let totalWhereClause = 'WHERE COALESCE(uc.balance, 0) >= ?';
+        let totalParams = [parseFloat(min_balance)];
+        if (search && search.trim()) {
+            const searchTerm = `%${search.trim()}%`;
+            totalWhereClause += ` AND (
+                LOWER(u.email) LIKE LOWER(?) 
+                OR LOWER(COALESCE(u.whatsapp, '')) LIKE LOWER(?)
+                OR LOWER(COALESCE(u.name, '')) LIKE LOWER(?)
+            )`;
+            totalParams.push(searchTerm, searchTerm, searchTerm);
+        }
+        
+        const total = await db.get(`
+            SELECT COUNT(*) as count
+            FROM users u
+            LEFT JOIN user_credits uc ON u.id = uc.user_id
+            ${totalWhereClause}
+        `, totalParams);
+        
+        res.json({ 
+            users: users.map(u => ({
+                id: u.id,
+                email: u.email,
+                whatsapp: u.whatsapp || null,
+                name: u.name || null,
+                balance: parseFloat(u.balance || 0),
+                last_updated: u.last_updated
+            })),
+            total: total.count,
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+    } catch (error) {
+        console.error('Erro ao buscar usuários com créditos:', error);
+        res.status(500).json({ message: 'Erro ao buscar usuários' });
+    }
+});
+
+// POST /api/admin/credits/balance - Consulta saldo por email, WhatsApp ou nome
+app.post('/api/admin/credits/balance', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { identifier } = req.body;
+        if (!identifier) return res.status(400).json({ message: 'Identificador é obrigatório' });
+        
+        // Buscar por email, whatsapp ou nome (busca parcial, case-insensitive)
+        const searchTerm = `%${identifier}%`;
+        const user = await db.get(`
+            SELECT id, email, whatsapp, name 
+            FROM users 
+            WHERE LOWER(email) LIKE LOWER(?) 
+               OR LOWER(COALESCE(whatsapp, '')) LIKE LOWER(?)
+               OR LOWER(COALESCE(name, '')) LIKE LOWER(?)
+            LIMIT 1
+        `, [searchTerm, searchTerm, searchTerm]);
+        
+        if (!user) return res.status(404).json({ message: 'Usuário não encontrado' });
+        
+        let credits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [user.id]);
+        if (!credits) {
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [user.id]);
+            credits = { balance: 0 };
+        }
+        
+        res.json({ user: { id: user.id, email: user.email, whatsapp: user.whatsapp, name: user.name }, balance: credits.balance });
+    } catch (error) {
+        console.error('Erro ao consultar saldo:', error);
+        res.status(500).json({ message: 'Erro ao consultar saldo' });
+    }
+});
+
+// GET /api/app-settings/laozhang-status - Verificar se laozhang.ai está ativa (público para usuários autenticados)
+app.get('/api/app-settings/laozhang-status', authenticateToken, async (req, res) => {
+    try {
+        const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+        let laozhangUseAsDefault = false;
+        if (laozhangDefaultSetting) {
+            try {
+                const parsedValue = JSON.parse(laozhangDefaultSetting.value);
+                laozhangUseAsDefault = parsedValue === true || parsedValue === 'true' || parsedValue === 1;
+            } catch (e) {
+                laozhangUseAsDefault = laozhangDefaultSetting.value === 'true' || laozhangDefaultSetting.value === '1';
+            }
+        }
+        res.json({ laozhang_use_as_default: laozhangUseAsDefault });
+    } catch (err) {
+        console.error("Erro ao verificar status laozhang.ai:", err.message);
+        res.json({ laozhang_use_as_default: false });
+    }
+});
+
+// GET /api/admin/app-settings - Buscar configurações da aplicação
+app.get('/api/admin/app-settings', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings");
+        const settings = rows.reduce((acc, row) => {
+            try {
+                acc[row.key] = JSON.parse(row.value);
+            } catch (e) {
+                acc[row.key] = row.value; // fallback for non-json values
+            }
+            return acc;
+        }, {});
+        
+        // Garantir que initial_bonus_credits existe (padrão: 0)
+        if (settings.initial_bonus_credits === undefined) {
+            settings.initial_bonus_credits = 0;
+        }
+        
+        // Garantir que tts_credits_multiplier existe (padrão: 1.0)
+        if (settings.tts_credits_multiplier === undefined) {
+            settings.tts_credits_multiplier = 1.0;
+        }
+        
+        // Garantir que laozhang_use_as_default existe (padrão: false)
+        if (settings.laozhang_use_as_default === undefined) {
+            settings.laozhang_use_as_default = false;
+        }
+        
+        res.json(settings);
+    } catch (err) {
+        console.error("Erro ao buscar app settings:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações." });
+    }
+});
+
+// POST /api/admin/app-settings - Salvar configurações da aplicação
+app.post('/api/admin/app-settings', authenticateToken, isAdmin, async (req, res) => {
+    const { settings } = req.body;
+    try {
+        for (const [key, value] of Object.entries(settings)) {
+            // Para voice_api_key, salvar como string simples (não JSON)
+            if (key === 'voice_api_key' && typeof value === 'string') {
+                await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", [key, value]);
+            } else {
+                await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", [key, JSON.stringify(value)]);
+            }
+        }
+        res.json({ message: 'Configurações da aplicação salvas.' });
+    } catch (err) {
+        console.error("Erro ao salvar app settings:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações." });
+    }
+});
+
+// GET /api/admin/whatsapp-config - Obter configurações do WhatsApp
+app.get('/api/admin/whatsapp-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key IN ('whatsapp_token', 'whatsapp_number_id')");
+        const config = {};
+        rows.forEach(row => {
+            try {
+                config[row.key] = JSON.parse(row.value);
+            } catch (e) {
+                config[row.key] = row.value;
+            }
+        });
+        res.json(config);
+    } catch (err) {
+        console.error("Erro ao buscar configurações do WhatsApp:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações do WhatsApp." });
+    }
+});
+
+// POST /api/admin/whatsapp-config - Salvar configurações do WhatsApp
+app.post('/api/admin/whatsapp-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { token, number_id } = req.body;
+        
+        if (token !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['whatsapp_token', JSON.stringify(token)]);
+        }
+        
+        if (number_id !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['whatsapp_number_id', JSON.stringify(number_id)]);
+        }
+        
+        res.json({ message: 'Configurações do WhatsApp salvas com sucesso.' });
+    } catch (err) {
+        console.error("Erro ao salvar configurações do WhatsApp:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações do WhatsApp." });
+    }
+});
+
+// GET /api/admin/email-templates - Obter templates de email
+app.get('/api/admin/email-templates', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'email_template_%'");
+        const templates = {};
+        rows.forEach(row => {
+            try {
+                const templateType = row.key.replace('email_template_', '').replace('_subject', '').replace('_body', '');
+                if (!templates[templateType]) templates[templateType] = {};
+                if (row.key.includes('_subject')) {
+                    templates[templateType].subject = JSON.parse(row.value);
+                } else if (row.key.includes('_body')) {
+                    templates[templateType].body = JSON.parse(row.value);
+                }
+            } catch (e) {
+                // Ignorar erros de parse
+            }
+        });
+        res.json(templates);
+    } catch (err) {
+        console.error("Erro ao buscar templates de email:", err.message);
+        res.status(500).json({ message: "Erro ao buscar templates de email." });
+    }
+});
+
+// POST /api/admin/email-templates - Salvar template de email
+app.post('/api/admin/email-templates', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { template_type, subject, body } = req.body;
+        
+        if (!template_type || !subject || !body) {
+            return res.status(400).json({ message: 'template_type, subject e body são obrigatórios' });
+        }
+        
+        await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", [`email_template_${template_type}_subject`, JSON.stringify(subject)]);
+        await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", [`email_template_${template_type}_body`, JSON.stringify(body)]);
+        
+        res.json({ message: 'Template de email salvo com sucesso.' });
+    } catch (err) {
+        console.error("Erro ao salvar template de email:", err.message);
+        res.status(500).json({ message: "Erro ao salvar template de email." });
+    }
+});
+
+// GET /api/admin/smtp-config - Obter configurações SMTP
+app.get('/api/admin/smtp-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'smtp_%'");
+        const config = {};
+        rows.forEach(row => {
+            try {
+                const key = row.key.replace('smtp_', '');
+                config[key] = JSON.parse(row.value);
+            } catch (e) {
+                config[row.key.replace('smtp_', '')] = row.value;
+            }
+        });
+        res.json(config);
+    } catch (err) {
+        console.error("Erro ao buscar configurações SMTP:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações SMTP." });
+    }
+});
+
+// POST /api/admin/smtp-config - Salvar configurações SMTP
+app.post('/api/admin/smtp-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { host, port, email, password, secure } = req.body;
+        
+        if (host !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_host', JSON.stringify(host)]);
+        }
+        if (port !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_port', JSON.stringify(port)]);
+        }
+        if (email !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_email', JSON.stringify(email)]);
+        }
+        if (password !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_password', JSON.stringify(password)]);
+        }
+        if (secure !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_secure', JSON.stringify(secure)]);
+        }
+        
+        res.json({ message: 'Configurações SMTP salvas com sucesso.' });
+    } catch (err) {
+        console.error("Erro ao salvar configurações SMTP:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações SMTP." });
+    }
+});
+
+// GET /api/admin/pixel-config - Obter configurações de Pixel/Ads
+app.get('/api/admin/pixel-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key IN ('facebook_pixel_id', 'google_ads_id')");
+        const config = {};
+        rows.forEach(row => {
+            try {
+                config[row.key] = JSON.parse(row.value);
+            } catch (e) {
+                config[row.key] = row.value;
+            }
+        });
+        res.json(config);
+    } catch (err) {
+        console.error("Erro ao buscar configurações de Pixel:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações de Pixel." });
+    }
+});
+
+// POST /api/admin/pixel-config - Salvar configurações de Pixel/Ads
+app.post('/api/admin/pixel-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { facebook_pixel_id, google_ads_id } = req.body;
+        
+        if (facebook_pixel_id !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['facebook_pixel_id', JSON.stringify(facebook_pixel_id)]);
+        }
+        
+        if (google_ads_id !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['google_ads_id', JSON.stringify(google_ads_id)]);
+        }
+        
+        res.json({ message: 'Configurações de Pixel salvas com sucesso.' });
+    } catch (err) {
+        console.error("Erro ao salvar configurações de Pixel:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações de Pixel." });
+    }
+});
+
+// GET /api/admin/stripe-config - Obter configurações do Stripe
+app.get('/api/admin/stripe-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'stripe_%'");
+        const config = {};
+        rows.forEach(row => {
+            try {
+                config[row.key.replace('stripe_', '')] = JSON.parse(row.value);
+            } catch (e) {
+                config[row.key.replace('stripe_', '')] = row.value;
+            }
+        });
+        
+        // Retornar em formato mais amigável
+        res.json({
+            publishable_key: config.publishable_key || null,
+            secret_key: config.secret_key || null,
+            webhook_secret: config.webhook_secret || null,
+            plans: {
+                'plan-free': config['plan-free'] || null,
+                'plan-start': config['plan-start'] || null,
+                'plan-turbo': config['plan-turbo'] || null,
+                'plan-master': config['plan-master'] || null,
+                'plan-start-annual': config['plan-start-annual'] || null,
+                'plan-turbo-annual': config['plan-turbo-annual'] || null,
+                'plan-master-annual': config['plan-master-annual'] || null,
+                'package-1000': config['package-1000'] || null,
+                'package-2500': config['package-2500'] || null,
+                'package-5000': config['package-5000'] || null,
+                'package-10000': config['package-10000'] || null,
+                'package-20000': config['package-20000'] || null
+            }
+        });
+    } catch (err) {
+        console.error("Erro ao buscar configurações do Stripe:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações do Stripe." });
+    }
+});
+
+// GET /api/admin/subscriptions - Obter dados de assinaturas
+app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const period = parseInt(req.query.period) || 30;
+        const status = req.query.status || 'all';
+        
+        // Calcular datas
+        const endDate = new Date();
+        const startDate = new Date();
+        if (period !== 0) {
+            startDate.setDate(startDate.getDate() - period);
+        } else {
+            startDate.setFullYear(2000); // Para "all"
+        }
+        
+        // Por enquanto, vamos criar uma estrutura de dados mockada
+        // Quando você integrar com Stripe, substitua por dados reais
+        const subscriptions = [];
+        
+        // Buscar assinaturas do banco (assumindo que você tem uma tabela de assinaturas)
+        // Por enquanto, vamos retornar dados de exemplo
+        const kpis = {
+            mrr: 0,
+            arr: 0,
+            active_subscribers: 0,
+            churn_rate: 0,
+            mrr_change: 0,
+            arr_change: 0,
+            active_subscribers_change: 0,
+            churn_rate_change: 0,
+            new_subscribers: 0,
+            cancellations: 0,
+            ltv: 0,
+            avg_duration: 0,
+            // Novos campos
+            total_revenue: 0,
+            monthly_revenue: 0,
+            total_subscriptions: 0,
+            conversion_rate: 0,
+            monthly_new: 0,
+            monthly_canceled: 0,
+            monthly_growth: 0,
+            revenue_30d: 0,
+            revenue_90d: 0,
+            revenue_year: 0,
+            avg_ticket: 0,
+            total_canceled: 0,
+            retention_rate: 0
+        };
+        
+        const charts = {
+            mrr: { labels: [], data: [] },
+            subscribers: { labels: [], data: [] },
+            plans_distribution: { labels: [], data: [] },
+            churn: { labels: [], data: [] }
+        };
+        
+        const insights = [
+            {
+                type: 'info',
+                icon: 'info',
+                title: 'Sistema de Assinaturas',
+                message: 'Configure o Stripe e comece a receber assinaturas para ver dados reais aqui.'
+            }
+        ];
+        
+        // Tentar buscar dados reais se existir tabela de assinaturas
+        try {
+            // Verificar se existe tabela de assinaturas
+            const tableExists = await db.get(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='subscriptions'
+            `);
+            
+            if (tableExists) {
+                // Verificar quais colunas existem na tabela
+                const tableInfo = await db.all(`PRAGMA table_info(subscriptions)`);
+                const columns = tableInfo.map(col => col.name);
+                
+                // Construir query dinamicamente baseado nas colunas disponíveis
+                const hasMonthlyAmount = columns.includes('monthly_amount');
+                const hasTotalPaid = columns.includes('total_paid');
+                const hasDurationDays = columns.includes('duration_days');
+                const hasPlanName = columns.includes('plan_name');
+                const hasNextBilling = columns.includes('next_billing_date');
+                const hasUpdatedAt = columns.includes('updated_at');
+                const hasCanceledAt = columns.includes('canceled_at');
+                
+                // Buscar assinaturas
+                let query = `
+                    SELECT s.*, u.email as user_email, u.name as user_name
+                    FROM subscriptions s
+                    LEFT JOIN users u ON s.user_id = u.id
+                    WHERE s.created_at >= ? AND s.created_at <= ?
+                `;
+                const params = [startDate.toISOString(), endDate.toISOString()];
+                
+                if (status !== 'all') {
+                    query += ' AND s.status = ?';
+                    params.push(status);
+                }
+                
+                query += ' ORDER BY s.created_at DESC';
+                
+                const subs = await db.all(query, params);
+                
+                // Calcular KPIs
+                let totalMRR = 0;
+                let activeCount = 0;
+                let newCount = 0;
+                let cancelCount = 0;
+                let totalPaid = 0;
+                let totalDuration = 0;
+                
+                const planDistribution = {};
+                
+                subs.forEach(sub => {
+                    if (sub.status === 'active') {
+                        if (hasMonthlyAmount) {
+                            totalMRR += parseFloat(sub.monthly_amount || 0);
+                        }
+                        activeCount++;
+                    }
+                    if (sub.status === 'canceled') {
+                        cancelCount++;
+                    }
+                    if (new Date(sub.created_at) >= startDate) {
+                        newCount++;
+                    }
+                    if (hasTotalPaid) {
+                        totalPaid += parseFloat(sub.total_paid || 0);
+                    }
+                    if (hasDurationDays) {
+                        totalDuration += parseInt(sub.duration_days || 0);
+                    }
+                    
+                    const planName = (hasPlanName && sub.plan_name) ? sub.plan_name : 'Desconhecido';
+                    planDistribution[planName] = (planDistribution[planName] || 0) + 1;
+                });
+                
+                kpis.mrr = totalMRR;
+                kpis.arr = totalMRR * 12;
+                kpis.active_subscribers = activeCount;
+                kpis.new_subscribers = newCount;
+                kpis.cancellations = cancelCount;
+                kpis.ltv = activeCount > 0 ? totalPaid / activeCount : 0;
+                kpis.avg_duration = subs.length > 0 ? totalDuration / subs.length : 0;
+                
+                // Calcular receitas
+                kpis.total_revenue = totalPaid;
+                kpis.monthly_revenue = totalMRR;
+                
+                // Calcular receitas por período
+                const now = new Date();
+                const date30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                const date90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                const yearStart = new Date(now.getFullYear(), 0, 1);
+                
+                if (hasTotalPaid) {
+                    const revenue30dQuery = `SELECT SUM(total_paid) as revenue FROM subscriptions WHERE created_at >= ?`;
+                    const revenue30dResult = await db.get(revenue30dQuery, [date30d.toISOString()]);
+                    kpis.revenue_30d = parseFloat(revenue30dResult?.revenue || 0);
+                    
+                    const revenue90dQuery = `SELECT SUM(total_paid) as revenue FROM subscriptions WHERE created_at >= ?`;
+                    const revenue90dResult = await db.get(revenue90dQuery, [date90d.toISOString()]);
+                    kpis.revenue_90d = parseFloat(revenue90dResult?.revenue || 0);
+                    
+                    const revenueYearQuery = `SELECT SUM(total_paid) as revenue FROM subscriptions WHERE created_at >= ?`;
+                    const revenueYearResult = await db.get(revenueYearQuery, [yearStart.toISOString()]);
+                    kpis.revenue_year = parseFloat(revenueYearResult?.revenue || 0);
+                }
+                
+                // Calcular métricas mensais
+                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                const monthlyNewQuery = `SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ?`;
+                const monthlyNewResult = await db.get(monthlyNewQuery, [monthStart.toISOString()]);
+                kpis.monthly_new = parseInt(monthlyNewResult?.count || 0);
+                
+                const monthlyCanceledQuery = `SELECT COUNT(*) as count FROM subscriptions WHERE status = 'canceled' AND updated_at >= ?`;
+                const monthlyCanceledResult = await db.get(monthlyCanceledQuery, [monthStart.toISOString()]);
+                kpis.monthly_canceled = parseInt(monthlyCanceledResult?.count || 0);
+                
+                // Calcular crescimento mensal
+                const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+                const lastMonthNewQuery = `SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ? AND created_at <= ?`;
+                const lastMonthNewResult = await db.get(lastMonthNewQuery, [lastMonthStart.toISOString(), lastMonthEnd.toISOString()]);
+                const lastMonthNew = parseInt(lastMonthNewResult?.count || 0);
+                kpis.monthly_growth = lastMonthNew > 0 ? ((kpis.monthly_new - lastMonthNew) / lastMonthNew) * 100 : 0;
+                
+                // Total de assinaturas
+                const totalSubsQuery = `SELECT COUNT(*) as count FROM subscriptions`;
+                const totalSubsResult = await db.get(totalSubsQuery);
+                kpis.total_subscriptions = parseInt(totalSubsResult?.count || 0);
+                
+                // Total canceladas
+                const totalCanceledQuery = `SELECT COUNT(*) as count FROM subscriptions WHERE status = 'canceled'`;
+                const totalCanceledResult = await db.get(totalCanceledQuery);
+                kpis.total_canceled = parseInt(totalCanceledResult?.count || 0);
+                
+                // Taxa de retenção
+                const totalActive = kpis.active_subscribers;
+                kpis.retention_rate = kpis.total_subscriptions > 0 ? (totalActive / kpis.total_subscriptions) * 100 : 0;
+                
+                // Ticket médio
+                kpis.avg_ticket = subs.length > 0 ? totalPaid / subs.length : 0;
+                
+                // Taxa de conversão (assumindo que você tem dados de visitantes/usuários)
+                // Por enquanto, vamos calcular baseado em novos assinantes vs total de usuários
+                const totalUsersQuery = `SELECT COUNT(*) as count FROM users`;
+                const totalUsersResult = await db.get(totalUsersQuery);
+                const totalUsers = parseInt(totalUsersResult?.count || 1);
+                kpis.conversion_rate = totalUsers > 0 ? (kpis.total_subscriptions / totalUsers) * 100 : 0;
+                
+                // Calcular churn rate (últimos 30 dias)
+                if (hasUpdatedAt) {
+                    const churnStartDate = new Date();
+                    churnStartDate.setDate(churnStartDate.getDate() - 30);
+                    const churnQuery = `
+                        SELECT COUNT(*) as canceled_count
+                        FROM subscriptions
+                        WHERE status = 'canceled' AND updated_at >= ?
+                    `;
+                    const churnResult = await db.get(churnQuery, [churnStartDate.toISOString()]);
+                    const canceledCount = churnResult?.canceled_count || 0;
+                    const totalActive30DaysAgo = activeCount + canceledCount;
+                    kpis.churn_rate = totalActive30DaysAgo > 0 ? (canceledCount / totalActive30DaysAgo) * 100 : 0;
+                }
+                
+                // Preparar dados para gráficos (apenas se tiver colunas necessárias)
+                if (hasMonthlyAmount) {
+                    // MRR ao longo do tempo (últimos 12 meses)
+                    for (let i = 11; i >= 0; i--) {
+                        const date = new Date();
+                        date.setMonth(date.getMonth() - i);
+                        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+                        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+                        
+                        let mrrQuery = `
+                            SELECT SUM(monthly_amount) as mrr
+                            FROM subscriptions
+                            WHERE status = 'active' AND created_at <= ?
+                        `;
+                        if (hasCanceledAt) {
+                            mrrQuery += ' AND (status != \'canceled\' OR canceled_at > ?)';
+                            const mrrResult = await db.get(mrrQuery, [monthEnd.toISOString(), monthEnd.toISOString()]);
+                            charts.mrr.labels.push(monthStart.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }));
+                            charts.mrr.data.push(parseFloat(mrrResult?.mrr || 0));
+                        } else {
+                            const mrrResult = await db.get(mrrQuery, [monthEnd.toISOString()]);
+                            charts.mrr.labels.push(monthStart.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }));
+                            charts.mrr.data.push(parseFloat(mrrResult?.mrr || 0));
+                        }
+                    }
+                }
+                
+                // Assinantes ao longo do tempo
+                for (let i = 11; i >= 0; i--) {
+                    const date = new Date();
+                    date.setMonth(date.getMonth() - i);
+                    const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+                    
+                    let subsQuery = `
+                        SELECT COUNT(*) as count
+                        FROM subscriptions
+                        WHERE status = 'active' AND created_at <= ?
+                    `;
+                    if (hasCanceledAt) {
+                        subsQuery += ' AND (status != \'canceled\' OR canceled_at > ?)';
+                        const subsResult = await db.get(subsQuery, [monthEnd.toISOString(), monthEnd.toISOString()]);
+                        charts.subscribers.labels.push(date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }));
+                        charts.subscribers.data.push(parseInt(subsResult?.count || 0));
+                    } else {
+                        const subsResult = await db.get(subsQuery, [monthEnd.toISOString()]);
+                        charts.subscribers.labels.push(date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }));
+                        charts.subscribers.data.push(parseInt(subsResult?.count || 0));
+                    }
+                }
+                
+                // Distribuição por plano
+                charts.plans_distribution.labels = Object.keys(planDistribution);
+                charts.plans_distribution.data = Object.values(planDistribution);
+                
+                // Churn mensal
+                if (hasUpdatedAt) {
+                    for (let i = 11; i >= 0; i--) {
+                        const date = new Date();
+                        date.setMonth(date.getMonth() - i);
+                        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+                        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+                        
+                        const churnQuery = `
+                            SELECT 
+                                COUNT(CASE WHEN status = 'canceled' AND updated_at >= ? AND updated_at <= ? THEN 1 END) as canceled,
+                                COUNT(CASE WHEN status = 'active' AND created_at <= ? THEN 1 END) as active
+                            FROM subscriptions
+                            WHERE created_at <= ?
+                        `;
+                        const churnResult = await db.get(churnQuery, [
+                            monthStart.toISOString(), 
+                            monthEnd.toISOString(),
+                            monthEnd.toISOString(),
+                            monthEnd.toISOString()
+                        ]);
+                        const canceled = churnResult?.canceled || 0;
+                        const active = churnResult?.active || 1;
+                        const churnRate = (canceled / active) * 100;
+                        
+                        charts.churn.labels.push(date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }));
+                        charts.churn.data.push(churnRate);
+                    }
+                }
+                
+                // Preparar lista de assinaturas
+                subscriptions.push(...subs.map(sub => ({
+                    user_email: sub.user_email || 'N/A',
+                    plan_name: (hasPlanName && sub.plan_name) ? sub.plan_name : 'N/A',
+                    status: sub.status || 'unknown',
+                    monthly_amount: hasMonthlyAmount ? parseFloat(sub.monthly_amount || 0) : 0,
+                    start_date: sub.created_at,
+                    next_billing_date: (hasNextBilling && sub.next_billing_date) ? sub.next_billing_date : null,
+                    duration_days: hasDurationDays ? parseInt(sub.duration_days || 0) : 0,
+                    total_paid: hasTotalPaid ? parseFloat(sub.total_paid || 0) : 0
+                })));
+                
+                // Gerar insights
+                insights.length = 0; // Limpar insights padrão
+                
+                if (kpis.mrr > 0) {
+                    insights.push({
+                        type: 'positive',
+                        icon: 'trending-up',
+                        title: 'MRR Crescente',
+                        message: `Seu MRR atual é de ${kpis.mrr.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Continue focado em crescimento!`
+                    });
+                }
+                
+                if (kpis.churn_rate > 5) {
+                    insights.push({
+                        type: 'warning',
+                        icon: 'alert-triangle',
+                        title: 'Churn Rate Alto',
+                        message: `Seu churn rate está em ${kpis.churn_rate.toFixed(2)}%. Considere melhorar a retenção de clientes.`
+                    });
+                }
+                
+                if (kpis.new_subscribers > 0) {
+                    insights.push({
+                        type: 'positive',
+                        icon: 'user-plus',
+                        title: 'Novos Assinantes',
+                        message: `${kpis.new_subscribers} novos assinantes no período selecionado.`
+                    });
+                }
+            }
+        } catch (err) {
+            console.log('Tabela de assinaturas não encontrada ou erro ao buscar:', err.message);
+        }
+        
+        res.json({
+            kpis,
+            charts,
+            subscriptions,
+            insights
+        });
+    } catch (err) {
+        console.error('Erro ao buscar assinaturas:', err);
+        res.status(500).json({ message: 'Erro ao buscar dados de assinaturas' });
+    }
+});
+
+// GET /api/admin/subscriptions/report/revenue - Relatório de receitas
+app.get('/api/admin/subscriptions/report/revenue', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const tableExists = await db.get(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='subscriptions'
+        `);
+        
+        if (!tableExists) {
+            return res.status(404).json({ message: 'Tabela de assinaturas não encontrada' });
+        }
+        
+        const tableInfo = await db.all(`PRAGMA table_info(subscriptions)`);
+        const columns = tableInfo.map(col => col.name);
+        const hasTotalPaid = columns.includes('total_paid');
+        const hasMonthlyAmount = columns.includes('monthly_amount');
+        
+        const now = new Date();
+        const date30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const date90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        
+        let csv = 'Métrica,Valor\n';
+        const totalRevenue = hasTotalPaid ? (await db.get('SELECT SUM(total_paid) as total FROM subscriptions')).total || 0 : 0;
+        const revenue30d = hasTotalPaid ? (await db.get('SELECT SUM(total_paid) as total FROM subscriptions WHERE created_at >= ?', [date30d.toISOString()])).total || 0 : 0;
+        const revenue90d = hasTotalPaid ? (await db.get('SELECT SUM(total_paid) as total FROM subscriptions WHERE created_at >= ?', [date90d.toISOString()])).total || 0 : 0;
+        const revenueYear = hasTotalPaid ? (await db.get('SELECT SUM(total_paid) as total FROM subscriptions WHERE created_at >= ?', [yearStart.toISOString()])).total || 0 : 0;
+        const mrr = hasMonthlyAmount ? (await db.get('SELECT SUM(monthly_amount) as mrr FROM subscriptions WHERE status = ?', ['active'])).mrr || 0 : 0;
+        const arr = mrr * 12;
+        
+        csv += `Receita Total,${totalRevenue}\n`;
+        csv += `Receita Últimos 30 Dias,${revenue30d}\n`;
+        csv += `Receita Últimos 90 Dias,${revenue90d}\n`;
+        csv += `Receita do Ano,${revenueYear}\n`;
+        csv += `MRR,${mrr}\n`;
+        csv += `ARR,${arr}\n`;
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=relatorio_receitas_${Date.now()}.csv`);
+        res.send(csv);
+    } catch (err) {
+        console.error('Erro ao exportar relatório de receitas:', err);
+        res.status(500).json({ message: 'Erro ao exportar relatório' });
+    }
+});
+
+// GET /api/admin/subscriptions/report/subscriptions - Relatório de assinaturas
+app.get('/api/admin/subscriptions/report/subscriptions', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const tableExists = await db.get(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='subscriptions'
+        `);
+        
+        if (!tableExists) {
+            return res.status(404).json({ message: 'Tabela de assinaturas não encontrada' });
+        }
+        
+        const totalSubs = await db.get('SELECT COUNT(*) as count FROM subscriptions');
+        const activeSubs = await db.get('SELECT COUNT(*) as count FROM subscriptions WHERE status = ?', ['active']);
+        const canceledSubs = await db.get('SELECT COUNT(*) as count FROM subscriptions WHERE status = ?', ['canceled']);
+        
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthlyNew = await db.get('SELECT COUNT(*) as count FROM subscriptions WHERE created_at >= ?', [monthStart.toISOString()]);
+        const monthlyCanceled = await db.get('SELECT COUNT(*) as count FROM subscriptions WHERE status = ? AND updated_at >= ?', ['canceled', monthStart.toISOString()]);
+        
+        let csv = 'Métrica,Valor\n';
+        csv += `Total de Assinaturas,${totalSubs?.count || 0}\n`;
+        csv += `Assinaturas Ativas,${activeSubs?.count || 0}\n`;
+        csv += `Assinaturas Canceladas,${canceledSubs?.count || 0}\n`;
+        csv += `Novos Este Mês,${monthlyNew?.count || 0}\n`;
+        csv += `Cancelados Este Mês,${monthlyCanceled?.count || 0}\n`;
+        const retentionRate = totalSubs?.count > 0 ? ((activeSubs?.count || 0) / totalSubs.count * 100).toFixed(2) : 0;
+        csv += `Taxa de Retenção,${retentionRate}%\n`;
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=relatorio_assinaturas_${Date.now()}.csv`);
+        res.send(csv);
+    } catch (err) {
+        console.error('Erro ao exportar relatório de assinaturas:', err);
+        res.status(500).json({ message: 'Erro ao exportar relatório' });
+    }
+});
+
+// GET /api/admin/subscriptions/export - Exportar assinaturas
+app.get('/api/admin/subscriptions/export', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const period = parseInt(req.query.period) || 30;
+        const status = req.query.status || 'all';
+        
+        const endDate = new Date();
+        const startDate = new Date();
+        if (period !== 0) {
+            startDate.setDate(startDate.getDate() - period);
+        }
+        
+        let query = `
+            SELECT s.*, u.email as user_email, u.name as user_name
+            FROM subscriptions s
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.created_at >= ? AND s.created_at <= ?
+        `;
+        const params = [startDate.toISOString(), endDate.toISOString()];
+        
+        if (status !== 'all') {
+            query += ' AND s.status = ?';
+            params.push(status);
+        }
+        
+        query += ' ORDER BY s.created_at DESC';
+        
+        const subscriptions = await db.all(query, params);
+        
+        // Gerar CSV
+        const csvHeader = 'Email,Plano,Status,Valor Mensal,Início,Próxima Cobrança,Duração (dias),Total Pago\n';
+        const csvRows = subscriptions.map(sub => {
+            return [
+                sub.user_email || '',
+                sub.plan_name || '',
+                sub.status || '',
+                parseFloat(sub.monthly_amount || 0).toFixed(2),
+                sub.created_at || '',
+                sub.next_billing_date || '',
+                sub.duration_days || 0,
+                parseFloat(sub.total_paid || 0).toFixed(2)
+            ].join(',');
+        }).join('\n');
+        
+        const csv = csvHeader + csvRows;
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=assinaturas_${Date.now()}.csv`);
+        res.send(csv);
+    } catch (err) {
+        console.error('Erro ao exportar assinaturas:', err);
+        res.status(500).json({ message: 'Erro ao exportar assinaturas' });
+    }
+});
+
+// POST /api/admin/stripe-config - Salvar configurações do Stripe
+app.post('/api/admin/stripe-config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { publishable_key, secret_key, webhook_secret, plans } = req.body;
+        
+        if (publishable_key !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['stripe_publishable_key', JSON.stringify(publishable_key)]);
+        }
+        
+        if (secret_key !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['stripe_secret_key', JSON.stringify(secret_key)]);
+        }
+        
+        if (webhook_secret !== undefined) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['stripe_webhook_secret', JSON.stringify(webhook_secret)]);
+        }
+        
+        if (plans && typeof plans === 'object') {
+            for (const [planKey, planValue] of Object.entries(plans)) {
+                if (planValue !== undefined && planValue !== null && planValue !== '') {
+                    await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", [`stripe_${planKey}`, JSON.stringify(planValue)]);
+                }
+            }
+        }
+        
+        res.json({ message: 'Configurações do Stripe salvas com sucesso.' });
+    } catch (err) {
+        console.error("Erro ao salvar configurações do Stripe:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações do Stripe." });
+    }
+});
+
+// POST /api/admin/voice-api-key/validate - Validar chave de voz do admin
+app.post('/api/admin/voice-api-key/validate', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ success: false, message: 'Chave de API é obrigatória' });
+        }
+        
+        // Primeiro, tentar validar como chave do Google Cloud Text-to-Speech (que é o que vamos usar)
+        try {
+            const ttsResponse = await fetch(`https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(api_key)}&languageCode=pt-BR`);
+            
+            if (ttsResponse.status === 200) {
+                const ttsData = await ttsResponse.json();
+                if (ttsData.voices && ttsData.voices.length > 0) {
+                    return res.json({ 
+                        success: true, 
+                        message: 'Chave do Google Cloud válida! Pode ser usada para Text-to-Speech.',
+                        type: 'google-cloud',
+                        details: `Encontradas ${ttsData.voices.length} vozes disponíveis para português brasileiro.`
+                    });
+                }
+            } else if (ttsResponse.status === 401 || ttsResponse.status === 403) {
+                const ttsError = await ttsResponse.json().catch(() => ({}));
+                // Se a mensagem menciona que a API não está habilitada, a chave é válida mas precisa habilitar a API
+                if (ttsError.error?.message && ttsError.error.message.includes('API has not been used')) {
+                    return res.json({ 
+                        success: true, 
+                        message: 'Chave do Google Cloud válida. Habilite a API Text-to-Speech no Google Cloud Console.',
+                        type: 'google-cloud',
+                        warning: 'A API Text-to-Speech precisa ser habilitada no Google Cloud Console para usar TTS.'
+                    });
+                }
+                return res.status(400).json({ 
+                    success: false, 
+                    message: ttsError.error?.message || 'Chave inválida ou sem permissão para Text-to-Speech.',
+                    error: ttsError.error?.message
+                });
+            } else {
+                const ttsError = await ttsResponse.json().catch(() => ({}));
+                // Se der erro sobre API keys não suportadas, é chave do Google Cloud (não Gemini direto)
+                if (ttsError.error?.message && ttsError.error.message.includes('API keys are not supported')) {
+                    return res.json({ 
+                        success: true, 
+                        message: 'Chave do Google Cloud detectada. Esta chave funciona para Text-to-Speech e outros serviços do Google Cloud.',
+                        type: 'google-cloud',
+                        warning: 'Esta chave não funciona diretamente com a API do Gemini, mas funciona perfeitamente para Text-to-Speech (TTS).'
+                    });
+                }
+                return res.status(400).json({ 
+                    success: false, 
+                    message: ttsError.error?.message || 'Erro ao validar chave do Google Cloud.',
+                    error: ttsError.error?.message
+                });
+            }
+        } catch (ttsErr) {
+            console.log('[Validação] Erro ao validar via TTS, tentando validação Gemini...', ttsErr.message);
+        }
+        
+        // Fallback: tentar validação Gemini (para chaves diretas do Gemini)
+        const validationResult = await validateGeminiKey(api_key);
+        
+        if (validationResult.success) {
+            res.json({ 
+                success: true, 
+                message: validationResult.message || 'Chave válida!',
+                type: validationResult.type || 'gemini-api',
+                warning: validationResult.warning || null
+            });
+        } else {
+            // Se falhou, mas a mensagem indica que é chave do Google Cloud, considerar válida
+            if (validationResult.error && validationResult.error.includes('API keys are not supported')) {
+                return res.json({ 
+                    success: true, 
+                    message: 'Chave do Google Cloud detectada. Esta chave funciona para Text-to-Speech.',
+                    type: 'google-cloud',
+                    warning: 'Esta chave não funciona diretamente com a API do Gemini, mas funciona perfeitamente para Text-to-Speech (TTS).'
+                });
+            }
+            
+            res.status(400).json({ 
+                success: false, 
+                message: validationResult.error || 'Chave inválida',
+                error: validationResult.error
+            });
+        }
+    } catch (error) {
+        console.error('Erro ao validar chave de voz:', error);
+        res.status(500).json({ success: false, message: 'Erro ao validar chave', details: error.message });
+    }
+});
+
+// POST /api/admin/openai-voice/validate - Validar chave de voz OpenAI
+app.post('/api/admin/openai-voice/validate', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ success: false, message: 'Chave de API é obrigatória' });
+        }
+        
+        const validationResult = await validateOpenAIKey(api_key);
+        if (validationResult.success) {
+            return res.json({
+                success: true,
+                message: 'Chave OpenAI válida!',
+                type: 'openai'
+            });
+        }
+        
+        return res.status(400).json({
+            success: false,
+            message: validationResult.error || 'Chave inválida',
+            error: validationResult.error
+        });
+    } catch (error) {
+        console.error('Erro ao validar chave OpenAI:', error);
+        res.status(500).json({ success: false, message: 'Erro ao validar chave OpenAI', details: error.message });
+    }
+});
+
+// POST /api/admin/video-api/validate - Validar chave de vídeo (Gemini/Veo)
+app.post('/api/admin/video-api/validate', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ success: false, message: 'Chave de API é obrigatória' });
+        }
+        
+        const validationResult = await validateGeminiKey(api_key);
+        if (validationResult.success) {
+            return res.json({
+                success: true,
+                message: validationResult.message || 'Chave Gemini válida!',
+                type: validationResult.type || 'gemini'
+            });
+        }
+        
+        return res.status(400).json({
+            success: false,
+            message: validationResult.error || 'Chave inválida',
+            error: validationResult.error
+        });
+    } catch (error) {
+        console.error('Erro ao validar chave de vídeo:', error);
+        res.status(500).json({ success: false, message: 'Erro ao validar chave de vídeo', details: error.message });
+    }
+});
+
+// POST /api/admin/voice-premium/check-balance - Verificar saldo da API Voz Premium
+app.post('/api/admin/voice-premium/check-balance', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ message: 'Chave de API é obrigatória' });
+        }
+        
+        // Verificar saldo na API GenAIPro conforme documentação oficial
+        // Base URL: https://genaipro.vn/api/v1
+        // Endpoint: GET /me - retorna informações do usuário incluindo balance
+        try {
+            const response = await axios.get('https://genaipro.vn/api/v1/me', {
+                headers: {
+                    'Authorization': `Bearer ${api_key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+            
+            if (response && response.data) {
+                console.log('[GenAIPro] Resposta do endpoint /me:', JSON.stringify(response.data).substring(0, 300));
+                
+                // Conforme documentação: { "balance": 1000, ... }
+                const balance = response.data.balance;
+                
+                if (balance !== null && balance !== undefined) {
+                    console.log(`[GenAIPro] Saldo encontrado: ${balance}`);
+                    res.json({ 
+                        success: true, 
+                        balance: parseFloat(balance),
+                        message: 'Saldo verificado com sucesso'
+                    });
+                    return;
+                }
+            }
+            
+            // Se não encontrou balance, retornar sucesso mas sem saldo
+            res.json({ 
+                success: true, 
+                balance: null,
+                message: 'Chave válida, mas saldo não disponível na resposta'
+            });
+            
+        } catch (apiError) {
+            console.error('[GenAIPro] Erro ao verificar saldo:', apiError.message);
+            if (apiError.response) {
+                console.error('[GenAIPro] Status:', apiError.response.status);
+                console.error('[GenAIPro] Data:', apiError.response.data);
+                
+                // Se for erro 401, a chave é inválida
+                if (apiError.response.status === 401) {
+                    return res.status(401).json({ 
+                        success: false,
+                        message: 'Chave de API inválida ou expirada',
+                        balance: null
+                    });
+                }
+            }
+            
+            // Outros erros - retornar erro
+            res.status(500).json({ 
+                success: false,
+                message: `Erro ao verificar saldo: ${apiError.message}`,
+                balance: null
+            });
+        }
+    } catch (error) {
+        console.error('Erro ao verificar saldo:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Erro ao verificar saldo', 
+            details: error.message,
+            balance: null
+        });
+    }
+});
+
+// POST /api/admin/voice-premium/save - Salvar chave da API Voz Premium
+app.post('/api/admin/voice-premium/save', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key, name = 'Voz Premium' } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ message: 'Chave de API é obrigatória' });
+        }
+        
+        // Verificar se já existe uma API Voz Premium
+        let existingApi = await db.get(`
+            SELECT * FROM api_providers 
+            WHERE provider = 'genaipro' OR provider = 'voice_premium'
+            LIMIT 1
+        `);
+        
+        if (existingApi) {
+            // Atualizar existente
+            await db.run(`
+                UPDATE api_providers SET
+                    api_key = ?,
+                    name = ?,
+                    is_active = 1,
+                    is_default = 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, [api_key, name, existingApi.id]);
+            
+            // Desmarcar outras como padrão
+            await db.run('UPDATE api_providers SET is_default = 0 WHERE id != ?', [existingApi.id]);
+            
+            res.json({ message: 'Chave de API Voz Premium atualizada com sucesso', id: existingApi.id });
+        } else {
+            // Criar nova
+            const result = await db.run(`
+                INSERT INTO api_providers (
+                    name, provider, model, api_key, unit_type, unit_size,
+                    real_cost_per_unit, credits_per_unit, markup, is_premium,
+                    is_active, is_default
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                name, 'genaipro', 'voice-premium-default', api_key, 'tokens', 1000,
+                0.0, 1.0, 1.0, 1, 1, 1
+            ]);
+            
+            // Desmarcar outras como padrão
+            await db.run('UPDATE api_providers SET is_default = 0 WHERE id != ?', [result.lastID]);
+            
+            res.json({ message: 'Chave de API Voz Premium salva com sucesso', id: result.lastID });
+        }
+    } catch (error) {
+        console.error('Erro ao salvar chave:', error);
+        res.status(500).json({ message: 'Erro ao salvar chave', details: error.message });
+    }
+});
+
+// POST /api/admin/laozhang/verify - Verificar chave da API Laozhang.ai
+app.post('/api/admin/laozhang/verify', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ success: false, message: 'Chave de API é obrigatória' });
+        }
+        
+        // Verificar chave fazendo uma requisição simples para a API da laozhang.ai
+        // Tentamos alguns endpoints comuns para verificar a chave
+        const endpointsToTry = [
+            'https://api.laozhang.ai/v1/status',
+            'https://api.laozhang.ai/api/status',
+            'https://api.laozhang.ai/status',
+            'https://api.laozhang.ai/'
+        ];
+        
+        let lastError = null;
+        
+        for (const endpoint of endpointsToTry) {
+            try {
+                const response = await axios.get(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${api_key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 5000,
+                    validateStatus: (status) => status < 500 // Não lançar erro para 4xx
+                });
+                
+                // Se a resposta for bem-sucedida (status 200-299), a chave é válida
+                if (response.status >= 200 && response.status < 300) {
+                    res.json({ 
+                        success: true, 
+                        message: 'Chave de API válida'
+                    });
+                    return;
+                }
+                
+                // Se for erro 401/403, a chave é inválida
+                if (response.status === 401 || response.status === 403) {
+                    res.json({ 
+                        success: false, 
+                        message: 'Chave de API inválida ou expirada'
+                    });
+                    return;
+                }
+                
+            } catch (apiError) {
+                console.error(`[Laozhang.ai] Erro ao verificar endpoint ${endpoint}:`, apiError.message);
+                lastError = apiError;
+                
+                // Se for erro 401/403, a chave é inválida
+                if (apiError.response && (apiError.response.status === 401 || apiError.response.status === 403)) {
+                    res.json({ 
+                        success: false, 
+                        message: 'Chave de API inválida ou expirada'
+                    });
+                    return;
+                }
+                
+                // Continuar tentando outros endpoints
+                continue;
+            }
+        }
+        
+        // Se chegou aqui, nenhum endpoint funcionou, mas não foi erro de autenticação
+        // Vamos considerar a chave como válida (pode ser que a API não tenha endpoint de verificação)
+        // O importante é que não foi rejeitada por autenticação
+        res.json({ 
+            success: true, 
+            message: 'Chave de API aceita (não foi possível verificar endpoint, mas não há erro de autenticação)'
+        });
+    } catch (error) {
+        console.error('Erro ao verificar chave Laozhang.ai:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Erro ao verificar chave', 
+            details: error.message
+        });
+    }
+});
+
+// ================================================
+// ROTAS DO SISTEMA DE TTS (TEXT-TO-SPEECH)
+// ================================================
+
+// GET /api/tts/voices - Lista vozes disponíveis (Voz Premium)
+app.get('/api/tts/voices', authenticateToken, async (req, res) => {
+    try {
+        const { provider = 'voice_premium' } = req.query;
+        
+        // Chave configurada no painel admin (sempre priorizar se existir)
+        const adminVoiceApiKey = await getAdminVoiceApiKey();
+        if (provider === 'gemini' && adminVoiceApiKey && adminVoiceApiKey.trim().length >= 10) {
+            apiKey = adminVoiceApiKey.trim();
+            console.log('[TTS Generate] ✅ Usando chave de voz configurada no painel admin (Google Cloud/Gemini)');
+        }
+        
+        if (provider === 'voice_premium' || provider === 'genaipro') {
+            // Buscar API key do Voz Premium do usuário ou admin
+            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'genaipro']);
+            
+            let apiKey = null;
+            if (userApiKey) {
+                // Descriptografar a chave
+                apiKey = decrypt(userApiKey.api_key);
+                if (!apiKey) {
+                    console.error('[GenAIPro] Erro ao descriptografar chave do usuário');
+                }
+            }
+            
+            // Se não tem chave do usuário ou falhou ao descriptografar, tentar usar API do admin
+            if (!apiKey) {
+                const adminApi = await getDefaultAdminApi();
+                if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                    // Tentar descriptografar a chave do admin
+                    // Se a chave contém ':' provavelmente está criptografada
+                    if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[GenAIPro] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                            // Se falhar, tentar usar diretamente (pode não estar criptografada)
+                            apiKey = adminApi.api_key;
+                        }
+                    } else {
+                        // Chave não parece estar criptografada, usar diretamente
+                        apiKey = adminApi.api_key;
+                    }
+                    console.log('[GenAIPro] Usando API do admin');
+                }
+            }
+            
+            if (!apiKey) {
+                console.error('[GenAIPro] Nenhuma chave de API encontrada (nem do usuário nem do admin)');
+                return res.status(400).json({ message: 'Chave de API Voz Premium não configurada. Configure no painel admin ou nas suas configurações.' });
+            }
+            
+            console.log('[GenAIPro] Buscando vozes com chave de API disponível');
+            
+            // Buscar vozes da API Voz Premium conforme documentação GenAIPro
+            // Base URL: https://genaipro.vn/api/v1
+            // Endpoints disponíveis: /labs/voices (ElevenLabs) ou /max/voices (Max)
+            try {
+                // Tentar primeiro /max/voices (recomendado para português)
+                let response = null;
+                let voices = [];
+                
+                try {
+                    // Endpoint Max Voices - melhor para português
+                    response = await axios.get('https://genaipro.vn/api/v1/max/voices', {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        params: {
+                            page: 1,
+                            page_size: 100,
+                            language: 'Portuguese'
+                        },
+                        timeout: 15000
+                    });
+                    
+                    console.log('[GenAIPro] Resposta do endpoint /max/voices:', response?.status, response?.data ? 'Dados recebidos' : 'Sem dados');
+                    
+                    if (response && response.data && response.data.voice_list) {
+                        console.log(`[GenAIPro] Total de vozes recebidas: ${response.data.voice_list.length}`);
+                        voices = response.data.voice_list.map(voice => {
+                            // Criar nome amigável baseado no voice_name e tags
+                            let friendlyName = voice.voice_name || 'Voz';
+                            
+                            // Extrair informações das tags
+                            const gender = voice.tag_list?.find(tag => tag === 'Male' || tag === 'Female') || '';
+                            const language = voice.tag_list?.find(tag => tag.includes('Portuguese') || tag.includes('English')) || '';
+                            const age = voice.tag_list?.find(tag => ['Youth', 'Young Adult', 'Adult', 'Middle Aged', 'Senior'].includes(tag)) || '';
+                            
+                            // Criar nome amigável
+                            if (gender && age) {
+                                const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
+                                const agePt = age === 'Youth' ? 'Jovem' : 
+                                             age === 'Young Adult' ? 'Jovem Adulta' :
+                                             age === 'Adult' ? 'Adulto' :
+                                             age === 'Middle Aged' ? 'Meia Idade' : 'Sênior';
+                                friendlyName = `Voz ${genderPt} ${agePt}`;
+                            } else if (gender) {
+                                const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
+                                friendlyName = `Voz ${genderPt}`;
+                            }
+                            
+                            // Se o nome original for mais descritivo, usar ele
+                            if (voice.voice_name && voice.voice_name.length > 0) {
+                                const nameLower = voice.voice_name.toLowerCase();
+                                // Mapear nomes comuns para nomes amigáveis
+                                if (nameLower.includes('trust') || nameLower.includes('confiança')) {
+                                    friendlyName = gender === 'Male' ? 'Voz Masculina Confiável' : 'Voz Feminina Confiável';
+                                } else if (nameLower.includes('warm') || nameLower.includes('calor')) {
+                                    friendlyName = gender === 'Male' ? 'Voz Masculina Acolhedora' : 'Voz Feminina Acolhedora';
+                                } else if (nameLower.includes('energetic') || nameLower.includes('energética')) {
+                                    friendlyName = gender === 'Male' ? 'Voz Masculina Energética' : 'Voz Feminina Energética';
+                                } else if (nameLower.includes('calm') || nameLower.includes('calma')) {
+                                    friendlyName = gender === 'Male' ? 'Voz Masculina Calma' : 'Voz Feminina Calma';
+                                } else if (nameLower.includes('professional') || nameLower.includes('profissional')) {
+                                    friendlyName = gender === 'Male' ? 'Voz Masculina Profissional' : 'Voz Feminina Profissional';
+                                } else if (voice.voice_name.length < 30 && !friendlyName.includes(voice.voice_name)) {
+                                    // Usar o nome original se for curto e descritivo
+                                    friendlyName = voice.voice_name;
+                                }
+                            }
+                            
+                            // Adicionar descrição curta se disponível
+                            if (voice.description && voice.description.length < 40 && !friendlyName.includes(voice.description)) {
+                                friendlyName += ` - ${voice.description}`;
+                            }
+                            
+                            return {
+                                id: voice.voice_id, // ID para uso na API
+                                name: voice.voice_id, // ID para uso na API (compatibilidade)
+                                label: friendlyName, // Nome amigável para exibição
+                                language: language || 'Portuguese',
+                                gender: gender || null,
+                                description: voice.description || null,
+                                tags: voice.tag_list || [],
+                                original_name: voice.voice_name
+                            };
+                        });
+                        console.log(`[GenAIPro] ${voices.length} vozes Max encontradas`);
+                    }
+                } catch (maxError) {
+                    console.log('[GenAIPro] Erro ao buscar vozes Max, tentando Labs:', maxError.message);
+                    
+                    // Fallback: tentar /labs/voices (ElevenLabs)
+                    try {
+                        response = await axios.get('https://genaipro.vn/api/v1/labs/voices', {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            params: {
+                                page: 0,
+                                page_size: 100,
+                                language: 'pt'
+                            },
+                            timeout: 15000
+                        });
+                        
+                        console.log('[GenAIPro] Resposta do endpoint /labs/voices:', response?.status, response?.data ? 'Dados recebidos' : 'Sem dados');
+                        
+                        if (response && response.data && response.data.voices) {
+                            console.log(`[GenAIPro] Total de vozes Labs recebidas: ${response.data.voices.length}`);
+                            voices = response.data.voices.map(voice => {
+                                // Criar nome amigável
+                                let friendlyName = voice.name || 'Voz';
+                                
+                                if (voice.labels) {
+                                    const gender = voice.labels.gender || '';
+                                    const description = voice.labels.description || '';
+                                    
+                                    if (gender) {
+                                        const genderPt = gender === 'male' ? 'Masculina' : gender === 'female' ? 'Feminina' : '';
+                                        if (genderPt) {
+                                            friendlyName = `Voz ${genderPt}`;
+                                            if (description) {
+                                                friendlyName += ` - ${description}`;
+                                            }
+                                        }
+                                    } else if (description) {
+                                        friendlyName = `${voice.name} - ${description}`;
+                                    }
+                                }
+                                
+                                return {
+                                    id: voice.voice_id, // ID para uso na API
+                                    name: voice.voice_id, // ID para uso na API (compatibilidade)
+                                    label: friendlyName, // Nome amigável para exibição
+                                    language: voice.labels?.accent || 'pt-BR',
+                                    gender: voice.labels?.gender || null,
+                                    description: voice.labels?.description || null,
+                                    category: voice.category,
+                                    original_name: voice.name
+                                };
+                            });
+                            console.log(`[GenAIPro] ${voices.length} vozes Labs encontradas`);
+                        }
+                    } catch (labsError) {
+                        console.error('[GenAIPro] Erro ao buscar vozes Labs:', labsError.message);
+                        throw labsError;
+                    }
+                }
+                
+                if (voices.length > 0) {
+                    console.log(`[GenAIPro] Retornando ${voices.length} vozes`);
+                    res.json({ data: voices });
+                } else {
+                    throw new Error('Nenhuma voz encontrada');
+                }
+            } catch (apiError) {
+                console.error('Erro ao buscar vozes Voz Premium:', apiError);
+                if (apiError.response) {
+                    console.error('Status:', apiError.response.status);
+                    console.error('Data:', apiError.response.data);
+                }
+                // Retornar lista padrão de vozes se a API falhar
+                res.json({ 
+                    data: [
+                        { id: 'default', name: 'Voz Padrão', label: 'Voz Padrão', language: 'pt-BR' },
+                        { id: 'female-1', name: 'Voz Feminina 1', label: 'Voz Feminina 1', language: 'pt-BR' },
+                        { id: 'male-1', name: 'Voz Masculina 1', label: 'Voz Masculina 1', language: 'pt-BR' }
+                    ]
+                });
+            }
+        } else if (provider === 'gemini') {
+            // Vozes Gemini (hardcoded conforme voices.js)
+            const geminiVoices = [
+                { name: "Zephyr", label: "Brisa - Voz Brilhante", lang: "pt-BR" },
+                { name: "Puck", label: "Vibe - Voz Animada", lang: "pt-BR" },
+                { name: "Charon", label: "Dorio - Voz Informativa", lang: "pt-BR" },
+                { name: "Kore", label: "Livia - Voz Firme", lang: "pt-BR" },
+                { name: "Fenrir", label: "Rafael - Voz Excitada", lang: "pt-BR" },
+                { name: "Leda", label: "Clara - Voz Juvenil", lang: "pt-BR" },
+                { name: "Orus", label: "Icaro - Voz Firme", lang: "pt-BR" },
+                { name: "Aoede", label: "Marina - Voz Arejada", lang: "pt-BR" },
+                { name: "Callirrhoe", label: "Nina - Voz Descontraida", lang: "pt-BR" },
+                { name: "Autonoe", label: "Bia - Voz Brilhante", lang: "pt-BR" },
+                { name: "Enceladus", label: "Dandara - Voz Sussurrada", lang: "pt-BR" },
+                { name: "Iapetus", label: "Vitor - Voz Clara", lang: "pt-BR" },
+                { name: "Umbriel", label: "Otavio - Voz Descontraida", lang: "pt-BR" },
+                { name: "Algieba", label: "Joao - Voz Suave", lang: "pt-BR" },
+                { name: "Despina", label: "Luna - Voz Suave", lang: "pt-BR" },
+                { name: "Erinome", label: "Paula - Voz Clara", lang: "pt-BR" },
+                { name: "Algenib", label: "Gustavo - Voz Grave", lang: "pt-BR" },
+                { name: "Rasalgethi", label: "Henrique - Voz Informativa", lang: "pt-BR" },
+                { name: "Laomedeia", label: "Taina - Voz Animada", lang: "pt-BR" },
+                { name: "Achernar", label: "Noa - Voz Suave", lang: "pt-BR" },
+                { name: "Alnilam", label: "Edu - Voz Firme", lang: "pt-BR" },
+                { name: "Schedar", label: "Rafa - Voz Constante", lang: "pt-BR" },
+                { name: "Gacrux", label: "Sergio - Voz Madura", lang: "pt-BR" },
+                { name: "Pulcherrima", label: "Helena - Voz Projetada", lang: "pt-BR" },
+                { name: "Achird", label: "Mia - Voz Amigavel", lang: "pt-BR" },
+                { name: "Zubenelgenubi", label: "Teo - Voz Casual", lang: "pt-BR" },
+                { name: "Vindemiatrix", label: "Erica - Voz Gentil", lang: "pt-BR" },
+                { name: "Sadachbia", label: "Duda - Voz Vivaz", lang: "pt-BR" },
+                { name: "Sadaltager", label: "Marcelo - Voz Conhecedora", lang: "pt-BR" },
+                { name: "Sulafat", label: "Isis - Voz Acolhedora", lang: "pt-BR" }
+            ];
+            res.json({ data: geminiVoices });
+        } else if (provider === 'laozhang') {
+            const laozhangVoices = [
+                { name: 'alloy', label: 'Alloy - Neutro e claro', lang: 'pt-BR' },
+                { name: 'echo', label: 'Echo - Masculino forte', lang: 'pt-BR' },
+                { name: 'fable', label: 'Fable - Inglês elegante', lang: 'en-US' },
+                { name: 'onyx', label: 'Onyx - Grave jornalístico', lang: 'pt-BR' },
+                { name: 'nova', label: 'Nova - Feminino acolhedor', lang: 'pt-BR' },
+                { name: 'shimmer', label: 'Shimmer - Feminino suave', lang: 'pt-BR' }
+            ];
+            res.json({ data: laozhangVoices });
+        } else {
+            res.json({ data: [] });
+        }
+    } catch (error) {
+        console.error('Erro ao listar vozes:', error);
+        res.status(500).json({ message: 'Erro ao listar vozes' });
+    }
+});
+
+// POST /api/tts/preview - Gera preview de voz
+app.post('/api/tts/preview', authenticateToken, async (req, res) => {
+    const { voice, model, provider = 'laozhang' } = req.body || {};
+    const previewVoice = typeof voice === 'string' && voice.trim() ? voice.trim() : FALLBACK_TTS_VOICE;
+    const previewText = DEFAULT_TTS_SAMPLE_TEXT; // Remover prefixo "Narrador:"
+    const validatedModel = validateTtsModel(model);
+    
+    // Declarar actualProvider fora do try para estar disponível no catch
+    let actualProvider = provider;
+
+    try {
+        // Verificar se tem API própria ou usar API do admin (com créditos)
+        let apiKey = null;
+        let useAdminApi = false;
+        let adminApi = null;
+        
+        // Verificar preferência do usuário
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Chave configurada no painel admin (sempre priorizar se existir)
+        const adminVoiceApiKey = await getAdminVoiceApiKey();
+        if (adminVoiceApiKey && adminVoiceApiKey.trim().length >= 10) {
+            apiKey = adminVoiceApiKey.trim();
+            console.log('[TTS Preview] ✅ Usando chave de voz configurada no painel admin (Google Cloud/Gemini)');
+        }
+        
+        // Se provider for 'gemini', buscar API do Gemini diretamente
+        if (provider === 'gemini') {
+            console.log(`[TTS Preview] Provider: gemini, Voice: ${previewVoice}`);
+            
+            // PRIORIDADE 2: Se não houver chave do admin, buscar API do Gemini do usuário
+            if (!apiKey && !useCredits) {
+                let userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'gemini']);
+                console.log('[TTS Preview] DEBUG - Gemini API do usuário encontrada:', !!userApiKey);
+                
+                if (userApiKey && userApiKey.api_key) {
+                    // Descriptografar a chave do Gemini
+                    if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(userApiKey.api_key);
+                            console.log('[TTS Preview] Chave Gemini descriptografada (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                        } catch (decryptError) {
+                            console.warn('[TTS Preview] Erro ao descriptografar chave Gemini, tentando usar diretamente:', decryptError.message);
+                            apiKey = userApiKey.api_key;
+                        }
+                    } else {
+                        apiKey = userApiKey.api_key;
+                        console.log('[TTS Preview] Chave Gemini usada diretamente (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                    }
+                    
+                    // Validar se a chave não está vazia
+                    if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+                        console.warn('[TTS Preview] ⚠️ Chave Gemini está vazia, tentando API do admin');
+                        apiKey = null;
+                    } else {
+                        console.log('[TTS Preview] ✅ Usando API Gemini do usuário');
+                    }
+                }
+            }
+            
+            // Se não conseguiu usar API própria, tentar admin como fallback
+            if (!apiKey) {
+                console.log('[TTS Preview] Tentando usar API do admin como fallback para Gemini...');
+                adminApi = await getDefaultAdminApi();
+                console.log('[TTS Preview] Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
+                if (adminApi && adminApi.provider === 'gemini' && adminApi.api_key) {
+                    // Descriptografar se necessário
+                    if (adminApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[TTS Preview] Erro ao descriptografar chave Gemini do admin, tentando usar diretamente:', decryptError.message);
+                            apiKey = adminApi.api_key;
+                        }
+                    } else {
+                        apiKey = adminApi.api_key;
+                    }
+                    
+                    if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+                        console.error('[TTS Preview] ❌ Chave Gemini do admin está vazia');
+                        apiKey = null;
+                    } else {
+                        useAdminApi = true;
+                        console.log('[TTS Preview] ✅ Usando API Gemini do admin com créditos');
+                    }
+                } else {
+                    console.warn('[TTS Preview] ⚠️ Admin API não encontrada ou não é Gemini');
+                }
+                
+                if (!apiKey) {
+                    console.error('[TTS Preview] ❌ Nenhuma API Gemini disponível');
+                    return res.status(400).json({ message: 'Configure uma chave de voz (Google Cloud/Gemini) no painel admin ou use créditos.' });
+                }
+            }
+        } else if (provider === 'voice_premium' || provider === 'genaipro') {
+            console.log(`[TTS Preview] Provider: ${provider}, Voice: ${previewVoice}`);
+            
+            // Buscar API do usuário - tentar tanto 'genaipro' quanto 'voice_premium'
+            let userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'genaipro']);
+            if (!userApiKey || !userApiKey.api_key) {
+                // Tentar buscar como 'voice_premium' se não encontrou como 'genaipro'
+                userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'voice_premium']);
+                if (userApiKey) {
+                    console.log('[TTS Preview] API encontrada como voice_premium');
+                }
+            } else {
+                console.log('[TTS Preview] API encontrada como genaipro');
+            }
+            
+            console.log('[TTS Preview] DEBUG - userApiKey encontrada:', !!userApiKey);
+            console.log('[TTS Preview] DEBUG - userApiKey.api_key existe:', !!(userApiKey && userApiKey.api_key));
+            if (userApiKey && userApiKey.api_key) {
+                console.log('[TTS Preview] DEBUG - userApiKey.api_key tamanho:', userApiKey.api_key.length);
+                console.log('[TTS Preview] DEBUG - userApiKey.api_key preview:', userApiKey.api_key.substring(0, 20) + '...');
+            }
+            
+            if (useCredits) {
+                // Usuário prefere usar créditos mesmo tendo API própria
+                adminApi = await getDefaultAdminApi();
+                console.log('[TTS Preview] Usuário prefere créditos. Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
+                if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                    // Tentar descriptografar a chave do admin
+                    if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[TTS Preview] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                            apiKey = adminApi.api_key;
+                        }
+                    } else {
+                        apiKey = adminApi.api_key;
+                    }
+                    useAdminApi = true;
+                    console.log('[TTS Preview] Usando API do admin com créditos (preferência do usuário)');
+                } else {
+                    // Fallback: usar API própria se disponível
+                    if (userApiKey && userApiKey.api_key) {
+                        console.log('[TTS Preview] Fallback: tentando usar API própria do usuário...');
+                        // Descriptografar a chave do usuário
+                        if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                            try {
+                                apiKey = decrypt(userApiKey.api_key);
+                                console.log('[TTS Preview] Chave descriptografada (tamanho:', apiKey ? apiKey.length : 0, ')');
+                            } catch (decryptError) {
+                                console.warn('[TTS Preview] Erro ao descriptografar chave do usuário, tentando usar diretamente:', decryptError.message);
+                                apiKey = userApiKey.api_key;
+                            }
+                        } else {
+                            apiKey = userApiKey.api_key;
+                            console.log('[TTS Preview] Chave usada diretamente (não criptografada, tamanho:', apiKey ? apiKey.length : 0, ')');
+                        }
+                        
+                        // Validar se a chave não está vazia
+                        if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+                            console.error('[TTS Preview] Chave do usuário está vazia ou muito curta após descriptografar');
+                            return res.status(400).json({ message: 'A chave da API Voz Premium configurada está vazia ou inválida. Verifique suas configurações.' });
+                        }
+                        
+                        console.log('[TTS Preview] ✅ Fallback: usando API própria (admin API não disponível)');
+                    } else {
+                        console.error('[TTS Preview] ❌ API própria não encontrada e admin API não disponível');
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium ou use créditos.' });
+                    }
+                }
+            } else {
+                // Usuário prefere usar API própria quando disponível
+                console.log('[TTS Preview] Verificando API própria do usuário (preferência: não usar créditos)');
+                console.log('[TTS Preview] - userApiKey encontrada:', !!userApiKey);
+                console.log('[TTS Preview] - userApiKey.api_key existe:', !!(userApiKey && userApiKey.api_key));
+                
+                if (userApiKey && userApiKey.api_key) {
+                    // Descriptografar a chave do usuário
+                    if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(userApiKey.api_key);
+                            console.log('[TTS Preview] Chave descriptografada com sucesso (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                        } catch (decryptError) {
+                            console.warn('[TTS Preview] Erro ao descriptografar chave do usuário, tentando usar diretamente:', decryptError.message);
+                            apiKey = userApiKey.api_key;
+                        }
+                    } else {
+                        apiKey = userApiKey.api_key;
+                        console.log('[TTS Preview] Chave usada diretamente (não criptografada, tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                    }
+                    
+                    // Validar se a chave não está vazia após descriptografar
+                    if (!apiKey || apiKey.trim() === '') {
+                        console.warn('[TTS Preview] ⚠️ Chave do usuário está vazia após descriptografar, tentando API do admin');
+                        apiKey = null; // Resetar para tentar admin
+                    } else {
+                        console.log('[TTS Preview] ✅ API key do usuário encontrada e válida (tamanho:', apiKey.length, 'caracteres)');
+                    }
+                } else {
+                    console.log('[TTS Preview] ⚠️ API própria do usuário não encontrada ou vazia');
+                }
+                
+                // Se não conseguiu usar API própria, tentar admin como fallback
+                if (!apiKey) {
+                    console.log('[TTS Preview] Tentando usar API do admin como fallback...');
+                    // Usar API do admin com créditos
+                    adminApi = await getDefaultAdminApi();
+                    console.log('[TTS Preview] Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
+                    if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                        // Tentar descriptografar a chave do admin
+                        if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                            try {
+                                apiKey = decrypt(adminApi.api_key);
+                                console.log('[TTS Preview] Chave do admin descriptografada (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                            } catch (decryptError) {
+                                console.warn('[TTS Preview] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                                apiKey = adminApi.api_key;
+                            }
+                        } else {
+                            apiKey = adminApi.api_key;
+                            console.log('[TTS Preview] Chave do admin usada diretamente (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                        }
+                        
+                        // Validar se a chave não está vazia
+                        if (!apiKey || apiKey.trim() === '') {
+                            console.error('[TTS Preview] ❌ Chave do admin está vazia após descriptografar');
+                            apiKey = null;
+                        } else {
+                            useAdminApi = true;
+                            console.log('[TTS Preview] ✅ Usando API do admin com créditos (fallback - API própria não disponível)');
+                        }
+                    } else {
+                        console.warn('[TTS Preview] ⚠️ Admin API não encontrada ou não é genaipro/voice_premium');
+                    }
+                    
+                    if (!apiKey) {
+                        console.error('[TTS Preview] ❌ Nenhuma API disponível (própria ou admin)');
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium válida ou use créditos. A chave configurada pode estar vazia ou inválida.' });
+                    }
+                }
+            }
+        } else if (provider === 'openai') {
+            // Verificar preferência do usuário
+            const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+            const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+            
+            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'openai']);
+            const adminOpenAiKey = await getAdminOpenAiVoiceApiKey();
+            
+            if (adminOpenAiKey) {
+                apiKey = adminOpenAiKey;
+                console.log('[TTS Preview] ✅ Usando chave de voz OpenAI do painel admin');
+            }
+            
+            if (!apiKey && useCredits) {
+                // Usuário prefere usar créditos mesmo tendo API própria
+                adminApi = await getDefaultAdminApi();
+                if (adminApi && adminApi.provider === 'openai') {
+                    apiKey = adminApi.api_key;
+                    useAdminApi = true;
+                } else {
+                    // Fallback: usar API própria se disponível
+                    if (userApiKey) {
+                        apiKey = userApiKey.api_key;
+                    } else {
+                        return res.status(400).json({ message: 'Configure uma chave da API OpenAI ou use créditos.' });
+                    }
+                }
+            }
+        } else if (provider === 'laozhang') {
+            console.log(`[TTS Preview] Provider: laozhang, Voice: ${previewVoice}`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Configure a chave da Laozhang.ai no painel admin para usar este provedor.' });
+            }
+            const laozhangProviderId = await getLaozhangApiProviderId();
+            if (!laozhangProviderId) {
+                return res.status(400).json({ message: 'Provider Laozhang.ai não está ativo no painel admin.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            adminApi = { id: laozhangProviderId, provider: 'laozhang' };
+            actualProvider = 'laozhang';
+        }
+        
+        // Validação final: verificar se apiKey não está vazia e tem formato válido
+        if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+            console.error('[TTS Preview] ❌ API Key está vazia, inválida ou muito curta após todo o processamento');
+            console.error('[TTS Preview] - Provider:', provider);
+            console.error('[TTS Preview] - User ID:', req.user.id);
+            const userPrefsDebug = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+            console.error('[TTS Preview] - useCredits:', userPrefsDebug ? (userPrefsDebug.use_credits_instead_of_own_api === 1) : 'N/A');
+            console.error('[TTS Preview] - apiKey length:', apiKey ? apiKey.length : 0);
+            console.error('[TTS Preview] - apiKey preview:', apiKey ? apiKey.substring(0, 10) + '...' : 'null');
+            
+            // Verificar se há API do admin disponível como última tentativa
+            if (provider === 'voice_premium' || provider === 'genaipro' || provider === 'gemini') {
+                const lastChanceAdminApi = await getDefaultAdminApi();
+                // Para Gemini, buscar API do Gemini; para outros, buscar genaipro/voice_premium
+                if (provider === 'gemini') {
+                    if (lastChanceAdminApi && lastChanceAdminApi.provider === 'gemini' && lastChanceAdminApi.api_key) {
+                        console.log('[TTS Preview] 🆘 Última tentativa: usando API Gemini do admin');
+                        try {
+                            if (lastChanceAdminApi.api_key.includes(':')) {
+                                apiKey = decrypt(lastChanceAdminApi.api_key);
+                            } else {
+                                apiKey = lastChanceAdminApi.api_key;
+                            }
+                            if (apiKey && apiKey.trim() !== '' && apiKey.trim().length >= 10) {
+                                useAdminApi = true;
+                                console.log('[TTS Preview] ✅ API Gemini do admin funcionou como última tentativa');
+                            } else {
+                                apiKey = null;
+                            }
+                        } catch (err) {
+                            console.error('[TTS Preview] Erro na última tentativa com admin Gemini API:', err.message);
+                            apiKey = null;
+                        }
+                    }
+                } else if (lastChanceAdminApi && (lastChanceAdminApi.provider === 'genaipro' || lastChanceAdminApi.provider === 'voice_premium') && lastChanceAdminApi.api_key) {
+                    console.log('[TTS Preview] 🆘 Última tentativa: usando API do admin');
+                    try {
+                        if (lastChanceAdminApi.api_key.includes(':')) {
+                            apiKey = decrypt(lastChanceAdminApi.api_key);
+                        } else {
+                            apiKey = lastChanceAdminApi.api_key;
+                        }
+                        if (apiKey && apiKey.trim() !== '' && apiKey.trim().length >= 10) {
+                            useAdminApi = true;
+                            console.log('[TTS Preview] ✅ API do admin funcionou como última tentativa');
+                        } else {
+                            apiKey = null;
+                        }
+                    } catch (err) {
+                        console.error('[TTS Preview] Erro na última tentativa com admin API:', err.message);
+                        apiKey = null;
+                    }
+                }
+            }
+            
+            if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+                return res.status(400).json({ 
+                    message: 'Nenhuma API configurada ou a chave está vazia/inválida. Verifique suas configurações de API. Se sua chave foi marcada como inválida na validação, corrija-a ou use créditos.' 
+                });
+            }
+        }
+        
+        console.log('[TTS Preview] ✅ API Key validada com sucesso (tamanho:', apiKey.length, 'caracteres, usando admin:', useAdminApi, ')');
+
+        const speakerVoiceMap = new Map([['Narrador', previewVoice]]);
+        console.log(`[TTS Preview] Gerando áudio com provider: ${provider}, voice: ${previewVoice}, text length: ${previewText.length}`);
+        
+        // Garantir que o provider seja correto para a função generateTtsAudio
+        // Se for Gemini, usar genaipro mas com a API do Gemini
+        actualProvider = provider;
+        if (provider === 'voice_premium' || provider === 'genaipro') {
+            actualProvider = 'genaipro';
+        } else if (provider === 'gemini') {
+            // Gemini TTS: usar 'gemini' para usar a API oficial do Google Gemini
+            actualProvider = 'gemini';
+            console.log('[TTS Preview] Usando Gemini TTS oficial com API do Google Gemini');
+        }
+        
+        // Obter velocidade do body se for DarkVoz
+        const speed = provider === 'laozhang' ? (parseFloat(req.body.speed) || 1.0) : 1.0;
+        
+        const { audioBase64 } = await generateTtsAudio({
+            apiKey: apiKey,
+            model: validatedModel,
+            textInput: previewText,
+            speakerVoiceMap: speakerVoiceMap,
+            provider: actualProvider,
+            speed: speed
+        });
+        
+        console.log('[TTS Preview] Áudio gerado com sucesso');
+        
+        // Se usou API do admin, debitar créditos
+        if (useAdminApi && adminApi) {
+            try {
+                // Estimar tokens (aproximadamente 1 token por caractere para TTS)
+                const estimatedTokens = Math.ceil(previewText.length / 4);
+                
+                const creditResult = await checkAndDebitCredits(
+                    req.user.id,
+                    adminApi.id,
+                    estimatedTokens,
+                    'api_tts_preview',
+                    JSON.stringify({ model: validatedModel, provider: provider, endpoint: '/api/tts/preview' })
+                );
+                
+                console.log(`💳 [CRÉDITOS] ${creditResult.creditsUsed.toFixed(2)} créditos debitados. Saldo restante: ${creditResult.newBalance.toFixed(2)}`);
+            } catch (creditError) {
+                console.error('❌ [CRÉDITOS] Erro ao debitar créditos:', creditError);
+            }
+        }
+
+        res.json({
+            message: 'Prévia gerada.',
+            audio: {
+                mimeType: 'audio/mpeg',
+                base64: audioBase64,
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao gerar prévia de voz:', err);
+        if (err.response) {
+            console.error('Status:', err.response.status);
+            console.error('Data:', err.response.data);
+        }
+        
+        // Mensagem de erro mais amigável
+        let errorMessage = err.message || 'Erro desconhecido ao gerar prévia de voz';
+        const status = err.response?.status;
+        const responseData = err.response?.data;
+        
+        // Usar actualProvider se disponível, senão usar provider do body
+        const currentProvider = (typeof actualProvider !== 'undefined' ? actualProvider : provider) || 'unknown';
+        const isVoicePremiumProvider = currentProvider === 'genaipro' || currentProvider === 'voice_premium';
+        const isGeminiProvider = currentProvider === 'gemini';
+        const isLaozhangProvider = currentProvider === 'laozhang';
+        
+        const responseString = typeof responseData === 'string' ? responseData : '';
+        const maintenanceHints = ['manutenção', 'Đang Bảo Trì', 'maintenance'];
+        const messageIndicatesMaintenance = maintenanceHints.some(hint => (err.message || '').toLowerCase().includes(hint) || responseString.toLowerCase().includes(hint));
+        
+        if (isVoicePremiumProvider && status === 503 && messageIndicatesMaintenance) {
+            errorMessage = 'A API Voz Premium informou que está em manutenção. Por favor, tente novamente em alguns minutos.';
+        } else if (messageIndicatesMaintenance) {
+            errorMessage = err.message;
+        } else if (isGeminiProvider && status === 401) {
+            errorMessage = 'Chave do Google Cloud (Gemini) inválida ou expirada. Verifique a chave salva no painel admin.';
+        } else if (isGeminiProvider && status === 403) {
+            errorMessage = 'Acesso negado pela API do Google Cloud. Verifique se a chave tem permissão para usar o Text-to-Speech.';
+        } else if (isLaozhangProvider && (status === 401 || status === 403)) {
+            errorMessage = 'Chave do DarkVoz inválida ou sem permissão para TTS. Atualize a chave no painel admin.';
+        } else if (isLaozhangProvider && status === 429) {
+            errorMessage = 'Limite de requisições atingido no DarkVoz. Aguarde alguns instantes e tente novamente.';
+        } else if (isLaozhangProvider && status === 503) {
+            errorMessage = 'O DarkVoz está temporariamente indisponível. Tente novamente em alguns minutos.';
+        } else if (!isGeminiProvider && !isLaozhangProvider && status === 401) {
+            errorMessage = 'Chave de API inválida ou expirada. Verifique suas configurações no painel admin.';
+        } else if (!isGeminiProvider && !isLaozhangProvider && status === 403) {
+            errorMessage = 'Acesso negado. Verifique se sua chave de API tem permissões para gerar áudio.';
+        } else if (err.message && err.message.toLowerCase().includes('timeout')) {
+            errorMessage = 'Timeout ao conectar com a API. Tente novamente.';
+        }
+        
+        res.status(err.response?.status || 500).json({ 
+            message: errorMessage,
+            details: err.response?.data?.message || err.message
+        });
+    }
+});
+
+// POST /api/tts/generate-from-script - Gera áudio completo a partir de roteiro
+app.post('/api/tts/generate-from-script', authenticateToken, async (req, res) => {
+    const { ttsModel, script, voice, styleInstructions, provider = 'laozhang', speed = 1.0 } = req.body;
+
+    // Validar parâmetros obrigatórios
+    if (!script || !voice) {
+        return res.status(400).json({ message: 'Roteiro e voz são obrigatórios.' });
+    }
+    
+    // Se não tiver modelo, usar padrão baseado no provider
+    let finalTtsModel = ttsModel;
+    if (!finalTtsModel) {
+        if (provider === 'laozhang') {
+            finalTtsModel = 'tts-1';
+        } else if (provider === 'openai') {
+            finalTtsModel = 'tts-1-hd';
+        } else if (provider === 'gemini') {
+            finalTtsModel = 'gemini-2.5-pro-preview-tts';
+        } else {
+            finalTtsModel = 'genaipro-default';
+        }
+    }
+    
+    // Validar modelo
+    finalTtsModel = validateTtsModel(finalTtsModel);
+
+    try {
+        // Verificar API e créditos
+        let apiKey = null;
+        let useAdminApi = false;
+        let adminApi = null;
+        
+        // Verificar preferência do usuário
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Se provider for 'gemini', buscar API do Gemini diretamente
+        if (provider === 'gemini') {
+            console.log(`[TTS Generate] Provider: gemini, Voice: ${voice}`);
+            
+            // PRIORIDADE 2: Se não houver chave do admin, buscar API do Gemini do usuário
+            if (!apiKey && !useCredits) {
+                let userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'gemini']);
+                console.log('[TTS Generate] DEBUG - Gemini API do usuário encontrada:', !!userApiKey);
+                
+                if (userApiKey && userApiKey.api_key) {
+                    // Descriptografar a chave do Gemini
+                    if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(userApiKey.api_key);
+                            console.log('[TTS Generate] Chave Gemini descriptografada (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                        } catch (decryptError) {
+                            console.warn('[TTS Generate] Erro ao descriptografar chave Gemini, tentando usar diretamente:', decryptError.message);
+                            apiKey = userApiKey.api_key;
+                        }
+                    } else {
+                        apiKey = userApiKey.api_key;
+                        console.log('[TTS Generate] Chave Gemini usada diretamente (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
+                    }
+                    
+                    // Validar se a chave não está vazia
+                    if (!apiKey || apiKey.trim() === '' || apiKey.trim().length < 10) {
+                        console.warn('[TTS Generate] ⚠️ Chave Gemini está vazia, tentando API do admin');
+                        apiKey = null;
+                    } else {
+                        console.log('[TTS Generate] ✅ Usando API Gemini do usuário');
+                    }
+                }
+            }
+            
+            // Se não conseguiu usar API própria, tentar admin como fallback
+            if (!apiKey) {
+                console.log('[TTS Generate] Tentando usar API do admin como fallback para Gemini...');
+                adminApi = await getDefaultAdminApi();
+                console.log('[TTS Generate] Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
+                if (adminApi && adminApi.provider === 'gemini' && adminApi.api_key) {
+                    // Descriptografar se necessário
+                    if (adminApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[TTS Generate] Erro ao descriptografar chave Gemini do admin, tentando usar diretamente:', decryptError.message);
+                            apiKey = adminApi.api_key;
+                        }
+                    } else {
+                        apiKey = adminApi.api_key;
+                    }
+                    useAdminApi = true;
+                } else {
+                    return res.status(400).json({ message: 'Nenhuma API configurada ou a chave está vazia/inválida. Verifique suas configurações de API. Se sua chave foi marcada como inválida na validação, corrija-a ou use créditos.' });
+                }
+            }
+        } else if (provider === 'voice_premium' || provider === 'genaipro') {
+            
+            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'genaipro']);
+            
+            if (useCredits) {
+                // Usuário prefere usar créditos mesmo tendo API própria
+                adminApi = await getDefaultAdminApi();
+                if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                    // Tentar descriptografar a chave do admin
+                    if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[TTS Generate] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                            apiKey = adminApi.api_key;
+                        }
+                    } else {
+                        apiKey = adminApi.api_key;
+                    }
+                    useAdminApi = true;
+                } else {
+                    // Fallback: usar API própria se disponível
+                    if (userApiKey) {
+                        // Descriptografar a chave do usuário
+                        if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                            try {
+                                apiKey = decrypt(userApiKey.api_key);
+                            } catch (decryptError) {
+                                console.warn('[TTS Generate] Erro ao descriptografar chave do usuário, tentando usar diretamente:', decryptError.message);
+                                apiKey = userApiKey.api_key;
+                            }
+                        } else {
+                            apiKey = userApiKey.api_key;
+                        }
+                    } else {
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium ou use créditos.' });
+                    }
+                }
+            } else {
+                // Usuário prefere usar API própria quando disponível
+                if (userApiKey) {
+                    // Descriptografar a chave do usuário
+                    if (userApiKey.api_key && userApiKey.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(userApiKey.api_key);
+                        } catch (decryptError) {
+                            console.warn('[TTS Generate] Erro ao descriptografar chave do usuário, tentando usar diretamente:', decryptError.message);
+                            apiKey = userApiKey.api_key;
+                        }
+                    } else {
+                        apiKey = userApiKey.api_key;
+                    }
+                } else {
+                    adminApi = await getDefaultAdminApi();
+                    if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                        // Tentar descriptografar a chave do admin
+                        if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                            try {
+                                apiKey = decrypt(adminApi.api_key);
+                            } catch (decryptError) {
+                                console.warn('[TTS Generate] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                                apiKey = adminApi.api_key;
+                            }
+                        } else {
+                            apiKey = adminApi.api_key;
+                        }
+                        useAdminApi = true;
+                    } else {
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium ou use créditos.' });
+                    }
+                }
+            }
+        } else if (provider === 'openai') {
+            // Verificar preferência do usuário
+            const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+            const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+            
+            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'openai']);
+            const adminOpenAiKey = await getAdminOpenAiVoiceApiKey();
+            
+            if (adminOpenAiKey) {
+                apiKey = adminOpenAiKey;
+                console.log('[TTS Generate] ✅ Usando chave de voz OpenAI do painel admin');
+            }
+            
+            if (!apiKey && useCredits) {
+                // Usuário prefere usar créditos mesmo tendo API própria
+                adminApi = await getDefaultAdminApi();
+                if (adminApi && adminApi.provider === 'openai') {
+                    apiKey = adminApi.api_key;
+                    useAdminApi = true;
+                } else {
+                    // Fallback: usar API própria se disponível
+                    if (userApiKey) {
+                        apiKey = userApiKey.api_key;
+                    } else {
+                        return res.status(400).json({ message: 'Configure uma chave da API OpenAI ou use créditos.' });
+                    }
+                }
+            } else if (!apiKey) {
+                // Usuário prefere usar API própria quando disponível
+                if (userApiKey) {
+                    apiKey = userApiKey.api_key;
+                } else {
+                    adminApi = await getDefaultAdminApi();
+                    if (adminApi && adminApi.provider === 'openai') {
+                        apiKey = adminApi.api_key;
+                        useAdminApi = true;
+                    } else {
+                        return res.status(400).json({ message: 'Configure uma chave da API OpenAI ou use créditos.' });
+                    }
+                }
+            }
+        } else if (provider === 'laozhang') {
+            console.log(`[TTS Generate] Provider: laozhang, Voice: ${voice}`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Configure a chave do DarkVoz no painel admin para usar este provedor.' });
+            }
+            const laozhangProviderId = await getLaozhangApiProviderId();
+            if (!laozhangProviderId) {
+                return res.status(400).json({ message: 'Provider DarkVoz não está ativo no painel admin.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            adminApi = { id: laozhangProviderId, provider: 'laozhang' };
+            console.log('[TTS Generate] ✅ Usando API DarkVoz (Laozhang.ai) do painel admin');
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ message: 'Nenhuma API configurada.' });
+        }
+
+        // Se usar API do admin, verificar créditos antes
+        if (useAdminApi && adminApi) {
+            // Estimar tokens necessários
+            const estimatedTokens = Math.ceil(script.length / 4);
+            
+            try {
+                const creditCheck = await checkAndDebitCredits(
+                    req.user.id,
+                    adminApi.id,
+                    estimatedTokens,
+                    'api_tts_generation',
+                    JSON.stringify({ model: finalTtsModel, provider: provider, endpoint: '/api/tts/generate-from-script' })
+                );
+                
+                console.log(`💳 [CRÉDITOS] Pré-débito: ${creditCheck.creditsUsed.toFixed(2)} créditos. Saldo restante: ${creditCheck.newBalance.toFixed(2)}`);
+            } catch (creditError) {
+                if (creditError.message.includes('Créditos insuficientes')) {
+                    return res.status(402).json({ 
+                        error: creditError.message,
+                        code: 'INSUFFICIENT_CREDITS'
+                    });
+                }
+                throw creditError;
+            }
+        }
+
+        const jobId = `tts-script-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const jobData = {
+            apiKey,
+            ttsModel: finalTtsModel,
+            script,
+            voice,
+            styleInstructions,
+            provider: provider,
+            speed: parseFloat(speed) || 1.0,
+            useAdminApi: useAdminApi,
+            adminApi: adminApi,
+            userId: req.user.id
+        };
+
+        ttsJobs[jobId] = {
+            id: jobId,
+            status: 'queued',
+            progress: 0,
+            total: 1,
+            message: 'Na fila para processamento...',
+            downloadUrl: null,
+            createdAt: new Date(),
+        };
+
+        // Processar job em background (implementação simplificada)
+        processScriptTtsJob(jobId, jobData);
+
+        res.status(202).json({ jobId });
+
+    } catch (error) {
+        console.error("Erro ao iniciar trabalho de TTS a partir de roteiro:", error);
+        res.status(500).json({ message: `Não foi possível iniciar a geração de áudio: ${error.message}` });
+    }
+});
+
+// GET /api/tts/status/:jobId - Consulta status do job TTS
+app.get('/api/tts/status/:jobId', authenticateToken, (req, res) => {
+    const { jobId } = req.params;
+    const job = ttsJobs[jobId];
+
+    if (!job) {
+        return res.status(404).json({ message: 'Job não encontrado.' });
+    }
+
+    res.json({
+        status: job.status,
+        progress: job.progress,
+        total: job.total,
+        message: job.message,
+        downloadUrl: job.downloadUrl,
+        partDownloads: job.partDownloads || []
+    });
+});
+
+// Função para processar job TTS em background (versão completa do DARKSCRIPT)
+async function processScriptTtsJob(jobId, jobData) {
+    const job = ttsJobs[jobId];
+    
+    // Garante que o job existe e reinicializa os valores
+    if (!job) {
+        console.error(`Job ${jobId} não encontrado`);
+        return;
+    }
+    
+    // Reinicializa o progresso para garantir que comece do zero
+    job.status = 'processing';
+    job.progress = 0;
+    job.total = 0;
+    job.message = 'Dividindo o roteiro...';
+    const tempFilePaths = [];
+
+    try {
+        // Define o modelo e limite baseado no provedor
+        // SEMPRE usar 4000 caracteres por parte conforme DARKSCRIPT
+        let validatedTtsModel;
+        let charLimit = 4000; // SEMPRE 4000 caracteres por parte
+        let minDelayBetweenRequests;
+        
+        if (jobData.provider === 'openai') {
+            // OpenAI TTS: limite REAL é 4096 caracteres por requisição, mas vamos usar 4000 para padronizar
+            validatedTtsModel = 'tts-1-hd';
+            minDelayBetweenRequests = 500; // 0.5s (OpenAI é rápido)
+            console.log(`📢 Usando OpenAI TTS para gerar áudio (4000 chars por parte)`);
+        } else if (jobData.provider === 'genaipro' || jobData.provider === 'voice_premium') {
+            validatedTtsModel = 'genaipro-default';
+            minDelayBetweenRequests = 2000; // 2s entre requisições
+            console.log(`📢 Usando GenAIPro TTS para gerar áudio (4000 chars por parte)`);
+        } else if (jobData.provider === 'laozhang') {
+            // Usar modelo do jobData se fornecido, senão usar padrão
+            validatedTtsModel = jobData.ttsModel || 'tts-1';
+            minDelayBetweenRequests = 1500;
+            console.log(`📢 Usando DarkVoz TTS para gerar áudio (4000 chars por parte, modelo: ${validatedTtsModel}, velocidade: ${jobData.speed || 1.0}x)`);
+        } else {
+            // Gemini TTS: aceita textos MUITO longos, mas vamos usar 4000 para padronizar
+            validatedTtsModel = 'gemini-2.5-flash-preview-tts';
+            minDelayBetweenRequests = 2000; // 2s entre requisições
+            console.log(`📢 Usando Gemini TTS para gerar áudio (4000 chars por parte)`);
+        }
+        
+        // Log para monitorar processamento de áudios longos
+        const estimatedMinutes = Math.ceil((jobData.script.length / charLimit) * 0.5); // ~0.5 min por chunk
+        if (estimatedMinutes > 30) {
+            console.log(`Processando áudio longo estimado em ~${estimatedMinutes} minutos (${jobData.script.length} caracteres)`);
+        }
+
+        // Usando a função splitTextIntoChunks com 4000 caracteres
+        const chunks = splitTextIntoChunks(jobData.script, charLimit);
+
+        if (!chunks || chunks.length === 0) {
+            throw new Error("Não foi possível dividir o roteiro em partes.");
+        }
+        
+        // Validação prévia: verifica se há chunks antes de processar
+        console.log(`📊 Roteiro dividido em ${chunks.length} parte(s) de até ${charLimit} caracteres cada.`);
+        console.log(`   Total de caracteres: ${jobData.script.length.toLocaleString('pt-BR')}`);
+        console.log(`   Estimativa de tempo: ~${Math.ceil(chunks.length * minDelayBetweenRequests / 1000 / 60)} minutos`);
+
+        // Atualiza o job com o total de chunks ANTES de começar o processamento
+        job.total = chunks.length;
+        job.progress = 0;
+        job.message = `📋 Roteiro dividido em ${chunks.length} partes. Preparando geração...`;
+        
+        // Verificar FFmpeg ANTES de começar (para mostrar status correto)
+        let ffmpegAvailable = false;
+        try {
+            await new Promise((resolve, reject) => {
+                ffmpeg().version((err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+            ffmpegAvailable = true;
+        } catch (e) {
+            ffmpegAvailable = false;
+        }
+        
+        if (ffmpegAvailable) {
+            job.message = `✅ FFmpeg detectado. Gerando ${chunks.length} partes de áudio...`;
+        } else {
+            job.message = `⚠️ FFmpeg não encontrado. Usando método alternativo para ${chunks.length} partes...`;
+        }
+        
+        const audioExt = 'mp3'; // Sempre usar MP3
+        const validTempFiles = [];
+        
+        // Processar cada chunk
+        for (let i = 0; i < chunks.length; i++) {
+            job.progress = i;
+            job.message = `🎙️ Gerando parte ${i + 1}/${chunks.length}...`;
+            
+            try {
+                const speakerVoiceMap = new Map([['Narrador', jobData.voice]]);
+                const result = await generateTtsAudio({
+                    apiKey: jobData.apiKey,
+                    model: validatedTtsModel,
+                    textInput: chunks[i],
+                    speakerVoiceMap: speakerVoiceMap,
+                    provider: jobData.provider,
+                    speed: jobData.speed || 1.0
+                });
+                
+                // Salvar arquivo temporário
+                const tempPath = path.join(TEMP_AUDIO_DIR, `${jobId}_part_${i}.${audioExt}`);
+                const audioBuffer = Buffer.from(result.audioBase64, 'base64');
+                await fs.promises.writeFile(tempPath, audioBuffer);
+                validTempFiles.push(tempPath);
+                tempFilePaths.push(tempPath);
+                
+                console.log(`✅ Parte ${i + 1}/${chunks.length} gerada: ${audioBuffer.length} bytes`);
+                
+                // Delay entre partes
+                if (i < chunks.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, minDelayBetweenRequests));
+                }
+            } catch (chunkError) {
+                console.error(`❌ Erro ao gerar parte ${i + 1}/${chunks.length}:`, chunkError);
+                // Continuar com outras partes mesmo se uma falhar
+            }
+        }
+        
+        if (validTempFiles.length === 0) {
+            throw new Error('Nenhuma parte de áudio foi gerada com sucesso.');
+        }
+        
+        // CASO 1: apenas 1 arquivo → retornar direto
+        if (validTempFiles.length === 1) {
+            const singleFile = await fs.promises.readFile(validTempFiles[0]);
+            const singleBase64 = singleFile.toString('base64');
+            job.downloadUrl = `data:audio/${audioExt};base64,${singleBase64}`;
+            job.status = 'completed';
+            job.progress = job.total;
+            job.message = 'Áudio gerado com sucesso!';
+            console.log(`🎉 TTS de roteiro concluído (sem concatenação): ${jobId}.${audioExt}`);
+            return;
+        }
+        
+        // CASO 2: mais de 1 arquivo E FFmpeg disponível → concatenar com FFmpeg
+        if (ffmpegAvailable) {
+            job.message = `🔗 Concatenando ${validTempFiles.length} partes com FFmpeg...`;
+            console.log(`✅ FFmpeg disponível - concatenando ${validTempFiles.length} arquivos ${audioExt.toUpperCase()}`);
+            
+            const finalPath = path.join(TEMP_AUDIO_DIR, `${jobId}_final.${audioExt}`);
+            const listFilePath = path.join(TEMP_AUDIO_DIR, `${jobId}_filelist.txt`);
+            const fileListContent = validTempFiles
+                .map(fp => `file '${fp.replace(/\\/g, '/')}'`)
+                .join('\n');
+            
+            await fs.promises.writeFile(listFilePath, fileListContent, 'utf8');
+            tempFilePaths.push(listFilePath);
+            
+            await new Promise((resolve, reject) => {
+                ffmpeg()
+                    .input(listFilePath)
+                    .inputOptions(['-f', 'concat', '-safe', '0'])
+                    .outputOptions(['-c', 'copy'])
+                    .output(finalPath)
+                    .on('start', (cmd) => {
+                        console.log(`🎬 [TTS] FFmpeg iniciado para concatenação: ${cmd}`);
+                    })
+                    .on('progress', (progress) => {
+                        if (progress.percent) {
+                            job.message = `🔗 Concatenando com FFmpeg: ${Math.round(progress.percent)}%`;
+                        }
+                    })
+                    .on('end', async () => {
+                        console.log(`✅ [TTS] FFmpeg concluído: ${finalPath}`);
+                        resolve();
+                    })
+                    .on('error', (err) => {
+                        console.error(`❌ [TTS] Erro no FFmpeg: ${err.message}`);
+                        reject(err);
+                    })
+                    .run();
+            });
+            
+            // Ler arquivo final
+            const finalAudio = await fs.promises.readFile(finalPath);
+            const finalBase64 = finalAudio.toString('base64');
+            job.downloadUrl = `data:audio/${audioExt};base64,${finalBase64}`;
+            tempFilePaths.push(finalPath);
+        } else {
+            // CASO 3: FFmpeg não disponível → retornar partes separadas
+            job.message = `⚠️ ${validTempFiles.length} partes geradas (FFmpeg não disponível para concatenação)`;
+            job.partDownloads = validTempFiles.map((filePath, idx) => {
+                const fileBase64 = fs.readFileSync(filePath).toString('base64');
+                return {
+                    part: idx + 1,
+                    downloadUrl: `data:audio/${audioExt};base64,${fileBase64}`,
+                    filename: `parte_${idx + 1}.${audioExt}`
+                };
+            });
+            job.status = 'partial';
+        }
+        
+        job.status = job.status === 'partial' ? 'partial' : 'completed';
+        job.progress = job.total;
+        job.message = job.status === 'completed' ? 'Áudio gerado com sucesso!' : job.message;
+        
+    } catch (error) {
+        console.error(`Erro no trabalho TTS ${jobId}:`, error);
+        job.status = 'failed';
+        job.message = error.message || 'Ocorreu um erro desconhecido.';
+        
+        // Reembolsar créditos em caso de erro
+        if (jobData.useAdminApi && jobData.adminApi) {
+            try {
+                const estimatedTokens = Math.ceil(jobData.script.length / 4);
+                await refundCredits(jobData.userId, estimatedTokens * 0.1, 'Erro na geração de TTS');
+            } catch (refundError) {
+                console.error('Erro ao reembolsar créditos:', refundError);
+            }
+        }
+    } finally {
+        // Limpar arquivos temporários
+        for (const filePath of tempFilePaths) {
+            try {
+                await fs.promises.unlink(filePath);
+            } catch (unlinkError) {
+                console.warn(`Não foi possível excluir o arquivo temporário ${filePath}: ${unlinkError.message}`);
+            }
+        }
+        job.finishedAt = new Date();
+    }
+}
+
 
 // === ROTAS DE GESTÃO DE API KEYS ===
 
@@ -2031,7 +7738,7 @@ app.post('/api/keys/validate-all', authenticateToken, async (req, res) => {
             return res.status(400).json({ msg: 'Nenhuma chave de API foi salva ainda.' });
         }
 
-        const allowedServices = new Set(['gemini', 'openai', 'claude', 'imagefx']);
+        const allowedServices = new Set(['gemini', 'openai', 'claude', 'imagefx', 'youtube']);
         const filteredKeysData = keysData.filter(key => allowedServices.has(key.service_name));
         const ignoredServices = keysData.filter(key => !allowedServices.has(key.service_name));
 
@@ -2040,7 +7747,7 @@ app.post('/api/keys/validate-all', authenticateToken, async (req, res) => {
         }
 
         if (filteredKeysData.length === 0) {
-            return res.status(400).json({ msg: 'Nenhuma chave dos serviços suportados (Gemini, Claude, OpenAI ou ImageFX) foi encontrada para validação.' });
+            return res.status(400).json({ msg: 'Nenhuma chave dos serviços suportados (Gemini, Claude, OpenAI, YouTube ou ImageFX) foi encontrada para validação.' });
         }
 
         const validationPromises = filteredKeysData.map(async (keyData) => {
@@ -2059,6 +7766,9 @@ app.post('/api/keys/validate-all', authenticateToken, async (req, res) => {
                 case 'claude':
                     const claudeResult = await validateClaudeKey(decryptedKey);
                     return { service: 'claude', ...claudeResult };
+                case 'youtube':
+                    const youtubeResult = await validateYouTubeKey(decryptedKey);
+                    return { service: 'youtube', ...youtubeResult };
                 case 'imagefx':
                     return { service: 'imagefx', success: true };
                 default:
@@ -2068,9 +7778,21 @@ app.post('/api/keys/validate-all', authenticateToken, async (req, res) => {
 
         const results = await Promise.all(validationPromises);
         
+        // Adicionar informações sobre o tipo de chave detectado
+        const resultsWithDetails = results.map(result => {
+            if (result.service === 'gemini' && result.success && result.type) {
+                return {
+                    ...result,
+                    message: result.message || (result.type === 'gemini-api' ? 'Chave de API do Gemini válida' : 'Chave do Google Cloud válida'),
+                    warning: result.warning || null
+                };
+            }
+            return result;
+        });
+        
         res.status(200).json({ 
             msg: 'Validação concluída.',
-            results: results 
+            results: resultsWithDetails
         });
 
     } catch (err) {
@@ -2132,17 +7854,35 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             return res.status(400).json({ msg: 'URL do YouTube inválida.' });
         }
 
-        // Usaremos a chave Gemini para a API do YouTube, pois é um requisito
-        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
-        if (!geminiKeyData) {
-            return res.status(400).json({ msg: 'Nenhuma Chave de API do Gemini configurada. É necessária para a mineração de dados do YouTube.' });
+        // Tentar usar chave específica do YouTube primeiro, depois fallback para Gemini
+        let youtubeApiKey = null;
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (youtubeKeyData) {
+            youtubeApiKey = decrypt(youtubeKeyData.api_key);
+            if (!youtubeApiKey && youtubeKeyData.api_key && !youtubeKeyData.api_key.includes(':')) {
+                // Chave pode não estar criptografada
+                youtubeApiKey = youtubeKeyData.api_key;
+            }
         }
-        const geminiApiKey = decrypt(geminiKeyData.api_key);
-        if (!geminiApiKey) {
-             return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API Gemini.' });
+        
+        // Se não tem chave do YouTube, tentar usar Gemini (pode funcionar se for chave do Google Cloud)
+        if (!youtubeApiKey) {
+            const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            if (geminiKeyData) {
+                youtubeApiKey = decrypt(geminiKeyData.api_key);
+                if (!youtubeApiKey && geminiKeyData.api_key && !geminiKeyData.api_key.includes(':')) {
+                    youtubeApiKey = geminiKeyData.api_key;
+                }
+            }
+        }
+        
+        if (!youtubeApiKey) {
+            return res.status(400).json({ 
+                msg: 'Nenhuma chave de API do YouTube configurada. Configure uma chave do YouTube Data API v3 nas Configurações. A chave do Gemini não funciona para a API do YouTube.' 
+            });
         }
 
-        const videoDetails = await callYouTubeDataAPI(videoId, geminiApiKey);
+        const videoDetails = await callYouTubeDataAPI(videoId, youtubeApiKey);
         
         let transcriptText;
         let fullTranscript = null;
@@ -2166,12 +7906,35 @@ Título original: "${videoDetails.title}"
 
 Tradução em PT-BR:`;
             
-            // Usar o primeiro serviço disponível para tradução (preferir Gemini)
-            let translateService = 'gemini';
-            let translateKey = geminiApiKey;
+            // Usar o sistema de preferência para tradução (laozhang.ai se configurada como padrão)
+            let translateProvider = await getPreferredAIProvider(userId, ['claude', 'openai', 'gemini']);
+            let translateText;
             
-            const translateResponse = await callGeminiAPI(translatePrompt, translateKey, 'gemini-2.0-flash');
-            const translateText = translateResponse.titles.trim();
+            if (translateProvider && translateProvider.service === 'laozhang') {
+                // Usar laozhang.ai
+                const translateResponse = await callLaozhangAPI(
+                    translatePrompt, 
+                    translateProvider.apiKey, 
+                    translateProvider.model, 
+                    null, 
+                    userId, 
+                    'api_call', 
+                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'translate', model: translateProvider.model })
+                );
+                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+            } else if (translateProvider && translateProvider.service === 'claude') {
+                // Usar Claude
+                const translateResponse = await callClaudeAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
+                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+            } else if (translateProvider && translateProvider.service === 'openai') {
+                // Usar OpenAI
+                const translateResponse = await callOpenAIAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
+                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+            } else {
+                // Fallback para Gemini se nenhum outro estiver disponível
+                const translateResponse = await callGeminiAPI(translatePrompt, geminiApiKey, 'gemini-2.0-flash');
+                translateText = translateResponse.titles.trim();
+            }
             
             // Limpar a resposta (remover markdown, aspas, etc)
             translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
@@ -2323,20 +8086,104 @@ Tradução em PT-BR:`;
         
         // --- INÍCIO DA LÓGICA DO DISTRIBUIDOR (SWITCHER) ---
         if (model === 'all') {
-            modelUsedForDisplay = 'Comparação (Gemini, Claude, OpenAI)';
-            const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
-            const keys = {};
-            keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
-
-            if (!keys.gemini || !keys.claude || !keys.openai) {
-                return res.status(400).json({ msg: 'Para "Comparar", precisa de ter as chaves de Gemini, Claude E OpenAI configuradas.' });
+            // Verificar se laozhang.ai está configurada como padrão
+            let useLaozhangAsDefault = false;
+            let laozhangKey = null;
+            try {
+                const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+                useLaozhangAsDefault = laozhangDefaultSetting && (
+                    laozhangDefaultSetting.value === 'true' || 
+                    laozhangDefaultSetting.value === '1' ||
+                    JSON.parse(laozhangDefaultSetting.value) === true
+                );
+                
+                if (useLaozhangAsDefault) {
+                    laozhangKey = await getLaozhangApiKey();
+                    if (laozhangKey) {
+                        console.log('[Análise-All] Laozhang.ai configurada como padrão, usando para comparação');
+                    } else {
+                        useLaozhangAsDefault = false;
+                    }
+                }
+            } catch (err) {
+                console.warn('[Análise-All] Erro ao verificar laozhang.ai:', err.message);
             }
+            
+            if (useLaozhangAsDefault && laozhangKey) {
+                // Se laozhang.ai está como padrão, usar ela + outras duas APIs
+                modelUsedForDisplay = 'Comparação (Laozhang.ai, Claude, OpenAI)';
+                const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+                const keys = {};
+                keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
 
-            console.log('[Análise-All] A chamar IA em paralelo...');
-            // Usando os modelos específicos para a comparação
-            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
-            const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
+                if (!keys.claude || !keys.openai) {
+                    return res.status(400).json({ msg: 'Para "Comparar" com Laozhang.ai como padrão, precisa de ter as chaves de Claude E OpenAI configuradas.' });
+                }
+
+                console.log('[Análise-All] A chamar IA em paralelo (Laozhang.ai + Claude + OpenAI)...');
+                const pLaozhang = callLaozhangAPI(
+                    titlePrompt, 
+                    laozhangKey, 
+                    'gpt-4o', 
+                    null, 
+                    userId, 
+                    'api_call', 
+                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'gpt-4o' })
+                );
+                const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
+                const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
+
+                const results = await Promise.allSettled([pLaozhang, pClaude, pOpenAI]);
+
+                let firstSuccessfulAnalysis = null;
+                results.forEach((result, index) => {
+                    let serviceName = ['Laozhang.ai', 'Claude', 'OpenAI'][index];
+                    if (result.status === 'fulfilled') {
+                        const responseValue = result.value;
+                        const titlesText = typeof responseValue === 'string' ? responseValue : (responseValue.titles || JSON.stringify(responseValue));
+                        const parsedData = parseAIResponse(titlesText, serviceName);
+                        if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
+                        
+                        parsedData.titulosSugeridos.forEach(t => {
+                            allGeneratedTitles.push({ ...t, titulo: `[${serviceName}] ${t.titulo}`, model: serviceName });
+                        });
+                    } else {
+                        console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
+                        allGeneratedTitles.push({
+                            titulo: `[${serviceName}] Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
+                        });
+                    }
+                });
+                
+                if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
+                
+                // Verificar se a análise tem os dados necessários
+                if (!firstSuccessfulAnalysis.analiseOriginal) {
+                    throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
+                }
+                
+                // Garantir que o nicho sempre existe (usar padrão se não detectado)
+                finalNicheData = { 
+                    niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
+                    subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
+                };
+                finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
+            } else {
+                // Modo original: comparar Gemini, Claude e OpenAI
+                modelUsedForDisplay = 'Comparação (Gemini, Claude, OpenAI)';
+                const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+                const keys = {};
+                keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+
+                if (!keys.gemini || !keys.claude || !keys.openai) {
+                    return res.status(400).json({ msg: 'Para "Comparar", precisa de ter as chaves de Gemini, Claude E OpenAI configuradas.' });
+                }
+
+                console.log('[Análise-All] A chamar IA em paralelo...');
+                // Usando os modelos específicos para a comparação
+                const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
+                const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
+                const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
 
@@ -2365,31 +8212,78 @@ Tradução em PT-BR:`;
                 throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
             }
             
-            // Garantir que o nicho sempre existe (usar padrão se não detectado)
-            finalNicheData = { 
-                niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
-                subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
-            };
-            finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
-
+                // Garantir que o nicho sempre existe (usar padrão se não detectado)
+                finalNicheData = { 
+                    niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
+                    subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
+                };
+                finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
+            }
         } else {
             // --- LÓGICA DE MODELO ÚNICO ---
+            // PRIMEIRO: Verificar se laozhang.ai está configurada como padrão
             let service;
-            if (model.startsWith('gemini')) service = 'gemini';
-            else if (model.startsWith('claude')) service = 'claude';
-            else if (model.startsWith('gpt')) service = 'openai';
-            else service = 'gemini'; // fallback
-            
-            const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-            if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
-            
-            const decryptedKey = decrypt(userKeyData.api_key);
-            if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
-
+            let decryptedKey;
             let apiCallFunction;
-            if (service === 'gemini') apiCallFunction = callGeminiAPI;
-            else if (service === 'claude') apiCallFunction = callClaudeAPI;
-            else apiCallFunction = callOpenAIAPI;
+            let useLaozhang = false;
+            
+            try {
+                const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+                const laozhangUseAsDefault = laozhangDefaultSetting && (
+                    laozhangDefaultSetting.value === 'true' || 
+                    laozhangDefaultSetting.value === '1' ||
+                    JSON.parse(laozhangDefaultSetting.value) === true
+                );
+                
+                if (laozhangUseAsDefault) {
+                    const laozhangKey = await getLaozhangApiKey();
+                    if (laozhangKey) {
+                        service = 'laozhang';
+                        decryptedKey = laozhangKey;
+                        apiCallFunction = callLaozhangAPI;
+                        useLaozhang = true;
+                        console.log('[Análise-Laozhang.ai] Usando Laozhang.ai como padrão (configuração do admin)');
+                    }
+                }
+            } catch (err) {
+                console.warn('[Análise] Erro ao verificar configuração padrão Laozhang.ai:', err.message);
+            }
+            
+            // SEGUNDO: Se não usar laozhang.ai como padrão, verificar preferência do usuário
+            if (!useLaozhang) {
+                const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+                const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+                
+                if (useCredits) {
+                    // Usuário prefere usar créditos - usar laozhang.ai
+                    const laozhangKey = await getLaozhangApiKey();
+                    if (laozhangKey) {
+                        service = 'laozhang';
+                        decryptedKey = laozhangKey;
+                        apiCallFunction = callLaozhangAPI;
+                        useLaozhang = true;
+                        console.log('[Análise-Laozhang.ai] Usando Laozhang.ai (preferência: usar créditos)');
+                    }
+                }
+            }
+            
+            // TERCEIRO: Se não usar laozhang.ai, usar API própria do usuário
+            if (!useLaozhang) {
+                if (model.startsWith('gemini')) service = 'gemini';
+                else if (model.startsWith('claude')) service = 'claude';
+                else if (model.startsWith('gpt')) service = 'openai';
+                else service = 'gemini'; // fallback
+                
+                const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
+                
+                decryptedKey = decrypt(userKeyData.api_key);
+                if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
+
+                if (service === 'gemini') apiCallFunction = callGeminiAPI;
+                else if (service === 'claude') apiCallFunction = callClaudeAPI;
+                else apiCallFunction = callOpenAIAPI;
+            }
 
             console.log(`[Análise-${service}] A chamar IA...`);
             const response = await apiCallFunction(titlePrompt, decryptedKey, model);
@@ -2535,6 +8429,245 @@ Tradução em PT-BR:`;
     }
 });
 
+// Rota alternativa que SEMPRE usa Laozhang.ai para análise de títulos
+app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => {
+    const { videoUrl, folderId } = req.body;
+    const userId = req.user.id;
+
+    if (!videoUrl) {
+        return res.status(400).json({ msg: 'URL do vídeo é obrigatória.' });
+    }
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível. Aguarde alguns instantes.' });
+        }
+        
+        // SEMPRE usar laozhang.ai
+        const laozhangKey = await getLaozhangApiKey();
+        if (!laozhangKey) {
+            return res.status(400).json({ msg: 'Laozhang.ai não configurada no painel admin. Configure a chave de API primeiro.' });
+        }
+
+        const userId = req.user.id;
+
+        // Mineração de dados (mesma lógica da rota original)
+        console.log(`[Análise Laozhang] A iniciar mineração para: ${videoUrl}`);
+        let videoId;
+        try {
+            videoId = ytdl.getVideoID(videoUrl);
+        } catch (err) {
+            return res.status(400).json({ msg: 'URL do YouTube inválida.' });
+        }
+
+        // Tentar usar chave específica do YouTube primeiro, depois fallback para Gemini
+        let youtubeApiKey = null;
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (youtubeKeyData) {
+            youtubeApiKey = decrypt(youtubeKeyData.api_key);
+            if (!youtubeApiKey && youtubeKeyData.api_key && !youtubeKeyData.api_key.includes(':')) {
+                // Chave pode não estar criptografada
+                youtubeApiKey = youtubeKeyData.api_key;
+            }
+            console.log('[Análise Laozhang] Usando chave do YouTube configurada');
+        }
+        
+        // Se não tem chave do YouTube, tentar usar Gemini (pode funcionar se for chave do Google Cloud)
+        if (!youtubeApiKey) {
+            const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            if (geminiKeyData) {
+                youtubeApiKey = decrypt(geminiKeyData.api_key);
+                if (!youtubeApiKey && geminiKeyData.api_key && !geminiKeyData.api_key.includes(':')) {
+                    youtubeApiKey = geminiKeyData.api_key;
+                }
+                console.log('[Análise Laozhang] Usando chave do Gemini como fallback para YouTube');
+            }
+        }
+        
+        if (!youtubeApiKey) {
+            return res.status(400).json({ 
+                msg: 'Nenhuma chave de API do YouTube configurada. Configure uma chave do YouTube Data API v3 nas Configurações.' 
+            });
+        }
+
+        const videoDetails = await callYouTubeDataAPI(videoId, youtubeApiKey);
+        
+        let transcriptText;
+        let fullTranscript = null;
+        try {
+            const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+            fullTranscript = transcriptData.map(t => t.text).join(' ');
+            transcriptText = fullTranscript.substring(0, 500);
+        } catch (err) {
+            console.warn(`[Análise Laozhang] Não foi possível obter transcrição para ${videoId}.`);
+            transcriptText = "(Transcrição não disponível)";
+            fullTranscript = null;
+        }
+        
+        console.log(`[Análise Laozhang] Vídeo encontrado: ${videoDetails.title}`);
+
+        // Traduzir título usando laozhang.ai
+        let translatedTitle = videoDetails.title;
+        try {
+            const translatePrompt = `Traduza o seguinte título de vídeo do YouTube para português brasileiro (PT-BR). Mantenha o sentido, impacto e estrutura original. Retorne APENAS a tradução, sem explicações ou formatação.
+Título original: "${videoDetails.title}"
+
+Tradução em PT-BR:`;
+            
+            const translateResponse = await callLaozhangAPI(
+                translatePrompt, 
+                laozhangKey, 
+                'gpt-4o', 
+                null, 
+                userId, 
+                'api_call', 
+                JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', operation: 'translate', model: 'gpt-4o' })
+            );
+            const translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+            translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
+            if (translatedTitle.length > 200) {
+                translatedTitle = translatedTitle.substring(0, 200);
+            }
+            console.log(`[Análise Laozhang] Título traduzido: ${translatedTitle}`);
+        } catch (err) {
+            console.warn(`[Análise Laozhang] Falha ao traduzir título, usando original: ${err.message}`);
+            translatedTitle = videoDetails.title;
+        }
+
+        // Criar prompt de análise (mesmo da rota original, mas simplificado para laozhang)
+        const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
+        const isViral = isViralVideo(videoDetails.views, videoDetails.days, viewsPerDay);
+        
+        const titlePrompt = `Você é um ESPECIALISTA EM TÍTULOS VIRAIS PARA YOUTUBE com experiência em criar canais milionários.
+
+ANÁLISE DO VÍDEO VIRAL:
+- Título Original: "${videoDetails.title}"
+- Título Traduzido: "${translatedTitle}"
+- Visualizações: ${videoDetails.views.toLocaleString()}
+- Comentários: ${videoDetails.comments.toLocaleString()}
+- Dias desde publicação: ${videoDetails.days}
+- Visualizações por dia: ${viewsPerDay.toLocaleString()}
+- Status: ${isViral ? 'VIRAL' : 'Popular'}
+${transcriptText ? `\n- Transcrição (início): "${transcriptText.substring(0, 500)}..."` : ''}
+
+SUA TAREFA:
+1. Analise POR QUE este título viralizou
+2. Identifique a FÓRMULA EXATA do título
+3. Gere 5 títulos novos usando a mesma fórmula, mas com variações criativas
+
+FORMATO DE RESPOSTA (JSON):
+{
+  "niche": "Nicho detectado",
+  "subniche": "Subnicho detectado",
+  "analiseOriginal": {
+    "motivoSucesso": "Por que viralizou",
+    "formulaTitulo": "Fórmula identificada"
+  },
+  "titulosSugeridos": [
+    { "titulo": "Título 1", "pontuacao": 10, "explicacao": "Por que funciona" },
+    { "titulo": "Título 2", "pontuacao": 9, "explicacao": "Por que funciona" },
+    ...
+  ]
+}
+
+IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
+
+        console.log('[Análise Laozhang] A chamar Laozhang.ai...');
+        const response = await callLaozhangAPI(
+            titlePrompt, 
+            laozhangKey, 
+            'gpt-4o', 
+            null, 
+            userId, 
+            'api_call', 
+            JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: 'gpt-4o' })
+        );
+        
+        // callLaozhangAPI retorna string diretamente agora
+        const responseText = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        console.log('[Análise Laozhang] Resposta recebida (primeiros 500 chars):', responseText.substring(0, 500));
+        const parsedData = parseAIResponse(responseText, 'Laozhang.ai');
+        
+        if (!parsedData.analiseOriginal) {
+            throw new Error("A IA retornou uma análise incompleta.");
+        }
+        
+        const finalNicheData = { 
+            niche: parsedData.niche || 'Entretenimento', 
+            subniche: parsedData.subniche || 'N/A' 
+        };
+        const finalAnalysisData = parsedData.analiseOriginal;
+        const allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: 'Laozhang.ai' }));
+
+        // Salvar no banco
+        let analysisId;
+        try {
+             const analysisResult = await db.run(
+                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json, full_transcript) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
+                    videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
+                    finalNicheData.niche, finalNicheData.subniche, JSON.stringify(finalAnalysisData), fullTranscript
+                ]
+            );
+            analysisId = analysisResult.lastID;
+
+            for (const titleData of allGeneratedTitles) {
+                await db.run(
+                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, explicacao) VALUES (?, ?, ?, ?, ?)',
+                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.explicacao]
+                );
+            }
+            console.log(`[Análise Laozhang] Análise ${analysisId} salva no histórico.`);
+        } catch (dbErr) {
+            console.error("[Análise Laozhang] FALHA AO SALVAR NO BANCO DE DADOS:", dbErr.message);
+        }
+
+        // Calcular receita (mesma lógica)
+        let estimatedRevenueUSD = 0;
+        let estimatedRevenueBRL = 0;
+        let rpmUSD = 2.0;
+        let rpmBRL = 11.0;
+        
+        try {
+            const nicheToUse = finalNicheData.niche || null;
+            const rpm = getRPMByNiche(nicheToUse);
+            if (rpm && typeof rpm === 'object' && typeof rpm.usd === 'number' && typeof rpm.brl === 'number') {
+                const views = parseInt(videoDetails.views) || 0;
+                estimatedRevenueUSD = (views / 1000) * rpm.usd;
+                estimatedRevenueBRL = (views / 1000) * rpm.brl;
+                rpmUSD = rpm.usd;
+                rpmBRL = rpm.brl;
+            }
+        } catch (err) {
+            console.warn('[Análise Laozhang] Erro ao calcular receita:', err);
+        }
+
+        res.status(200).json({
+            niche: finalNicheData.niche,
+            subniche: finalNicheData.subniche,
+            analiseOriginal: finalAnalysisData,
+            titulosSugeridos: allGeneratedTitles,
+            modelUsed: 'Laozhang.ai',
+            videoDetails: {
+                ...videoDetails,
+                videoId: videoId,
+                translatedTitle: translatedTitle || videoDetails.title,
+                estimatedRevenueUSD: estimatedRevenueUSD,
+                estimatedRevenueBRL: estimatedRevenueBRL,
+                rpmUSD: rpmUSD,
+                rpmBRL: rpmBRL
+            },
+            folderId: folderId || null
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analyze/titles/laozhang]:', err);
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao processar a análise com Laozhang.ai.' });
+    }
+});
+
 app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
     const { titleId } = req.params;
     const { is_checked } = req.body;
@@ -2595,26 +8728,355 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
         res.status(500).json({ msg: 'Erro no servidor.' });
     }
 });
+// Função helper para mapear estilos de arte para prompts específicos otimizados (mesmos estilos de prompts e imagens)
+function getStyleSpecificPrompt(style, includePhrases) {
+    // Mapear estilos do gerador de thumbnails para os estilos de prompts/imagens
+    const styleMapping = {
+        'Hiper-realista': 'photorealistic',
+        'Fotografia de alta definicao (8K)': 'photorealistic',
+        'Estilo cinematico (luz dramatica)': 'cinematic',
+        'Foco nitido, alto detalhe': 'photorealistic',
+        'Longa Exposicao': 'documentary',
+        'Preto e Branco': 'documentary',
+        'Fotografia Macro': 'photorealistic'
+    };
+    
+    // Se o estilo já for um dos estilos de prompts/imagens, usar diretamente
+    const mappedStyle = styleMapping[style] || style;
+    
+    // Usar os mesmos sufixos de estilo que são usados em prompts/imagens
+    const styleSuffixes = {
+        'photorealistic': 'Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyperrealistic, ultra high definition, 8K resolution, extreme sharpness, maximum detail, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture with pores visible in 8K, natural lighting, real textures with visible imperfections in ultra HD, real lighting with real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, extreme detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, National Geographic quality, BBC documentary style',
+        'cinematic': 'Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, cinematic, dramatic lighting, film grain, anamorphic lens, color grading, movie still, Hollywood style, epic composition, dramatic shadows, professional color grading, cinematic composition, film noir lighting style, dramatic atmosphere',
+        'documentary': 'Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, documentary style, natural lighting, authentic, candid photography, real moments, journalistic approach, raw and unfiltered',
+        'cinematic-narrative': 'Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, cinematic narrative, storytelling composition, dramatic angles, emotional depth, visual storytelling, film photography',
+        'anime': 'anime style, Japanese animation, vibrant colors, expressive characters, detailed backgrounds, manga-inspired, cel-shaded',
+        'cartoon': 'cartoon style, animated, colorful, expressive, playful, hand-drawn aesthetic, vibrant palette',
+        'cartoon-premium': 'premium cartoon style, high-quality animation, detailed character design, rich colors, professional animation studio quality',
+        'fantasy': 'fantasy art, magical atmosphere, epic scale, mystical lighting, enchanted, otherworldly, detailed fantasy illustration',
+        'stick-figure': 'stick figure style, minimalist line art, simple black lines on white background, clean and minimal',
+        'whiteboard': 'whiteboard animation style, clean white background, hand-drawn illustrations, educational, clear and simple',
+        'tech-minimalist': 'tech minimalist, clean design, modern aesthetic, geometric shapes, minimal color palette, futuristic, sleek',
+        'spiritual-minimalist': 'spiritual minimalist, serene atmosphere, soft lighting, peaceful composition, meditative, zen aesthetic',
+        'viral-vibrant': 'viral vibrant style, high contrast, saturated colors, bold composition, eye-catching, social media optimized, vibrant and energetic',
+        'modern-documentary': 'modern documentary style, dynamic, contemporary, authentic moments, modern cinematography',
+        'analog-horror': 'analog horror style, VHS quality, grainy texture, retro horror aesthetic, vintage feel',
+        'dark-theater': 'dark theater style, dramatic stage lighting, intense shadows, theatrical composition',
+        'naturalist-drama': 'naturalist drama style, realistic, emotional, authentic human moments',
+        'spiritual-neorealism': 'spiritual neorealism style, transcendent realism, mystical atmosphere',
+        'psychological-surrealism': 'psychological surrealism style, dreamlike images, abstract reality',
+        'fragmented-memory': 'fragmented memory style, collage aesthetic, fragmented composition',
+        'fragmented-narrative': 'fragmented narrative style, collage style, layered visual narrative',
+        'dream-real': 'dream-real style, liminal space between dream and reality, ethereal atmosphere',
+        'vhs-nostalgic': 'VHS nostalgic style, retro 80s/90s aesthetic, vintage quality, analog grain'
+    };
+    
+    return styleSuffixes[mappedStyle] || styleSuffixes['photorealistic'];
+}
+
+// Função helper para gerar descrição SEO otimizada com emojis
+function generateOptimizedSEODescription(title, subniche, language) {
+    const emojiMap = {
+        'pt': {
+            'Marketing Digital': '📱💼',
+            'YouTube': '🎥📺',
+            'TikTok': '🎵📱',
+            'Instagram': '📸✨',
+            'Negócios': '💼🚀',
+            'Educação': '📚🎓',
+            'Tecnologia': '💻🔧',
+            'Saúde': '💪🏥',
+            'Fitness': '🏋️💪',
+            'Viagem': '✈️🌍',
+            'Culinária': '🍳👨‍🍳',
+            'Entretenimento': '🎬🎭'
+        },
+        'en': {
+            'Digital Marketing': '📱💼',
+            'YouTube': '🎥📺',
+            'TikTok': '🎵📱',
+            'Instagram': '📸✨',
+            'Business': '💼🚀',
+            'Education': '📚🎓',
+            'Technology': '💻🔧',
+            'Health': '💪🏥',
+            'Fitness': '🏋️💪',
+            'Travel': '✈️🌍',
+            'Cooking': '🍳👨‍🍳',
+            'Entertainment': '🎬🎭'
+        },
+        'es': {
+            'Marketing Digital': '📱💼',
+            'YouTube': '🎥📺',
+            'TikTok': '🎵📱',
+            'Instagram': '📸✨',
+            'Negocios': '💼🚀',
+            'Educación': '📚🎓',
+            'Tecnología': '💻🔧',
+            'Salud': '💪🏥',
+            'Fitness': '🏋️💪',
+            'Viajes': '✈️🌍',
+            'Cocina': '🍳👨‍🍳',
+            'Entretenimiento': '🎬🎭'
+        }
+    };
+    
+    const langCode = language === 'Português' ? 'pt' : language === 'Inglês' ? 'en' : 'es';
+    const emojis = emojiMap[langCode] || emojiMap['pt'];
+    const nicheEmoji = emojis[subniche] || '🎯';
+    
+    if (langCode === 'pt') {
+        return `${nicheEmoji} ${title}
+
+📌 Neste vídeo você vai descobrir:
+✅ Tudo sobre ${subniche}
+✅ Estratégias comprovadas que funcionam
+✅ Dicas exclusivas para resultados rápidos
+
+🎯 Se você quer dominar ${subniche}, este vídeo é para você!
+
+💡 Deixe seu like se este conteúdo te ajudou! 👍
+📢 Compartilhe com quem precisa ver isso!
+🔔 Ative o sininho para não perder nenhum conteúdo!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 CONTEÚDO DO VÍDEO:
+Neste vídeo completo, você vai aprender tudo sobre ${subniche} e como aplicar estratégias eficazes para alcançar seus objetivos.
+
+🎬 O QUE VOCÊ VAI APRENDER:
+• Como dominar ${subniche}
+• Estratégias práticas e aplicáveis
+• Dicas exclusivas de especialistas
+• Erros comuns a evitar
+
+💼 SOBRE O CANAL:
+Aqui você encontra conteúdo de qualidade sobre ${subniche}, com dicas práticas, tutoriais e estratégias que realmente funcionam.
+
+🔗 LINKS IMPORTANTES:
+📱 Siga-nos nas redes sociais para mais conteúdo exclusivo!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#${subniche.replace(/\s+/g, '')} #YouTube #Conteúdo #Dicas #Tutorial`;
+    } else if (langCode === 'en') {
+        return `${nicheEmoji} ${title}
+
+📌 In this video you'll discover:
+✅ Everything about ${subniche}
+✅ Proven strategies that work
+✅ Exclusive tips for quick results
+
+🎯 If you want to master ${subniche}, this video is for you!
+
+💡 Leave a like if this content helped you! 👍
+📢 Share with those who need to see this!
+🔔 Turn on notifications to never miss content!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 VIDEO CONTENT:
+In this complete video, you'll learn everything about ${subniche} and how to apply effective strategies to achieve your goals.
+
+🎬 WHAT YOU'LL LEARN:
+• How to master ${subniche}
+• Practical and applicable strategies
+• Exclusive expert tips
+• Common mistakes to avoid
+
+💼 ABOUT THE CHANNEL:
+Here you'll find quality content about ${subniche}, with practical tips, tutorials and strategies that really work.
+
+🔗 IMPORTANT LINKS:
+📱 Follow us on social media for more exclusive content!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#${subniche.replace(/\s+/g, '')} #YouTube #Content #Tips #Tutorial`;
+    } else {
+        return `${nicheEmoji} ${title}
+
+📌 En este video descubrirás:
+✅ Todo sobre ${subniche}
+✅ Estrategias probadas que funcionan
+✅ Consejos exclusivos para resultados rápidos
+
+🎯 Si quieres dominar ${subniche}, ¡este video es para ti!
+
+💡 ¡Dale like si este contenido te ayudó! 👍
+📢 ¡Comparte con quien necesita ver esto!
+🔔 ¡Activa las notificaciones para no perderte contenido!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 CONTENIDO DEL VIDEO:
+En este video completo, aprenderás todo sobre ${subniche} y cómo aplicar estrategias efectivas para alcanzar tus objetivos.
+
+🎬 LO QUE APRENDERÁS:
+• Cómo dominar ${subniche}
+• Estrategias prácticas y aplicables
+• Consejos exclusivos de expertos
+• Errores comunes a evitar
+
+💼 SOBRE EL CANAL:
+Aquí encontrarás contenido de calidad sobre ${subniche}, con consejos prácticos, tutoriales y estrategias que realmente funcionan.
+
+🔗 ENLACES IMPORTANTES:
+📱 ¡Síguenos en redes sociales para más contenido exclusivo!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#${subniche.replace(/\s+/g, '')} #YouTube #Contenido #Consejos #Tutorial`;
+    }
+}
+
+// Função helper para gerar as 12 regras de thumbnail viral do YouTube
+function getThumbnailViralRules(selectedRule = 'auto', selectedTitle = '') {
+    const rules = {
+        'rule1': {
+            name: 'Regra da Clareza Imediata (1 segundo)',
+            description: 'O cérebro precisa entender a thumbnail em menos de 1 segundo. Se houver confusão, o clique cai.',
+            checklist: ['1 ideia principal', '1 personagem', '1 emoção', '1 objeto-chave'],
+            instructions: 'A thumbnail DEVE ser compreendida em menos de 1 segundo. Use APENAS: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave. Elimine qualquer elemento que cause confusão ou distração.'
+        },
+        'rule2': {
+            name: 'Regra do Assunto Único',
+            description: 'Nada divide a atenção. A thumbnail boa é sempre uma história em uma imagem.',
+            instructions: 'Foque em UM ÚNICO assunto dominante. Nada deve competir pela atenção. A thumbnail deve contar uma história completa em uma única imagem, sem elementos que dividam o foco.'
+        },
+        'rule3': {
+            name: 'Regra do Rosto Grande',
+            description: 'Rostos com forte expressão emocional aumentam CTR de 20% a 60%.',
+            expressions: ['choque', 'surpresa', 'medo', 'raiva', 'felicidade extrema'],
+            instructions: 'Use um rosto GRANDE ocupando pelo menos 40-50% da imagem. A expressão facial DEVE ser EXTREMA e EMOCIONAL: choque, surpresa, medo, raiva ou felicidade extrema. O rosto deve ser o elemento dominante e a primeira coisa que o olho vê.'
+        },
+        'rule4': {
+            name: 'Regra do Contraste Brutal',
+            description: 'Se não tiver contraste, a thumbnail fica invisível.',
+            contrasts: ['texto vs fundo', 'personagem vs fundo', 'cores complementares (azul/laranja, amarelo/roxo)'],
+            instructions: 'Use CONTRASTE BRUTAL entre: texto e fundo, personagem e fundo, cores complementares (azul/laranja, amarelo/roxo). O contraste deve ser tão forte que a thumbnail "pula" da tela mesmo em tamanho pequeno.'
+        },
+        'rule5': {
+            name: 'Regra da Cor Estratégica',
+            description: 'Cada cor ativa um gatilho.',
+            colors: {
+                'Amarelo': 'atenção imediata',
+                'Vermelho': 'urgência / perigo',
+                'Azul': 'confiança',
+                'Verde': 'dinheiro / solução',
+                'Preto': 'premium / mistério'
+            },
+            instructions: 'Use cores estratégicas que ativem gatilhos mentais: Amarelo (atenção imediata), Vermelho (urgência/perigo), Azul (confiança), Verde (dinheiro/solução), Preto (premium/mistério). Escolha a cor baseada na emoção que o título transmite.'
+        },
+        'rule6': {
+            name: 'Regra dos Terços',
+            description: 'Posicionar o assunto nos cruzamentos dos "9 quadrantes". Isso dá harmonia e aumenta o foco natural.',
+            instructions: 'Posicione o elemento principal (rosto, objeto, texto) nos pontos de cruzamento da regra dos terços (onde as linhas dos 9 quadrantes se encontram). Isso cria harmonia visual e guia o olhar naturalmente para o foco.'
+        },
+        'rule7': {
+            name: 'Regra do Texto Ultra Curto',
+            description: 'Texto deve ter 2 a 4 palavras, nunca mais.',
+            examples: ['Ele mentiu', 'Descobri isso', 'Ninguém viu', 'Proibido'],
+            instructions: 'O texto na thumbnail DEVE ter APENAS 2 a 4 palavras. Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu", "Proibido". Textos longos matam o CTR. Seja brutalmente direto e impactante.'
+        },
+        'rule8': {
+            name: 'Regra do Zoom Emocional',
+            description: 'Aparece sempre um elemento gigante que amplifica a emoção ou o conflito.',
+            examples: ['uma conta bancária gigante', 'uma faca gigante', 'uma lupa gigante', 'um número gigante'],
+            instructions: 'Use um elemento GIGANTE que amplifique a emoção ou conflito: uma conta bancária gigante, uma faca gigante, uma lupa gigante, um número gigante. Este elemento deve ocupar 30-40% da imagem e ser o foco emocional.'
+        },
+        'rule9': {
+            name: 'Regra do Mistério',
+            description: 'Toda thumbnail viral tem uma pergunta implícita.',
+            examples: ['algo escondido atrás de blur', 'objeto cortado pela metade', 'pessoa olhando para fora do quadro', 'seta apontando para algo fora da tela'],
+            instructions: 'Crie uma pergunta implícita na thumbnail usando: algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro, seta apontando para algo fora da tela. O espectador DEVE sentir curiosidade sobre o que está fora da imagem.'
+        },
+        'rule10': {
+            name: 'Regra dos Pontos de Fuga',
+            description: 'Linhas visuais guiam o olhar para o foco: personagem ou objeto principal.',
+            elements: ['setas', 'linhas diagonais', 'perspectiva'],
+            instructions: 'Use linhas visuais que guiem o olhar para o foco: setas, linhas diagonais, perspectiva. Essas linhas devem criar um caminho visual que leve o olho diretamente para o elemento principal (personagem ou objeto).'
+        },
+        'rule11': {
+            name: 'Regra do Espaço Negativo',
+            description: 'Deixar áreas vazias acentua o foco. Sem isso, a imagem vira bagunça.',
+            instructions: 'Deixe áreas vazias (espaço negativo) que acentuem o foco no elemento principal. O espaço vazio cria respiração visual e faz o elemento principal "pular" da imagem. Sem espaço negativo, a thumbnail vira bagunça visual.'
+        },
+        'rule12': {
+            name: 'Regra da Coerência com o Título',
+            description: 'Thumbnail e título precisam contar a mesma história, mas com ângulos diferentes.',
+            instructions: 'A thumbnail e o título DEVEM contar a mesma história, mas com ângulos diferentes: Título = contexto, Thumbnail = emoção. A thumbnail deve amplificar a emoção que o título promete, criando uma sinergia perfeita.'
+        }
+    };
+    
+    if (selectedRule === 'auto') {
+        // IA deve identificar qual regra melhor se encaixa baseado no título
+        return {
+            mode: 'auto',
+            instructions: `Analise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral melhor se encaixa. Aplique a regra identificada de forma rigorosa. Se múltiplas regras se aplicarem, priorize a que tiver maior impacto no CTR.`,
+            allRules: rules
+        };
+    } else {
+        const rule = rules[selectedRule];
+        if (!rule) {
+            return { mode: 'auto', instructions: 'Regra não encontrada. Use modo automático.', allRules: rules };
+        }
+        return {
+            mode: 'manual',
+            rule: rule,
+            instructions: rule.instructions
+        };
+    }
+}
+
 app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
-    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt } = req.body;
+    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule } = req.body;
     const userId = req.user.id;
 
     if (!videoId || !selectedTitle || !model || !niche || !subniche || !language || includePhrases === undefined || !style) {
         return res.status(400).json({ msg: 'Dados insuficientes para gerar ideias de thumbnail.' });
     }
+    
+    // Se thumbnailRule não for fornecido, usar 'auto'
+    thumbnailRule = thumbnailRule || 'auto';
 
     try {
+        // Verificar se Laozhang está configurado como padrão
+        const laozhangSettings = await db.get('SELECT laozhang_use_as_default FROM app_settings LIMIT 1');
+        const useLaozhang = laozhangSettings && (laozhangSettings.laozhang_use_as_default === 1 || laozhangSettings.laozhang_use_as_default === true);
+        
+        if (useLaozhang) {
+            // Redirecionar para rota Laozhang
+            const laozhangKeyData = await db.get('SELECT api_key FROM app_settings WHERE setting_key = ?', ['laozhang_api_key']);
+            if (!laozhangKeyData || !laozhangKeyData.api_key) {
+                return res.status(400).json({ msg: 'Laozhang.ai configurada como padrão, mas chave não encontrada.' });
+            }
+            // Continuar com rota normal mas usando Laozhang internamente
+        }
+        
         // --- 1. Identificar serviço e buscar chaves ---
         let service;
         
-        if (model === 'all') {
-            model = 'gemini-2.0-flash'; 
+        // Mapear modelos corretamente
+        if (model === 'gpt-4o') {
+            service = 'openai';
+            model = 'gpt-4o';
+        } else if (model === 'claude-3-7-sonnet-20250219') {
+            service = 'claude';
+            model = 'claude-3-7-sonnet-20250219';
+        } else if (model === 'gemini-2.5-pro') {
+            service = 'gemini';
+            model = 'gemini-2.5-pro';
+        } else if (model.startsWith('gemini')) {
+            service = 'gemini';
+        } else if (model.startsWith('claude')) {
+            service = 'claude';
+        } else if (model.startsWith('gpt')) {
+            service = 'openai';
+        } else {
+            service = 'gemini'; // Fallback
+            model = 'gemini-2.5-pro';
         }
-
-        if (model.startsWith('gemini')) service = 'gemini';
-        else if (model.startsWith('claude')) service = 'claude';
-        else if (model.startsWith('gpt')) service = 'openai';
-        else service = 'gemini'; // Fallback just in case
 
         const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
         if (!keyData) return res.status(400).json({ msg: `Chave de API do ${service} não configurada.` });
@@ -2668,6 +9130,15 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
             
+            ${(() => {
+                const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
+                if (ruleData.mode === 'auto') {
+                    return `\n            🔍 MODO AUTOMÁTICO - ANÁLISE DE REGRA:\n            Analise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral abaixo melhor se encaixa. Aplique a regra identificada de forma RIGOROSA e EXPLÍCITA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.\n\n            📋 AS 12 REGRAS DE THUMBNAIL VIRAL DO YOUTUBE (ALGORITMO OFICIAL):\n\n            1️⃣ REGRA DA CLAREZA IMEDIATA (1 SEGUNDO):\n            O cérebro precisa entender a thumbnail em menos de 1 segundo. Se houver confusão, o clique cai.\n            Checklist OBRIGATÓRIO: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave.\n            A thumbnail DEVE ser compreendida instantaneamente. Elimine qualquer elemento que cause confusão ou distração.\n\n            2️⃣ REGRA DO ASSUNTO ÚNICO:\n            Nada divide a atenção. A thumbnail boa é sempre uma história em uma imagem.\n            Foque em UM ÚNICO assunto dominante. Nada deve competir pela atenção. A thumbnail deve contar uma história completa em uma única imagem, sem elementos que dividam o foco.\n\n            3️⃣ REGRA DO ROSTO GRANDE:\n            Rostos com forte expressão emocional aumentam CTR de 20% a 60%.\n            Expressões mais fortes: choque, surpresa, medo, raiva, felicidade extrema.\n            Use um rosto GRANDE ocupando pelo menos 40-50% da imagem. A expressão facial DEVE ser EXTREMA e EMOCIONAL. O rosto deve ser o elemento dominante e a primeira coisa que o olho vê.\n\n            4️⃣ REGRA DO CONTRASTE BRUTAL:\n            Se não tiver contraste, a thumbnail fica invisível.\n            Use CONTRASTE BRUTAL entre: texto vs fundo, personagem vs fundo, cores complementares (azul/laranja, amarelo/roxo).\n            O contraste deve ser tão forte que a thumbnail "pula" da tela mesmo em tamanho pequeno.\n\n            5️⃣ REGRA DA COR ESTRATÉGICA:\n            Cada cor ativa um gatilho:\n            - Amarelo: atenção imediata\n            - Vermelho: urgência / perigo\n            - Azul: confiança\n            - Verde: dinheiro / solução\n            - Preto: premium / mistério\n            Escolha a cor baseada na emoção que o título transmite.\n\n            6️⃣ REGRA DOS TERÇOS:\n            Posicionar o assunto nos cruzamentos dos "9 quadrantes". Isso dá harmonia e aumenta o foco natural.\n            Posicione o elemento principal (rosto, objeto, texto) nos pontos de cruzamento da regra dos terços (onde as linhas dos 9 quadrantes se encontram). Isso cria harmonia visual e guia o olhar naturalmente para o foco.\n\n            7️⃣ REGRA DO TEXTO ULTRA CURTO:\n            Texto deve ter 2 a 4 palavras, nunca mais.\n            Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu", "Proibido".\n            O texto na thumbnail DEVE ter APENAS 2 a 4 palavras. Textos longos matam o CTR. Seja brutalmente direto e impactante.\n\n            8️⃣ REGRA DO ZOOM EMOCIONAL:\n            Aparece sempre um elemento gigante que amplifica a emoção ou o conflito.\n            Exemplos: uma conta bancária gigante, uma faca gigante, uma lupa gigante, um número gigante.\n            Use um elemento GIGANTE que amplifique a emoção ou conflito. Este elemento deve ocupar 30-40% da imagem e ser o foco emocional.\n\n            9️⃣ REGRA DO MISTÉRIO:\n            Toda thumbnail viral tem uma pergunta implícita.\n            Exemplos: algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro, seta apontando para algo fora da tela.\n            Crie uma pergunta implícita na thumbnail. O espectador DEVE sentir curiosidade sobre o que está fora da imagem.\n\n            🔟 REGRA DOS PONTOS DE FUGA:\n            Linhas visuais guiam o olhar para o foco: personagem ou objeto principal.\n            Sinalizações: setas, linhas diagonais, perspectiva.\n            Use linhas visuais que guiem o olhar para o foco. Essas linhas devem criar um caminho visual que leve o olho diretamente para o elemento principal.\n\n            1️⃣1️⃣ REGRA DO ESPAÇO NEGATIVO:\n            Deixar áreas vazias acentua o foco. Sem isso, a imagem vira bagunça.\n            Deixe áreas vazias (espaço negativo) que acentuem o foco no elemento principal. O espaço vazio cria respiração visual e faz o elemento principal "pular" da imagem.\n\n            1️⃣2️⃣ REGRA DA COERÊNCIA COM O TÍTULO:\n            Thumbnail e título precisam contar a mesma história, mas com ângulos diferentes.\n            Título = contexto, Thumbnail = emoção.\n            A thumbnail e o título DEVEM contar a mesma história, mas com ângulos diferentes. A thumbnail deve amplificar a emoção que o título promete, criando uma sinergia perfeita.\n\n            ⚠️ CRÍTICO: Identifique qual regra melhor se encaixa no título "${selectedTitle}" e aplique-a de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.`;
+                } else {
+                    return `\n            📋 REGRA SELECIONADA: ${ruleData.rule.name}\n            ${ruleData.rule.description}\n\n            ${ruleData.rule.checklist ? `✅ Checklist: ${ruleData.rule.checklist.join(', ')}` : ''}\n            ${ruleData.rule.expressions ? `😮 Expressões recomendadas: ${ruleData.rule.expressions.join(', ')}` : ''}\n            ${ruleData.rule.contrasts ? `🎨 Contrastes: ${ruleData.rule.contrasts.join(', ')}` : ''}\n            ${ruleData.rule.colors ? `🌈 Cores estratégicas: ${Object.entries(ruleData.rule.colors).map(([k, v]) => `${k} (${v})`).join(', ')}` : ''}\n            ${ruleData.rule.examples ? `💡 Exemplos: ${ruleData.rule.examples.join(', ')}` : ''}\n            ${ruleData.rule.elements ? `➡️ Elementos: ${ruleData.rule.elements.join(', ')}` : ''}\n\n            ⚠️ CRÍTICO: Aplique esta regra de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail:\n            ${ruleData.instructions}`;
+                }
+            })()}
+            
             🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
             - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
             - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
@@ -2677,21 +9148,109 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             
             SUA TAREFA:
             Crie DUAS (2) ideias distintas para uma nova thumbnail baseadas no prompt personalizado acima.
-            - **IDEIA 1 (Melhoria):** Analise a thumbnail de referência e proponha uma versão melhorada seguindo o prompt personalizado. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
-            - **IDEIA 2 (Inovação):** Crie um conceito completamente novo seguindo o prompt personalizado. LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
+            
+            ⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+            - **IDEIA 1 (RÉPLICA E MELHORIA DA THUMBNAIL ORIGINAL DO VÍDEO):** 
+              * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+              * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+              * Replique a estrutura da thumbnail original quase 1:1: mantenha EXATAMENTE a mesma composição, ângulo de câmera, enquadramento, posição dos personagens/objetos, paleta de cores, quantidade de texto, posição do texto, elementos visuais principais e storytelling.
+              * PRESERVE o poder viral da thumbnail original que gerou milhões de views.
+              * Apenas ELEVE A QUALIDADE: mais nitidez (8K), contraste reforçado, iluminação cinematográfica profissional, correções de cor profissionais, tratamento de pele profissional, brilho nos olhos, textura realista, limpeza de ruídos, adicione luzes/sombras profissionais, aplique efeitos de texto Photoshop com valores específicos (stroke, drop shadow, outer glow, bevel & emboss).
+              * NÃO altere o storytelling principal, apenas entregue a versão definitiva com acabamento premium.
+              * Resultado: praticamente igual à thumbnail original, mas com sensação de upgrade premium e leitura instantânea mais clara e clicável.
+              * IMPORTANTE: Se a thumbnail original não estiver disponível ou não puder ser analisada, ainda assim mantenha o mesmo conceito visual e estrutura, apenas melhorando a qualidade.
+            
+            - **IDEIA 2 (THUMBNAIL MELHORADA E OTIMIZADA):** 
+              * Esta é uma versão COMPLETAMENTE NOVA, melhorada e otimizada para CTR alto (30%+).
+              * Crie um conceito totalmente novo com foco em CTR máximo: novo enquadramento, nova composição, novos elementos que gerem curiosidade extrema.
+              * Use gatilhos agressivos (perigo, segredo revelado, números gigantes, setas, antes/depois, close dramático) e cores super contrastantes.
+              * Construa um storytelling diferente, alinhado ao título "${selectedTitle}", que prometa algo ainda mais irresistível que a versão original.
+              * O texto deve ser redesenhado para máxima legibilidade mobile, com layer styles profissionais e valores precisos.
+              * Pode mudar cenário, personagens, enquadramento e paleta, explorando um novo gancho visual com FOMO extremo, contraste máximo, expressões dramáticas e elementos que não existem na thumb original.
+              * Objetivo: criar uma thumbnail inédita que pareça "campanha de performance", otimizada para CTR alto e retenção visual imediata.
+              * Esta versão deve ser AINDA MELHOR que a original, com técnicas avançadas de viralização.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
-            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
-            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
-            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, EXTREMAMENTE OTIMIZADA PARA SEO E VIRALIZAÇÃO, com:
+               - Emojis estratégicos e relevantes (use emojis que representem o nicho e subnicho)
+               - Parágrafos bem estruturados com quebras de linha
+               - Chamadas para ação (CTA) claras e persuasivas
+               - Uso estratégico de palavras-chave relevantes para o título "${selectedTitle}" e subnicho "${subniche}"
+               - Formatação profissional com separadores visuais (━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━)
+               - Seções organizadas: introdução, conteúdo do vídeo, sobre o canal, links importantes, hashtags
+               - Linguagem persuasiva e envolvente que gere curiosidade e urgência
+               - A descrição deve estar no idioma "${language}" e ter entre 300-500 palavras
+               - IMPORTANTE: Use emojis de forma estratégica (não exagere, mas use para destacar seções importantes)
+               - Inclua hashtags relevantes no final
+               - Seja específico sobre o que o espectador vai aprender/ganhar
+               
+            2.  **"seoTags"**: Um array de strings com as 15-25 tags MAIS RELEVANTES E ESTRATÉGICAS para o vídeo (LIMITE MÁXIMO: 300 caracteres no total, incluindo vírgulas e espaços. NÃO ultrapasse 300 caracteres), incluindo:
+               - Tags de cauda curta (1-2 palavras): termos populares e competitivos relacionados ao título "${selectedTitle}" e subnicho "${subniche}"
+               - Tags de cauda longa (3-5 palavras): termos mais específicos e menos competitivos que capturam intenção de busca
+               - Tags de nicho: termos específicos do subnicho "${subniche}"
+               - Tags de tendência: termos que estão em alta no momento relacionados ao tema
+               - Tags de formato: termos como "tutorial", "dicas", "como fazer", "guia completo", "passo a passo", etc.
+               - Tags de plataforma: termos relacionados à plataforma (YouTube, TikTok, Instagram, etc.)
+               - Tags de emoção: termos que capturam a emoção do título (ex: "surpresa", "revelação", "mistério", "urgência", "choque")
+               - Tags de benefício: termos que descrevem o que o espectador vai ganhar/aprender
+               - Tags de palavra-chave principal: extrair as palavras-chave mais importantes do título "${selectedTitle}"
+               - Tags de sinônimos: variações e sinônimos das palavras-chave principais
+               - IMPORTANTE: As tags devem ser EXTREMAMENTE RELEVANTES ao título "${selectedTitle}" e ao subnicho "${subniche}"
+               - Evite tags genéricas que não agregam valor
+               - Priorize tags que tenham volume de busca mas não sejam extremamente competitivas
+               - Misture tags em português/inglês/espanhol conforme o idioma "${language}"
+               - LIMITE MÁXIMO: 300 caracteres no total (incluindo vírgulas e espaços). NÃO ultrapasse 300 caracteres.
+               - Cada tag deve ter entre 1-5 palavras, sendo a maioria com 2-3 palavras para otimizar o uso do espaço
+               - Priorize tags mais relevantes e estratégicas. Se necessário, reduza a quantidade de tags para não ultrapassar 300 caracteres.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, OBRIGATORIAMENTE no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : `
+                ⚠️⚠️⚠️ CRÍTICO E OBRIGATÓRIO - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+                
+                As frases de gancho DEVEM estar EXATAMENTE no idioma "${language}".
+                
+                ${language === 'Português' ? `
+                ✅ CORRETO (Português): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante", "A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : language === 'Inglês' ? `
+                ✅ CORRETO (Inglês): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : `
+                ✅ CORRETO (Espanhol): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante", "La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"
+                `}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Se "${language}" for "Português", TODAS as 5 frases DEVEM estar em PORTUGUÊS (Brasil)
+                2. Se "${language}" for "Inglês", TODAS as 5 frases DEVEM estar em INGLÊS
+                3. Se "${language}" for "Espanhol", TODAS as 5 frases DEVEM estar em ESPANHOL
+                4. NUNCA, JAMAIS retorne frases em inglês se o idioma escolhido for português ou espanhol
+                5. NUNCA, JAMAIS retorne frases em português se o idioma escolhido for inglês ou espanhol
+                6. NUNCA, JAMAIS retorne frases em espanhol se o idioma escolhido for português ou inglês
+                7. Cada frase deve ter 2 a 4 palavras, no máximo
+                8. As frases devem ser impactantes e relacionadas ao título "${selectedTitle}"
+                
+                ANTES DE RETORNAR O JSON, VERIFIQUE:
+                - Todas as 5 frases estão no idioma "${language}"?
+                - Nenhuma frase está em inglês se "${language}" for português ou espanhol?
+                - Nenhuma frase está em português se "${language}" for inglês ou espanhol?
+                - Nenhuma frase está em espanhol se "${language}" for português ou inglês?
+                
+                Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
+                `}
             4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido. CRÍTICO: Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem.'}
             
-            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
-            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
-            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
-            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
-            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
-            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
+            
+            - ENFATIZE REPETIDAMENTE E OBRIGATORIAMENTE: "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail", "every pore visible", "every texture crisp", "perfect focus", "ultra sharp", "no blur except intentional depth of field", "no artifacts", "no compression", "no pixelation", "perfect clarity", "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment", "National Geographic quality", "BBC documentary style", "professional photography", "photorealistic", "hyper-realistic"
+            
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art", "artistic interpretation", "stylized", "artistic style", "digital illustration"
+            
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography", "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail"
+            
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL ULTRA HD 8K tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores and natural imperfections visible in 8K detail", "real fabric texture with visible fibers and weave patterns in ultra HD", "real stone texture with weathering, cracks, and imperfections visible in perfect 8K clarity", "real shadows cast by real light sources with perfect sharpness", "real depth of field blur with perfect bokeh", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable", "every detail visible in 8K resolution", "extreme sharpness and clarity", "no compression artifacts", "perfect focus on subject"
 
             REGRAS IMPORTANTES:
             - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
@@ -2783,13 +9342,13 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 {
                   "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
                   "seoTags": ["tag1", "tag2", "tag3", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"]' : language === 'Inglês' ? '["He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"]' : '["Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 },
                 {
                   "seoDescription": "Outra descrição completa e otimizada...",
                   "seoTags": ["tagA", "tagB", "tagC", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"]' : language === 'Inglês' ? '["The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything", "Surprising Revelation"]' : '["La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 }
               ]
@@ -2816,7 +9375,17 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             // Prompts otimizados por modelo
             if (service === 'gemini') {
                 thumbPrompt = `
-            Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}${videoPerformanceContext}
+            Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
+            
+            ⚠️⚠️⚠️ ATENÇÃO CRÍTICA - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+            O idioma selecionado é: "${language}"
+            Se "${language}" for "Português", TODAS as frases de gancho DEVEM estar em PORTUGUÊS.
+            Se "${language}" for "Inglês", TODAS as frases de gancho DEVEM estar em INGLÊS.
+            Se "${language}" for "Espanhol", TODAS as frases de gancho DEVEM estar em ESPANHOL.
+            NUNCA, JAMAIS retorne frases em inglês se o idioma for português ou espanhol.
+            NUNCA, JAMAIS retorne frases em português se o idioma for inglês ou espanhol.
+            NUNCA, JAMAIS retorne frases em espanhol se o idioma for português ou inglês.
+            ANTES DE RETORNAR O JSON, VERIFIQUE SE TODAS AS 5 FRASES ESTÃO NO IDIOMA CORRETO "${language}".${formulaContext}${videoPerformanceContext}
 
             🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
             Este vídeo ${isViralThumb ? 'COM ESTA THUMBNAIL VIRALIZOU' : 'DE REFERÊNCIA tem esta thumbnail'}, com o título: "${videoDetails.title}"
@@ -2843,6 +9412,15 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
             
+            ${(() => {
+                const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
+                if (ruleData.mode === 'auto') {
+                    return `\n            🔍 MODO AUTOMÁTICO - ANÁLISE DE REGRA:\n            Analise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral abaixo melhor se encaixa. Aplique a regra identificada de forma RIGOROSA e EXPLÍCITA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.\n\n            📋 AS 12 REGRAS DE THUMBNAIL VIRAL DO YOUTUBE (ALGORITMO OFICIAL):\n\n            1️⃣ REGRA DA CLAREZA IMEDIATA (1 SEGUNDO):\n            O cérebro precisa entender a thumbnail em menos de 1 segundo. Se houver confusão, o clique cai.\n            Checklist OBRIGATÓRIO: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave.\n            A thumbnail DEVE ser compreendida instantaneamente. Elimine qualquer elemento que cause confusão ou distração.\n\n            2️⃣ REGRA DO ASSUNTO ÚNICO:\n            Nada divide a atenção. A thumbnail boa é sempre uma história em uma imagem.\n            Foque em UM ÚNICO assunto dominante. Nada deve competir pela atenção. A thumbnail deve contar uma história completa em uma única imagem, sem elementos que dividam o foco.\n\n            3️⃣ REGRA DO ROSTO GRANDE:\n            Rostos com forte expressão emocional aumentam CTR de 20% a 60%.\n            Expressões mais fortes: choque, surpresa, medo, raiva, felicidade extrema.\n            Use um rosto GRANDE ocupando pelo menos 40-50% da imagem. A expressão facial DEVE ser EXTREMA e EMOCIONAL. O rosto deve ser o elemento dominante e a primeira coisa que o olho vê.\n\n            4️⃣ REGRA DO CONTRASTE BRUTAL:\n            Se não tiver contraste, a thumbnail fica invisível.\n            Use CONTRASTE BRUTAL entre: texto vs fundo, personagem vs fundo, cores complementares (azul/laranja, amarelo/roxo).\n            O contraste deve ser tão forte que a thumbnail "pula" da tela mesmo em tamanho pequeno.\n\n            5️⃣ REGRA DA COR ESTRATÉGICA:\n            Cada cor ativa um gatilho:\n            - Amarelo: atenção imediata\n            - Vermelho: urgência / perigo\n            - Azul: confiança\n            - Verde: dinheiro / solução\n            - Preto: premium / mistério\n            Escolha a cor baseada na emoção que o título transmite.\n\n            6️⃣ REGRA DOS TERÇOS:\n            Posicionar o assunto nos cruzamentos dos "9 quadrantes". Isso dá harmonia e aumenta o foco natural.\n            Posicione o elemento principal (rosto, objeto, texto) nos pontos de cruzamento da regra dos terços (onde as linhas dos 9 quadrantes se encontram). Isso cria harmonia visual e guia o olhar naturalmente para o foco.\n\n            7️⃣ REGRA DO TEXTO ULTRA CURTO:\n            Texto deve ter 2 a 4 palavras, nunca mais.\n            Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu", "Proibido".\n            O texto na thumbnail DEVE ter APENAS 2 a 4 palavras. Textos longos matam o CTR. Seja brutalmente direto e impactante.\n\n            8️⃣ REGRA DO ZOOM EMOCIONAL:\n            Aparece sempre um elemento gigante que amplifica a emoção ou o conflito.\n            Exemplos: uma conta bancária gigante, uma faca gigante, uma lupa gigante, um número gigante.\n            Use um elemento GIGANTE que amplifique a emoção ou conflito. Este elemento deve ocupar 30-40% da imagem e ser o foco emocional.\n\n            9️⃣ REGRA DO MISTÉRIO:\n            Toda thumbnail viral tem uma pergunta implícita.\n            Exemplos: algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro, seta apontando para algo fora da tela.\n            Crie uma pergunta implícita na thumbnail. O espectador DEVE sentir curiosidade sobre o que está fora da imagem.\n\n            🔟 REGRA DOS PONTOS DE FUGA:\n            Linhas visuais guiam o olhar para o foco: personagem ou objeto principal.\n            Sinalizações: setas, linhas diagonais, perspectiva.\n            Use linhas visuais que guiem o olhar para o foco. Essas linhas devem criar um caminho visual que leve o olho diretamente para o elemento principal.\n\n            1️⃣1️⃣ REGRA DO ESPAÇO NEGATIVO:\n            Deixar áreas vazias acentua o foco. Sem isso, a imagem vira bagunça.\n            Deixe áreas vazias (espaço negativo) que acentuem o foco no elemento principal. O espaço vazio cria respiração visual e faz o elemento principal "pular" da imagem.\n\n            1️⃣2️⃣ REGRA DA COERÊNCIA COM O TÍTULO:\n            Thumbnail e título precisam contar a mesma história, mas com ângulos diferentes.\n            Título = contexto, Thumbnail = emoção.\n            A thumbnail e o título DEVEM contar a mesma história, mas com ângulos diferentes. A thumbnail deve amplificar a emoção que o título promete, criando uma sinergia perfeita.\n\n            ⚠️ CRÍTICO: Identifique qual regra melhor se encaixa no título "${selectedTitle}" e aplique-a de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.`;
+                } else {
+                    return `\n            📋 REGRA SELECIONADA: ${ruleData.rule.name}\n            ${ruleData.rule.description}\n\n            ${ruleData.rule.checklist ? `✅ Checklist: ${ruleData.rule.checklist.join(', ')}` : ''}\n            ${ruleData.rule.expressions ? `😮 Expressões recomendadas: ${ruleData.rule.expressions.join(', ')}` : ''}\n            ${ruleData.rule.contrasts ? `🎨 Contrastes: ${ruleData.rule.contrasts.join(', ')}` : ''}\n            ${ruleData.rule.colors ? `🌈 Cores estratégicas: ${Object.entries(ruleData.rule.colors).map(([k, v]) => `${k} (${v})`).join(', ')}` : ''}\n            ${ruleData.rule.examples ? `💡 Exemplos: ${ruleData.rule.examples.join(', ')}` : ''}\n            ${ruleData.rule.elements ? `➡️ Elementos: ${ruleData.rule.elements.join(', ')}` : ''}\n\n            ⚠️ CRÍTICO: Aplique esta regra de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail:\n            ${ruleData.instructions}`;
+                }
+            })()}
+            
             🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
             - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
             - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
@@ -2853,49 +9431,102 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - GEMINI):
             Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
             
-            - **IDEIA 1 (Adaptação Estratégica Mantendo o Poder Viral):** 
-              Analise PROFUNDAMENTE a thumbnail viral de referência e identifique:
-              * O que tornou esta thumbnail viral? (composição, cores, elementos visuais, expressões, texto, contraste)
-              * Quais elementos visuais geraram curiosidade e cliques?
-              * Qual foi a estratégia emocional que funcionou?
-              
-              Agora, crie uma ADAPTAÇÃO para o subnicho "${subniche}" e título "${selectedTitle}" que:
-              * MANTENHA os elementos virais que funcionaram (composição similar, estratégia emocional, contraste)
-              * ADAPTE os elementos visuais para o seu subnicho (personagens, objetos, cenários relevantes)
-              * MELHORE o que for possível (cores mais vibrantes, contraste maior, composição mais impactante)
-              * MANTENHA o mesmo PODER VIRAL da original
-              
-              LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            - **IDEIA 1 (RÉPLICA APRIMORADA DA ORIGINAL):** 
+              * Copie a mesma estrutura da thumbnail de referência (ângulo da câmera, pose dos personagens, direção do olhar, escala dos elementos, posição do texto).
+              * Mantenha a paleta de cores, quantidade de texto, ícones, props e o storytelling visual original.
+              * Apenas eleve a execução: mais nitidez, contraste calibrado, recorte perfeito, tratamento de pele profissional, brilho nos olhos, texto com efeitos Photoshop refinados (stroke, drop shadow com valores específicos, outer glow, bevel & emboss).
+              * Pequenos ajustes permitidos: limpar ruído visual, alinhar melhor elementos, reforçar a narrativa com micro detalhes, mas sem alterar a ideia central.
+              * Resultado deve parecer uma versão “directors cut” da mesma thumbnail – quase idêntica, porém mais moderna e com sensação premium.
             
-            - **IDEIA 2 (Inovação Viral com Elementos do Original):** 
-              Crie um conceito COMPLETAMENTE NOVO que:
-              * USE os GATILHOS VIRAIS identificados na thumbnail original (curiosidade, FOMO, surpresa, contraste)
-              * ADAPTE para o subnicho "${subniche}" com elementos visuais relevantes
-              * OTIMIZE para o título "${selectedTitle}" destacando palavras-chave visuais
-              * SEJA AINDA MAIS IMPACTANTE que a original (cores mais vibrantes, contraste maior, composição mais dramática)
-              * GERE MAIS CURIOSIDADE e CLIQUE que a original
-              
-              Foque em: 
-              * Curiosidade extrema (elementos misteriosos, surpreendentes, inusitados)
-              * Emoção intensa (expressões faciais dramáticas, momentos de tensão máxima)
-              * Contraste visual máximo (cores vibrantes vs. fundo neutro, luz vs. sombra dramática)
-              * FOMO máximo (medo de perder algo, urgência visual, exclusividade)
-              * Storytelling visual (conta uma história que prende a atenção)
-              
-              LEMBRE-SE: Deve ser descrito como uma FOTO REAL, não uma ilustração. O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss) e tipografia profissional.
+            - **IDEIA 2 (TURBO CTR INOVADOR):** 
+              * Desapegue da composição original e proponha um conceito totalmente novo voltado para CTR 30%+.
+              * Use novos enquadramentos, close dramático ou cena cinematográfica inédita que amplifique o gancho do título "${selectedTitle}".
+              * Aplique gatilhos agressivos de curiosidade e FOMO (expressões extremas, contraste brutal, elementos inesperados).
+              * Redesenhe texto, cores, objetos e iluminação para maximizar leitura instantânea em telas pequenas.
+              * Traga um storytelling visual diferente (antes/depois, contagem regressiva, perigo iminente, segredo revelado etc.) que não existe na thumb original.
+              * LEMBRE-SE: Deve ser descrito como uma FOTO REAL, e o texto precisa parecer produzido no Photoshop por um designer profissional com múltiplos efeitos de camada e valores específicos.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
-            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
-            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
-            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, EXTREMAMENTE OTIMIZADA PARA SEO E VIRALIZAÇÃO, com:
+               - Emojis estratégicos e relevantes (use emojis que representem o nicho e subnicho)
+               - Parágrafos bem estruturados com quebras de linha
+               - Chamadas para ação (CTA) claras e persuasivas
+               - Uso estratégico de palavras-chave relevantes para o título "${selectedTitle}" e subnicho "${subniche}"
+               - Formatação profissional com separadores visuais (━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━)
+               - Seções organizadas: introdução, conteúdo do vídeo, sobre o canal, links importantes, hashtags
+               - Linguagem persuasiva e envolvente que gere curiosidade e urgência
+               - A descrição deve estar no idioma "${language}" e ter entre 300-500 palavras
+               - IMPORTANTE: Use emojis de forma estratégica (não exagere, mas use para destacar seções importantes)
+               - Inclua hashtags relevantes no final
+               - Seja específico sobre o que o espectador vai aprender/ganhar
+               
+            2.  **"seoTags"**: Um array de strings com as 15-25 tags MAIS RELEVANTES E ESTRATÉGICAS para o vídeo (LIMITE MÁXIMO: 300 caracteres no total, incluindo vírgulas e espaços. NÃO ultrapasse 300 caracteres), incluindo:
+               - Tags de cauda curta (1-2 palavras): termos populares e competitivos relacionados ao título "${selectedTitle}" e subnicho "${subniche}"
+               - Tags de cauda longa (3-5 palavras): termos mais específicos e menos competitivos que capturam intenção de busca
+               - Tags de nicho: termos específicos do subnicho "${subniche}"
+               - Tags de tendência: termos que estão em alta no momento relacionados ao tema
+               - Tags de formato: termos como "tutorial", "dicas", "como fazer", "guia completo", "passo a passo", etc.
+               - Tags de plataforma: termos relacionados à plataforma (YouTube, TikTok, Instagram, etc.)
+               - Tags de emoção: termos que capturam a emoção do título (ex: "surpresa", "revelação", "mistério", "urgência", "choque")
+               - Tags de benefício: termos que descrevem o que o espectador vai ganhar/aprender
+               - Tags de palavra-chave principal: extrair as palavras-chave mais importantes do título "${selectedTitle}"
+               - Tags de sinônimos: variações e sinônimos das palavras-chave principais
+               - IMPORTANTE: As tags devem ser EXTREMAMENTE RELEVANTES ao título "${selectedTitle}" e ao subnicho "${subniche}"
+               - Evite tags genéricas que não agregam valor
+               - Priorize tags que tenham volume de busca mas não sejam extremamente competitivas
+               - Misture tags em português/inglês/espanhol conforme o idioma "${language}"
+               - LIMITE MÁXIMO: 300 caracteres no total (incluindo vírgulas e espaços). NÃO ultrapasse 300 caracteres.
+               - Cada tag deve ter entre 1-5 palavras, sendo a maioria com 2-3 palavras para otimizar o uso do espaço
+               - Priorize tags mais relevantes e estratégicas. Se necessário, reduza a quantidade de tags para não ultrapassar 300 caracteres.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, OBRIGATORIAMENTE no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : `
+                ⚠️⚠️⚠️ CRÍTICO E OBRIGATÓRIO - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+                
+                As frases de gancho DEVEM estar EXATAMENTE no idioma "${language}".
+                
+                ${language === 'Português' ? `
+                ✅ CORRETO (Português): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante", "A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : language === 'Inglês' ? `
+                ✅ CORRETO (Inglês): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : `
+                ✅ CORRETO (Espanhol): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante", "La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"
+                `}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Se "${language}" for "Português", TODAS as 5 frases DEVEM estar em PORTUGUÊS (Brasil)
+                2. Se "${language}" for "Inglês", TODAS as 5 frases DEVEM estar em INGLÊS
+                3. Se "${language}" for "Espanhol", TODAS as 5 frases DEVEM estar em ESPANHOL
+                4. NUNCA, JAMAIS retorne frases em inglês se o idioma escolhido for português ou espanhol
+                5. NUNCA, JAMAIS retorne frases em português se o idioma escolhido for inglês ou espanhol
+                6. NUNCA, JAMAIS retorne frases em espanhol se o idioma escolhido for português ou inglês
+                7. Cada frase deve ter 2 a 4 palavras, no máximo
+                8. As frases devem ser impactantes e relacionadas ao título "${selectedTitle}"
+                
+                ANTES DE RETORNAR O JSON, VERIFIQUE:
+                - Todas as 5 frases estão no idioma "${language}"?
+                - Nenhuma frase está em inglês se "${language}" for português ou espanhol?
+                - Nenhuma frase está em português se "${language}" for inglês ou espanhol?
+                - Nenhuma frase está em espanhol se "${language}" for português ou inglês?
+                
+                Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
+                `}
             4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
             
-            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
-            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
-            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
-            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
-            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
-            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
+            
+            - ENFATIZE REPETIDAMENTE E OBRIGATORIAMENTE: "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail", "every pore visible", "every texture crisp", "perfect focus", "ultra sharp", "no blur except intentional depth of field", "no artifacts", "no compression", "no pixelation", "perfect clarity", "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment", "National Geographic quality", "BBC documentary style", "professional photography", "photorealistic", "hyper-realistic"
+            
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art", "artistic interpretation", "stylized", "artistic style", "digital illustration"
+            
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography", "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail"
+            
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL ULTRA HD 8K tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores and natural imperfections visible in 8K detail", "real fabric texture with visible fibers and weave patterns in ultra HD", "real stone texture with weathering, cracks, and imperfections visible in perfect 8K clarity", "real shadows cast by real light sources with perfect sharpness", "real depth of field blur with perfect bokeh", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable", "every detail visible in 8K resolution", "extreme sharpness and clarity", "no compression artifacts", "perfect focus on subject"
 
             REGRAS IMPORTANTES:
             - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
@@ -2987,13 +9618,13 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 {
                   "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
                   "seoTags": ["tag1", "tag2", "tag3", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"]' : language === 'Inglês' ? '["He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"]' : '["Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 },
                 {
                   "seoDescription": "Outra descrição completa e otimizada...",
                   "seoTags": ["tagA", "tagB", "tagC", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"]' : language === 'Inglês' ? '["The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything", "Surprising Revelation"]' : '["La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 }
               ]
@@ -3011,6 +9642,15 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
             
+            ${(() => {
+                const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
+                if (ruleData.mode === 'auto') {
+                    return `\n            🔍 MODO AUTOMÁTICO - ANÁLISE DE REGRA:\n            Analise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral abaixo melhor se encaixa. Aplique a regra identificada de forma RIGOROSA e EXPLÍCITA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.\n\n            📋 AS 12 REGRAS DE THUMBNAIL VIRAL DO YOUTUBE (ALGORITMO OFICIAL):\n\n            1️⃣ REGRA DA CLAREZA IMEDIATA (1 SEGUNDO):\n            O cérebro precisa entender a thumbnail em menos de 1 segundo. Se houver confusão, o clique cai.\n            Checklist OBRIGATÓRIO: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave.\n            A thumbnail DEVE ser compreendida instantaneamente. Elimine qualquer elemento que cause confusão ou distração.\n\n            2️⃣ REGRA DO ASSUNTO ÚNICO:\n            Nada divide a atenção. A thumbnail boa é sempre uma história em uma imagem.\n            Foque em UM ÚNICO assunto dominante. Nada deve competir pela atenção. A thumbnail deve contar uma história completa em uma única imagem, sem elementos que dividam o foco.\n\n            3️⃣ REGRA DO ROSTO GRANDE:\n            Rostos com forte expressão emocional aumentam CTR de 20% a 60%.\n            Expressões mais fortes: choque, surpresa, medo, raiva, felicidade extrema.\n            Use um rosto GRANDE ocupando pelo menos 40-50% da imagem. A expressão facial DEVE ser EXTREMA e EMOCIONAL. O rosto deve ser o elemento dominante e a primeira coisa que o olho vê.\n\n            4️⃣ REGRA DO CONTRASTE BRUTAL:\n            Se não tiver contraste, a thumbnail fica invisível.\n            Use CONTRASTE BRUTAL entre: texto vs fundo, personagem vs fundo, cores complementares (azul/laranja, amarelo/roxo).\n            O contraste deve ser tão forte que a thumbnail "pula" da tela mesmo em tamanho pequeno.\n\n            5️⃣ REGRA DA COR ESTRATÉGICA:\n            Cada cor ativa um gatilho:\n            - Amarelo: atenção imediata\n            - Vermelho: urgência / perigo\n            - Azul: confiança\n            - Verde: dinheiro / solução\n            - Preto: premium / mistério\n            Escolha a cor baseada na emoção que o título transmite.\n\n            6️⃣ REGRA DOS TERÇOS:\n            Posicionar o assunto nos cruzamentos dos "9 quadrantes". Isso dá harmonia e aumenta o foco natural.\n            Posicione o elemento principal (rosto, objeto, texto) nos pontos de cruzamento da regra dos terços (onde as linhas dos 9 quadrantes se encontram). Isso cria harmonia visual e guia o olhar naturalmente para o foco.\n\n            7️⃣ REGRA DO TEXTO ULTRA CURTO:\n            Texto deve ter 2 a 4 palavras, nunca mais.\n            Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu", "Proibido".\n            O texto na thumbnail DEVE ter APENAS 2 a 4 palavras. Textos longos matam o CTR. Seja brutalmente direto e impactante.\n\n            8️⃣ REGRA DO ZOOM EMOCIONAL:\n            Aparece sempre um elemento gigante que amplifica a emoção ou o conflito.\n            Exemplos: uma conta bancária gigante, uma faca gigante, uma lupa gigante, um número gigante.\n            Use um elemento GIGANTE que amplifique a emoção ou conflito. Este elemento deve ocupar 30-40% da imagem e ser o foco emocional.\n\n            9️⃣ REGRA DO MISTÉRIO:\n            Toda thumbnail viral tem uma pergunta implícita.\n            Exemplos: algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro, seta apontando para algo fora da tela.\n            Crie uma pergunta implícita na thumbnail. O espectador DEVE sentir curiosidade sobre o que está fora da imagem.\n\n            🔟 REGRA DOS PONTOS DE FUGA:\n            Linhas visuais guiam o olhar para o foco: personagem ou objeto principal.\n            Sinalizações: setas, linhas diagonais, perspectiva.\n            Use linhas visuais que guiem o olhar para o foco. Essas linhas devem criar um caminho visual que leve o olho diretamente para o elemento principal.\n\n            1️⃣1️⃣ REGRA DO ESPAÇO NEGATIVO:\n            Deixar áreas vazias acentua o foco. Sem isso, a imagem vira bagunça.\n            Deixe áreas vazias (espaço negativo) que acentuem o foco no elemento principal. O espaço vazio cria respiração visual e faz o elemento principal "pular" da imagem.\n\n            1️⃣2️⃣ REGRA DA COERÊNCIA COM O TÍTULO:\n            Thumbnail e título precisam contar a mesma história, mas com ângulos diferentes.\n            Título = contexto, Thumbnail = emoção.\n            A thumbnail e o título DEVEM contar a mesma história, mas com ângulos diferentes. A thumbnail deve amplificar a emoção que o título promete, criando uma sinergia perfeita.\n\n            ⚠️ CRÍTICO: Identifique qual regra melhor se encaixa no título "${selectedTitle}" e aplique-a de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.`;
+                } else {
+                    return `\n            📋 REGRA SELECIONADA: ${ruleData.rule.name}\n            ${ruleData.rule.description}\n\n            ${ruleData.rule.checklist ? `✅ Checklist: ${ruleData.rule.checklist.join(', ')}` : ''}\n            ${ruleData.rule.expressions ? `😮 Expressões recomendadas: ${ruleData.rule.expressions.join(', ')}` : ''}\n            ${ruleData.rule.contrasts ? `🎨 Contrastes: ${ruleData.rule.contrasts.join(', ')}` : ''}\n            ${ruleData.rule.colors ? `🌈 Cores estratégicas: ${Object.entries(ruleData.rule.colors).map(([k, v]) => `${k} (${v})`).join(', ')}` : ''}\n            ${ruleData.rule.examples ? `💡 Exemplos: ${ruleData.rule.examples.join(', ')}` : ''}\n            ${ruleData.rule.elements ? `➡️ Elementos: ${ruleData.rule.elements.join(', ')}` : ''}\n\n            ⚠️ CRÍTICO: Aplique esta regra de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail:\n            ${ruleData.instructions}`;
+                }
+            })()}
+            
             🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
             - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
             - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
@@ -3019,52 +9659,108 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
             
             SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - GPT):
-            Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
+            Analise a thumbnail VIRAL de referência (IMAGEM DE REFERÊNCIA anexada) e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
             
-            - **IDEIA 1 (Adaptação Estratégica Mantendo o Poder Viral):** 
-              Analise PROFUNDAMENTE a thumbnail viral de referência e identifique:
-              * O que tornou esta thumbnail viral? (composição, cores, elementos visuais, expressões, texto, contraste)
-              * Quais elementos visuais geraram curiosidade e cliques?
-              * Qual foi a estratégia emocional que funcionou?
-              
-              Agora, crie uma ADAPTAÇÃO para o subnicho "${subniche}" e título "${selectedTitle}" que:
-              * MANTENHA os elementos virais que funcionaram (composição similar, estratégia emocional, contraste)
-              * ADAPTE os elementos visuais para o seu subnicho (personagens, objetos, cenários relevantes)
-              * MELHORE o que for possível (cores mais vibrantes, contraste maior, composição mais impactante)
-              * MANTENHA o mesmo PODER VIRAL da original
-              * APRIMORE: composição visual (regra dos terços, hierarquia visual, pontos focais), contraste de cores (cores complementares, saturação otimizada), expressões faciais ou elementos emocionais, e clareza do elemento principal
-              
-              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
+            ⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+            - **IDEIA 1 (RÉPLICA E MELHORIA DA THUMBNAIL ORIGINAL DO VÍDEO):** 
+              * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+              * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+              * Replique a estrutura da thumbnail de referência quase 1:1: mantenha EXATAMENTE ângulo de câmera, enquadramento, posição dos personagens/objetos, quantidade e posição do texto, paleta de cores e elementos de cenário.
+              * PRESERVE exatamente o storytelling visual da thumbnail original que gerou milhões de views, apenas elevando a qualidade (recortes perfeitos, tratamento de pele profissional, brilho nos olhos, textura realista, correção de cor cinematográfica).
+              * Ajustes permitidos: aumentar nitidez (8K), reforçar contraste, limpar ruídos, adicionar luzes/sombras profissionais e aplicar efeitos de texto Photoshop com valores específicos (stroke, drop shadow, outer glow, bevel & emboss).
+              * Resultado: praticamente igual à thumb original, mas com sensação de upgrade premium e leitura instantânea mais clara e clicável.
+              * IMPORTANTE: Se a thumbnail original não estiver disponível ou não puder ser analisada, ainda assim mantenha o mesmo conceito visual e estrutura, apenas melhorando a qualidade.
             
-            - **IDEIA 2 (Inovação Viral com Elementos do Original):** 
-              Crie um conceito COMPLETAMENTE NOVO que:
-              * USE os GATILHOS VIRAIS identificados na thumbnail original (curiosidade, FOMO, surpresa, contraste)
-              * ADAPTE para o subnicho "${subniche}" com elementos visuais relevantes
-              * OTIMIZE para o título "${selectedTitle}" destacando palavras-chave visuais
-              * SEJA AINDA MAIS IMPACTANTE que a original (cores mais vibrantes, contraste maior, composição mais dramática)
-              * GERE MAIS CURIOSIDADE e CLIQUE que a original
-              
-              Foque em: 
-              * Curiosidade extrema (elementos misteriosos, surpreendentes, inusitados)
-              * Emoção intensa (expressões faciais dramáticas, momentos de tensão máxima)
-              * Contraste visual máximo (cores vibrantes vs. fundo neutro, luz vs. sombra dramática)
-              * FOMO máximo (medo de perder algo, urgência visual, exclusividade)
-              * Composição visual avançada (regra dos terços, hierarquia visual, pontos focais estratégicos)
-              
-              O TEXTO DEVE ter qualidade profissional como se fosse feito no Photoshop por um designer experiente, com múltiplos efeitos de camada e valores específicos.
+            - **IDEIA 2 (THUMBNAIL MELHORADA E OTIMIZADA):** 
+              * Esta é uma versão COMPLETAMENTE NOVA, melhorada e otimizada para CTR alto (30%+).
+              * Crie um conceito totalmente novo com foco em CTR máximo: novo enquadramento, nova composição, novos elementos que gerem curiosidade extrema.
+              * Use gatilhos agressivos (perigo, segredo revelado, números gigantes, setas, antes/depois, close dramático) e cores super contrastantes.
+              * Construa um storytelling diferente, alinhado ao título "${selectedTitle}", que prometa algo ainda mais irresistível que a versão original.
+              * O texto deve ser redesenhado para máxima legibilidade mobile, com layer styles profissionais e valores precisos.
+              * Objetivo: criar uma thumbnail inédita que pareça "campanha de performance", otimizada para CTR alto e retenção visual imediata.
+              * Esta versão deve ser AINDA MELHOR que a original, com técnicas avançadas de viralização.
 
             PARA CADA UMA DAS 2 IDEIAS, GERE:
-            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, otimizada para SEO, com parágrafos bem estruturados, chamadas para ação e uso de palavras-chave relevantes para o título e subnicho. A descrição deve estar no idioma "${language}".
-            2.  **"seoTags"**: Um array de strings com as 10 a 15 tags mais relevantes para o vídeo, misturando termos de cauda curta e longa.
-            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : ''}
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, EXTREMAMENTE OTIMIZADA PARA SEO E VIRALIZAÇÃO, com:
+               - Emojis estratégicos e relevantes (use emojis que representem o nicho e subnicho)
+               - Parágrafos bem estruturados com quebras de linha
+               - Chamadas para ação (CTA) claras e persuasivas
+               - Uso estratégico de palavras-chave relevantes para o título "${selectedTitle}" e subnicho "${subniche}"
+               - Formatação profissional com separadores visuais (━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━)
+               - Seções organizadas: introdução, conteúdo do vídeo, sobre o canal, links importantes, hashtags
+               - Linguagem persuasiva e envolvente que gere curiosidade e urgência
+               - A descrição deve estar no idioma "${language}" e ter entre 300-500 palavras
+               - IMPORTANTE: Use emojis de forma estratégica (não exagere, mas use para destacar seções importantes)
+               - Inclua hashtags relevantes no final
+               - Seja específico sobre o que o espectador vai aprender/ganhar
+               
+            2.  **"seoTags"**: Um array de strings com as 15-25 tags MAIS RELEVANTES E ESTRATÉGICAS para o vídeo (LIMITE MÁXIMO: 300 caracteres no total, incluindo vírgulas e espaços. NÃO ultrapasse 300 caracteres), incluindo:
+               - Tags de cauda curta (1-2 palavras): termos populares e competitivos relacionados ao título "${selectedTitle}" e subnicho "${subniche}"
+               - Tags de cauda longa (3-5 palavras): termos mais específicos e menos competitivos que capturam intenção de busca
+               - Tags de nicho: termos específicos do subnicho "${subniche}"
+               - Tags de tendência: termos que estão em alta no momento relacionados ao tema
+               - Tags de formato: termos como "tutorial", "dicas", "como fazer", "guia completo", "passo a passo", etc.
+               - Tags de plataforma: termos relacionados à plataforma (YouTube, TikTok, Instagram, etc.)
+               - Tags de emoção: termos que capturam a emoção do título (ex: "surpresa", "revelação", "mistério", "urgência", "choque")
+               - Tags de benefício: termos que descrevem o que o espectador vai ganhar/aprender
+               - Tags de palavra-chave principal: extrair as palavras-chave mais importantes do título "${selectedTitle}"
+               - Tags de sinônimos: variações e sinônimos das palavras-chave principais
+               - IMPORTANTE: As tags devem ser EXTREMAMENTE RELEVANTES ao título "${selectedTitle}" e ao subnicho "${subniche}"
+               - Evite tags genéricas que não agregam valor
+               - Priorize tags que tenham volume de busca mas não sejam extremamente competitivas
+               - Misture tags em português/inglês/espanhol conforme o idioma "${language}"
+               - LIMITE MÁXIMO: 300 caracteres no total (incluindo vírgulas e espaços). NÃO ultrapasse 300 caracteres.
+               - Cada tag deve ter entre 1-5 palavras, sendo a maioria com 2-3 palavras para otimizar o uso do espaço
+               - Priorize tags mais relevantes e estratégicas. Se necessário, reduza a quantidade de tags para não ultrapassar 300 caracteres.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, OBRIGATORIAMENTE no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : `
+                ⚠️⚠️⚠️ CRÍTICO E OBRIGATÓRIO - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+                
+                As frases de gancho DEVEM estar EXATAMENTE no idioma "${language}".
+                
+                ${language === 'Português' ? `
+                ✅ CORRETO (Português): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante", "A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : language === 'Inglês' ? `
+                ✅ CORRETO (Inglês): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : `
+                ✅ CORRETO (Espanhol): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante", "La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"
+                `}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Se "${language}" for "Português", TODAS as 5 frases DEVEM estar em PORTUGUÊS (Brasil)
+                2. Se "${language}" for "Inglês", TODAS as 5 frases DEVEM estar em INGLÊS
+                3. Se "${language}" for "Espanhol", TODAS as 5 frases DEVEM estar em ESPANHOL
+                4. NUNCA, JAMAIS retorne frases em inglês se o idioma escolhido for português ou espanhol
+                5. NUNCA, JAMAIS retorne frases em português se o idioma escolhido for inglês ou espanhol
+                6. NUNCA, JAMAIS retorne frases em espanhol se o idioma escolhido for português ou inglês
+                7. Cada frase deve ter 2 a 4 palavras, no máximo
+                8. As frases devem ser impactantes e relacionadas ao título "${selectedTitle}"
+                
+                ANTES DE RETORNAR O JSON, VERIFIQUE:
+                - Todas as 5 frases estão no idioma "${language}"?
+                - Nenhuma frase está em inglês se "${language}" for português ou espanhol?
+                - Nenhuma frase está em português se "${language}" for inglês ou espanhol?
+                - Nenhuma frase está em espanhol se "${language}" for português ou inglês?
+                
+                Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
+                `}
             4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
             
-            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL, NÃO ILUSTRAÇÃO:
-            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography"
-            - ENFATIZE REPETIDAMENTE: "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment"
-            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art"
-            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography"
-            - IMPORTANTE: Descreva como se fosse uma FOTO REAL tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores", "real fabric texture", "real stone texture with weathering", "real shadows cast by real light sources", "real depth of field blur", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable"
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
+            
+            - ENFATIZE REPETIDAMENTE E OBRIGATORIAMENTE: "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail", "every pore visible", "every texture crisp", "perfect focus", "ultra sharp", "no blur except intentional depth of field", "no artifacts", "no compression", "no pixelation", "perfect clarity", "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment", "National Geographic quality", "BBC documentary style", "professional photography", "photorealistic", "hyper-realistic"
+            
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art", "artistic interpretation", "stylized", "artistic style", "digital illustration"
+            
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography", "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail"
+            
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL ULTRA HD 8K tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores and natural imperfections visible in 8K detail", "real fabric texture with visible fibers and weave patterns in ultra HD", "real stone texture with weathering, cracks, and imperfections visible in perfect 8K clarity", "real shadows cast by real light sources with perfect sharpness", "real depth of field blur with perfect bokeh", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable", "every detail visible in 8K resolution", "extreme sharpness and clarity", "no compression artifacts", "perfect focus on subject"
 
             REGRAS IMPORTANTES:
             - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
@@ -3156,13 +9852,13 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 {
                   "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
                   "seoTags": ["tag1", "tag2", "tag3", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"]' : language === 'Inglês' ? '["He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"]' : '["Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 },
                 {
                   "seoDescription": "Outra descrição completa e otimizada...",
                   "seoTags": ["tagA", "tagB", "tagC", ...],
-                  "frasesDeGancho": ${includePhrases ? '["Outra Frase 1", "Outra Frase 2", "Outra Frase 3", "Outra Frase 4", "Outra Frase 5"]' : '[]'},
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"]' : language === 'Inglês' ? '["The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything", "Surprising Revelation"]' : '["La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"]') : '[]'},
                   "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
                 }
               ]
@@ -3250,7 +9946,84 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             }
         }
 
-        // --- 5. Enviar resposta ---
+        // --- 5. Validar e processar dados antes de enviar ---
+        
+        // Validar e corrigir tags (limite de 300 caracteres) e frases de gancho (idioma correto)
+        if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
+            parsedData.ideias = parsedData.ideias.map(idea => {
+                // Validar tags - limitar a 300 caracteres
+                if (idea.seoTags && Array.isArray(idea.seoTags)) {
+                    let tagsString = idea.seoTags.join(', ');
+                    if (tagsString.length > 300) {
+                        // Reduzir tags até ficar dentro do limite
+                        let reducedTags = [];
+                        let currentLength = 0;
+                        for (const tag of idea.seoTags) {
+                            const tagWithComma = reducedTags.length > 0 ? ', ' + tag : tag;
+                            if (currentLength + tagWithComma.length <= 300) {
+                                reducedTags.push(tag);
+                                currentLength += tagWithComma.length;
+                            } else {
+                                break;
+                            }
+                        }
+                        idea.seoTags = reducedTags;
+                        console.log(`[Thumbnail] Tags reduzidas de ${idea.seoTags.length + (idea.seoTags.length - reducedTags.length)} para ${reducedTags.length} para respeitar limite de 300 caracteres`);
+                    }
+                }
+                
+                // Validar frases de gancho - garantir que estejam no idioma correto
+                if (idea.frasesDeGancho && Array.isArray(idea.frasesDeGancho) && includePhrases) {
+                    // Verificar se as frases estão no idioma correto (análise básica)
+                    const isPortuguese = language === 'Português';
+                    const isSpanish = language === 'Espanhol';
+                    const isEnglish = language === 'Inglês';
+                    
+                    // Palavras comuns em português que não aparecem em inglês/espanhol
+                    const portugueseWords = ['que', 'não', 'você', 'com', 'para', 'mais', 'muito', 'isso', 'aqui', 'agora', 'também', 'sempre', 'depois', 'antes', 'ainda', 'então', 'assim', 'mesmo', 'todo', 'toda', 'todos', 'todas', 'ele', 'ela', 'eles', 'elas', 'nosso', 'nossa', 'seus', 'suas', 'desse', 'dessa', 'deles', 'delas'];
+                    const spanishWords = ['que', 'no', 'tú', 'con', 'para', 'más', 'muy', 'esto', 'aquí', 'ahora', 'también', 'siempre', 'después', 'antes', 'aún', 'entonces', 'así', 'mismo', 'todo', 'toda', 'todos', 'todas', 'él', 'ella', 'ellos', 'ellas', 'nuestro', 'nuestra', 'sus', 'de', 'del', 'de la'];
+                    
+                    idea.frasesDeGancho = idea.frasesDeGancho.map(frase => {
+                        if (!frase || typeof frase !== 'string') return frase;
+                        
+                        const fraseLower = frase.toLowerCase();
+                        let needsTranslation = false;
+                        
+                        if (isPortuguese) {
+                            // Verificar se tem palavras em português
+                            const hasPortugueseWords = portugueseWords.some(word => fraseLower.includes(word));
+                            // Se não tem palavras portuguesas e tem palavras comuns em inglês, provavelmente está em inglês
+                            if (!hasPortugueseWords && (fraseLower.includes('the ') || fraseLower.includes(' a ') || fraseLower.includes('this ') || fraseLower.includes('that '))) {
+                                needsTranslation = true;
+                            }
+                        } else if (isSpanish) {
+                            // Verificar se tem palavras em espanhol
+                            const hasSpanishWords = spanishWords.some(word => fraseLower.includes(word));
+                            // Se não tem palavras espanholas e tem palavras comuns em inglês, provavelmente está em inglês
+                            if (!hasSpanishWords && (fraseLower.includes('the ') || fraseLower.includes(' a ') || fraseLower.includes('this ') || fraseLower.includes('that '))) {
+                                needsTranslation = true;
+                            }
+                        } else if (isEnglish) {
+                            // Se tem palavras portuguesas/espanholas, provavelmente não está em inglês
+                            if (portugueseWords.some(word => fraseLower.includes(word)) || spanishWords.some(word => fraseLower.includes(word))) {
+                                needsTranslation = true;
+                            }
+                        }
+                        
+                        // Se precisa traduzir, retornar a frase original (a IA deve ter gerado corretamente, mas vamos apenas logar)
+                        if (needsTranslation) {
+                            console.warn(`[Thumbnail] Frase de gancho pode estar no idioma errado: "${frase}" (idioma esperado: ${language})`);
+                        }
+                        
+                        return frase;
+                    });
+                }
+                
+                return idea;
+            });
+        }
+
+        // --- 6. Enviar resposta ---
 
         // NÃO salvar thumbnails automaticamente - apenas quando o usuário gerar a imagem e salvar na biblioteca
         // As thumbnails serão salvas apenas quando o usuário gerar a imagem com ImageFX e clicar em "Salvar na Biblioteca"
@@ -3261,6 +10034,1779 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analyze/thumbnail]:', err);
         res.status(500).json({ msg: err.message || 'Erro interno do servidor ao gerar ideias de thumbnail.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA ANÁLISE DE THUMBNAIL ===
+// Nota: Esta rota usa a mesma lógica da rota original, mas sempre usa Laozhang API
+// A implementação completa seguiria o mesmo padrão, mas simplificamos para usar callLaozhangAPI
+app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) => {
+    let { videoId, selectedTitle, model, selectedModel, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule } = req.body;
+    // Usar 'model' se 'selectedModel' não estiver presente (compatibilidade)
+    const modelToUse = model || selectedModel;
+    const userId = req.user.id;
+
+    if (!videoId || !selectedTitle || !niche || !subniche || !language || includePhrases === undefined || !style) {
+        return res.status(400).json({ msg: 'Dados insuficientes para gerar ideias de thumbnail.' });
+    }
+    
+    // Se thumbnailRule não for fornecido, usar 'auto'
+    thumbnailRule = thumbnailRule || 'auto';
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Mapear modelo selecionado para modelo Laozhang
+        // O frontend envia: 'gpt-4o', 'claude-3-7-sonnet-20250219', 'gemini-2.5-pro'
+        let laozhangModel;
+        if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
+            laozhangModel = 'gpt-4o';
+        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
+            laozhangModel = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
+            laozhangModel = 'gemini-2.5-pro';
+        } else {
+            laozhangModel = 'gpt-4o'; // Fallback
+        }
+
+        // Buscar chave do YouTube primeiro (prioridade)
+        let videoDetails = null;
+        let youtubeApiKey = null;
+        
+        try {
+            const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+            if (youtubeKeyData && youtubeKeyData.api_key) {
+                // Tentar descriptografar se estiver criptografada
+                if (youtubeKeyData.api_key.includes(':')) {
+                    try {
+                        youtubeApiKey = decrypt(youtubeKeyData.api_key);
+                    } catch (decryptErr) {
+                        console.warn('[Thumbnail Laozhang] Erro ao descriptografar chave do YouTube, tentando usar diretamente:', decryptErr.message);
+                        youtubeApiKey = youtubeKeyData.api_key;
+                    }
+                } else {
+                    youtubeApiKey = youtubeKeyData.api_key;
+                }
+                
+                if (youtubeApiKey) {
+                    console.log('[Thumbnail Laozhang] Tentando usar chave do YouTube...');
+                    try {
+                        videoDetails = await callYouTubeDataAPI(videoId, youtubeApiKey);
+                        console.log('[Thumbnail Laozhang] ✅ Sucesso com chave do YouTube');
+                    } catch (youtubeErr) {
+                        console.warn('[Thumbnail Laozhang] Erro ao usar chave do YouTube:', youtubeErr.message);
+                        videoDetails = null;
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[Thumbnail Laozhang] Erro ao buscar chave do YouTube:', err.message);
+        }
+        
+        // Se não funcionou com YouTube, tentar Gemini como fallback
+        if (!videoDetails) {
+            try {
+                const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+                if (geminiKeyData && geminiKeyData.api_key) {
+                    let geminiApiKey = null;
+                    if (geminiKeyData.api_key.includes(':')) {
+                        try {
+                            geminiApiKey = decrypt(geminiKeyData.api_key);
+                        } catch (decryptErr) {
+                            console.warn('[Thumbnail Laozhang] Erro ao descriptografar chave do Gemini, tentando usar diretamente:', decryptErr.message);
+                            geminiApiKey = geminiKeyData.api_key;
+                        }
+                    } else {
+                        geminiApiKey = geminiKeyData.api_key;
+                    }
+                    
+                    if (geminiApiKey) {
+                        console.log('[Thumbnail Laozhang] Tentando usar chave do Gemini como fallback...');
+                        try {
+                            videoDetails = await callYouTubeDataAPI(videoId, geminiApiKey);
+                            console.log('[Thumbnail Laozhang] ✅ Sucesso com chave do Gemini');
+                        } catch (geminiErr) {
+                            console.warn('[Thumbnail Laozhang] Erro ao usar chave do Gemini:', geminiErr.message);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[Thumbnail Laozhang] Erro ao buscar chave do Gemini:', err.message);
+            }
+        }
+
+        if (!videoDetails) {
+            return res.status(400).json({ 
+                msg: 'Não foi possível buscar dados do vídeo. Verifique se a chave do YouTube Data API v3 está configurada corretamente nas Configurações. A chave do Gemini pode não funcionar para a API do YouTube.' 
+            });
+        }
+
+        // Usar o mesmo prompt da rota original com todas as melhorias
+        // Buscar análise original para pegar a fórmula do título
+        let formulaTitulo = null;
+        let motivoSucesso = null;
+        try {
+            const originalAnalysis = await db.get(
+                'SELECT analysis_data_json FROM analyzed_videos WHERE youtube_video_id = ? AND user_id = ? ORDER BY analyzed_at DESC LIMIT 1',
+                [videoId, userId]
+            );
+            if (originalAnalysis && originalAnalysis.analysis_data_json) {
+                const analysisData = JSON.parse(originalAnalysis.analysis_data_json);
+                if (analysisData.formulaTitulo) {
+                    formulaTitulo = analysisData.formulaTitulo;
+                }
+                if (analysisData.motivoSucesso) {
+                    motivoSucesso = analysisData.motivoSucesso;
+                }
+            }
+        } catch (err) {
+            console.warn(`[Análise-Thumb Laozhang] Não foi possível buscar análise original: ${err.message}`);
+        }
+        
+        const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
+        
+        const thumbPrompt = customPrompt && customPrompt.trim() ? customPrompt : `
+Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}
+
+TÍTULO DO VÍDEO: "${selectedTitle}"
+SUBNICHO: "${subniche}"
+ESTILO DE ARTE: "${style}"
+IDIOMA: "${language}"
+
+⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+
+${(() => {
+    const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
+    if (ruleData.mode === 'auto') {
+        return `\n🔍 MODO AUTOMÁTICO - ANÁLISE DE REGRA:\nAnalise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral abaixo melhor se encaixa. Aplique a regra identificada de forma RIGOROSA e EXPLÍCITA na descrição da thumbnail.\n\n📋 AS 12 REGRAS DE THUMBNAIL VIRAL DO YOUTUBE:\n\n1️⃣ REGRA DA CLAREZA IMEDIATA (1 SEGUNDO): Checklist: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave.\n\n2️⃣ REGRA DO ASSUNTO ÚNICO: Nada divide a atenção. Foque em UM ÚNICO assunto dominante.\n\n3️⃣ REGRA DO ROSTO GRANDE: Rostos com forte expressão emocional aumentam CTR de 20% a 60%. Expressões: choque, surpresa, medo, raiva, felicidade extrema.\n\n4️⃣ REGRA DO CONTRASTE BRUTAL: Use contraste entre texto vs fundo, personagem vs fundo, cores complementares (azul/laranja, amarelo/roxo).\n\n5️⃣ REGRA DA COR ESTRATÉGICA: Amarelo (atenção), Vermelho (urgência), Azul (confiança), Verde (dinheiro), Preto (premium/mistério).\n\n6️⃣ REGRA DOS TERÇOS: Posicione o assunto nos cruzamentos dos "9 quadrantes".\n\n7️⃣ REGRA DO TEXTO ULTRA CURTO: Texto deve ter 2 a 4 palavras. Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu".\n\n8️⃣ REGRA DO ZOOM EMOCIONAL: Use um elemento GIGANTE que amplifique a emoção (conta bancária gigante, faca gigante, lupa gigante, número gigante).\n\n9️⃣ REGRA DO MISTÉRIO: Crie uma pergunta implícita (algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro).\n\n🔟 REGRA DOS PONTOS DE FUGA: Use linhas visuais (setas, linhas diagonais, perspectiva) que guiem o olhar para o foco.\n\n1️⃣1️⃣ REGRA DO ESPAÇO NEGATIVO: Deixe áreas vazias que acentuem o foco no elemento principal.\n\n1️⃣2️⃣ REGRA DA COERÊNCIA COM O TÍTULO: Título = contexto, Thumbnail = emoção. Devem contar a mesma história com ângulos diferentes.\n\n⚠️ CRÍTICO: Identifique qual regra melhor se encaixa e aplique-a de forma EXPLÍCITA na descrição da thumbnail.`;
+    } else {
+        return `\n📋 REGRA SELECIONADA: ${ruleData.rule.name}\n${ruleData.rule.description}\n\n⚠️ CRÍTICO: Aplique esta regra de forma EXPLÍCITA e RIGOROSA:\n${ruleData.instructions}`;
+    }
+})()}
+
+🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas profissionais e as regras acima.
+
+SUA TAREFA:
+Crie DUAS (2) ideias distintas para thumbnail:
+
+⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+- **IDEIA 1 (RÉPLICA E MELHORIA DA THUMBNAIL ORIGINAL DO VÍDEO):** 
+  * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+  * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+  * Replique a estrutura da thumbnail de referência quase 1:1: mantenha EXATAMENTE a mesma composição, ângulo de câmera, enquadramento, posição dos personagens/objetos, paleta de cores, quantidade de texto, posição do texto, elementos visuais principais e storytelling.
+  * PRESERVE o poder viral da thumbnail original que gerou milhões de views.
+  * Apenas ELEVE A QUALIDADE: mais nitidez (8K), contraste reforçado, iluminação cinematográfica profissional, correções de cor profissionais, tratamento de pele profissional, brilho nos olhos, textura realista, limpeza de ruídos, adicione luzes/sombras profissionais, aplique efeitos de texto Photoshop com valores específicos.
+  * NÃO altere o storytelling principal, apenas entregue a versão definitiva com acabamento premium.
+  * Resultado: praticamente igual à thumbnail original, mas com sensação de upgrade premium e leitura instantânea mais clara e clicável.
+
+- **IDEIA 2 (THUMBNAIL MELHORADA E OTIMIZADA):** 
+  * Esta é uma versão COMPLETAMENTE NOVA, melhorada e otimizada para CTR alto (30%+).
+  * Crie um conceito totalmente novo com foco em CTR máximo: novo enquadramento, nova composição, novos elementos que gerem curiosidade extrema.
+  * Use gatilhos agressivos (perigo, segredo revelado, números gigantes, setas, antes/depois, close dramático) e cores super contrastantes.
+  * Construa um storytelling diferente, alinhado ao título "${selectedTitle}", que prometa algo ainda mais irresistível que a versão original.
+  * O texto deve ser redesenhado para máxima legibilidade mobile, com layer styles profissionais e valores precisos.
+  * Esta versão deve ser AINDA MELHOR que a original, com técnicas avançadas de viralização.
+
+PARA CADA UMA DAS 2 IDEIAS, GERE:
+1. **"seoDescription"**: Descrição EXTREMAMENTE OTIMIZADA para SEO e viralização (300-500 palavras), com emojis estratégicos, parágrafos estruturados, CTAs claras, palavras-chave relevantes, formatação profissional com separadores visuais, seções organizadas (introdução, conteúdo, sobre canal, links, hashtags), linguagem persuasiva que gere curiosidade e urgência, no idioma "${language}".
+
+2. **"seoTags"**: Array com 15-25 tags MAIS RELEVANTES (LIMITE MÁXIMO: 300 caracteres no total, incluindo vírgulas e espaços. NÃO ultrapasse 300 caracteres), incluindo: tags de cauda curta (1-2 palavras), tags de cauda longa (3-5 palavras), tags de nicho, tags de tendência, tags de formato, tags de emoção, tags de benefício, tags de palavra-chave principal, tags de sinônimos. Todas RELEVANTES ao título "${selectedTitle}" e subnicho "${subniche}", no idioma "${language}". Priorize tags mais relevantes e estratégicas. Se necessário, reduza a quantidade de tags para não ultrapassar 300 caracteres.
+
+3. **"frasesDeGancho"**: Array com 5 frases CURTAS de impacto (2-4 palavras cada), OBRIGATORIAMENTE no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne array vazio [].' : `
+                ⚠️⚠️⚠️ CRÍTICO E OBRIGATÓRIO - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+                
+                As frases de gancho DEVEM estar EXATAMENTE no idioma "${language}".
+                
+                ${language === 'Português' ? `
+                ✅ CORRETO (Português): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante", "A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : language === 'Inglês' ? `
+                ✅ CORRETO (Inglês): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : `
+                ✅ CORRETO (Espanhol): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante", "La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"
+                `}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Se "${language}" for "Português", TODAS as 5 frases DEVEM estar em PORTUGUÊS (Brasil)
+                2. Se "${language}" for "Inglês", TODAS as 5 frases DEVEM estar em INGLÊS
+                3. Se "${language}" for "Espanhol", TODAS as 5 frases DEVEM estar em ESPANHOL
+                4. NUNCA, JAMAIS retorne frases em inglês se o idioma escolhido for português ou espanhol
+                5. NUNCA, JAMAIS retorne frases em português se o idioma escolhido for inglês ou espanhol
+                6. NUNCA, JAMAIS retorne frases em espanhol se o idioma escolhido for português ou inglês
+                7. Cada frase deve ter 2 a 4 palavras, no máximo
+                8. As frases devem ser impactantes e relacionadas ao título "${selectedTitle}"
+                
+                ANTES DE RETORNAR O JSON, VERIFIQUE:
+                - Todas as 5 frases estão no idioma "${language}"?
+                - Nenhuma frase está em inglês se "${language}" for português ou espanhol?
+                - Nenhuma frase está em português se "${language}" for inglês ou espanhol?
+                - Nenhuma frase está em espanhol se "${language}" for português ou inglês?
+                
+                Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
+                `}
+
+4. **"descricaoThumbnail"**: Prompt EXTREMAMENTE DETALHADO em INGLÊS para IA de geração de imagem. ${!includePhrases ? 'NÃO inclua placeholder para texto. Apenas elementos visuais.' : 'DEVE incluir placeholder "[FRASE DE GANCHO AQUI]" com descrição profissional de texto Photoshop (layer effects, stroke, drop shadow, outer glow, bevel & emboss, tipografia profissional, valores específicos).'} DEVE começar com: "${getStyleSpecificPrompt(style, includePhrases)}" e aplicar as regras de thumbnail viral identificadas acima de forma EXPLÍCITA.
+
+Retorne APENAS JSON válido:
+{
+  "ideias": [
+    {
+      "seoDescription": "Descrição completa e otimizada...",
+      "seoTags": ["tag1", "tag2", ...],
+      "frasesDeGancho": ${includePhrases ? '["Frase 1", "Frase 2", "Frase 3", "Frase 4", "Frase 5"]' : '[]'},
+      "descricaoThumbnail": "Ultra-high-definition (8K) professional photograph... ${includePhrases ? '[FRASE DE GANCHO AQUI]' : ''}..."
+    },
+    {
+      "seoDescription": "Outra descrição completa e otimizada...",
+      "seoTags": ["tagA", "tagB", ...],
+      "frasesDeGancho": ${includePhrases ? '["Outra 1", "Outra 2", "Outra 3", "Outra 4", "Outra 5"]' : '[]'},
+      "descricaoThumbnail": "Ultra-high-definition (8K) professional photograph... ${includePhrases ? '[FRASE DE GANCHO AQUI]' : ''}..."
+    }
+  ]
+}`;
+
+        const response = await callLaozhangAPI(
+            thumbPrompt,
+            laozhangApiKey,
+            laozhangModel,
+            videoDetails.thumbnailUrl,
+            userId,
+            'api_analyze_thumbnail',
+            JSON.stringify({ endpoint: '/api/analyze/thumbnail/laozhang', model: laozhangModel })
+        );
+
+        // Parsear resposta
+        let parsedData;
+        const rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        try {
+            parsedData = JSON.parse(rawResponse);
+        } catch (e) {
+            const jsonMatch = rawResponse.match(/\{[\s\S]*"ideias"[\s\S]*\}/);
+            if (jsonMatch) {
+                parsedData = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('Resposta da IA não contém JSON válido.');
+            }
+        }
+
+        if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
+            throw new Error("A IA não retornou o array 'ideias' esperado.");
+        }
+
+        // Validar e processar dados antes de enviar (mesma lógica da rota principal)
+        if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
+            parsedData.ideias = parsedData.ideias.map(idea => {
+                // Validar tags - limitar a 300 caracteres
+                if (idea.seoTags && Array.isArray(idea.seoTags)) {
+                    let tagsString = idea.seoTags.join(', ');
+                    if (tagsString.length > 300) {
+                        // Reduzir tags até ficar dentro do limite
+                        let reducedTags = [];
+                        let currentLength = 0;
+                        for (const tag of idea.seoTags) {
+                            const tagWithComma = reducedTags.length > 0 ? ', ' + tag : tag;
+                            if (currentLength + tagWithComma.length <= 300) {
+                                reducedTags.push(tag);
+                                currentLength += tagWithComma.length;
+                            } else {
+                                break;
+                            }
+                        }
+                        idea.seoTags = reducedTags;
+                        console.log(`[Thumbnail Laozhang] Tags reduzidas para respeitar limite de 300 caracteres`);
+                    }
+                }
+                
+                // Validar frases de gancho - garantir que estejam no idioma correto
+                if (idea.frasesDeGancho && Array.isArray(idea.frasesDeGancho) && includePhrases) {
+                    const isPortuguese = language === 'Português';
+                    const isSpanish = language === 'Espanhol';
+                    const portugueseWords = ['que', 'não', 'você', 'com', 'para', 'mais', 'muito', 'isso', 'aqui', 'agora', 'também', 'sempre', 'depois', 'antes', 'ainda', 'então', 'assim', 'mesmo', 'todo', 'toda', 'todos', 'todas', 'ele', 'ela', 'eles', 'elas'];
+                    const spanishWords = ['que', 'no', 'tú', 'con', 'para', 'más', 'muy', 'esto', 'aquí', 'ahora', 'también', 'siempre', 'después', 'antes', 'aún', 'entonces', 'así', 'mismo', 'todo', 'toda', 'todos', 'todas', 'él', 'ella', 'ellos', 'ellas'];
+                    
+                    idea.frasesDeGancho = idea.frasesDeGancho.map(frase => {
+                        if (!frase || typeof frase !== 'string') return frase;
+                        const fraseLower = frase.toLowerCase();
+                        let needsTranslation = false;
+                        
+                        if (isPortuguese && !portugueseWords.some(word => fraseLower.includes(word)) && (fraseLower.includes('the ') || fraseLower.includes(' a ') || fraseLower.includes('this '))) {
+                            needsTranslation = true;
+                        } else if (isSpanish && !spanishWords.some(word => fraseLower.includes(word)) && (fraseLower.includes('the ') || fraseLower.includes(' a ') || fraseLower.includes('this '))) {
+                            needsTranslation = true;
+                        }
+                        
+                        if (needsTranslation) {
+                            console.warn(`[Thumbnail Laozhang] Frase de gancho pode estar no idioma errado: "${frase}" (idioma esperado: ${language})`);
+                        }
+                        
+                        return frase;
+                    });
+                }
+                
+                return idea;
+            });
+        }
+
+        res.status(200).json(parsedData.ideias);
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/analyze/thumbnail/laozhang]:', err);
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao gerar ideias de thumbnail.' });
+    }
+});
+
+// === ROTA PARA GERAR PROMPTS DE CENA ===
+app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
+    const { script, model, style, imageModel, mode, wordsPerScene, characters, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!script || !script.trim()) {
+        return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
+    }
+
+    if (!model) {
+        return res.status(400).json({ msg: 'O modelo de IA é obrigatório.' });
+    }
+
+    try {
+        // Buscar chave de API do modelo selecionado
+        let service = 'gemini';
+        if (model.includes('claude') || model.includes('sonnet')) {
+            service = 'claude';
+        } else if (model.includes('gpt') || model.includes('openai')) {
+            service = 'openai';
+        }
+
+        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+        if (!keyData) {
+            return res.status(400).json({ msg: `Chave de API do ${service} não configurada. Configure nas Configurações.` });
+        }
+
+        const decryptedKey = decrypt(keyData.api_key);
+        if (!decryptedKey) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+        }
+
+        // Calcular número estimado de cenas baseado no modo
+        const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
+        let estimatedScenes, minScenes, maxScenes;
+        
+        if (mode === 'manual' && wordsPerScene) {
+            // Modo manual: baseado em palavras por cena
+            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
+            minScenes = Math.max(1, Math.floor(wordCount / (parseInt(wordsPerScene) * 1.4)));
+            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (parseInt(wordsPerScene) * 0.6)));
+        } else {
+            // Modo automático: 1 cena a cada ~90 palavras
+            estimatedScenes = Math.max(1, Math.round(wordCount / 90));
+            minScenes = Math.max(1, Math.floor(wordCount / 140));
+            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+        }
+
+        // Mapeamento detalhado de estilos para instruções
+        const styleInstructions = {
+            'photorealistic': 'O estilo visual deve ser fotorealista, com detalhes perfeitos, ultra alta definição, foco nítido, fotografia profissional.',
+            'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
+            'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
+            'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
+            'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
+            'cartoon': 'O estilo visual deve ser desenho animado, colorido, expressivo, com estética de animação tradicional.',
+            'cartoon-premium': 'O estilo visual deve ser cartoon premium, com alta qualidade de animação e design profissional.',
+            'fantasy': 'O estilo visual deve ser fantasia, mágico, épico, com atmosfera encantada e elementos místicos.',
+            'stick-figure': 'O estilo visual deve ser desenho de palitos, minimalista, linhas simples em fundo branco.',
+            'whiteboard': 'O estilo visual deve ser animação de quadro branco, educativo, limpo, com ilustrações desenhadas à mão.',
+            'tech-minimalist': 'O estilo visual deve ser tech minimalista, design limpo, estética moderna e futurista.',
+            'spiritual-minimalist': 'O estilo visual deve ser espiritual minimalista, sereno, com atmosfera meditativa e zen.',
+            'viral-vibrant': 'O estilo visual deve ser viral vibrante, alto contraste, cores saturadas, otimizado para redes sociais.',
+            'modern-documentary': 'O estilo visual deve ser documentário moderno, dinâmico, contemporâneo, com momentos autênticos.',
+            'analog-horror': 'O estilo visual deve ser terror analógico, qualidade VHS, textura granulada, estética retro de horror.',
+            'dark-theater': 'O estilo visual deve ser teatro sombrio, iluminação dramática de palco, sombras intensas.',
+            'naturalist-drama': 'O estilo visual deve ser drama naturalista, realista, emocional, com momentos humanos autênticos.',
+            'spiritual-neorealism': 'O estilo visual deve ser neo-realismo espiritual, realismo transcendente, atmosfera mística.',
+            'psychological-surrealism': 'O estilo visual deve ser surrealismo psicológico, imagens oníricas, realidade abstrata.',
+            'fragmented-memory': 'O estilo visual deve ser memória fragmentada, estética de colagem, composição fragmentada.',
+            'fragmented-narrative': 'O estilo visual deve ser narrativa fragmentada, estilo colagem, narrativa visual em camadas.',
+            'dream-real': 'O estilo visual deve ser sonho-real, espaço liminar entre sonho e realidade, atmosfera etérea.',
+            'vhs-nostalgic': 'O estilo visual deve ser VHS nostálgico, estética retro anos 80/90, qualidade vintage, grão analógico.'
+        };
+        
+        const styleInstruction = style && style !== 'none' && styleInstructions[style] 
+            ? ` ${styleInstructions[style]}` 
+            : '';
+        const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
+        const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
+
+        const prompt = `Você é um especialista em criação de prompts para geração de imagens usando IA.
+
+TAREFA:
+Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer na imagem para aquela parte do roteiro.
+
+ROTEIRO:
+"""
+${script}
+"""
+
+INSTRUÇÕES:
+1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+2. Cada prompt deve ter entre 600-1200 caracteres
+3. Cada prompt deve ser em INGLÊS e otimizado para geração de imagens
+4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário
+5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
+6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
+
+FORMATO DE RESPOSTA (JSON):
+{
+  "scenes": [
+    {
+      "scene_number": 1,
+      "scene_description": "Breve descrição da cena em português",
+      "prompt_text": "Prompt detalhado em inglês para geração de imagem (600-1200 caracteres)"
+    },
+    {
+      "scene_number": 2,
+      "scene_description": "Breve descrição da cena em português",
+      "prompt_text": "Prompt detalhado em inglês para geração de imagem (600-1200 caracteres)"
+    }
+  ]
+}
+
+IMPORTANTE:
+- Responda APENAS com o JSON válido, sem texto adicional
+- Certifique-se de que cada prompt_text tem entre 600-1200 caracteres
+- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
+- O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
+- Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.`;
+
+        let apiCallFunction;
+        if (service === 'gemini') apiCallFunction = callGeminiAPI;
+        else if (service === 'claude') apiCallFunction = callClaudeAPI;
+        else apiCallFunction = callOpenAIAPI;
+
+        console.log(`[Scene Prompts] Gerando prompts com ${service} (modelo: ${model})...`);
+        const response = await apiCallFunction(prompt, decryptedKey, model);
+
+        // Parsear resposta
+        let scenesData;
+        let rawResponse = response;
+        
+        if (typeof response === 'string') {
+            rawResponse = response.trim();
+        } else {
+            rawResponse = JSON.stringify(response);
+        }
+        
+        console.log('[Scene Prompts] Resposta bruta (primeiros 1000 chars):', rawResponse.substring(0, 1000));
+        
+        // Tentar parsear diretamente
+        try {
+            scenesData = JSON.parse(rawResponse);
+        } catch (e) {
+            console.log('[Scene Prompts] Tentativa 1 de parsing falhou, tentando extrair JSON...');
+            
+            // Tentar extrair JSON usando regex mais robusto
+            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    scenesData = JSON.parse(jsonMatch[0]);
+                } catch (e2) {
+                    console.log('[Scene Prompts] Tentativa 2 de parsing falhou, tentando corrigir JSON...');
+                    
+                    // Tentar corrigir JSON comum (remover markdown, code blocks, etc)
+                    let cleanedJson = jsonMatch[0]
+                        .replace(/```json\s*/g, '')
+                        .replace(/```\s*/g, '')
+                        .replace(/^[^{]*/, '')
+                        .replace(/[^}]*$/, '');
+                    
+                    try {
+                        scenesData = JSON.parse(cleanedJson);
+                    } catch (e3) {
+                        console.log('[Scene Prompts] Tentativa 3 de parsing falhou, tentando extrair scenes diretamente...');
+                        
+                        // Última tentativa: procurar por "scenes" no texto
+                        const scenesMatch = rawResponse.match(/"scenes"\s*:\s*\[[\s\S]*\]/);
+                        if (scenesMatch) {
+                            try {
+                                scenesData = JSON.parse(`{${scenesMatch[0]}}`);
+                            } catch (e4) {
+                                console.error('[Scene Prompts] Erro no parsing:', e4.message);
+                                throw new Error(`Resposta da IA não contém JSON válido. Erro: ${e4.message}`);
+                            }
+                        } else {
+                            throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                        }
+                    }
+                }
+            } else {
+                throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+            }
+        }
+
+        // Validar estrutura - verificar se há campos aninhados (como "titles" contendo JSON string)
+        if (!scenesData) {
+            throw new Error('Resposta da IA está vazia ou inválida.');
+        }
+        
+        // Se a resposta tem um campo que contém JSON string, parsear novamente
+        if (scenesData.titles && typeof scenesData.titles === 'string') {
+            try {
+                const parsedTitles = JSON.parse(scenesData.titles);
+                if (parsedTitles.scenes) {
+                    scenesData = parsedTitles;
+                }
+            } catch (e) {
+                console.log('[Scene Prompts] Campo titles não é JSON válido, continuando...');
+            }
+        }
+        
+        // Se a resposta tem um campo que contém JSON string em outro formato
+        if (scenesData.content && typeof scenesData.content === 'string') {
+            try {
+                const parsedContent = JSON.parse(scenesData.content);
+                if (parsedContent.scenes) {
+                    scenesData = parsedContent;
+                }
+            } catch (e) {
+                console.log('[Scene Prompts] Campo content não é JSON válido, continuando...');
+            }
+        }
+        
+        // Verificar se scenes existe diretamente ou em algum nível aninhado
+        if (!scenesData.scenes) {
+            // Procurar em todos os níveis
+            const findScenes = (obj) => {
+                if (Array.isArray(obj)) {
+                    return obj;
+                }
+                if (typeof obj === 'object' && obj !== null) {
+                    if (obj.scenes && Array.isArray(obj.scenes)) {
+                        return obj.scenes;
+                    }
+                    for (const key in obj) {
+                        const found = findScenes(obj[key]);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            
+            const foundScenes = findScenes(scenesData);
+            if (foundScenes) {
+                scenesData = { scenes: foundScenes };
+            } else {
+                console.error('[Scene Prompts] Estrutura de resposta inválida:', JSON.stringify(scenesData).substring(0, 1000));
+                throw new Error('A IA não retornou a estrutura esperada. Verifique se a resposta contém um campo "scenes".');
+            }
+        }
+        
+        if (!Array.isArray(scenesData.scenes)) {
+            console.error('[Scene Prompts] Campo scenes não é array:', typeof scenesData.scenes);
+            throw new Error('O campo "scenes" da resposta não é um array válido.');
+        }
+        
+        if (scenesData.scenes.length === 0) {
+            throw new Error('A IA retornou um array de cenas vazio. Tente novamente com um roteiro mais detalhado.');
+        }
+        
+        // Validar cada cena
+        const validScenes = scenesData.scenes.filter(scene => 
+            scene && 
+            (scene.prompt_text || scene.prompt || scene.text) &&
+            (scene.scene_description || scene.description || scene.scene_number || scene.number)
+        );
+        
+        if (validScenes.length === 0) {
+            throw new Error('Nenhuma cena válida encontrada na resposta da IA. Verifique o formato esperado.');
+        }
+        
+        // Normalizar estrutura das cenas
+        scenesData.scenes = validScenes.map((scene, index) => ({
+            scene_number: scene.scene_number || scene.number || index + 1,
+            scene_description: scene.scene_description || scene.description || `Cena ${index + 1}`,
+            prompt_text: scene.prompt_text || scene.prompt || scene.text || ''
+        }));
+        
+        console.log(`[Scene Prompts] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
+        
+        // Verificar se gerou todas as cenas esperadas
+        if (scenesData.scenes.length < minScenes) {
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
+        }
+
+        // Usar selectedModel se fornecido (modelo selecionado no frontend), senão usar model
+        const modelToReturn = selectedModel || model;
+        
+        res.json({
+            msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente ou use um modelo com maior limite de tokens.)` : ''}`,
+            scenes: scenesData.scenes,
+            modelUsed: modelToReturn, // Retornar o modelo selecionado no frontend
+            expectedScenes: estimatedScenes,
+            generatedScenes: scenesData.scenes.length
+        });
+
+    } catch (err) {
+        console.error('[Scene Prompts] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar prompts de cena.' });
+    }
+});
+
+// Rota alternativa que SEMPRE usa Laozhang.ai
+app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, res) => {
+    const { script, style, imageModel, mode, wordsPerScene, characters, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!script || !script.trim()) {
+        return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
+    }
+
+    try {
+        // SEMPRE usar laozhang.ai
+        const laozhangKey = await getLaozhangApiKey();
+        if (!laozhangKey) {
+            return res.status(400).json({ msg: 'Laozhang.ai não configurada no painel admin. Configure a chave de API primeiro.' });
+        }
+
+        // Calcular número estimado de cenas baseado no modo
+        const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
+        let estimatedScenes, minScenes, maxScenes;
+        
+        if (mode === 'manual' && wordsPerScene) {
+            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
+            minScenes = Math.max(1, Math.floor(wordCount / (parseInt(wordsPerScene) * 1.4)));
+            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (parseInt(wordsPerScene) * 0.6)));
+        } else {
+            estimatedScenes = Math.max(1, Math.round(wordCount / 90));
+            minScenes = Math.max(1, Math.floor(wordCount / 140));
+            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+        }
+
+        // Mapeamento de estilos (mesmo da rota original)
+        const styleInstructions = {
+            'photorealistic': 'O estilo visual deve ser fotorealista, com detalhes perfeitos, ultra alta definição, foco nítido, fotografia profissional.',
+            'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
+            'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
+            'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
+            'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
+            'cartoon': 'O estilo visual deve ser desenho animado, colorido, expressivo, com estética de animação tradicional.',
+            'cartoon-premium': 'O estilo visual deve ser cartoon premium, com alta qualidade de animação e design profissional.',
+            'fantasy': 'O estilo visual deve ser fantasia, mágico, épico, com atmosfera encantada e elementos místicos.',
+            'stick-figure': 'O estilo visual deve ser desenho de palitos, minimalista, linhas simples em fundo branco.',
+            'whiteboard': 'O estilo visual deve ser animação de quadro branco, educativo, limpo, com ilustrações desenhadas à mão.',
+            'tech-minimalist': 'O estilo visual deve ser tech minimalista, design limpo, estética moderna e futurista.',
+            'spiritual-minimalist': 'O estilo visual deve ser espiritual minimalista, sereno, com atmosfera meditativa e zen.',
+            'viral-vibrant': 'O estilo visual deve ser viral vibrante, alto contraste, cores saturadas, otimizado para redes sociais.',
+            'modern-documentary': 'O estilo visual deve ser documentário moderno, dinâmico, contemporâneo, com momentos autênticos.',
+            'analog-horror': 'O estilo visual deve ser terror analógico, qualidade VHS, textura granulada, estética retro de horror.',
+            'dark-theater': 'O estilo visual deve ser teatro sombrio, iluminação dramática de palco, sombras intensas.',
+            'naturalist-drama': 'O estilo visual deve ser drama naturalista, realista, emocional, com momentos humanos autênticos.',
+            'spiritual-neorealism': 'O estilo visual deve ser neo-realismo espiritual, realismo transcendente, atmosfera mística.',
+            'psychological-surrealism': 'O estilo visual deve ser surrealismo psicológico, imagens oníricas, realidade abstrata.',
+            'fragmented-memory': 'O estilo visual deve ser memória fragmentada, estética de colagem, composição fragmentada.',
+            'fragmented-narrative': 'O estilo visual deve ser narrativa fragmentada, estilo colagem, narrativa visual em camadas.',
+            'dream-real': 'O estilo visual deve ser sonho-real, espaço liminar entre sonho e realidade, atmosfera etérea.',
+            'vhs-nostalgic': 'O estilo visual deve ser VHS nostálgico, estética retro anos 80/90, qualidade vintage, grão analógico.'
+        };
+        
+        const styleInstruction = style && style !== 'none' && styleInstructions[style] 
+            ? ` ${styleInstructions[style]}` 
+            : '';
+        const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
+        const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
+
+        const prompt = `Você é um especialista em criação de prompts para geração de imagens usando IA.
+
+TAREFA:
+Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer na imagem para aquela parte do roteiro.
+
+ROTEIRO:
+"""
+${script}
+"""
+
+INSTRUÇÕES:
+1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+2. Cada prompt deve ter entre 600-1200 caracteres
+3. Cada prompt deve ser em INGLÊS e otimizado para geração de imagens
+4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário
+5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
+6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
+
+FORMATO DE RESPOSTA (JSON):
+{
+  "scenes": [
+    {
+      "scene_number": 1,
+      "scene_description": "Breve descrição da cena",
+      "prompt_text": "Prompt detalhado em inglês para geração de imagem"
+    },
+    ...
+  ]
+}
+
+IMPORTANTE: 
+- Retorne APENAS o JSON, sem texto adicional
+- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
+- O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
+- Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.
+- NÃO pare na cena 10 ou qualquer número menor. Continue até gerar todas as ${estimatedScenes} cenas.`;
+
+        // Mapear modelo selecionado para modelo da laozhang.ai
+        let laozhangModel = 'gpt-4o'; // Padrão
+        if (selectedModel) {
+            // Mapear modelos do frontend para modelos da laozhang.ai
+            const modelMapping = {
+                'gpt-4o': 'gpt-4o',
+                'gpt-4o-mini': 'gpt-4o-mini',
+                'gpt-4-turbo': 'gpt-4-turbo',
+                'claude-3-7-sonnet-20250219': 'claude-3-7-sonnet-20250219',
+                'claude-sonnet-4-20250514': 'claude-sonnet-4-20250514',
+                'claude-opus-4-20250514': 'claude-opus-4-20250514',
+                'gemini-2.5-pro': 'gemini-2.5-pro',
+                'gemini-2.5-flash': 'gemini-2.5-flash',
+                'gemini-2.0-flash': 'gemini-2.0-flash'
+            };
+            laozhangModel = modelMapping[selectedModel] || selectedModel; // Usar o modelo selecionado se não estiver no mapeamento
+        }
+        
+        console.log(`[Scene Prompts Laozhang] Gerando prompts com Laozhang.ai usando modelo: ${laozhangModel} (selecionado: ${selectedModel || 'N/A'})...`);
+        const response = await callLaozhangAPI(
+            prompt, 
+            laozhangKey, 
+            laozhangModel, 
+            null, 
+            userId, 
+            '/api/generate/scene-prompts', 
+            JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: laozhangModel })
+        );
+
+        // Parsear resposta - callLaozhangAPI retorna string diretamente agora
+        let scenesData;
+        let rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        console.log(`[Scene Prompts Laozhang] Resposta bruta (primeiros 500 chars):`, rawResponse.substring(0, 500));
+        
+        // Limpar markdown code blocks primeiro
+        rawResponse = rawResponse
+            .replace(/^```json\s*/i, '')  // Remover ```json no início
+            .replace(/^```\s*/i, '')      // Remover ``` no início
+            .replace(/\s*```\s*$/i, '')   // Remover ``` no final
+            .trim();
+        
+        try {
+            // Tentar parsear diretamente
+            scenesData = JSON.parse(rawResponse);
+        } catch (e) {
+            console.log('[Scene Prompts Laozhang] Tentativa 1 de parsing falhou, tentando extrair JSON...');
+            // Tentar extrair JSON usando regex (procurar por { ... } completo)
+            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    let jsonStr = jsonMatch[0];
+                    // Limpar mais caracteres problemáticos
+                    jsonStr = jsonStr
+                        .replace(/```json\s*/gi, '')
+                        .replace(/```\s*/g, '')
+                        .replace(/^[^{]*/, '')  // Remover texto antes do {
+                        .replace(/[^}]*$/, ''); // Remover texto depois do }
+                    
+                    scenesData = JSON.parse(jsonStr);
+                } catch (e2) {
+                    console.log('[Scene Prompts Laozhang] Tentativa 2 de parsing falhou, tentando corrigir JSON truncado...');
+                    // Tentar encontrar o array de scenes diretamente
+                    const scenesArrayMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)\]/);
+                    if (scenesArrayMatch) {
+                        try {
+                            // Tentar construir JSON válido com o array encontrado
+                            let scenesArrayStr = scenesArrayMatch[1];
+                            // Tentar fechar o array corretamente
+                            if (!scenesArrayStr.trim().endsWith('}')) {
+                                // Procurar por objetos de cena completos
+                                const sceneObjects = scenesArrayStr.match(/\{[^{}]*\}/g);
+                                if (sceneObjects && sceneObjects.length > 0) {
+                                    scenesArrayStr = sceneObjects.join(',\n');
+                                }
+                            }
+                            scenesData = JSON.parse(`{"scenes": [${scenesArrayStr}]}`);
+                        } catch (e3) {
+                            console.log('[Scene Prompts Laozhang] Tentativa 3 de parsing falhou, tentando extrair cenas individuais...');
+                            // Última tentativa: extrair cenas individuais parseando objetos JSON completos
+                            const simpleScenePattern = /\{\s*"scene_number"\s*:\s*\d+[\s\S]*?\}/g;
+                            const simpleMatches = rawResponse.match(simpleScenePattern);
+                            if (simpleMatches && simpleMatches.length > 0) {
+                                const parsedScenes = [];
+                                for (const sceneStr of simpleMatches) {
+                                    try {
+                                        const scene = JSON.parse(sceneStr);
+                                        if (scene.scene_number && (scene.prompt_text || scene.prompt || scene.text)) {
+                                            parsedScenes.push({
+                                                scene_number: scene.scene_number || scene.number || parsedScenes.length + 1,
+                                                scene_description: scene.scene_description || scene.description || `Cena ${parsedScenes.length + 1}`,
+                                                prompt_text: scene.prompt_text || scene.prompt || scene.text || ''
+                                            });
+                                        }
+                                    } catch (parseErr) {
+                                        console.warn('[Scene Prompts Laozhang] Erro ao parsear cena individual:', parseErr.message);
+                                    }
+                                }
+                                if (parsedScenes.length > 0) {
+                                    scenesData = { scenes: parsedScenes };
+                                    console.log(`[Scene Prompts Laozhang] ✅ Extraídas ${parsedScenes.length} cenas parseando objetos individuais!`);
+                                } else {
+                                    throw new Error(`Não foi possível extrair cenas da resposta. Primeiros 1000 caracteres: ${rawResponse.substring(0, 1000)}`);
+                                }
+                            } else {
+                                throw new Error(`Não foi possível extrair cenas da resposta. Primeiros 1000 caracteres: ${rawResponse.substring(0, 1000)}`);
+                            }
+                        }
+                    } else {
+                        throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                    }
+                }
+            } else {
+                throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+            }
+        }
+
+        if (!scenesData.scenes || !Array.isArray(scenesData.scenes)) {
+            // Tentar encontrar scenes em diferentes níveis
+            console.log('[Scene Prompts Laozhang] Tentando encontrar scenes em diferentes níveis...');
+            console.log('[Scene Prompts Laozhang] Estrutura completa:', JSON.stringify(scenesData).substring(0, 1000));
+            
+            // Procurar scenes em qualquer nível
+            const findScenes = (obj, path = '') => {
+                if (Array.isArray(obj) && obj.length > 0 && obj[0].prompt_text) {
+                    return obj;
+                }
+                if (typeof obj === 'object' && obj !== null) {
+                    for (const key in obj) {
+                        if (key === 'scenes' && Array.isArray(obj[key])) {
+                            return obj[key];
+                        }
+                        const found = findScenes(obj[key], `${path}.${key}`);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            
+            const foundScenes = findScenes(scenesData);
+            if (foundScenes && Array.isArray(foundScenes)) {
+                console.log('[Scene Prompts Laozhang] ✅ Scenes encontradas em nível aninhado!');
+                scenesData.scenes = foundScenes;
+            } else {
+                throw new Error(`A IA não retornou a estrutura esperada. Verifique se a resposta contém um campo "scenes". Estrutura recebida: ${JSON.stringify(scenesData).substring(0, 500)}`);
+            }
+        }
+
+        const validScenes = scenesData.scenes.filter(scene => 
+            scene && 
+            (scene.prompt_text || scene.prompt || scene.text) &&
+            (scene.scene_description || scene.description || scene.scene_number || scene.number)
+        );
+        
+        if (validScenes.length === 0) {
+            throw new Error('Nenhuma cena válida encontrada na resposta da IA.');
+        }
+
+        scenesData.scenes = validScenes.map((scene, index) => ({
+            scene_number: scene.scene_number || scene.number || (index + 1),
+            scene_description: scene.scene_description || scene.description || `Cena ${index + 1}`,
+            prompt_text: scene.prompt_text || scene.prompt || scene.text || ''
+        }));
+
+        console.log(`[Scene Prompts Laozhang] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
+        
+        // Verificar se gerou todas as cenas esperadas
+        if (scenesData.scenes.length < minScenes) {
+            console.warn(`[Scene Prompts Laozhang] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
+        }
+
+        // Se selectedModel foi fornecido, usar ele, senão usar 'laozhang-gpt-4o'
+        const modelToReturn = selectedModel ? `laozhang-${selectedModel}` : 'laozhang-gpt-4o';
+        
+        res.json({
+            msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso usando Laozhang.ai!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente.)` : ''}`,
+            scenes: scenesData.scenes,
+            modelUsed: modelToReturn, // Retornar o modelo selecionado no frontend (com prefixo laozhang)
+            expectedScenes: estimatedScenes,
+            generatedScenes: scenesData.scenes.length
+        });
+
+    } catch (err) {
+        console.error('[Scene Prompts Laozhang] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar prompts de cena com Laozhang.ai.' });
+    }
+});
+
+// === ROTAS DE HISTÓRICO DE PROMPTS DE CENA ===
+
+// Salvar no histórico
+app.post('/api/scene-prompts/history', authenticateToken, async (req, res) => {
+    const { script, scenes, model, style, mode, wordsPerScene, characters, title } = req.body;
+    const userId = req.user.id;
+
+    if (!script || !scenes || !Array.isArray(scenes)) {
+        return res.status(400).json({ msg: 'Script e cenas são obrigatórios.' });
+    }
+
+    try {
+        // Garantir que a tabela existe
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scene_prompts_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                script TEXT NOT NULL,
+                scenes_json TEXT NOT NULL,
+                model TEXT,
+                style TEXT,
+                mode TEXT,
+                words_per_scene INTEGER,
+                characters TEXT,
+                scene_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+        
+        const result = await db.run(
+            `INSERT INTO scene_prompts_history 
+             (user_id, title, script, scenes_json, model, style, mode, words_per_scene, characters, scene_count)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                userId,
+                title || `Prompts gerados em ${new Date().toLocaleString('pt-BR')}`,
+                script,
+                JSON.stringify(scenes),
+                model || null,
+                style || null,
+                mode || 'automatic',
+                wordsPerScene || null,
+                characters || null,
+                scenes.length
+            ]
+        );
+
+        res.json({ msg: 'Histórico salvo com sucesso!', id: result.lastID });
+    } catch (err) {
+        console.error('[Scene Prompts History] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao salvar histórico.' });
+    }
+});
+
+// Listar histórico
+app.get('/api/scene-prompts/history', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { limit = 20 } = req.query;
+
+    try {
+        // Garantir que a tabela existe
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scene_prompts_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                script TEXT NOT NULL,
+                scenes_json TEXT NOT NULL,
+                model TEXT,
+                style TEXT,
+                mode TEXT,
+                words_per_scene INTEGER,
+                characters TEXT,
+                scene_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+        
+        const history = await db.all(
+            `SELECT id, title, scene_count, model, style, mode, created_at 
+             FROM scene_prompts_history 
+             WHERE user_id = ? 
+             ORDER BY created_at DESC 
+             LIMIT ?`,
+            [userId, parseInt(limit)]
+        );
+
+        res.json({ history: history || [] });
+    } catch (err) {
+        console.error('[Scene Prompts History] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao carregar histórico.' });
+    }
+});
+
+// Carregar prompt específico
+app.get('/api/scene-prompts/history/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        // Garantir que a tabela existe
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scene_prompts_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                script TEXT NOT NULL,
+                scenes_json TEXT NOT NULL,
+                model TEXT,
+                style TEXT,
+                mode TEXT,
+                words_per_scene INTEGER,
+                characters TEXT,
+                scene_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+        
+        const item = await db.get(
+            `SELECT * FROM scene_prompts_history WHERE id = ? AND user_id = ?`,
+            [id, userId]
+        );
+
+        if (!item) {
+            return res.status(404).json({ msg: 'Prompt não encontrado.' });
+        }
+
+        res.json({
+            id: item.id,
+            title: item.title,
+            script: item.script,
+            scenes: JSON.parse(item.scenes_json),
+            model: item.model,
+            style: item.style,
+            mode: item.mode,
+            wordsPerScene: item.words_per_scene,
+            characters: item.characters,
+            scene_count: item.scene_count,
+            created_at: item.created_at
+        });
+    } catch (err) {
+        console.error('[Scene Prompts History] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao carregar prompt.' });
+    }
+});
+
+// Deletar prompt do histórico
+app.delete('/api/scene-prompts/history/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        // Garantir que a tabela existe
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS scene_prompts_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                script TEXT NOT NULL,
+                scenes_json TEXT NOT NULL,
+                model TEXT,
+                style TEXT,
+                mode TEXT,
+                words_per_scene INTEGER,
+                characters TEXT,
+                scene_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+        
+        const result = await db.run(
+            `DELETE FROM scene_prompts_history WHERE id = ? AND user_id = ?`,
+            [id, userId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Prompt não encontrado.' });
+        }
+
+        res.json({ msg: 'Prompt excluído com sucesso!' });
+    } catch (err) {
+        console.error('[Scene Prompts History] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao excluir prompt.' });
+    }
+});
+
+// === ROTA PARA DETECTAR PERSONAGENS NO ROTEIRO ===
+app.post('/api/detect/characters', authenticateToken, async (req, res) => {
+    const { script, model } = req.body;
+    const userId = req.user.id;
+
+    if (!script || !script.trim()) {
+        return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
+    }
+
+    if (!model) {
+        return res.status(400).json({ msg: 'O modelo de IA é obrigatório.' });
+    }
+
+    try {
+        // Determinar qual serviço usar baseado no modelo
+        let service = 'gemini';
+        if (model.includes('claude') || model.includes('sonnet')) {
+            service = 'claude';
+        } else if (model.includes('gpt') || model.includes('openai')) {
+            service = 'openai';
+        }
+
+        // Buscar chave de API
+        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+        if (!keyData) {
+            return res.status(400).json({ msg: `Chave de API do ${service} não configurada. Configure nas Configurações.` });
+        }
+
+        const decryptedKey = decrypt(keyData.api_key);
+        if (!decryptedKey) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+        }
+
+        const prompt = `Você é um diretor de elenco especializado em analisar roteiros e identificar personagens para geração de imagens com IA.
+
+**ROTEIRO PARA ANALISAR:**
+${script}
+
+---
+
+**INSTRUÇÕES:**
+1. Identifique todos os personagens principais e secundários mencionados no roteiro.
+2. Para cada personagem, crie uma descrição concisa e prática que inclua:
+   - Nome do personagem (ou descrição se não tiver nome)
+   - Idade aparente
+   - Aparência física (cor de cabelo, olhos, tipo físico, traços distintivos)
+   - Vestimentas principais
+   - Características visuais importantes para manter consistência
+
+3. **FORMATO DE SAÍDA OBRIGATÓRIO:** Você DEVE retornar um objeto JSON com a seguinte estrutura exata:
+{
+  "characters": [
+    "Nome, idade, descrição física e características visuais",
+    "Outro personagem, idade, descrição física e características visuais"
+  ]
+}
+
+**EXEMPLO DE FORMATO:**
+{
+  "characters": [
+    "João, um homem de 40 anos, cabelo grisalho, óculos, rosto marcado, vestindo terno escuro",
+    "Maria, uma jovem de 25 anos, cabelo longo e ruivo, olhos verdes, vestindo vestido casual"
+  ]
+}
+
+**REGRA CRÍTICA:**
+- Retorne APENAS o JSON válido, sem texto adicional antes ou depois
+- Cada string no array deve ser uma descrição completa e prática do personagem
+- Foque em características visuais que ajudem a manter consistência nas imagens geradas
+- Se um personagem não tem nome, use uma descrição clara (ex: "Policial veterano, 50 anos, cabelo grisalho curto, uniforme azul")
+- Limite a descrição de cada personagem a uma linha, mas seja completo e detalhado
+- Retorne no formato JSON exato especificado acima, com a propriedade "characters" contendo um array de strings
+
+**AGORA ANALISE O ROTEIRO FORNECIDO E RETORNE O JSON COM OS PERSONAGENS IDENTIFICADOS:**`;
+
+        let apiCallFunction;
+        if (service === 'gemini') apiCallFunction = callGeminiAPI;
+        else if (service === 'claude') apiCallFunction = callClaudeAPI;
+        else apiCallFunction = callOpenAIAPI;
+
+        console.log(`[Detect Characters] Detectando personagens com ${service} (modelo: ${model})...`);
+        const rawResponse = await apiCallFunction(prompt, decryptedKey, model);
+
+        // Parse robusto da resposta
+        let characters = [];
+        let parsedData = null;
+
+        // Tentar extrair JSON da resposta
+        if (typeof rawResponse === 'string') {
+            try {
+                parsedData = JSON.parse(rawResponse);
+            } catch (e) {
+                // Tentar extrair JSON de dentro de markdown ou texto
+                const jsonMatch = rawResponse.match(/\{[\s\S]*"characters"[\s\S]*\[[\s\S]*\][\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        parsedData = JSON.parse(jsonMatch[0]);
+                    } catch (e2) {
+                        console.warn('[Detect Characters] Erro ao parsear JSON extraído:', e2);
+                    }
+                }
+            }
+        } else {
+            parsedData = rawResponse;
+        }
+
+        // Extrair characters de diferentes estruturas possíveis
+        if (parsedData) {
+            // Caso 1: { characters: [...] }
+            if (parsedData.characters && Array.isArray(parsedData.characters)) {
+                characters = parsedData.characters;
+            }
+            // Caso 2: { data: { characters: [...] } }
+            else if (parsedData.data && parsedData.data.characters && Array.isArray(parsedData.data.characters)) {
+                characters = parsedData.data.characters;
+            }
+            // Caso 3: { data: [...] }
+            else if (parsedData.data && Array.isArray(parsedData.data)) {
+                characters = parsedData.data;
+            }
+            // Caso 4: { titles: "..." } - tentar parsear o conteúdo
+            else if (parsedData.titles && typeof parsedData.titles === 'string') {
+                try {
+                    const titlesParsed = JSON.parse(parsedData.titles);
+                    if (titlesParsed.characters && Array.isArray(titlesParsed.characters)) {
+                        characters = titlesParsed.characters;
+                    } else if (Array.isArray(titlesParsed)) {
+                        characters = titlesParsed;
+                    }
+                } catch (e) {
+                    // Tentar extrair JSON do texto
+                    const jsonMatch = parsedData.titles.match(/\{[\s\S]*"characters"[\s\S]*\[[\s\S]*\][\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            const extracted = JSON.parse(jsonMatch[0]);
+                            if (extracted.characters && Array.isArray(extracted.characters)) {
+                                characters = extracted.characters;
+                            }
+                        } catch (e2) {
+                            console.warn('[Detect Characters] Erro ao parsear JSON de titles:', e2);
+                        }
+                    }
+                }
+            }
+            // Caso 5: Buscar qualquer array no objeto
+            else {
+                for (const key in parsedData) {
+                    if (Array.isArray(parsedData[key])) {
+                        characters = parsedData[key];
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Filtrar e limpar personagens
+        if (characters.length > 0) {
+            characters = characters
+                .filter(char => char && typeof char === 'string' && char.trim().length > 0)
+                .map(char => char.trim());
+        }
+
+        if (characters.length === 0) {
+            return res.status(400).json({ 
+                msg: 'Nenhum personagem foi detectado. Verifique se o roteiro contém personagens identificáveis.',
+                characters: '',
+                charactersList: []
+            });
+        }
+
+        // Formatar para o campo de texto (uma linha por personagem)
+        const charactersText = characters.join('\n');
+
+        console.log(`[Detect Characters] ✅ ${characters.length} personagem(ns) detectado(s)!`);
+
+        res.json({
+            msg: `${characters.length} personagem(ns) detectado(s) com sucesso!`,
+            characters: charactersText,
+            charactersList: characters
+        });
+
+    } catch (err) {
+        console.error('[Detect Characters] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao detectar personagens.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA DETECÇÃO DE PERSONAGENS ===
+app.post('/api/detect/characters/laozhang', authenticateToken, async (req, res) => {
+    const { script, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!script || !script.trim()) {
+        return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Mapear modelo selecionado para modelo Laozhang
+        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+                             selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
+                             'gpt-4o';
+
+        const prompt = `Você é um diretor de elenco especializado em analisar roteiros e identificar personagens para geração de imagens com IA.
+
+**ROTEIRO PARA ANALISAR:**
+${script}
+
+---
+
+**INSTRUÇÕES:**
+1. Identifique todos os personagens principais e secundários mencionados no roteiro.
+2. Para cada personagem, crie uma descrição concisa e prática que inclua:
+   - Nome do personagem (ou descrição se não tiver nome)
+   - Idade aparente
+   - Aparência física (cor de cabelo, olhos, tipo físico, traços distintivos)
+   - Vestimentas principais
+   - Características visuais importantes para manter consistência
+
+3. **FORMATO DE SAÍDA OBRIGATÓRIO:** Você DEVE retornar um objeto JSON com a seguinte estrutura exata:
+{
+  "characters": [
+    "Nome, idade, descrição física e características visuais",
+    "Outro personagem, idade, descrição física e características visuais"
+  ]
+}
+
+**EXEMPLO DE FORMATO:**
+{
+  "characters": [
+    "João, um homem de 40 anos, cabelo grisalho, óculos, rosto marcado, vestindo terno escuro",
+    "Maria, uma jovem de 25 anos, cabelo longo e ruivo, olhos verdes, vestindo vestido casual"
+  ]
+}
+
+**REGRA CRÍTICA:**
+- Retorne APENAS o JSON válido, sem texto adicional antes ou depois
+- Cada string no array deve ser uma descrição completa e prática do personagem
+- Foque em características visuais que ajudem a manter consistência nas imagens geradas
+- Se um personagem não tem nome, use uma descrição clara (ex: "Policial veterano, 50 anos, cabelo grisalho curto, uniforme azul")
+- Limite a descrição de cada personagem a uma linha, mas seja completo e detalhado
+- Retorne no formato JSON exato especificado acima, com a propriedade "characters" contendo um array de strings
+
+**AGORA ANALISE O ROTEIRO FORNECIDO E RETORNE O JSON COM OS PERSONAGENS IDENTIFICADOS:**`;
+
+        console.log(`[Detect Characters Laozhang] Detectando personagens com modelo: ${laozhangModel}...`);
+        const response = await callLaozhangAPI(
+            prompt,
+            laozhangApiKey,
+            laozhangModel,
+            null,
+            userId,
+            'api_detect_characters',
+            JSON.stringify({ endpoint: '/api/detect/characters/laozhang', model: laozhangModel })
+        );
+
+        // Parse robusto da resposta
+        let characters = [];
+        let parsedData = null;
+
+        // Tentar extrair JSON da resposta
+        const rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        try {
+            parsedData = JSON.parse(rawResponse);
+        } catch (e) {
+            // Tentar extrair JSON de dentro de markdown ou texto
+            const jsonMatch = rawResponse.match(/\{[\s\S]*"characters"[\s\S]*\[[\s\S]*\][\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    parsedData = JSON.parse(jsonMatch[0]);
+                } catch (e2) {
+                    console.warn('[Detect Characters Laozhang] Erro ao parsear JSON extraído:', e2);
+                }
+            }
+        }
+
+        // Extrair characters de diferentes estruturas possíveis
+        if (parsedData) {
+            if (parsedData.characters && Array.isArray(parsedData.characters)) {
+                characters = parsedData.characters;
+            } else if (parsedData.data && parsedData.data.characters && Array.isArray(parsedData.data.characters)) {
+                characters = parsedData.data.characters;
+            } else if (parsedData.data && Array.isArray(parsedData.data)) {
+                characters = parsedData.data;
+            }
+        }
+
+        // Filtrar e limpar personagens
+        if (characters.length > 0) {
+            characters = characters
+                .filter(char => char && typeof char === 'string' && char.trim().length > 0)
+                .map(char => char.trim());
+        }
+
+        if (characters.length === 0) {
+            return res.status(400).json({ 
+                msg: 'Nenhum personagem foi detectado. Verifique se o roteiro contém personagens identificáveis.',
+                characters: '',
+                charactersList: []
+            });
+        }
+
+        // Formatar para o campo de texto (uma linha por personagem)
+        const charactersText = characters.join('\n');
+
+        console.log(`[Detect Characters Laozhang] ✅ ${characters.length} personagem(ns) detectado(s)!`);
+
+        res.json({
+            msg: `${characters.length} personagem(ns) detectado(s) com sucesso!`,
+            characters: charactersText,
+            charactersList: characters
+        });
+
+    } catch (err) {
+        console.error('[Detect Characters Laozhang] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao detectar personagens.' });
+    }
+});
+
+// === ROTA PARA REESCREVER PROMPT BLOQUEADO ===
+app.post('/api/rewrite/blocked-prompt', authenticateToken, async (req, res) => {
+    const { prompt, model } = req.body;
+    const userId = req.user.id;
+
+    if (!prompt || !prompt.trim()) {
+        return res.status(400).json({ msg: 'O prompt é obrigatório.' });
+    }
+
+    try {
+        const selectedModel = model || 'gpt-4o';
+        let service = 'gemini';
+        if (selectedModel.includes('claude') || selectedModel.includes('sonnet')) {
+            service = 'claude';
+        } else if (selectedModel.includes('gpt') || selectedModel.includes('openai')) {
+            service = 'openai';
+        }
+
+        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+        if (!keyData) {
+            return res.status(400).json({ msg: `Chave de API do ${service} não configurada.` });
+        }
+
+        const decryptedKey = decrypt(keyData.api_key);
+        if (!decryptedKey) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+        }
+
+        const rewritePrompt = `O prompt a seguir foi bloqueado por violar políticas de conteúdo. Reescreva-o mantendo a essência visual, história e estilo, mas removendo qualquer conteúdo que possa ser considerado inseguro ou inadequado. O prompt reescrito deve ser em INGLÊS e otimizado para geração de imagens.
+
+PROMPT ORIGINAL:
+"""${prompt}"""
+
+INSTRUÇÕES:
+1. Mantenha a essência visual, composição e estilo do prompt original
+2. Remova qualquer referência a violência, conteúdo adulto ou conteúdo inadequado
+3. Mantenha a narrativa e a atmosfera geral
+4. O prompt reescrito deve ter entre 600-1200 caracteres
+5. Responda APENAS com o prompt reescrito, sem explicações adicionais
+
+PROMPT REWRITTEN:`;
+
+        let apiCallFunction;
+        if (service === 'gemini') apiCallFunction = callGeminiAPI;
+        else if (service === 'claude') apiCallFunction = callClaudeAPI;
+        else apiCallFunction = callOpenAIAPI;
+
+        const response = await apiCallFunction(rewritePrompt, decryptedKey, selectedModel);
+        
+        let rewrittenText = '';
+        if (typeof response === 'string') {
+            rewrittenText = response.trim();
+        } else if (response.titles) {
+            rewrittenText = response.titles;
+        } else if (response.text) {
+            rewrittenText = response.text;
+        }
+        
+        // Limpar o texto
+        rewrittenText = rewrittenText
+            .replace(/```[\s\S]*?```/g, '')
+            .replace(/`/g, '')
+            .replace(/^[^"]*["']|["'][^"]*$/g, '')
+            .replace(/^(Prompt|Prompt reformulado|Nova versão|Versão reformulada|PROMPT REWRITTEN)[:：]\s*/i, '')
+            .replace(/\n+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        
+        if (!rewrittenText || rewrittenText.length < 50) {
+            throw new Error('Prompt reescrito inválido ou muito curto');
+        }
+        
+        // Adicionar sufixos de qualidade se não estiverem presentes
+        if (!rewrittenText.includes('photorealistic')) {
+            rewrittenText += ', photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography';
+        }
+
+        res.json({
+            msg: 'Prompt reescrito com sucesso!',
+            rewrittenPrompt: rewrittenText
+        });
+
+    } catch (err) {
+        console.error('[Rewrite Prompt] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao reescrever prompt.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA REESCREVER PROMPT BLOQUEADO ===
+app.post('/api/rewrite/blocked-prompt/laozhang', authenticateToken, async (req, res) => {
+    const { prompt, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!prompt || !prompt.trim()) {
+        return res.status(400).json({ msg: 'O prompt é obrigatório.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Mapear modelo selecionado para modelo Laozhang
+        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+                             selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
+                             'gpt-4o';
+
+        const rewritePrompt = `O prompt a seguir foi bloqueado por violar políticas de conteúdo. Reescreva-o mantendo a essência visual, história e estilo, mas removendo qualquer conteúdo que possa ser considerado inseguro ou inadequado. O prompt reescrito deve ser em INGLÊS e otimizado para geração de imagens.
+
+PROMPT ORIGINAL:
+"""${prompt}"""
+
+INSTRUÇÕES:
+1. Mantenha a essência visual, composição e estilo do prompt original
+2. Remova qualquer referência a violência, conteúdo adulto ou conteúdo inadequado
+3. Mantenha a narrativa e a atmosfera geral
+4. O prompt reescrito deve ter entre 600-1200 caracteres
+5. Responda APENAS com o prompt reescrito, sem explicações adicionais
+
+PROMPT REWRITTEN:`;
+
+        const response = await callLaozhangAPI(
+            rewritePrompt,
+            laozhangApiKey,
+            laozhangModel,
+            null,
+            userId,
+            'api_rewrite_prompt',
+            JSON.stringify({ endpoint: '/api/rewrite/blocked-prompt/laozhang', model: laozhangModel })
+        );
+        
+        let rewrittenText = '';
+        if (typeof response === 'string') {
+            rewrittenText = response.trim();
+        } else if (response.titles) {
+            rewrittenText = response.titles;
+        } else if (response.text) {
+            rewrittenText = response.text;
+        }
+        
+        // Limpar o texto
+        rewrittenText = rewrittenText
+            .replace(/```[\s\S]*?```/g, '')
+            .replace(/`/g, '')
+            .replace(/^[^"]*["']|["'][^"]*$/g, '')
+            .replace(/^(Prompt|Prompt reformulado|Nova versão|Versão reformulada|PROMPT REWRITTEN)[:：]\s*/i, '')
+            .replace(/\n+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        
+        if (!rewrittenText || rewrittenText.length < 50) {
+            throw new Error('Prompt reescrito inválido ou muito curto');
+        }
+        
+        // Adicionar sufixos de qualidade se não estiverem presentes
+        if (!rewrittenText.includes('photorealistic')) {
+            rewrittenText += ', photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography';
+        }
+
+        res.json({
+            msg: 'Prompt reescrito com sucesso!',
+            rewrittenPrompt: rewrittenText
+        });
+
+    } catch (err) {
+        console.error('[Rewrite Prompt Laozhang] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao reescrever prompt.' });
+    }
+});
+
+// === ROTA PARA REGENERAR IMAGEM COM PROMPT EDITADO ===
+app.post('/api/generate/imagefx/regenerate', authenticateToken, async (req, res) => {
+    const { prompt, aspectRatio, style } = req.body;
+    const userId = req.user.id;
+
+    if (!prompt) {
+        return res.status(400).json({ msg: 'O prompt é obrigatório.' });
+    }
+
+    try {
+        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'imagefx']);
+        if (!keyData) {
+            return res.status(400).json({ msg: 'Cookies do ImageFX não configurados. Salve-os nas Configurações.' });
+        }
+        
+        const decryptedCookies = decrypt(keyData.api_key);
+        if (!decryptedCookies) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar os seus cookies.' });
+        }
+        
+        const imageFx = new ImageFX(decryptedCookies);
+        
+        // Mapeamento de estilos (mesmo do generate/imagefx)
+        const styleSuffixes = {
+            'photorealistic': 'photorealistic, hyperrealistic, ultra high definition, 8k, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting',
+            'cinematic': 'cinematic, dramatic lighting, film grain, anamorphic lens, color grading, movie still, Hollywood style, epic composition',
+            'documentary': 'documentary style, natural lighting, authentic, candid photography, real moments, journalistic approach, raw and unfiltered',
+            'cinematic-narrative': 'cinematic narrative, storytelling composition, dramatic angles, emotional depth, visual storytelling, film photography',
+            'anime': 'anime style, Japanese animation, vibrant colors, expressive characters, detailed backgrounds, manga-inspired, cel-shaded',
+            'cartoon': 'cartoon style, animated, colorful, expressive, playful, hand-drawn aesthetic, vibrant palette',
+            'cartoon-premium': 'premium cartoon style, high-quality animation, detailed character design, rich colors, professional animation studio quality',
+            'fantasy': 'fantasy art, magical atmosphere, epic scale, mystical lighting, enchanted, otherworldly, detailed fantasy illustration',
+            'stick-figure': 'stick figure style, minimalist line art, simple black lines on white background, clean and minimal',
+            'whiteboard': 'whiteboard animation style, clean white background, hand-drawn illustrations, educational, clear and simple',
+            'tech-minimalist': 'tech minimalist, clean design, modern aesthetic, geometric shapes, minimal color palette, futuristic, sleek',
+            'spiritual-minimalist': 'spiritual minimalist, serene atmosphere, soft lighting, peaceful composition, meditative, zen aesthetic',
+            'viral-vibrant': 'viral vibrant style, high contrast, saturated colors, bold composition, eye-catching, social media optimized, vibrant and energetic',
+            'modern-documentary': 'modern documentary style, contemporary aesthetic, dynamic composition, real-world setting, authentic moments',
+            'analog-horror': 'analog horror aesthetic, VHS quality, grainy texture, retro horror, distorted colors, unsettling atmosphere, 80s/90s horror',
+            'dark-theater': 'dark theater style, dramatic stage lighting, theatrical composition, intense shadows, dramatic performance',
+            'naturalist-drama': 'naturalist drama, realistic emotional scenes, natural lighting, authentic human moments, raw emotion',
+            'spiritual-neorealism': 'spiritual neorealism, transcendent realism, ethereal lighting, spiritual atmosphere, mystical realism',
+            'psychological-surrealism': 'psychological surrealism, dreamlike imagery, surreal composition, psychological depth, abstract reality',
+            'fragmented-memory': 'fragmented memory style, collage aesthetic, fragmented composition, memory-like quality, layered imagery',
+            'fragmented-narrative': 'fragmented narrative, collage style, mixed media, layered storytelling, fragmented visual narrative',
+            'dream-real': 'dream-real style, liminal space between dream and reality, surreal realism, ethereal atmosphere, dreamlike quality',
+            'vhs-nostalgic': 'VHS nostalgic, retro 80s/90s aesthetic, vintage quality, nostalgic colors, retro film grain, analog feel'
+        };
+        
+        // Obter sufixo do estilo ou usar padrão
+        const styleSuffix = (style && styleSuffixes[style]) ? styleSuffixes[style] : styleSuffixes['photorealistic'];
+        let currentPrompt = `${prompt}, ${styleSuffix}`;
+        
+        const aspectRatioMap = {
+            '16:9': AspectRatio.LANDSCAPE,
+            '9:16': AspectRatio.PORTRAIT,
+            '1:1': AspectRatio.SQUARE
+        };
+        
+        const results = await imageFx.generateImage(currentPrompt, {
+            numberOfImages: 1,
+            aspectRatio: aspectRatioMap[aspectRatio || '16:9'] || AspectRatio.LANDSCAPE,
+            resizeTo16_9: (aspectRatio || '16:9') === '16:9'
+        });
+
+        if (!results || results.length === 0) {
+            throw new Error('A API não retornou imagens.');
+        }
+
+        const imageData = results[0];
+        const imageUrl = imageData.url || `data:image/png;base64,${imageData.base64 || ''}`;
+        const imageBase64 = imageData.base64 || (imageUrl.startsWith('data:') ? imageUrl.split(',')[1] : null);
+
+        res.status(200).json({ 
+            msg: 'Imagem regenerada com sucesso!',
+            image: imageBase64 || imageUrl,
+            imageUrl: imageUrl,
+            prompt: currentPrompt
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/generate/imagefx/regenerate]:', err);
+        
+        if (err instanceof AccountError || err.message?.includes('cookie') || err.message?.includes('autenticação')) {
+            return res.status(401).json({ 
+                msg: 'Cookies do ImageFX expirados ou inválidos. Por favor, atualize os cookies nas Configurações.',
+                requiresAuth: true
+            });
+        }
+        
+        res.status(500).json({ msg: err.message || 'Erro ao regenerar imagem.' });
+    }
+});
+
+// === ROTA PARA GERAR MÚLTIPLAS IMAGENS (BATCH) ===
+app.post('/api/generate/imagefx/batch', authenticateToken, async (req, res) => {
+    const { prompts, style, aspectRatio } = req.body;
+    const userId = req.user.id;
+
+    if (!prompts || !Array.isArray(prompts) || prompts.length === 0) {
+        return res.status(400).json({ msg: 'Uma lista de prompts é obrigatória.' });
+    }
+
+    try {
+        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'imagefx']);
+        if (!keyData) {
+            return res.status(400).json({ msg: 'Cookies do ImageFX não configurados. Salve-os nas Configurações.' });
+        }
+        
+        const decryptedCookies = decrypt(keyData.api_key);
+        if (!decryptedCookies) {
+            return res.status(500).json({ msg: 'Falha ao desencriptar os seus cookies.' });
+        }
+        
+        const imageFx = new ImageFX(decryptedCookies);
+        const results = [];
+        const errors = [];
+
+        // Gerar imagens em paralelo (máximo 3 por vez para evitar rate limit)
+        const batchSize = 3;
+        for (let i = 0; i < prompts.length; i += batchSize) {
+            const batch = prompts.slice(i, i + batchSize);
+            const batchPromises = batch.map(async (prompt, index) => {
+                try {
+                    const fullPrompt = `${prompt}, photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting`;
+                    
+                    const aspectRatioMap = {
+                        '16:9': AspectRatio.LANDSCAPE,
+                        '9:16': AspectRatio.PORTRAIT,
+                        '1:1': AspectRatio.SQUARE
+                    };
+                    
+                    const images = await imageFx.generateImage(fullPrompt, {
+                        aspectRatio: aspectRatioMap[aspectRatio || '16:9'] || AspectRatio.LANDSCAPE,
+                        numberOfImages: 1,
+                        resizeTo16_9: (aspectRatio || '16:9') === '16:9'
+                    });
+                    
+                    if (images && images.length > 0) {
+                        return {
+                            prompt: prompt,
+                            image: images[0].getImageData(),
+                            sceneNumber: i + index + 1,
+                            success: true
+                        };
+                    }
+                    throw new Error('Nenhuma imagem gerada');
+                } catch (error) {
+                    return {
+                        prompt: prompt,
+                        error: error.message,
+                        sceneNumber: i + index + 1,
+                        success: false
+                    };
+                }
+            });
+
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+        }
+
+        const successCount = results.filter(r => r.success).length;
+        const failCount = results.filter(r => !r.success).length;
+
+        res.json({
+            msg: `${successCount} imagem(ns) gerada(s) com sucesso${failCount > 0 ? `, ${failCount} falha(s)` : ''}`,
+            results: results,
+            successCount,
+            failCount
+        });
+
+    } catch (err) {
+        console.error('[ImageFX Batch] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar imagens em lote.' });
     }
 });
 
@@ -3287,7 +11833,37 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
         
         console.log('[ImageFX] A iniciar geração...');
         const imageFx = new ImageFX(decryptedCookies);
-        let currentPrompt = `${prompt}, photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting`;
+        
+        // Mapeamento de estilos para sufixos de prompt
+        const styleSuffixes = {
+            'photorealistic': 'photorealistic, hyperrealistic, ultra high definition, 8k, sharp focus, professional photography, taken with a high-end camera like a Sony α7 IV, detailed skin texture, natural lighting',
+            'cinematic': 'cinematic, dramatic lighting, film grain, anamorphic lens, color grading, movie still, Hollywood style, epic composition',
+            'documentary': 'documentary style, natural lighting, authentic, candid photography, real moments, journalistic approach, raw and unfiltered',
+            'cinematic-narrative': 'cinematic narrative, storytelling composition, dramatic angles, emotional depth, visual storytelling, film photography',
+            'anime': 'anime style, Japanese animation, vibrant colors, expressive characters, detailed backgrounds, manga-inspired, cel-shaded',
+            'cartoon': 'cartoon style, animated, colorful, expressive, playful, hand-drawn aesthetic, vibrant palette',
+            'cartoon-premium': 'premium cartoon style, high-quality animation, detailed character design, rich colors, professional animation studio quality',
+            'fantasy': 'fantasy art, magical atmosphere, epic scale, mystical lighting, enchanted, otherworldly, detailed fantasy illustration',
+            'stick-figure': 'stick figure style, minimalist line art, simple black lines on white background, clean and minimal',
+            'whiteboard': 'whiteboard animation style, clean white background, hand-drawn illustrations, educational, clear and simple',
+            'tech-minimalist': 'tech minimalist, clean design, modern aesthetic, geometric shapes, minimal color palette, futuristic, sleek',
+            'spiritual-minimalist': 'spiritual minimalist, serene atmosphere, soft lighting, peaceful composition, meditative, zen aesthetic',
+            'viral-vibrant': 'viral vibrant style, high contrast, saturated colors, bold composition, eye-catching, social media optimized, vibrant and energetic',
+            'modern-documentary': 'modern documentary style, contemporary aesthetic, dynamic composition, real-world setting, authentic moments',
+            'analog-horror': 'analog horror aesthetic, VHS quality, grainy texture, retro horror, distorted colors, unsettling atmosphere, 80s/90s horror',
+            'dark-theater': 'dark theater style, dramatic stage lighting, theatrical composition, intense shadows, dramatic performance',
+            'naturalist-drama': 'naturalist drama, realistic emotional scenes, natural lighting, authentic human moments, raw emotion',
+            'spiritual-neorealism': 'spiritual neorealism, transcendent realism, ethereal lighting, spiritual atmosphere, mystical realism',
+            'psychological-surrealism': 'psychological surrealism, dreamlike imagery, surreal composition, psychological depth, abstract reality',
+            'fragmented-memory': 'fragmented memory style, collage aesthetic, fragmented composition, memory-like quality, layered imagery',
+            'fragmented-narrative': 'fragmented narrative, collage style, mixed media, layered storytelling, fragmented visual narrative',
+            'dream-real': 'dream-real style, liminal space between dream and reality, surreal realism, ethereal atmosphere, dreamlike quality',
+            'vhs-nostalgic': 'VHS nostalgic, retro 80s/90s aesthetic, vintage quality, nostalgic colors, retro film grain, analog feel'
+        };
+        
+        // Obter sufixo do estilo ou usar padrão
+        const styleSuffix = styleSuffixes[style] || styleSuffixes['photorealistic'];
+        let currentPrompt = `${prompt}, ${styleSuffix}`;
         
         const maxRetries = 5;
         let attempt = 0;
@@ -3300,53 +11876,22 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
             const errorStr = error.message.toLowerCase();
             const errorCode = error.code;
             
-            // Verificar códigos de erro de política (400 Bad Request com códigos específicos)
-            if (errorCode === 400) {
-                // Verificar na mensagem de erro
-                const hasPolicyIndicator = (
+            return (
+                errorCode === 400 && (
+                    errorStr.includes('bloqueado') ||
+                    errorStr.includes('conteúdo inseguro') ||
                     errorStr.includes('public_error') ||
                     errorStr.includes('prominent_people') ||
                     errorStr.includes('filter_failed') ||
-                    errorStr.includes('invalid_argument') ||
                     errorStr.includes('policy') ||
-                    errorStr.includes('prohibited') ||
-                    errorStr.includes('content policy') ||
-                    errorStr.includes('public_error_prominent_people_filter_failed')
-                );
-                
-                // Verificar também nos detalhes do erro se existirem
-                if (error.rawError) {
-                    try {
-                        const errorJson = JSON.parse(error.rawError);
-                        if (errorJson.error) {
-                            const errorDetails = errorJson.error;
-                            if (errorDetails.details) {
-                                for (const detail of errorDetails.details) {
-                                    if (detail.reason && (
-                                        detail.reason.includes('PUBLIC_ERROR') ||
-                                        detail.reason.includes('PROMINENT_PEOPLE') ||
-                                        detail.reason.includes('FILTER_FAILED')
-                                    )) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        // Ignorar erros de parsing
-                    }
-                }
-                
-                return hasPolicyIndicator;
-            }
-            
-            return false;
+                    errorStr.includes('unsafe')
+                )
+            );
         };
         
         // Função para reformular o prompt usando IA
         const reformulatePrompt = async (originalPrompt, errorMessage) => {
             try {
-                // Tentar usar Gemini primeiro (mais rápido), depois Claude, depois OpenAI
                 const services = ['gemini', 'claude', 'openai'];
                 let reformulatedPrompt = null;
                 
@@ -3371,55 +11916,46 @@ app.post('/api/generate/imagefx', authenticateToken, async (req, res) => {
                             model = 'gpt-4o-mini';
                         }
                         
-                        const reformulationPrompt = `Você é um especialista em criar prompts para geração de imagens que respeitam políticas de conteúdo.
+                        const reformulationPrompt = `O prompt a seguir foi bloqueado por violar políticas de conteúdo. Reescreva-o mantendo a essência visual, história e estilo, mas removendo qualquer conteúdo que possa ser considerado inseguro ou inadequado. O prompt reescrito deve ser em INGLÊS e otimizado para geração de imagens.
 
-O prompt original foi rejeitado pelo gerador de imagens com o seguinte erro:
-"${errorMessage}"
-PROMPT ORIGINAL (que foi rejeitado):
-"${originalPrompt}"
+PROMPT ORIGINAL:
+"""${originalPrompt}"""
 
-Sua tarefa é criar uma NOVA versão do prompt que:
-1. Mantenha a essência visual e o conceito do prompt original
-2. Remova ou substitua quaisquer elementos que possam violar políticas de conteúdo (como pessoas reais, conteúdo sensível, etc.)
-3. Use descrições genéricas em vez de específicas (ex: "pessoa" em vez de "pessoa específica", "figura histórica genérica" em vez de nomes reais)
-4. Foque em elementos visuais, composição, cores, atmosfera, objetos, cenários
-5. Mantenha o estilo profissional, fotográfico e cinematográfico
-6. Garanta que o prompt seja adequado para criar thumbnails virais do YouTube
+INSTRUÇÕES:
+1. Mantenha a essência visual, composição e estilo do prompt original
+2. Remova qualquer referência a violência, conteúdo adulto ou conteúdo inadequado
+3. Mantenha a narrativa e a atmosfera geral
+4. O prompt reescrito deve ter entre 600-1200 caracteres
+5. Responda APENAS com o prompt reescrito, sem explicações adicionais
 
-IMPORTANTE:
-- NÃO mencione pessoas reais, celebridades, figuras históricas específicas
-- Use descrições genéricas de pessoas: "uma pessoa", "figura humana", "personagem genérico"
-- Foque em elementos visuais: objetos, cenários, composição, cores, iluminação, atmosfera
-- Mantenha elementos que geram curiosidade e alto CTR (contraste, cores vibrantes, composição impactante)
-- O prompt deve ser em inglês e descrever uma imagem fotográfica realista
-
-Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
+PROMPT REWRITTEN:`;
 
                         const response = await apiCallFunction(reformulationPrompt, decryptedKey, model);
                         
-                        // Todas as APIs retornam o texto em response.titles
-                        let extractedText = response.titles || response.text || '';
+                        let extractedText = '';
+                        if (typeof response === 'string') {
+                            extractedText = response;
+                        } else if (response.titles) {
+                            extractedText = response.titles;
+                        } else if (response.text) {
+                            extractedText = response.text;
+                        }
                         
-                        // Limpar o texto extraído (remover markdown, código, explicações, etc.)
                         reformulatedPrompt = extractedText
-                            .replace(/```[\s\S]*?```/g, '') // Remover blocos de código
-                            .replace(/`/g, '') // Remover backticks
-                            .replace(/^[^"]*["']|["'][^"]*$/g, '') // Remover aspas no início/fim
-                            .replace(/^(Prompt|Prompt reformulado|Nova versão|Versão reformulada)[:：]\s*/i, '') // Remover prefixos comuns
-                            .replace(/\n+/g, ' ') // Substituir quebras de linha por espaços
-                            .replace(/\s+/g, ' ') // Normalizar espaços
+                            .replace(/```[\s\S]*?```/g, '')
+                            .replace(/`/g, '')
+                            .replace(/^[^"]*["']|["'][^"]*$/g, '')
+                            .replace(/^(Prompt|Prompt reformulado|Nova versão|Versão reformulada|PROMPT REWRITTEN)[:：]\s*/i, '')
+                            .replace(/\n+/g, ' ')
+                            .replace(/\s+/g, ' ')
                             .trim();
                         
-                        // Garantir que o prompt tenha conteúdo válido
                         if (reformulatedPrompt && reformulatedPrompt.length > 50 && reformulatedPrompt.length < 2000) {
                             console.log(`[ImageFX] Prompt reformulado usando ${service} (${reformulatedPrompt.length} caracteres)`);
-                            // Adicionar os sufixos de qualidade de volta se não estiverem presentes
                             if (!reformulatedPrompt.includes('photorealistic')) {
                                 reformulatedPrompt += ', photorealistic, hyperrealistic, cinematic, 8k, ultra high definition, sharp focus, professional photography';
                             }
                             break;
-                        } else {
-                            console.warn(`[ImageFX] Prompt reformulado muito curto ou muito longo (${reformulatedPrompt?.length || 0} caracteres). Tentando próximo serviço...`);
                         }
                     } catch (serviceErr) {
                         console.warn(`[ImageFX] Falha ao reformular com ${service}:`, serviceErr.message);
@@ -3428,24 +11964,15 @@ Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
                 }
                 
                 if (!reformulatedPrompt) {
-                    // Fallback: remover manualmente elementos problemáticos comuns
-                    console.log('[ImageFX] Usando fallback para reformular prompt');
                     reformulatedPrompt = originalPrompt
                         .replace(/real person|actual person|specific person|celebrity|famous person/gi, 'generic person')
-                        .replace(/historical figure|famous figure|known person/gi, 'generic historical character')
-                        .replace(/named person|person named/gi, 'person')
-                        .replace(/real people|actual people/gi, 'people')
                         + ', generic characters, no specific individuals, artistic representation';
                 }
                 
                 return reformulatedPrompt;
             } catch (err) {
                 console.error('[ImageFX] Erro ao reformular prompt:', err);
-                // Fallback simples
-                return originalPrompt
-                    .replace(/real person|actual person|specific person/gi, 'generic person')
-                    .replace(/celebrity|famous person/gi, 'person')
-                    + ', generic characters, artistic representation';
+                return originalPrompt.replace(/real person|actual person|specific person/gi, 'generic person') + ', generic characters';
             }
         };
         
@@ -3455,12 +11982,14 @@ Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
             try {
                 console.log(`[ImageFX] Tentativa ${attempt}/${maxRetries} com prompt: ${currentPrompt.substring(0, 100)}...`);
                 
-                images = await imageFx.generateImage(currentPrompt, {
+                const results = await imageFx.generateImage(currentPrompt, {
                     numberOfImages: 1,
-                    aspectRatio: AspectRatio.LANDSCAPE 
+                    aspectRatio: AspectRatio.LANDSCAPE,
+                    resizeTo16_9: true
                 });
 
-                if (images && images.length > 0) {
+                if (results && results.length > 0) {
+                    images = results;
                     console.log(`[ImageFX] Imagem gerada com sucesso na tentativa ${attempt}`);
                     break;
                 }
@@ -3468,15 +11997,12 @@ Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
                 lastError = err;
                 console.warn(`[ImageFX] Erro na tentativa ${attempt}:`, err.message);
                 
-                // Verificar se é erro de política de conteúdo
                 if (isPolicyError(err) && attempt < maxRetries) {
                     console.log(`[ImageFX] Erro de política detectado. Reformulando prompt...`);
                     currentPrompt = await reformulatePrompt(currentPrompt, err.message);
-                    // Adicionar um pequeno delay antes de tentar novamente
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     continue;
                 } else {
-                    // Se não for erro de política ou atingiu max retries, lançar o erro
                     throw err;
                 }
             }
@@ -3486,16 +12012,26 @@ Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
             throw new Error(lastError?.message || 'O ImageFX não retornou imagens após múltiplas tentativas.');
         }
 
-        const imageUrl = images[0].getImageData().url;
+        // O generateImage retorna um array de objetos com url, sanitizedPrompt, etc.
+        const imageResult = images[0];
+        const imageUrl = imageResult.url || '';
+        
+        // Extrair base64 da URL data:image
+        let finalBase64 = null;
+        if (imageUrl && imageUrl.startsWith('data:image')) {
+            finalBase64 = imageUrl.split(',')[1];
+        }
+        
+        const finalUrl = imageUrl || (finalBase64 ? `data:image/png;base64,${finalBase64}` : '');
 
         // Salvar automaticamente na biblioteca se solicitado
         let savedId = null;
-        if (saveToLibrary && imageUrl) {
+        if (saveToLibrary && finalUrl) {
             try {
                 const result = await db.run(
                     `INSERT INTO viral_thumbnails_library (user_id, thumbnail_url, thumbnail_description, niche, subniche, style, viral_score)
                      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [userId, imageUrl, prompt, niche || null, subniche || null, style || null, 8]
+                    [userId, finalUrl, prompt, niche || null, subniche || null, style || null, 8]
                 );
                 savedId = result.lastID;
                 console.log(`[ImageFX] Thumbnail salva na biblioteca com ID ${savedId}`);
@@ -3506,14 +12042,26 @@ Responda APENAS com o prompt reformulado, sem explicações adicionais.`;
 
         res.status(200).json({ 
             msg: 'Imagem gerada com sucesso!',
-            imageUrl: imageUrl,
+            image: finalBase64,
+            imageUrl: finalUrl,
+            base64: finalBase64,
+            prompt: currentPrompt,
             savedToLibrary: savedId !== null,
             libraryId: savedId,
-            attempts: attempt
+            attempts: attempt,
+            wasRewritten: attempt > 1
         });
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/generate/imagefx]:', err);
+        
+        // Verificar se é erro de autenticação (cookies expirados)
+        if (err instanceof AccountError || err.message?.includes('cookie') || err.message?.includes('autenticação')) {
+            return res.status(401).json({ 
+                msg: 'Cookies do ImageFX expirados ou inválidos. Por favor, atualize os cookies nas Configurações.',
+                requiresAuth: true
+            });
+        }
         
         // Verificar se é erro do ImageFX com código específico
         if (err.code === 400 && err.message) {
@@ -3840,10 +12388,31 @@ async function getTranscriptFromYouTubeTranscript(videoId) {
     try {
         console.log(`[YouTube-Transcript] 🔍 Buscando transcrição via youtube-transcript para: ${videoId}`);
         
-        const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+        // Tentar buscar transcrição com diferentes configurações
+        let transcriptData;
+        const languages = ['pt', 'en', 'es', null]; // Tentar português, inglês, espanhol, e sem especificar
+        
+        for (const lang of languages) {
+            try {
+                if (lang) {
+                    console.log(`[YouTube-Transcript] Tentando idioma: ${lang}`);
+                    transcriptData = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+                } else {
+                    console.log(`[YouTube-Transcript] Tentando sem especificar idioma`);
+                    transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+                }
+                
+                if (transcriptData && transcriptData.length > 0) {
+                    break; // Sucesso, sair do loop
+                }
+            } catch (langErr) {
+                console.log(`[YouTube-Transcript] Falha com idioma ${lang || 'padrão'}: ${langErr.message}`);
+                continue; // Tentar próximo idioma
+            }
+        }
         
         if (!transcriptData || transcriptData.length === 0) {
-            throw new Error('Nenhuma transcrição encontrada');
+            throw new Error('Nenhuma transcrição encontrada em nenhum idioma disponível');
         }
         
         // Juntar todos os textos
@@ -3857,7 +12426,7 @@ async function getTranscriptFromYouTubeTranscript(videoId) {
         return transcriptText;
     } catch (err) {
         console.warn(`[YouTube-Transcript] ⚠️ Falha:`, err.message);
-        throw err;
+        throw new Error(`Nenhuma transcrição encontrada: ${err.message}`);
     }
 }
 /**
@@ -4370,6 +12939,106 @@ app.post('/api/video/transcript/analyze', authenticateToken, async (req, res) =>
     }
 });
 
+// === ROTA LAOZHANG PARA ANÁLISE DE TRANSCRIÇÃO ===
+app.post('/api/video/transcript/analyze/laozhang', authenticateToken, async (req, res) => {
+    const { transcript, videoId, videoTitle, niche, subniche } = req.body || {};
+    const userId = req.user.id;
+
+    if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 400) {
+        return res.status(400).json({ msg: 'Forneça a transcrição completa (mínimo ~400 caracteres) para gerar a análise.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        const sanitizedTranscript = transcript.trim();
+        const truncatedTranscript = sanitizedTranscript.length > 20000
+            ? `${sanitizedTranscript.substring(0, 20000)}\n[... conteúdo truncado para análise ...]`
+            : sanitizedTranscript;
+
+        const analysisPrompt = `
+Você é um ESTRATEGISTA DE CONTEÚDO para YouTube. Analise profundamente o roteiro abaixo e explique POR QUE ele viralizou.
+
+Retorne APENAS um JSON válido no formato:
+{
+  "resumo": "síntese em 2-3 frases",
+  "motivosVirais": ["motivo 1", "motivo 2", "..."],
+  "gatilhosEmocionais": ["gatilho 1", "..."],
+  "estruturaNarrativa": [
+    { "etapa": "Nome curto", "descricao": "O que acontece nessa parte", "tempoAproximado": "0:00-0:45" }
+  ],
+  "formulaChecklist": [
+    {
+      "item": "Elemento da fórmula",
+      "status": "aplicado" ou "melhorar",
+      "porqueFunciona": "Explicação curta",
+      "comoAplicarNoMeuConteudo": "Diretriz prática",
+      "upgradeSugerido": "Ajuste para ficar 10/10"
+    }
+  ],
+  "diferencialProposto": "Diferencial para deixar ainda melhor",
+  "sugestoesAplicacao": ["ação 1", "ação 2"],
+  "alertas": ["possíveis riscos ou pontos de atenção"]
+}
+
+Regras:
+- Idioma: português do Brasil.
+- Não copie trechos do roteiro; descreva a fórmula e o raciocínio.
+- Mostre como replicar a estrutura sem plagiar.
+- Foque em transformar os aprendizados em um checklist acionável.
+
+Contexto do vídeo:
+- Título: ${videoTitle || 'N/A'}
+- Nicho: ${niche || 'N/A'}
+- Subnicho: ${subniche || 'N/A'}
+
+ROTEIRO COMPLETO:
+"""${truncatedTranscript}"""`;
+
+        const response = await callLaozhangAPI(
+            analysisPrompt,
+            laozhangApiKey,
+            'gpt-4o',
+            null,
+            userId,
+            'api_transcript_analyze',
+            JSON.stringify({ endpoint: '/api/video/transcript/analyze/laozhang', model: 'gpt-4o' })
+        );
+
+        // Parsear resposta JSON
+        let analysis;
+        const rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        try {
+            analysis = JSON.parse(rawResponse);
+        } catch (e) {
+            // Tentar extrair JSON
+            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    analysis = JSON.parse(jsonMatch[0]);
+                } catch (e2) {
+                    throw new Error('Resposta da IA não contém JSON válido.');
+                }
+            } else {
+                throw new Error('Resposta da IA não contém JSON válido.');
+            }
+        }
+
+        res.status(200).json({
+            analysis: analysis,
+            provider: 'laozhang',
+            videoId: videoId || null
+        });
+    } catch (err) {
+        console.error('[ERRO /api/video/transcript/analyze/laozhang]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao analisar o roteiro.' });
+    }
+});
+
 // Rota para criar um agente de roteiro a partir de um vídeo transcrito
 app.post('/api/script-agents/create', authenticateToken, async (req, res) => {
     const { videoId, videoUrl, videoTitle, agentName, niche, subniche, manualTranscript, viralInsights } = req.body;
@@ -4423,6 +13092,38 @@ app.post('/api/script-agents/create', authenticateToken, async (req, res) => {
         if (!fullTranscript || fullTranscript.trim().length < 100) {
             console.warn(`[Agente] ⚠️ Transcrição não disponível ou muito curta (${fullTranscript?.length || 0} caracteres). Criando agente com prompt básico.`);
             // Não retornar erro, mas criar agente com prompt básico baseado apenas no título e nicho
+        }
+
+        // Analisar e capturar a fórmula viral durante a criação do agente
+        let viralFormulaData = null;
+        if (fullTranscript && fullTranscript.trim().length >= 500) {
+            try {
+                const claudeKeyRow = await db.get(
+                    'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                    [userId, 'claude']
+                );
+
+                if (claudeKeyRow && claudeKeyRow.api_key) {
+                    const claudeApiKey = decrypt(claudeKeyRow.api_key);
+                    if (claudeApiKey) {
+                        const viralReplicator = new ViralFormulaReplicator();
+                        console.log('[Agente] 🔍 Analisando fórmula viral durante criação do agente...');
+                        viralFormulaData = await viralReplicator.analyzeViralFormula(
+                            fullTranscript,
+                            claudeApiKey,
+                            videoTitle,
+                            niche || subniche || 'geral'
+                        );
+                        console.log('[Agente] ✅ Fórmula viral capturada e pronta para reutilização futura.');
+                    } else {
+                        console.warn('[Agente] ⚠️ Falha ao desencriptar API key do Claude para análise de fórmula.');
+                    }
+                } else {
+                    console.warn('[Agente] ⚠️ API key do Claude não configurada. Fórmula viral não será armazenada.');
+                }
+            } catch (formulaErr) {
+                console.error('[Agente] ⚠️ Erro ao analisar fórmula viral durante criação do agente:', formulaErr.message);
+            }
         }
 
         // Buscar provedor de IA preferencial (Claude > GPT > Gemini)
@@ -4532,7 +13233,21 @@ Responda APENAS com um objeto JSON válido no seguinte formato:
 }`;
 
         let response;
-        if (aiProvider.service === 'claude') {
+        let responseText = '';
+        
+        if (aiProvider.service === 'laozhang') {
+            response = await callLaozhangAPI(
+                agentPrompt, 
+                aiProvider.apiKey, 
+                aiProvider.model, 
+                null, 
+                userId, 
+                'api_call', 
+                JSON.stringify({ endpoint: '/api/script-agents/create', model: aiProvider.model })
+            );
+            // callLaozhangAPI retorna string diretamente
+            responseText = typeof response === 'string' ? response : JSON.stringify(response);
+        } else if (aiProvider.service === 'claude') {
             response = await callClaudeAPI(agentPrompt, aiProvider.apiKey, aiProvider.model);
         } else if (aiProvider.service === 'openai') {
             response = await callOpenAIAPI(agentPrompt, aiProvider.apiKey, aiProvider.model);
@@ -4540,15 +13255,16 @@ Responda APENAS com um objeto JSON válido no seguinte formato:
             response = await callGeminiAPI(agentPrompt, aiProvider.apiKey, aiProvider.model);
         }
         
-        // Extrair o texto da resposta do Gemini
-        let responseText = '';
-        if (response && response.titles) {
-            responseText = response.titles;
-        } else if (typeof response === 'string') {
-            responseText = response;
-        } else {
-            console.error(`[Agente] Formato de resposta inesperado:`, typeof response);
-            throw new Error('Formato de resposta inesperado da API Gemini');
+        // Extrair o texto da resposta (se ainda não foi extraído para laozhang)
+        if (aiProvider.service !== 'laozhang') {
+            if (response && response.titles) {
+                responseText = response.titles;
+            } else if (typeof response === 'string') {
+                responseText = response;
+            } else {
+                console.error(`[Agente] Formato de resposta inesperado:`, typeof response);
+                throw new Error('Formato de resposta inesperado da API');
+            }
         }
         
         console.log(`[Agente] Resposta recebida (primeiros 500 caracteres):`, responseText.substring(0, 500));
@@ -4627,11 +13343,13 @@ Crie roteiros seguindo esta estrutura e estilo, adaptando o conteúdo para novos
             console.log(`[Agente] Usando fallback: prompt básico criado`);
         }
 
+        const viralFormulaJson = viralFormulaData ? JSON.stringify(viralFormulaData) : null;
+
         // Salvar o agente no banco de dados
         const result = await db.run(
-            `INSERT INTO script_agents (user_id, agent_name, niche, subniche, source_video_id, source_video_url, source_video_title, full_transcript, agent_prompt, agent_instructions)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [userId, agentName, niche || null, subniche || null, videoId, videoUrl || null, videoTitle || null, fullTranscript, agentPromptText, agentInstructions]
+            `INSERT INTO script_agents (user_id, agent_name, niche, subniche, source_video_id, source_video_url, source_video_title, full_transcript, agent_prompt, agent_instructions, viral_formula_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, agentName, niche || null, subniche || null, videoId, videoUrl || null, videoTitle || null, fullTranscript, agentPromptText, agentInstructions, viralFormulaJson]
         );
 
         res.status(200).json({
@@ -4641,12 +13359,176 @@ Crie roteiros seguindo esta estrutura e estilo, adaptando o conteúdo para novos
                 id: result.lastID,
                 name: agentName,
                 niche: niche || null,
-                subniche: subniche || null
+                subniche: subniche || null,
+                hasViralFormula: !!viralFormulaJson
             }
         });
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/script-agents/create]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao criar agente de roteiro.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA CRIAÇÃO DE AGENTES ===
+app.post('/api/script-agents/create/laozhang', authenticateToken, async (req, res) => {
+    const { videoId, videoUrl, videoTitle, agentName, niche, subniche, manualTranscript, viralInsights } = req.body;
+    const userId = req.user.id;
+
+    if (!videoId || !agentName) {
+        return res.status(400).json({ msg: 'ID do vídeo e nome do agente são obrigatórios.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Buscar transcrição (mesma lógica da rota original)
+        let fullTranscript = null;
+        if (manualTranscript && manualTranscript.trim().length > 0) {
+            fullTranscript = manualTranscript.trim();
+        } else {
+            const analysis = await db.get(
+                'SELECT full_transcript FROM analyzed_videos WHERE youtube_video_id = ? AND user_id = ? ORDER BY analyzed_at DESC LIMIT 1',
+                [videoId, userId]
+            );
+            if (analysis && analysis.full_transcript) {
+                fullTranscript = analysis.full_transcript;
+            }
+        }
+
+        // Criar prompt (mesma lógica da rota original, simplificado)
+        let agentPrompt = fullTranscript && fullTranscript.trim().length >= 100
+            ? `Você é um ESPECIALISTA EM ANÁLISE DE ROTEIROS VIRAIS para YouTube. Analise o roteiro abaixo e crie um agente de roteiro.
+
+ROTEIRO: ${fullTranscript.substring(0, 20000)}
+TÍTULO: ${videoTitle || 'N/A'}
+NICHE: ${niche || 'N/A'}
+SUBNICHE: ${subniche || 'N/A'}
+
+Retorne JSON:
+{
+  "agent_prompt": "Prompt base...",
+  "agent_instructions": "Instruções detalhadas..."
+}`
+            : `Crie um agente de roteiro baseado em:
+TÍTULO: ${videoTitle || 'N/A'}
+NICHE: ${niche || 'N/A'}
+SUBNICHE: ${subniche || 'N/A'}
+
+Retorne JSON:
+{
+  "agent_prompt": "Prompt base...",
+  "agent_instructions": "Instruções detalhadas..."
+}`;
+
+        const response = await callLaozhangAPI(
+            agentPrompt,
+            laozhangApiKey,
+            'claude-3-7-sonnet-20250219',
+            null,
+            userId,
+            'api_script_agents_create',
+            JSON.stringify({ endpoint: '/api/script-agents/create/laozhang', model: 'claude-3-7-sonnet-20250219' })
+        );
+
+        // Parsear resposta
+        let agentPromptText, agentInstructions;
+        let rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        // Limpar caracteres de controle inválidos do JSON
+        // Remover quebras de linha e tabs não escapados dentro de strings JSON
+        rawResponse = rawResponse
+            .replace(/\n/g, '\\n')  // Escapar quebras de linha
+            .replace(/\r/g, '\\r')  // Escapar carriage return
+            .replace(/\t/g, '\\t')  // Escapar tabs
+            .replace(/\f/g, '\\f')  // Escapar form feed
+            .replace(/\b/g, '\\b')  // Escapar backspace
+            // Mas manter quebras de linha válidas fora de strings (formatação JSON)
+            .replace(/\\n(?=\s*[,\}\]])/g, '\n')  // Restaurar quebras de linha válidas após vírgulas/fechamentos
+            .replace(/\\n(?=\s*")/g, '\n');      // Restaurar quebras de linha válidas antes de strings
+        
+        // Tentar extrair JSON de markdown code blocks primeiro
+        const codeBlockMatch = rawResponse.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+            rawResponse = codeBlockMatch[1];
+        }
+        
+        try {
+            // Tentar parse direto
+            const parsed = JSON.parse(rawResponse);
+            agentPromptText = parsed.agent_prompt || parsed.agentPrompt;
+            agentInstructions = parsed.agent_instructions || parsed.agentInstructions;
+        } catch (e) {
+            console.warn('[Agente Laozhang] Erro ao parsear JSON diretamente, tentando extrair:', e.message);
+            
+            // Tentar extrair JSON usando regex mais robusto
+            const jsonMatch = rawResponse.match(/\{[\s\S]*"agent_prompt"[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    // Limpar caracteres de controle problemáticos antes de parsear
+                    let cleanedJson = jsonMatch[0]
+                        .replace(/[\x00-\x1F\x7F]/g, '') // Remover caracteres de controle
+                        .replace(/([^\\])\n/g, '$1\\n')  // Escapar quebras de linha não escapadas
+                        .replace(/([^\\])\r/g, '$1\\r')  // Escapar carriage return não escapados
+                        .replace(/([^\\])\t/g, '$1\\t'); // Escapar tabs não escapados
+                    
+                    const parsed = JSON.parse(cleanedJson);
+                    agentPromptText = parsed.agent_prompt || parsed.agentPrompt;
+                    agentInstructions = parsed.agent_instructions || parsed.agentInstructions;
+                } catch (e2) {
+                    console.error('[Agente Laozhang] Erro ao parsear JSON extraído:', e2.message);
+                    // Fallback: tentar extrair valores diretamente com regex
+                    const promptMatch = rawResponse.match(/"agent_prompt"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/);
+                    const instructionsMatch = rawResponse.match(/"agent_instructions"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/);
+                    
+                    if (promptMatch && promptMatch[1]) {
+                        agentPromptText = promptMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                    }
+                    if (instructionsMatch && instructionsMatch[1]) {
+                        agentInstructions = instructionsMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                    }
+                    
+                    // Se ainda não conseguiu, usar fallback
+                    if (!agentPromptText) {
+                        agentPromptText = `Crie roteiros virais para YouTube no nicho ${niche || 'geral'}.`;
+                    }
+                    if (!agentInstructions) {
+                        agentInstructions = `Agente criado a partir do vídeo "${videoTitle || 'N/A'}".`;
+                    }
+                }
+            } else {
+                console.warn('[Agente Laozhang] Nenhum JSON encontrado na resposta, usando fallback');
+                // Fallback
+                agentPromptText = `Crie roteiros virais para YouTube no nicho ${niche || 'geral'}.`;
+                agentInstructions = `Agente criado a partir do vídeo "${videoTitle || 'N/A'}".`;
+            }
+        }
+        
+        // Garantir que temos valores válidos
+        if (!agentPromptText || agentPromptText.trim().length === 0) {
+            agentPromptText = `Crie roteiros virais para YouTube no nicho ${niche || 'geral'}.`;
+        }
+        if (!agentInstructions || agentInstructions.trim().length === 0) {
+            agentInstructions = `Agente criado a partir do vídeo "${videoTitle || 'N/A'}".`;
+        }
+
+        // Salvar agente
+        const result = await db.run(
+            `INSERT INTO script_agents (user_id, agent_name, niche, subniche, source_video_id, source_video_url, source_video_title, full_transcript, agent_prompt, agent_instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, agentName, niche || null, subniche || null, videoId, videoUrl || null, videoTitle || null, fullTranscript, agentPromptText, agentInstructions]
+        );
+
+        res.status(201).json({
+            msg: 'Agente de roteiro criado com sucesso!',
+            agentId: result.lastID
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/script-agents/create/laozhang]:', err);
         res.status(500).json({ msg: err.message || 'Erro ao criar agente de roteiro.' });
     }
 });
@@ -4703,58 +13585,118 @@ function sendProgress(sessionId, data) {
     }
 }
 
-// Rota SSE para progresso em tempo real
-app.get('/api/script-agents/progress/:sessionId', authenticateToken, (req, res) => {
+// Rota SSE para progresso em tempo real (aceita token via header ou query string)
+app.get('/api/script-agents/progress/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
+    // Permite token via Authorization header ou query ?token=
+    const authHeader = req.headers['authorization'];
+    let token = authHeader && authHeader.split(' ')[1];
+    if (!token && req.query && req.query.token) {
+        token = req.query.token;
+    }
     
-    sseClients.set(sessionId, res);
+    if (!token) {
+        return res.status(401).json({ msg: 'Token não fornecido.' });
+    }
     
-    req.on('close', () => {
-        sseClients.delete(sessionId);
+    jwt.verify(token, JWT_SECRET, (err) => {
+        if (err) {
+            return res.status(403).json({ msg: 'Token inválido ou expirado.' });
+        }
+        
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+        
+        sseClients.set(sessionId, res);
+        console.log(`[SSE] Cliente conectado: ${sessionId}`);
+        
+        req.on('close', () => {
+            sseClients.delete(sessionId);
+            console.log(`[SSE] Cliente desconectado: ${sessionId}`);
+        });
     });
 });
 
 // Rota para gerar roteiro usando um agente
 app.post('/api/script-agents/:agentId/generate', authenticateToken, async (req, res) => {
     const { agentId } = req.params;
-    const { title, topic, duration, language, cta, model, additionalInstructions, sessionId } = req.body;
+    const { title, topic, duration, language, cta, model, additionalInstructions, sessionId, parts } = req.body;
     const userId = req.user.id;
 
     if (!title) {
         return res.status(400).json({ msg: 'Título do vídeo é obrigatório.' });
     }
 
-    // Se não fornecer duração, usar 5 minutos como padrão
-    const scriptDuration = duration ? parseInt(duration) : 5;
-    
-    // Se não fornecer idioma, usar português como padrão
-    const scriptLanguage = language || 'pt';
-    
-    // Configurar CTAs (Call to Action)
-    const ctaConfig = {
-        inicio: cta?.inicio || false,
-        meio: cta?.meio || false,
-        final: cta?.final !== undefined ? cta.final : true // Padrão: CTA no final
-    };
-    
-    // Se não fornecer modelo, usar Gemini como padrão
-    const selectedModel = model || 'gemini-2.0-flash';
+        // Se não fornecer duração, usar 5 minutos como padrão
+        let scriptDuration = duration ? parseInt(duration) : 5;
+        
+        // Se não fornecer idioma, usar português como padrão
+        const scriptLanguage = language || 'pt';
+        
+        // Configurar CTAs (Call to Action)
+        const ctaConfig = {
+            inicio: cta?.inicio || false,
+            meio: cta?.meio || false,
+            final: cta?.final !== undefined ? cta.final : true // Padrão: CTA no final
+        };
+        
+        // Se não fornecer modelo, usar Claude como padrão (recomendado para roteiros)
+        const selectedModel = model || 'claude-3-7-sonnet-20250219';
+        
+        // A duração já vem ajustada do frontend (com 3-5 minutos extras)
+        // Não adicionar mais minutos aqui para evitar duplicação
+        // Mas aumentar wordsPerMinute para garantir margem de segurança
+        const originalDuration = scriptDuration;
+        console.log(`[Script Generate] Duração recebida do frontend: ${scriptDuration} minutos (já ajustada)`);
 
     try {
+        console.log(`[Script Generate] Requisição recebida - agentId: ${agentId}, userId: ${userId}, title: ${title}`);
+        
+        if (!agentId) {
+            console.error(`[Script Generate] agentId não fornecido na URL`);
+            return res.status(400).json({ msg: 'ID do agente é obrigatório.' });
+        }
+
         // Buscar o agente
+        console.log(`[Script Generate] Buscando agente com id=${agentId} e user_id=${userId}`);
+        
+        // Primeiro, verificar se o agente existe (sem filtro de user_id)
+        const agentExists = await db.get(
+            `SELECT id, user_id, agent_name FROM script_agents WHERE id = ?`,
+            [agentId]
+        );
+        
+        if (!agentExists) {
+            console.error(`[Script Generate] Agente ${agentId} não existe no banco de dados`);
+            // Listar todos os agentes do usuário para debug
+            const userAgents = await db.all(
+                `SELECT id, agent_name FROM script_agents WHERE user_id = ?`,
+                [userId]
+            );
+            console.log(`[Script Generate] Agentes disponíveis para user_id=${userId}:`, userAgents);
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+        
+        if (agentExists.user_id !== userId) {
+            console.error(`[Script Generate] Agente ${agentId} existe mas pertence ao user_id=${agentExists.user_id}, não ao user_id=${userId}`);
+            return res.status(403).json({ msg: 'Você não tem permissão para usar este agente.' });
+        }
+        
+        // Buscar o agente completo
         const agent = await db.get(
             `SELECT * FROM script_agents WHERE id = ? AND user_id = ?`,
             [agentId, userId]
         );
-
+        
         if (!agent) {
-            return res.status(404).json({ msg: 'Agente não encontrado.' });
+            console.error(`[Script Generate] Erro inesperado: agente existe mas não foi encontrado com filtro user_id`);
+            return res.status(500).json({ msg: 'Erro ao buscar agente.' });
         }
+
+        console.log(`[Script Generate] Agente encontrado: ${agent.agent_name || 'Sem nome'}`);
 
         // Identificar serviço e buscar chave
         let service;
@@ -4772,12 +13714,35 @@ app.post('/api/script-agents/:agentId/generate', authenticateToken, async (req, 
             return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
         }
 
-        // Dividir em partes de 3 minutos se a duração for maior que 5 minutos
-        const partDuration = scriptDuration > 5 ? 3 : scriptDuration;
-        const numberOfParts = Math.ceil(scriptDuration / partDuration);
-        const wordsPerPart = partDuration * 150;
+        // Dividir em blocos de 3 minutos para respeitar o front-end
+        const BASE_PART_DURATION = 3;
+        const idealParts = Math.max(1, Math.ceil(scriptDuration / BASE_PART_DURATION));
+        let requestedParts = parseInt(parts, 10);
+        if (Number.isNaN(requestedParts) || requestedParts <= 0) {
+            requestedParts = null;
+        }
+        // SEMPRE respeitar o número de partes solicitado pelo frontend
+        let numberOfParts = requestedParts || idealParts;
+        if (requestedParts) {
+            console.log(`[Roteiro] Usando número de partes solicitado pelo frontend: ${requestedParts} (ideal seria ${idealParts})`);
+            numberOfParts = requestedParts; // SEMPRE usar o valor do frontend
+        } else {
+            console.log(`[Roteiro] Nenhuma parte especificada, usando cálculo ideal: ${idealParts}`);
+            numberOfParts = idealParts;
+        }
         
-        console.log(`[Roteiro] Duração: ${scriptDuration} minutos. Dividindo em ${numberOfParts} parte(s) de ${partDuration} minutos cada (~${wordsPerPart} palavras por parte)`);
+        const partDurations = [];
+        for (let idx = 0; idx < numberOfParts; idx++) {
+            if (idx === numberOfParts - 1) {
+                const consumed = BASE_PART_DURATION * (numberOfParts - 1);
+                const remaining = scriptDuration - consumed;
+                partDurations.push(remaining > 0 ? remaining : BASE_PART_DURATION);
+            } else {
+                partDurations.push(Math.min(BASE_PART_DURATION, scriptDuration));
+            }
+        }
+        
+        console.log(`[Roteiro] Duração: ${scriptDuration} minutos. Dividindo em ${numberOfParts} parte(s) (~3 minutos cada). Última parte: ${partDurations[numberOfParts - 1]} minuto(s).`);
 
         let scriptContent = '';
 
@@ -4799,8 +13764,8 @@ app.post('/api/script-agents/:agentId/generate', authenticateToken, async (req, 
             
             for (let partIndex = 0; partIndex < numberOfParts; partIndex++) {
                 const isLastPart = partIndex === numberOfParts - 1;
-                const currentPartDuration = isLastPart ? (scriptDuration - (partIndex * partDuration)) : partDuration;
-                const currentPartWords = currentPartDuration * 150;
+                const currentPartDuration = partDurations[partIndex] || BASE_PART_DURATION;
+                const currentPartWords = currentPartDuration * wordsPerMinute;
                 const partNumber = partIndex + 1;
                 
                 console.log(`[Roteiro] Gerando parte ${partNumber}/${numberOfParts} (${currentPartDuration} minutos, ~${currentPartWords} palavras)...`);
@@ -4821,10 +13786,38 @@ DURAÇÃO DESTA PARTE: ${currentPartDuration} minutos (${currentPartDuration * 6
 
 IDIOMA DO ROTEIRO: ${scriptLanguage === 'pt' ? 'Português (Brasil)' : scriptLanguage === 'pt-PT' ? 'Português (Portugal)' : scriptLanguage === 'es' ? 'Español' : scriptLanguage === 'en' ? 'English' : scriptLanguage === 'fr' ? 'Français' : scriptLanguage === 'de' ? 'Deutsch' : scriptLanguage === 'it' ? 'Italiano' : scriptLanguage === 'ru' ? 'Русский' : scriptLanguage === 'ja' ? '日本語' : scriptLanguage === 'zh' ? '中文' : scriptLanguage}
 
-CALL TO ACTION (CTA) - ONDE INCLUIR:
-${ctaConfig.inicio && partIndex === 0 ? '- CTA no INÍCIO (primeiros 30 segundos): Incluir chamada para ação (like, subscribe, comentar)' : ''}
-${ctaConfig.meio && partIndex === Math.floor(numberOfParts / 2) ? '- CTA no MEIO (aproximadamente na metade do vídeo): Incluir chamada para ação' : ''}
-${ctaConfig.final && isLastPart ? '- CTA no FINAL (últimos 30 segundos): Incluir chamada para ação forte (like, subscribe, comentar, compartilhar)' : ''}
+${(ctaConfig.inicio && partIndex === 0) || (ctaConfig.meio && partIndex === Math.floor(numberOfParts / 2)) || (ctaConfig.final && isLastPart) ? `═══════════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ CALL TO ACTION (CTA) - OBRIGATÓRIO E NATURAL ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════════
+${ctaConfig.inicio && partIndex === 0 ? `✅ CTA no INÍCIO (primeiros 30 segundos): 
+   - Você DEVE incluir uma chamada para ação NATURAL e ORGÂNICA nos primeiros 30 segundos desta parte
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se você está gostando deste conteúdo, já deixa seu like e se inscreva no canal para não perder os próximos vídeos", "Antes de continuar, se inscreva no canal e ative o sininho para receber notificações", "Se este conteúdo está te ajudando, já deixa seu like e comenta o que achou"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada\n` : ''}
+${ctaConfig.meio && partIndex === Math.floor(numberOfParts / 2) ? `✅ CTA no MEIO (aproximadamente na metade do vídeo):
+   - Você DEVE incluir uma chamada para ação NATURAL e ORGÂNICA no meio desta parte
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se você está aprendendo algo novo aqui, já deixa seu like e compartilha com quem precisa ver isso", "Antes de continuarmos, se inscreva no canal para não perder o restante deste conteúdo", "Se este vídeo está te ajudando, já deixa seu like e comenta suas dúvidas"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada\n` : ''}
+${ctaConfig.final && isLastPart ? `✅ CTA no FINAL (últimos 30 segundos):
+   - Você DEVE incluir uma chamada para ação FORTE, NATURAL e ORGÂNICA nos últimos 30 segundos desta parte
+   - Este é o CTA mais importante - deve ser impactante mas ainda assim natural
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se este conteúdo te ajudou, já deixa seu like, se inscreva no canal, ative o sininho, compartilhe com seus amigos e comente o que achou", "Não esqueça de deixar seu like, se inscrever no canal e compartilhar este vídeo com quem precisa ver isso", "Se você gostou deste conteúdo, já deixa seu like, se inscreva no canal, ative o sininho para receber notificações e compartilhe com seus amigos"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada
+   - CRÍTICO: Este CTA final é essencial para o engajamento do vídeo\n` : ''}
+⚠️ REGRAS IMPORTANTES SOBRE CTAs:
+- Os CTAs devem ser incluídos de forma NATURAL e ORGÂNICA no texto narrativo
+- NÃO use marcações como "[CTA]", "(CTA)", ou qualquer indicação explícita de CTA
+- NÃO interrompa o fluxo narrativo abruptamente para incluir o CTA
+- O CTA deve fazer parte da narrativa, como se fosse uma conversa natural com o espectador
+- Use linguagem conversacional e envolvente
+- Seja persuasivo mas genuíno, não forçado
+- O CTA deve parecer que faz parte naturalmente do roteiro, não algo adicionado depois
+` : ''}
 
 ${topic ? `TÓPICO ESPECÍFICO (se fornecido): ${topic}\n` : ''}
 NICHE: ${agent.niche || 'N/A'}
@@ -4835,15 +13828,32 @@ Crie a PARTE ${partNumber} de ${numberOfParts} do roteiro COMPLETO e DETALHADO p
 
 O roteiro desta parte deve:
 - Ter EXATAMENTE ${currentPartDuration} minutos de duração (${currentPartDuration * 60} segundos)
+${!isLastPart ? `- ⚠️ CRÍTICO - ESTRUTURA OBRIGATÓRIA: Esta parte DEVE ter EXATAMENTE 5 PARÁGRAFOS
+- Cada parte DEVE ter ENTRE 390 e 450 PALAVRAS (total da parte)
+- Cada parágrafo DEVE ter ENTRE 75 e 90 PALAVRAS
+- Distribuição ideal: 5 parágrafos × 78-90 palavras cada = 390-450 palavras totais
+- Cada parágrafo deve ser separado por uma quebra de linha dupla (espaço em branco entre parágrafos)
+- Os 5 parágrafos devem estar bem distribuídos ao longo dos ${currentPartDuration} minutos desta parte
+- Estrutura obrigatória: 5 parágrafos distintos e bem definidos, cada um com 75-90 palavras` : `- Esta é a ÚLTIMA parte do roteiro - pode ter um número variável de parágrafos conforme necessário para concluir o conteúdo`}
 - Replicar a estrutura narrativa exata do roteiro viral original
 - Manter os mesmos elementos virais (ganchos, ritmo, tom, técnicas de engajamento)
 - Adaptar o conteúdo para o novo título fornecido
+- CRÍTICO: NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+- O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+- Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
 - Manter a fórmula de sucesso que tornou o roteiro original viral
 - Distribuir o conteúdo proporcionalmente para preencher os ${currentPartDuration} minutos desta parte
 
 FORMATO DE RESPOSTA OBRIGATÓRIO:
 - Responda APENAS com o roteiro em TEXTO SIMPLES (não use JSON, não use estruturas de dados)
 - NÃO use formato JSON, não use objetos, não use arrays, não use chaves {}
+${!isLastPart ? `- ⚠️ CRÍTICO: Esta parte DEVE ter EXATAMENTE 5 PARÁGRAFOS
+- Cada parte DEVE ter ENTRE 390 e 450 PALAVRAS (total da parte)
+- Cada parágrafo DEVE ter ENTRE 75 e 90 PALAVRAS
+- Distribuição ideal: 5 parágrafos × 78-90 palavras cada = 390-450 palavras totais
+- Cada parágrafo deve ser separado por uma quebra de linha dupla (espaço em branco entre parágrafos)
+- Estrutura obrigatória: 5 parágrafos distintos e bem definidos, cada um com 75-90 palavras
+- Os 5 parágrafos devem estar bem distribuídos ao longo dos ${currentPartDuration} minutos desta parte` : `- Esta é a ÚLTIMA parte - pode ter um número variável de parágrafos conforme necessário para concluir`}
 - O roteiro deve ser texto corrido, dividido em parágrafos ou seções claras
 - Cada seção pode ter indicação de tempo entre parênteses ou colchetes, mas o conteúdo deve ser texto narrativo direto
 - Exemplo de formato correto:
@@ -4859,10 +13869,12 @@ FORMATO DE RESPOSTA OBRIGATÓRIO:
 
 REGRAS CRÍTICAS DE DURAÇÃO PARA ESTA PARTE - OBRIGATÓRIO:
 - Esta PARTE ${partNumber} do roteiro DEVE ter EXATAMENTE ${currentPartDuration} minutos de duração
-- Esta PARTE DEVE ter ENTRE ${currentPartWords - 50} e ${currentPartWords + 50} palavras (150 palavras por minuto)
-- META DE PALAVRAS: ${currentPartWords} palavras
-- MÍNIMO ACEITÁVEL: ${currentPartWords - 50} palavras
-- MÁXIMO ACEITÁVEL: ${currentPartWords + 50} palavras
+${!isLastPart ? `- ⚠️ CRÍTICO: Esta PARTE DEVE ter ENTRE 390 e 450 PALAVRAS (total)
+- Esta PARTE DEVE ter EXATAMENTE 5 PARÁGRAFOS
+- Cada PARÁGRAFO deve ter ENTRE 75 e 90 PALAVRAS
+- Distribuição: 5 parágrafos × 78-90 palavras = 390-450 palavras totais
+- META DE PALAVRAS DA PARTE: 390-450 palavras
+- META DE PALAVRAS POR PARÁGRAFO: 75-90 palavras` : `- Esta é a ÚLTIMA parte - pode ter número variável de palavras e parágrafos conforme necessário`}
 - ⚠️ CRÍTICO: Se você retornar menos de ${currentPartWords - 50} palavras ou mais de ${currentPartWords + 50} palavras, o roteiro será REJEITADO
 - ⚠️ CRÍTICO: NÃO retorne JSON vazio, NÃO retorne objetos, NÃO retorne apenas estrutura - ESCREVA O ROTEIRO COMPLETO COM ${currentPartWords} PALAVRAS
 - Se esta parte tiver menos de ${currentPartWords} palavras, você DEVE expandir o conteúdo até atingir EXATAMENTE ${currentPartWords} palavras
@@ -4882,7 +13894,13 @@ RESPOSTA FINAL - CRÍTICO:
 - NÃO use formato: {"roteiro": "...", "duracao": "...", "estrutura": "..."}
 - NÃO use formato: [{"section": "...", "time": "...", "content": "..."}]
 - O roteiro deve ser texto corrido, como se você estivesse escrevendo o texto que será narrado
-- Você pode usar [0:00-0:30] para indicar tempo, mas o resto deve ser texto narrativo puro
+- ⚠️ CRÍTICO - NÃO INCLUA MARCAÇÕES DE PARTE OU TEMPO:
+  - NÃO inclua marcações como "PARTE 1", "Parte 1", "PARTE 1 0:00 - 3:00", "Parte 1 0:00 - 3:00"
+  - NÃO inclua marcações de tempo como "[0:00-3:00]", "(0:00)", "0:00 - 3:00", "0:00-3:00"
+  - NÃO inclua qualquer indicação de número de parte ou intervalo de tempo no texto
+  - O roteiro deve ser APENAS texto narrativo puro, sem marcações técnicas
+  - Escreva como se estivesse narrando diretamente, sem prefixos, sem marcações de parte ou tempo
+  - CRÍTICO: Se você incluir marcações de parte ou tempo, o roteiro será rejeitado
 - IMPORTANTE: O roteiro será usado para VOICE OVER, então escreva de forma natural e fluida
 - Use pontos finais e dois pontos para separar frases naturalmente
 - Exemplo CORRETO de resposta:
@@ -4897,32 +13915,98 @@ RESPOSTA FINAL - CRÍTICO:
 - O texto deve estar pronto para ser copiado e usado diretamente na narração do vídeo
 - NÃO inclua NADA além do roteiro em si - nem explicações, nem metadados, nem JSON
 - NÃO mencione que é "parte X" no texto do roteiro - escreva como se fosse um roteiro contínuo
+- CRÍTICO: NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+- O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+- Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
 - Meta de palavras para ESTA PARTE: ${currentPartWords} palavras para ${currentPartDuration} minutos`;
 
+                // Sistema de retry: tentar gerar a parte até 3x em caso de erro
+                let partGenerationSuccess = false;
+                let partResponse;
+                let retryCount = 0;
+                const MAX_RETRIES = 3;
+                
+                while (!partGenerationSuccess && retryCount < MAX_RETRIES) {
+                    try {
+                        if (retryCount > 0) {
+                            console.log(`[Roteiro] Tentativa ${retryCount + 1}/${MAX_RETRIES} para parte ${partNumber}...`);
+                            if (sessionId) {
+                                sendProgress(sessionId, {
+                                    stage: 'generating',
+                                    progress: Math.min(80, Math.round((partIndex / numberOfParts) * 80)),
+                                    currentPart: partNumber,
+                                    totalParts: numberOfParts,
+                                    message: `Refazendo parte ${partNumber}/${numberOfParts} (tentativa ${retryCount + 1}/${MAX_RETRIES})...`,
+                                    details: {
+                                        partNumber,
+                                        status: 'generating',
+                                        percentage: 5,
+                                        completedParts: partIndex
+                                    }
+                                });
+                            }
+                        } else {
+                            console.log(`[Roteiro] Chamando API ${service} para parte ${partNumber}...`);
+                            // Enviar progresso da parte atual
+                            if (sessionId) {
+                                const partProgressStart = Math.min(80, Math.round((partIndex / numberOfParts) * 80));
+                                sendProgress(sessionId, {
+                                    stage: 'generating',
+                                    progress: partProgressStart,
+                                    currentPart: partNumber,
+                                    totalParts: numberOfParts,
+                                    message: `Gerando parte ${partNumber}/${numberOfParts}...`,
+                                    details: {
+                                        partNumber,
+                                        status: 'generating',
+                                        percentage: 5,
+                                        completedParts: partIndex
+                                    }
+                                });
+                            }
+                        }
+                        
+                        if (service === 'gemini') {
+                            partResponse = await callGeminiAPI(partPrompt, decryptedKey, selectedModel);
+                        } else if (service === 'claude') {
+                            partResponse = await callClaudeAPI(partPrompt, decryptedKey, selectedModel);
+                        } else {
+                            partResponse = await callOpenAIAPI(partPrompt, decryptedKey, selectedModel);
+                        }
+                        console.log(`[Roteiro] API ${service} respondeu para parte ${partNumber}`);
+                        partGenerationSuccess = true;
+                    } catch (partError) {
+                        retryCount++;
+                        console.error(`[Roteiro] Erro ao gerar parte ${partNumber} (tentativa ${retryCount}/${MAX_RETRIES}):`, partError.message);
+                        
+                        if (retryCount < MAX_RETRIES) {
+                            console.log(`[Roteiro] Aguardando 2 segundos antes de tentar novamente...`);
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                        } else {
+                            // Após todas as tentativas, gerar mensagem de erro específica
+                            console.error(`[Roteiro] Falha definitiva na parte ${partNumber} após ${MAX_RETRIES} tentativas`);
+                            if (sessionId) {
+                                sendProgress(sessionId, {
+                                    stage: 'error',
+                                    progress: Math.min(80, Math.round((partIndex / numberOfParts) * 80)),
+                                    currentPart: partNumber,
+                                    totalParts: numberOfParts,
+                                    message: `❌ Erro na parte ${partNumber}/${numberOfParts} após ${MAX_RETRIES} tentativas. Continuando...`,
+                                    details: {
+                                        partNumber,
+                                        status: 'error',
+                                        percentage: 0,
+                                        completedParts: partIndex
+                                    }
+                                });
+                            }
+                            throw partError; // Re-throw para ser capturado pelo catch externo
+                        }
+                    }
+                }
+                
+                // Se chegou aqui, a parte foi gerada com sucesso
                 try {
-                    console.log(`[Roteiro] Chamando API ${service} para parte ${partNumber}...`);
-                    
-                    // Enviar progresso da parte atual
-                    if (sessionId) {
-                        const partProgress = Math.round((partIndex / numberOfParts) * 90); // 0-90% para geração
-                        sendProgress(sessionId, {
-                            stage: 'generating',
-                            progress: partProgress,
-                            currentPart: partNumber,
-                            totalParts: numberOfParts,
-                            message: `Gerando parte ${partNumber}/${numberOfParts}...`
-                        });
-                    }
-                    
-                    let partResponse;
-                    if (service === 'gemini') {
-                        partResponse = await callGeminiAPI(partPrompt, decryptedKey, selectedModel);
-                    } else if (service === 'claude') {
-                        partResponse = await callClaudeAPI(partPrompt, decryptedKey, selectedModel);
-                    } else {
-                        partResponse = await callOpenAIAPI(partPrompt, decryptedKey, selectedModel);
-                    }
-                    console.log(`[Roteiro] API ${service} respondeu para parte ${partNumber}`);
 
                     // Limpar resposta da parte
                     let partContent = extractTextFromAIResponse(partResponse).trim();
@@ -4935,6 +14019,9 @@ RESPOSTA FINAL - CRÍTICO:
                         .replace(/"script"\s*:\s*"([^"]+)"/gi, '$1')
                         .replace(/\{[\s\S]*\}/g, '')
                         .trim();
+                    
+                    // Remover marcações de roteiro (música, visual, narrador, etc.) - apenas texto para voice over
+                    partContent = cleanScriptForVoiceOver(partContent);
 
                     const partWordCount = partContent.trim().split(/\s+/).filter(w => w.length > 0).length;
                     console.log(`[Roteiro] Parte ${partNumber}/${numberOfParts} gerada: ${partWordCount} palavras (meta: ${currentPartWords})`);
@@ -4942,6 +14029,21 @@ RESPOSTA FINAL - CRÍTICO:
                     // Validar e expandir parte se necessário
                     if (partWordCount < currentPartWords - 50) {
                         console.warn(`[Roteiro] Parte ${partNumber} muito curta: ${partWordCount} palavras. Expandindo...`);
+                        if (sessionId) {
+                            sendProgress(sessionId, {
+                                stage: 'generating',
+                                progress: Math.min(82, Math.round((partIndex / numberOfParts) * 80) + 5),
+                                currentPart: partNumber,
+                                totalParts: numberOfParts,
+                                message: `Expandindo parte ${partNumber}/${numberOfParts} para atingir a minutagem...`,
+                                details: {
+                                    partNumber,
+                                    status: 'expanding',
+                                    percentage: Math.min(90, Math.round((partWordCount / currentPartWords) * 100)),
+                                    completedParts: partIndex
+                                }
+                            });
+                        }
                         const partExpansionPrompt = `O roteiro abaixo é a parte ${partNumber} de ${numberOfParts} e tem apenas ${partWordCount} palavras, mas precisa ter EXATAMENTE ${currentPartWords} palavras.
 
 ROTEIRO DA PARTE ${partNumber} (${partWordCount} palavras - MUITO CURTO):
@@ -4964,7 +14066,8 @@ INSTRUÇÕES:
                                 expansionResponse = await callOpenAIAPI(partExpansionPrompt, decryptedKey, selectedModel);
                             }
 
-                            let expandedPart = extractTextFromAIResponse(expansionResponse).trim()
+                            let expandedPart = extractTextFromAIResponse(expansionResponse).trim();
+                            expandedPart = cleanScriptForVoiceOver(expandedPart)
                                 .replace(/^```[\w]*\n?/gm, '')
                                 .replace(/```$/gm, '')
                                 .replace(/^\{[\s\S]*?"roteiro"[\s\S]*?\}/g, '')
@@ -4983,49 +14086,84 @@ INSTRUÇÕES:
                     }
 
                     scriptParts.push(partContent);
-                } catch (partErr) {
-                    console.error(`[Roteiro] ❌ Erro ao gerar parte ${partNumber}:`, partErr.message);
                     
-                    // Se foi timeout, informar especificamente
-                    if (partErr.message && partErr.message.includes('timeout')) {
-                        console.error(`[Roteiro] Parte ${partNumber} teve timeout. Tentando com prompt mais curto...`);
-                        try {
-                            // Tentar novamente com prompt simplificado
-                            const simplifiedPrompt = `Gere a parte ${partNumber} de ${numberOfParts} de um roteiro de ${scriptDuration} minutos sobre: "${title}".
-                            
-Esta parte deve ter ${currentPartDuration} minutos e aproximadamente ${currentPartWords} palavras.
-Responda APENAS com o texto do roteiro, sem JSON ou formatações especiais.`;
-                            
-                            let retryResponse;
-                            if (service === 'gemini') {
-                                retryResponse = await callGeminiAPI(simplifiedPrompt, decryptedKey, selectedModel);
-                            } else if (service === 'claude') {
-                                retryResponse = await callClaudeAPI(simplifiedPrompt, decryptedKey, selectedModel);
-                            } else {
-                                retryResponse = await callOpenAIAPI(simplifiedPrompt, decryptedKey, selectedModel);
+                    if (sessionId) {
+                        const completedParts = partNumber;
+                        const completionProgress = Math.min(85, Math.round((completedParts / numberOfParts) * 80));
+                        const finalPartWords = partContent.trim().split(/\s+/).filter(w => w.length > 0).length;
+                        sendProgress(sessionId, {
+                            stage: 'generating',
+                            progress: completionProgress,
+                            currentPart: partNumber,
+                            totalParts: numberOfParts,
+                            message: `Parte ${partNumber}/${numberOfParts} concluída (${finalPartWords} palavras).`,
+                            details: {
+                                partNumber,
+                                status: 'completed',
+                                percentage: 100,
+                                completedParts,
+                                words: finalPartWords
                             }
-                            
-                            const retryContent = extractTextFromAIResponse(retryResponse).trim();
-                            if (retryContent && retryContent.length > 100) {
-                                scriptParts.push(retryContent);
-                                console.log(`[Roteiro] ✅ Parte ${partNumber} gerada com prompt simplificado`);
-                            } else {
-                                throw new Error('Retry também falhou');
-                            }
-                        } catch (retryErr) {
-                            console.error(`[Roteiro] Retry falhou para parte ${partNumber}`);
-                            scriptParts.push(`[Parte ${partNumber}: Conteúdo em desenvolvimento. Continue a narrativa a partir daqui.]`);
-                        }
-                    } else {
-                        // Outros erros
-                        scriptParts.push(`[Parte ${partNumber}: Erro ao gerar. Por favor, tente novamente ou use outro modelo de IA.]`);
+                        });
                     }
+                } catch (partErr) {
+                    console.error(`[Roteiro] ❌ Erro DEFINITIVO ao processar parte ${partNumber} após ${MAX_RETRIES} tentativas:`, partErr.message);
+                    
+                    // Adicionar mensagem de erro ao array de partes (mantendo a posição)
+                    scriptParts.push(`[ERRO NA PARTE ${partNumber}/${numberOfParts}]\n\n❌ Não foi possível gerar esta parte do roteiro após ${MAX_RETRIES} tentativas.\nMotivo: ${partErr.message}\n\nPor favor, gere novamente ou edite manualmente.\n\n[FIM DO ERRO - PARTE ${partNumber}]`);
+                    
+                    if (sessionId) {
+                        sendProgress(sessionId, {
+                            stage: 'error',
+                            progress: Math.min(85, Math.round((partNumber / numberOfParts) * 80)),
+                            currentPart: partNumber,
+                            totalParts: numberOfParts,
+                            message: `❌ Erro definitivo na parte ${partNumber}/${numberOfParts}. Continuando...`,
+                            details: {
+                                partNumber,
+                                status: 'error',
+                                percentage: 0,
+                                completedParts: partNumber - 1
+                            }
+                        });
+                    }
+                    
+                    // NÃO INTERROMPE O LOOP - continua gerando as próximas partes
+                    console.log(`[Roteiro] Continuando com a próxima parte...`);
                 }
             }
-
-            // Juntar todas as partes
-            scriptContent = scriptParts.join('\n\n');
-            console.log(`[Roteiro] Todas as ${numberOfParts} partes foram geradas e unidas.`);
+            
+            // Após todas as partes serem geradas (com sucesso ou erro), continuar o processamento
+            console.log(`[Roteiro] Todas as ${numberOfParts} partes foram processadas. Montando roteiro final...`);
+            
+            // Unir todas as partes em um roteiro completo
+            const fullScript = scriptParts.join('\n\n---\n\n');
+            const totalWords = fullScript.trim().split(/\s+/).filter(w => w.length > 0).length;
+            
+            console.log(`[Roteiro] Roteiro final montado: ${totalWords} palavras (${scriptParts.length} partes)`);
+            
+            // Verificar se há partes com erro
+            const hasErrors = scriptParts.some(part => part.includes('[ERRO NA PARTE'));
+            if (hasErrors) {
+                console.warn(`[Roteiro] ⚠️ Roteiro contém partes com erro. O usuário deverá revisar.`);
+            }
+            
+            // Continuar com a otimização e validação (mesmo com erros em algumas partes)
+            if (sessionId) {
+                sendProgress(sessionId, {
+                    stage: hasErrors ? 'partial_success' : 'optimizing',
+                    progress: 85,
+                    message: hasErrors ? '⚠️ Roteiro gerado com algumas partes com erro. Otimizando...' : 'Otimizando roteiro...',
+                    totalParts: numberOfParts,
+                    details: {
+                        completedParts: numberOfParts,
+                        hasErrors: hasErrors
+                    }
+                });
+            }
+            
+            // Usar o fullScript já montado com as partes (incluindo erros, se houver)
+            scriptContent = fullScript;
         } else {
             // Se não precisa dividir, gerar normalmente
             const scriptPrompt = `${agent.agent_prompt}
@@ -5065,14 +14203,14 @@ FORMATO DE RESPOSTA OBRIGATÓRIO:
 
 REGRAS CRÍTICAS DE DURAÇÃO - OBRIGATÓRIO:
 - O roteiro DEVE ter EXATAMENTE ${scriptDuration} minutos de duração
-- O roteiro DEVE ter EXATAMENTE ${scriptDuration * 150} palavras (150 palavras por minuto)
-- NÃO aceite menos de ${scriptDuration * 150} palavras - o roteiro DEVE ter NO MÍNIMO ${scriptDuration * 150} palavras
-- NÃO aceite mais de ${(scriptDuration * 150) + 100} palavras - o roteiro DEVE ter NO MÁXIMO ${(scriptDuration * 150) + 100} palavras
-- Se o roteiro tiver menos de ${scriptDuration * 150} palavras, você DEVE expandir o conteúdo até atingir EXATAMENTE ${scriptDuration * 150} palavras
+- O roteiro DEVE ter EXATAMENTE ${scriptDuration * wordsPerMinute} palavras (${wordsPerMinute} palavras por minuto)
+- NÃO aceite menos de ${scriptDuration * wordsPerMinute} palavras - o roteiro DEVE ter NO MÍNIMO ${scriptDuration * wordsPerMinute} palavras
+- NÃO aceite mais de ${(scriptDuration * wordsPerMinute) + 100} palavras - o roteiro DEVE ter NO MÁXIMO ${(scriptDuration * wordsPerMinute) + 100} palavras
+- Se o roteiro tiver menos de ${scriptDuration * wordsPerMinute} palavras, você DEVE expandir o conteúdo até atingir EXATAMENTE ${scriptDuration * wordsPerMinute} palavras
 - Distribua o conteúdo proporcionalmente para preencher TODOS os ${scriptDuration} minutos
 - Certifique-se de que o tempo total indicado nas seções some ${scriptDuration} minutos (${scriptDuration * 60} segundos)
-- IMPORTANTE: Conte as palavras antes de finalizar. O roteiro DEVE ter entre ${scriptDuration * 150} e ${(scriptDuration * 150) + 100} palavras
-- CRÍTICO: Se você não conseguir gerar ${scriptDuration * 150} palavras, continue expandindo o conteúdo até atingir essa quantidade
+- IMPORTANTE: Conte as palavras antes de finalizar. O roteiro DEVE ter entre ${scriptDuration * wordsPerMinute} e ${(scriptDuration * wordsPerMinute) + 100} palavras
+- CRÍTICO: Se você não conseguir gerar ${scriptDuration * wordsPerMinute} palavras, continue expandindo o conteúdo até atingir essa quantidade
 
 RESPOSTA FINAL - CRÍTICO:
 - Responda APENAS com o roteiro em TEXTO SIMPLES e DIRETO
@@ -5085,7 +14223,7 @@ RESPOSTA FINAL - CRÍTICO:
 - Use pontos finais e dois pontos para separar frases naturalmente
 - O texto deve estar pronto para ser copiado e usado diretamente na narração do vídeo
 - NÃO inclua NADA além do roteiro em si - nem explicações, nem metadados, nem JSON
-- Meta de palavras: aproximadamente ${scriptDuration * 150} palavras para ${scriptDuration} minutos`;
+- Meta de palavras: aproximadamente ${scriptDuration * wordsPerMinute} palavras para ${scriptDuration} minutos`;
 
             let apiCallFunction;
             if (service === 'gemini') apiCallFunction = callGeminiAPI;
@@ -5186,7 +14324,7 @@ RESPOSTA FINAL - CRÍTICO:
         }
 
         // Validar quantidade de palavras e expandir se necessário
-        const expectedWords = scriptDuration * 150;
+        const expectedWords = scriptDuration * wordsPerMinute;
         const minWords = expectedWords - 50; // Tolerância de -50 palavras
         const maxWords = expectedWords + 100; // Tolerância de +100 palavras
         
@@ -5207,6 +14345,11 @@ RESPOSTA FINAL - CRÍTICO:
             // Criar prompt de expansão mais agressivo
             const expansionPrompt = `O roteiro abaixo tem apenas ${wordCount} palavras, mas precisa ter EXATAMENTE ${expectedWords} palavras para ${scriptDuration} minutos de narração.
 
+IMPORTANTE: 
+- NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+- O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+- Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
+
 ROTEIRO ATUAL (${wordCount} palavras - MUITO CURTO):
 ${scriptContent}
 
@@ -5223,6 +14366,9 @@ INSTRUÇÕES CRÍTICAS:
 10. Desenvolva mais profundamente cada ideia apresentada
 11. CRÍTICO: O roteiro final DEVE ter entre ${expectedWords} e ${expectedWords + 50} palavras
 12. Conte mentalmente as palavras enquanto escreve. Se o roteiro não tiver pelo menos ${expectedWords} palavras, continue expandindo até atingir essa quantidade.
+13. CRÍTICO: NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+14. O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+15. Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
 
 RESPOSTA FINAL - CRÍTICO:
 Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, sem explicações adicionais, sem metadados, NÃO use JSON.
@@ -5300,6 +14446,7 @@ Responda com o roteiro expandido imediatamente, sem envolver em objetos ou forma
 
                 // Limpar resposta de expansão
                 let expandedContent = extractTextFromAIResponse(expansionResponse).trim();
+                expandedContent = cleanScriptForVoiceOver(expandedContent);
                 expandedContent = expandedContent
                     .replace(/^```[\w]*\n?/gm, '')
                     .replace(/```$/gm, '')
@@ -5340,6 +14487,11 @@ Responda com o roteiro expandido imediatamente, sem envolver em objetos ou forma
             // Última tentativa: pedir para duplicar e expandir o conteúdo
             const finalExpansionPrompt = `O roteiro abaixo precisa ser DUPLICADO e EXPANDIDO para ter EXATAMENTE ${expectedWords} palavras.
 
+IMPORTANTE: 
+- NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+- O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+- Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
+
 ROTEIRO ATUAL (${wordCount} palavras):
 ${scriptContent}
 
@@ -5349,7 +14501,10 @@ INSTRUÇÕES FINAIS:
 3. Adicione exemplos, detalhes, explicações, contexto, curiosidades
 4. Desenvolva cada parágrafo com muito mais profundidade
 5. SEM JSON, objetos ou arrays - apenas texto corrido
-6. Responda APENAS com o roteiro expandido
+6. CRÍTICO: NÃO inclua marcações como "(Música...)", "(Visual:...)", "NARRADOR:", etc.
+7. O roteiro deve ser APENAS texto puro para voice over, sem direções de cena, música ou visualizações
+8. Escreva como se estivesse narrando diretamente, sem prefixos ou marcações técnicas
+9. Responda APENAS com o roteiro expandido
 
 RESPOSTA FINAL - CRÍTICO:
 Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
@@ -5518,21 +14673,31 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                     });
                 }
                 
-                // FASE 2: 🎯 REPLICADOR DE FÓRMULA VIRAL (se agente tem roteiro original)
+                // FASE 2: 🎯 REPLICADOR DE FÓRMULA VIRAL (usa fórmula armazenada ou transcrição original)
                 const hasOriginalScript = agent.full_transcript && agent.full_transcript.trim().length > 500;
-                const needsViralReplication = hasOriginalScript && finalAnalysis.overallScore < 9;
+                let storedViralFormula = null;
+                if (agent.viral_formula_json) {
+                    try {
+                        storedViralFormula = JSON.parse(agent.viral_formula_json);
+                    } catch (formulaParseErr) {
+                        console.warn('[Otimizador] ⚠️ Não foi possível parsear viral_formula_json do agente:', formulaParseErr.message);
+                    }
+                }
+                const canReplicateStructure = !!storedViralFormula || hasOriginalScript;
                 
-                if (needsViralReplication) {
-                    console.log('[Otimizador] 🎯 Agente tem roteiro original! Ativando REPLICADOR DE FÓRMULA VIRAL...');
+                if (canReplicateStructure) {
+                    console.log('[Otimizador] 🎯 Aplicando REPLICADOR DE FÓRMULA VIRAL (obrigatório para manter a estrutura original).');
                     
                     if (sessionId) {
                         sendProgress(sessionId, {
                             stage: 'viral_replication',
                             progress: 95,
-                            message: '🎯 Analisando fórmula viral do roteiro original...',
+                            message: storedViralFormula
+                                ? '🎯 Aplicando fórmula viral armazenada...'
+                                : '🎯 Analisando fórmula viral do roteiro original...',
                             details: {
                                 phase: 'viral',
-                                step: 'analyzing_formula'
+                                step: storedViralFormula ? 'loading_formula' : 'analyzing_formula'
                             }
                         });
                     }
@@ -5547,22 +14712,56 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                             const claudeApiKey = decrypt(claudeKeyData.api_key);
                             const viralReplicator = new ViralFormulaReplicator();
                             
-                            // Passo 1: Analisar fórmula viral do roteiro original
-                            const viralFormula = await viralReplicator.analyzeViralFormula(
-                                agent.full_transcript,
-                                claudeApiKey,
-                                agent.source_video_title || title,
-                                agent.niche
-                            );
+                            let viralFormula = storedViralFormula;
+                            
+                            // Passo 1: Analisar fórmula viral do roteiro original caso não exista uma armazenada
+                            if (!viralFormula && hasOriginalScript) {
+                                viralFormula = await viralReplicator.analyzeViralFormula(
+                                    agent.full_transcript,
+                                    claudeApiKey,
+                                    agent.source_video_title || title,
+                                    agent.niche
+                                );
+                                
+                                // Armazenar para reutilização futura
+                                if (viralFormula) {
+                                    try {
+                                        await db.run(
+                                            `UPDATE script_agents SET viral_formula_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                            [JSON.stringify(viralFormula), agent.id]
+                                        );
+                                        console.log('[Otimizador] 💾 Fórmula viral salva no agente para reutilização.');
+                                    } catch (saveErr) {
+                                        console.warn('[Otimizador] ⚠️ Não foi possível salvar a fórmula viral no agente:', saveErr.message);
+                                    }
+                                }
+                            }
+
+                            if (!viralFormula) {
+                                console.warn('[Otimizador] ⚠️ Fórmula viral não disponível. Pulando replicação.');
+                                if (sessionId) {
+                                    sendProgress(sessionId, {
+                                        stage: 'viral_replication',
+                                        progress: 96,
+                                        message: '⚠️ Fórmula viral indisponível para replicação',
+                                        details: {
+                                            phase: 'viral',
+                                            step: 'skipped',
+                                            reason: 'formula_missing'
+                                        }
+                                    });
+                                }
+                                throw new Error('Fórmula viral indisponível');
+                            }
                             
                             if (sessionId) {
                                 sendProgress(sessionId, {
                                     stage: 'viral_replication',
                                     progress: 96,
-                                    message: '🚀 Replicando fórmula viral no novo roteiro...',
+                                    message: storedViralFormula ? '🚀 Aplicando fórmula viral armazenada...' : '🚀 Replicando fórmula viral no novo roteiro...',
                                     details: {
                                         phase: 'viral',
-                                        step: 'replicating_formula',
+                                        step: storedViralFormula ? 'applying_formula' : 'replicating_formula',
                                         formula: viralFormula
                                     }
                                 });
@@ -5572,7 +14771,7 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                             const replicationResult = await viralReplicator.replicateFormula(
                                 viralFormula,
                                 title,
-                                agent.full_transcript,
+                                agent.full_transcript || '[Fórmula carregada sem transcrição completa]',
                                 finalScriptContent,
                                 claudeApiKey,
                                 agent.niche,
@@ -5619,12 +14818,10 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                 
                 // FASE 3: 🤖 VALIDAÇÃO INTELIGENTE COM CLAUDE AI (se score ainda baixo e não tem roteiro original)
                 const needsAICorrection = (
-                    !needsViralReplication && (
-                        finalAnalysis.overallScore < 7 ||
-                        (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) ||
-                        finalAnalysis.aiIndicators.length > 2 ||
-                        finalAnalysis.cliches.length > 5
-                    )
+                    finalAnalysis.overallScore < 7 ||
+                    (finalAnalysis.nameInconsistencies && finalAnalysis.nameInconsistencies.length > 0) ||
+                    finalAnalysis.aiIndicators.length > 2 ||
+                    finalAnalysis.cliches.length > 5
                 );
                 
                 if (needsAICorrection) {
@@ -5762,7 +14959,7 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                 analysis.nameInconsistencies = finalAnalysis.nameInconsistencies || [];
                 
                 // 🚨 VALIDAÇÃO CRÍTICA: NOTA MÍNIMA 8.5/10
-                const MIN_SCORE_REQUIRED = 8.5;
+                const MIN_SCORE_REQUIRED = 9;
                 if (finalAnalysis.overallScore < MIN_SCORE_REQUIRED) {
                     const errorMsg = `Roteiro não atingiu a nota mínima de ${MIN_SCORE_REQUIRED}/10. Score atual: ${finalAnalysis.overallScore}/10`;
                     console.error(`[Otimizador] ❌ ${errorMsg}`);
@@ -5834,6 +15031,9 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
         }
         
         scriptContent = finalScriptContent;
+        
+        // Aplicar limpeza final para remover qualquer marcação restante
+        scriptContent = cleanScriptForVoiceOver(scriptContent);
 
         // Salvar o roteiro gerado com análise de otimização
         const scriptResult = await db.run(
@@ -5862,7 +15062,12 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
                 stage: 'complete',
                 progress: 100,
                 message: 'Roteiro gerado com sucesso!',
-                viralScore: analysis.overallScore
+                viralScore: analysis.overallScore,
+                totalParts: numberOfParts,
+                details: {
+                    score: analysis.overallScore,
+                    scriptId: scriptResult.lastID
+                }
             });
         }
 
@@ -5892,6 +15097,616 @@ Escreva APENAS o texto do roteiro expandido em TEXTO SIMPLES, NÃO use JSON.`;
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/script-agents/:agentId/generate]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar roteiro.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA GERAÇÃO DE ROTEIROS ===
+app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const { title, topic, duration, language, cta, selectedModel, additionalInstructions, sessionId, parts } = req.body;
+    const userId = req.user.id;
+
+    console.log(`[Script Laozhang] Requisição recebida - agentId: ${agentId}, userId: ${userId}, title: ${title}`);
+
+    if (!title) {
+        return res.status(400).json({ msg: 'Título do vídeo é obrigatório.' });
+    }
+
+    if (!agentId) {
+        console.error(`[Script Laozhang] agentId não fornecido na URL`);
+        return res.status(400).json({ msg: 'ID do agente é obrigatório.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Buscar o agente
+        console.log(`[Script Laozhang] Buscando agente com id=${agentId} e user_id=${userId}`);
+        
+        // Primeiro, verificar se o agente existe (sem filtro de user_id)
+        const agentExists = await db.get(
+            `SELECT id, user_id, agent_name FROM script_agents WHERE id = ?`,
+            [agentId]
+        );
+        
+        if (!agentExists) {
+            console.error(`[Script Laozhang] Agente ${agentId} não existe no banco de dados`);
+            // Listar todos os agentes do usuário para debug
+            const userAgents = await db.all(
+                `SELECT id, agent_name FROM script_agents WHERE user_id = ?`,
+                [userId]
+            );
+            console.log(`[Script Laozhang] Agentes disponíveis para user_id=${userId}:`, userAgents);
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+        
+        if (agentExists.user_id !== userId) {
+            console.error(`[Script Laozhang] Agente ${agentId} existe mas pertence ao user_id=${agentExists.user_id}, não ao user_id=${userId}`);
+            return res.status(403).json({ msg: 'Você não tem permissão para usar este agente.' });
+        }
+        
+        // Buscar o agente completo
+        const agent = await db.get(
+            `SELECT * FROM script_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+        
+        if (!agent) {
+            console.error(`[Script Laozhang] Erro inesperado: agente existe mas não foi encontrado com filtro user_id`);
+            return res.status(500).json({ msg: 'Erro ao buscar agente.' });
+        }
+
+        console.log(`[Script Laozhang] Agente encontrado: ${agent.agent_name || 'Sem nome'}`);
+
+        let scriptDuration = duration ? parseInt(duration) : 5;
+        const scriptLanguage = language || 'pt';
+        
+        // Configurar CTAs (Call to Action)
+        const ctaConfig = {
+            inicio: cta?.inicio || false,
+            meio: cta?.meio || false,
+            final: cta?.final !== undefined ? cta.final : true // Padrão: CTA no final
+        };
+        
+        console.log(`[Script Laozhang] CTAs configurados: início=${ctaConfig.inicio}, meio=${ctaConfig.meio}, final=${ctaConfig.final}`);
+        
+        // Mapear o modelo selecionado (aceitar tanto os valores do frontend quanto os nomes completos)
+        let laozhangModel = 'gpt-4o'; // padrão
+        if (selectedModel) {
+            const modelLower = selectedModel.toLowerCase();
+            if (modelLower.includes('claude') || modelLower.includes('sonnet') || selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
+                laozhangModel = 'claude-3-7-sonnet-20250219';
+            } else if (modelLower.includes('gemini') || modelLower.includes('pro') || selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
+                laozhangModel = 'gemini-2.5-pro';
+            } else if (modelLower.includes('gpt') || modelLower.includes('4o') || selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
+                laozhangModel = 'gpt-4o';
+            }
+        }
+        
+        console.log(`[Script Laozhang] Modelo selecionado: "${selectedModel}" -> Mapeado para: "${laozhangModel}"`);
+
+        // A duração já vem ajustada do frontend (com 3-5 minutos extras)
+        // Não adicionar mais minutos aqui para evitar duplicação
+        // Mas aumentar wordsPerMinute para garantir margem de segurança
+        const originalDuration = scriptDuration;
+        console.log(`[Script Laozhang] Duração recebida do frontend: ${scriptDuration} minutos (já ajustada)`);
+        
+        // Definir palavras por minuto baseado no modelo
+        // Aumentar para garantir que sempre seja suficiente (margem de segurança)
+        // GPT: 200 palavras/minuto (aumentado para garantir duração mínima)
+        // Claude: 180 palavras/minuto (aumentado para garantir duração mínima)
+        // Gemini: 180 palavras/minuto (aumentado para garantir duração mínima)
+        let wordsPerMinute = 180; // Base aumentada para todos os modelos
+        if (laozhangModel === 'gpt-4o') {
+            wordsPerMinute = 200; // Aumentado para 200 para garantir duração mínima
+            console.log(`[Script Laozhang] GPT detectado: usando ${wordsPerMinute} palavras/minuto (aumentado para garantir duração mínima)`);
+        } else if (laozhangModel === 'claude-3-7-sonnet-20250219') {
+            wordsPerMinute = 180; // Aumentado para 180 para garantir duração mínima
+            console.log(`[Script Laozhang] Claude detectado: usando ${wordsPerMinute} palavras/minuto (aumentado para garantir duração mínima)`);
+        } else {
+            wordsPerMinute = 180; // Gemini aumentado para 180
+            console.log(`[Script Laozhang] Gemini detectado: usando ${wordsPerMinute} palavras/minuto (aumentado para garantir duração mínima)`);
+        }
+
+        // Criar prompt detalhado e específico
+        // IMPORTANTE: Incluir palavras-chave para detectar como script request
+        const targetWords = scriptDuration * wordsPerMinute;
+        
+        // Calcular número de partes ANTES de criar o prompt (para usar no prompt)
+        // SEMPRE respeitar o número de partes solicitado pelo frontend
+        let requestedParts = parseInt(parts, 10);
+        if (Number.isNaN(requestedParts) || requestedParts <= 0) {
+            requestedParts = null;
+        }
+        const idealParts = Math.max(1, Math.ceil(scriptDuration / 3));
+        const numberOfParts = requestedParts || idealParts;
+        if (requestedParts) {
+            console.log(`[Script Laozhang] Usando número de partes solicitado pelo frontend: ${requestedParts} (ideal seria ${idealParts})`);
+        } else {
+            console.log(`[Script Laozhang] Nenhuma parte especificada, usando cálculo ideal: ${idealParts}`);
+        }
+        
+        const prompt = `${agent.agent_prompt || 'Você é um ESPECIALISTA EM ROTEIROS VIRAIS para YouTube. Crie roteiros envolventes, cativantes e otimizados para viralização.'}
+
+═══════════════════════════════════════════════════════════════════
+INSTRUÇÕES DETALHADAS DO AGENTE (FÓRMULA VIRAL):
+═══════════════════════════════════════════════════════════════════
+${agent.agent_instructions || 'Siga a estrutura e fórmula viral identificada no roteiro original analisado.'}
+
+${additionalInstructions ? `\n═══════════════════════════════════════════════════════════════════
+INSTRUÇÕES ADICIONAIS DO USUÁRIO:
+═══════════════════════════════════════════════════════════════════
+${additionalInstructions}\n` : ''}
+
+═══════════════════════════════════════════════════════════════════
+PARÂMETROS DO ROTEIRO:
+═══════════════════════════════════════════════════════════════════
+TÍTULO: "${title}"
+DURAÇÃO: ${scriptDuration} minutos (aproximadamente ${targetWords} palavras - ${wordsPerMinute} palavras/minuto)
+IDIOMA: ${scriptLanguage === 'pt' ? 'Português (Brasil)' : scriptLanguage === 'en' ? 'Inglês' : 'Espanhol'}
+${topic ? `TÓPICO ADICIONAL: ${topic}\n` : ''}
+NICHE: ${agent.niche || 'N/A'}
+SUBNICHE: ${agent.subniche || 'N/A'}
+
+${(ctaConfig.inicio || ctaConfig.meio || ctaConfig.final) ? `═══════════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ CALL TO ACTION (CTA) - OBRIGATÓRIO E NATURAL ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════════
+${ctaConfig.inicio ? `✅ CTA no INÍCIO (primeiros 30 segundos): 
+   - Você DEVE incluir uma chamada para ação NATURAL e ORGÂNICA nos primeiros 30 segundos do roteiro
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se você está gostando deste conteúdo, já deixa seu like e se inscreva no canal para não perder os próximos vídeos", "Antes de continuar, se inscreva no canal e ative o sininho para receber notificações", "Se este conteúdo está te ajudando, já deixa seu like e comenta o que achou"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada\n` : ''}
+${ctaConfig.meio ? `✅ CTA no MEIO (aproximadamente na metade do vídeo):
+   - Você DEVE incluir uma chamada para ação NATURAL e ORGÂNICA no meio do roteiro
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se você está aprendendo algo novo aqui, já deixa seu like e compartilha com quem precisa ver isso", "Antes de continuarmos, se inscreva no canal para não perder o restante deste conteúdo", "Se este vídeo está te ajudando, já deixa seu like e comenta suas dúvidas"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada\n` : ''}
+${ctaConfig.final ? `✅ CTA no FINAL (últimos 30 segundos):
+   - Você DEVE incluir uma chamada para ação FORTE, NATURAL e ORGÂNICA nos últimos 30 segundos do roteiro
+   - Este é o CTA mais importante - deve ser impactante mas ainda assim natural
+   - Integre o CTA de forma fluida e natural no contexto do roteiro, sem soar forçado
+   - Exemplos naturais: "Se este conteúdo te ajudou, já deixa seu like, se inscreva no canal, ative o sininho, compartilhe com seus amigos e comente o que achou", "Não esqueça de deixar seu like, se inscrever no canal e compartilhar este vídeo com quem precisa ver isso", "Se você gostou deste conteúdo, já deixa seu like, se inscreva no canal, ative o sininho para receber notificações e compartilhe com seus amigos"
+   - O CTA deve fazer parte do fluxo narrativo natural, não deve parecer uma interrupção
+   - IMPORTANTE: O CTA deve ser parte do texto narrativo, não uma marcação separada
+   - CRÍTICO: Este CTA final é essencial para o engajamento do vídeo\n` : ''}
+⚠️ REGRAS IMPORTANTES SOBRE CTAs:
+- Os CTAs devem ser incluídos de forma NATURAL e ORGÂNICA no texto narrativo
+- NÃO use marcações como "[CTA]", "(CTA)", ou qualquer indicação explícita de CTA
+- NÃO interrompa o fluxo narrativo abruptamente para incluir o CTA
+- O CTA deve fazer parte da narrativa, como se fosse uma conversa natural com o espectador
+- Use linguagem conversacional e envolvente
+- Seja persuasivo mas genuíno, não forçado
+- O CTA deve parecer que faz parte naturalmente do roteiro, não algo adicionado depois
+- CRÍTICO: Se os CTAs não forem incluídos de forma natural, o roteiro será considerado incompleto
+
+` : ''}
+═══════════════════════════════════════════════════════════════════
+RESPOSTA FINAL - CRÍTICO: ROTEIRO EM TEXTO SIMPLES
+═══════════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO ⚠️⚠️⚠️
+
+Você DEVE retornar APENAS o texto do roteiro em TEXTO SIMPLES. NÃO use JSON. NÃO use markdown. NÃO use objetos ou estruturas de dados.
+
+NÃO retorne:
+❌ JSON (não use { }, não use "roteiro": "...", não use "script": "...")
+❌ Markdown (não use code blocks, não use #, não use **)
+❌ Objetos ou estruturas de dados
+❌ Metadados ou informações adicionais
+
+RETORNE APENAS:
+✅ O texto puro do roteiro
+✅ Texto corrido e natural
+✅ Direto ao ponto, sem formatações especiais
+✅ Apenas o conteúdo do roteiro em si
+
+⚠️⚠️⚠️ DURAÇÃO OBRIGATÓRIA - CRÍTICO ⚠️⚠️⚠️
+O roteiro DEVE ter EXATAMENTE ${scriptDuration} minutos de duração quando narrado.
+Isso significa NO MÍNIMO ${targetWords} palavras (${scriptDuration} minutos × ${wordsPerMinute} palavras por minuto).
+⚠️ CRÍTICO: O roteiro NUNCA pode ter MENOS de ${targetWords} palavras. Se tiver menos, será REJEITADO.
+⚠️ CRÍTICO: O roteiro deve ter PELO MENOS ${targetWords} palavras para garantir ${scriptDuration} minutos de narração.
+⚠️ CRÍTICO: Se o roteiro tiver menos de ${targetWords} palavras, você DEVE expandir o conteúdo até atingir PELO MENOS ${targetWords} palavras.
+⚠️ CRÍTICO: É melhor ter mais palavras do que menos. Se necessário, adicione mais detalhes, exemplos, explicações ou contexto para atingir ${targetWords} palavras.
+⚠️ CRÍTICO: Conte as palavras antes de finalizar. O roteiro DEVE ter PELO MENOS ${targetWords} palavras.
+
+EXEMPLO DE FORMATO CORRETO:
+Olviden todo lo que saben sobre las guerras antiguas. Olviden los ejércitos, las lanzas y los escudos. Existió una batalla mucho más sofisticada. Una guerra silenciosa librada no en los campos de batalla, sino en los observatorios, en los calendarios, y en la mente de los ingenieros más brillantes de la historia de América.
+
+EXEMPLO DE FORMATO INCORRETO (NÃO FAÇA ISSO):
+{
+  "roteiro": "Olviden todo lo que saben..."
+}
+
+ou
+
+code block json com:
+{
+  "roteiro": "..."
+}
+
+═══════════════════════════════════════════════════════════════════
+INSTRUÇÕES FINAIS:
+═══════════════════════════════════════════════════════════════════
+1. Crie um roteiro completo, envolvente e otimizado para viralização
+2. Siga EXATAMENTE a fórmula viral identificada nas instruções do agente
+3. Adapte o conteúdo para o título "${title}" mantendo a estrutura viral
+4. ⚠️⚠️⚠️ CRÍTICO - DURAÇÃO OBRIGATÓRIA ⚠️⚠️⚠️:
+   - O roteiro DEVE ter PELO MENOS ${targetWords} palavras (${scriptDuration} minutos de duração) distribuídas em ${numberOfParts} partes
+   - ⚠️ CRÍTICO: O roteiro NUNCA pode ter MENOS de ${targetWords} palavras. Se tiver menos, será REJEITADO.
+   - ⚠️ CRÍTICO: É melhor ter mais palavras do que menos. Se necessário, expanda o conteúdo até atingir PELO MENOS ${targetWords} palavras.
+   - ⚠️ CRÍTICO: Conte as palavras antes de finalizar. O roteiro DEVE ter PELO MENOS ${targetWords} palavras.
+   - ⚠️ CRÍTICO: Você DEVE gerar conteúdo para TODAS as ${numberOfParts} partes. NÃO pare antes de completar todas as partes.
+   - ⚠️ CRÍTICO: Se você gerar apenas ${Math.ceil(numberOfParts * 0.35)} partes ou menos, o roteiro estará INCOMPLETO e será REJEITADO.
+   - ⚠️ CRÍTICO: Você tem tempo suficiente - NÃO tenha pressa, complete TODAS as partes e garanta PELO MENOS ${targetWords} palavras.
+5. Use o idioma ${scriptLanguage === 'pt' ? 'Português (Brasil)' : scriptLanguage === 'en' ? 'Inglês' : 'Espanhol'}
+6. ⚠️⚠️⚠️ CRÍTICO - ESTRUTURA DE PARÁGRAFOS E PALAVRAS - GERAR TODAS AS PARTES ⚠️⚠️⚠️:
+   - O roteiro DEVE ser dividido em EXATAMENTE ${numberOfParts} PARTES (cada parte = aproximadamente 3 minutos)
+   - ⚠️ CRÍTICO: Você DEVE gerar conteúdo para TODAS as ${numberOfParts} partes. NÃO pare antes de completar todas as partes.
+   - Cada parte (EXCETO A ÚLTIMA) DEVE ter EXATAMENTE 5 PARÁGRAFOS
+   - Cada parte (EXCETO A ÚLTIMA) DEVE ter ENTRE 390 e 450 PALAVRAS (total da parte)
+   - Cada parágrafo (EXCETO NA ÚLTIMA PARTE) DEVE ter ENTRE 75 e 90 PALAVRAS
+   - Distribuição ideal: 5 parágrafos × 78-90 palavras cada = 390-450 palavras totais por parte
+   - Cada parágrafo deve ser separado por uma quebra de linha dupla (espaço em branco entre parágrafos)
+   - A última parte pode ter um número variável de parágrafos e palavras conforme necessário para concluir o conteúdo
+   - Estrutura obrigatória (você DEVE gerar TODAS estas partes): 
+     ${Array.from({ length: numberOfParts }, (_, i) => {
+         const partNum = i + 1;
+         if (partNum === numberOfParts) {
+             return `     * Parte ${partNum} (ÚLTIMA): número variável de parágrafos e palavras (conforme necessário para concluir)`;
+         } else {
+             return `     * Parte ${partNum}: 5 parágrafos (390-450 palavras totais, 75-90 palavras por parágrafo)`;
+         }
+     }).join('\n')}
+   - ⚠️ CRÍTICO: Você DEVE gerar conteúdo para TODAS as ${numberOfParts} partes listadas acima. NÃO pare na parte ${numberOfParts === 1 ? '1' : numberOfParts > 2 ? '2 ou 3' : '2'}. Continue até completar a parte ${numberOfParts}.
+   - Os parágrafos devem estar bem distribuídos ao longo de cada parte
+   - IMPORTANTE: Separe claramente cada parágrafo com uma linha em branco
+   - CRÍTICO: Conte as palavras de cada parágrafo e da parte completa antes de finalizar
+   - CRÍTICO: O roteiro completo DEVE ter ${targetWords} palavras distribuídas entre as ${numberOfParts} partes
+7. Escreva APENAS o texto do roteiro, SEM JSON, SEM markdown, SEM formatações especiais
+8. ⚠️ CRÍTICO - NÃO INCLUA MARCAÇÕES DE PARTE OU TEMPO:
+   - NÃO inclua marcações como "PARTE 1", "Parte 1", "PARTE 1 0:00 - 3:00", "Parte 1 0:00 - 3:00"
+   - NÃO inclua marcações de tempo como "[0:00-3:00]", "(0:00)", "0:00 - 3:00", "0:00-3:00"
+   - NÃO inclua qualquer indicação de número de parte ou intervalo de tempo no texto
+   - O roteiro deve ser APENAS texto narrativo puro, sem marcações técnicas
+   - Escreva como se estivesse narrando diretamente, sem prefixos, sem marcações de parte ou tempo
+   - CRÍTICO: Se você incluir marcações de parte ou tempo, o roteiro será rejeitado
+
+⚠️⚠️⚠️ LEMBRE-SE: Você DEVE gerar conteúdo para TODAS as ${numberOfParts} partes. O roteiro completo deve ter ${targetWords} palavras. NÃO pare antes de completar todas as ${numberOfParts} partes. Se você parar antes da parte ${numberOfParts}, o roteiro estará incompleto e será rejeitado.
+
+AGORA, CRIE O ROTEIRO COMPLETO COM TODAS AS ${numberOfParts} PARTES (SEM MARCAÇÕES DE PARTE OU TEMPO):`;
+
+        console.log(`[Script Laozhang] Gerando roteiro com modelo: ${laozhangModel}, duração: ${scriptDuration} minutos (${targetWords} palavras), partes: ${numberOfParts}`);
+        
+        // Enviar progresso inicial
+        if (sessionId) {
+            sendProgress(sessionId, {
+                stage: 'initializing',
+                progress: 5,
+                message: 'Inicializando geração...',
+                totalParts: numberOfParts,
+                currentPart: 0,
+                details: { totalParts: numberOfParts }
+            });
+            
+            sendProgress(sessionId, {
+                stage: 'preparing',
+                progress: 10,
+                message: `Preparando IA do agente (meta: ${targetWords.toLocaleString()} palavras)...`,
+                totalParts: numberOfParts,
+                currentPart: 0,
+                details: { model: laozhangModel, targetWords, totalParts: numberOfParts }
+            });
+        }
+        
+        const startTime = Date.now();
+        
+        // Simular progresso por partes durante a geração
+        let currentPartSimulated = 0;
+        const progressInterval = setInterval(() => {
+            if (sessionId && currentPartSimulated < numberOfParts) {
+                currentPartSimulated++;
+                const progress = Math.min(80, 10 + (currentPartSimulated / numberOfParts) * 70);
+                sendProgress(sessionId, {
+                    stage: 'generating',
+                    progress: progress,
+                    currentPart: currentPartSimulated,
+                    totalParts: numberOfParts,
+                    message: `Gerando parte ${currentPartSimulated}/${numberOfParts}...`,
+                    details: {
+                        partNumber: currentPartSimulated,
+                        status: 'generating',
+                        percentage: Math.round((currentPartSimulated / numberOfParts) * 100),
+                        completedParts: currentPartSimulated - 1
+                    }
+                });
+            }
+        }, 2000); // Atualizar a cada 2 segundos
+        
+        const response = await callLaozhangAPI(
+            prompt,
+            laozhangApiKey,
+            laozhangModel,
+            null,
+            userId,
+            'api_script_agents_generate',
+            JSON.stringify({ endpoint: '/api/script-agents/:agentId/generate/laozhang', model: laozhangModel })
+        );
+        
+        clearInterval(progressInterval);
+        
+        console.log(`[Script Laozhang] Resposta recebida do modelo ${laozhangModel}`);
+        
+        // Marcar todas as partes como concluídas sequencialmente
+        if (sessionId) {
+            for (let partNum = 1; partNum <= numberOfParts; partNum++) {
+                sendProgress(sessionId, {
+                    stage: 'generating',
+                    progress: Math.min(95, 10 + (partNum / numberOfParts) * 85),
+                    currentPart: partNum,
+                    totalParts: numberOfParts,
+                    message: `Parte ${partNum}/${numberOfParts} concluída!`,
+                    details: {
+                        partNumber: partNum,
+                        status: 'completed',
+                        percentage: 100,
+                        completedParts: partNum
+                    }
+                });
+                // Pequeno delay entre cada atualização para visualização
+                await new Promise(resolve => setTimeout(resolve, 400));
+            }
+            
+            sendProgress(sessionId, {
+                stage: 'completed',
+                progress: 100,
+                currentPart: numberOfParts,
+                totalParts: numberOfParts,
+                message: 'Roteiro gerado com sucesso!',
+                details: { completed: true, completedParts: numberOfParts }
+            });
+        }
+
+        let scriptContent = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        console.log(`[Script Laozhang] Resposta recebida (primeiros 500 chars):`, scriptContent.substring(0, 500));
+        
+        // Limpar o roteiro (remover JSON, markdown, etc) - processo mais robusto
+        let cleanedScript = scriptContent;
+        
+        // 1. Remover markdown code blocks
+        cleanedScript = cleanedScript.replace(/```[\s\S]*?```/g, '');
+        cleanedScript = cleanedScript.replace(/```json[\s\S]*?```/gi, '');
+        cleanedScript = cleanedScript.replace(/```text[\s\S]*?```/gi, '');
+        
+        // 2. Tentar extrair texto de estruturas JSON comuns
+        const jsonPatterns = [
+            /"roteiro"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gi,
+            /"script"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gi,
+            /"content"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gi,
+            /"texto"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gi,
+            /"text"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/gi,
+            /roteiro["']?\s*:\s*["']([^"']+)["']/gi,
+            /script["']?\s*:\s*["']([^"']+)["']/gi
+        ];
+        
+        for (const pattern of jsonPatterns) {
+            const match = cleanedScript.match(pattern);
+            if (match && match[1]) {
+                cleanedScript = match[1]
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\'/g, "'")
+                    .replace(/\\\\/g, '\\');
+                console.log(`[Script Laozhang] Extraído texto de JSON usando padrão: ${pattern}`);
+                break;
+            }
+        }
+        
+        // 3. Remover estruturas JSON restantes
+        cleanedScript = cleanedScript
+            .replace(/^[^{]*\{[\s\S]*?"roteiro"\s*:\s*/, '')  // Remove início de JSON até "roteiro":
+            .replace(/^[^{]*\{[\s\S]*?"script"\s*:\s*/, '')  // Remove início de JSON até "script":
+            .replace(/^[^{]*\{[\s\S]*?"content"\s*:\s*/, '')  // Remove início de JSON até "content":
+            .replace(/["']roteiro["']\s*:\s*["']?/gi, '')     // Remove "roteiro": "
+            .replace(/["']script["']\s*:\s*["']?/gi, '')      // Remove "script": "
+            .replace(/["']content["']\s*:\s*["']?/gi, '')     // Remove "content": "
+            .replace(/["']texto["']\s*:\s*["']?/gi, '')       // Remove "texto": "
+            .replace(/["']text["']\s*:\s*["']?/gi, '')        // Remove "text": "
+            .replace(/^[^{]*\{/, '')                          // Remove { no início
+            .replace(/\}[^}]*$/, '')                          // Remove } no final
+            .replace(/^[\s\n\r]*["']/, '')                    // Remove " no início
+            .replace(/["'][\s\n\r]*$/, '')                    // Remove " no final
+            .trim();
+        
+        // 4. Se ainda parece JSON, tentar parsear e extrair
+        if (cleanedScript.trim().startsWith('{') || cleanedScript.trim().startsWith('[')) {
+            try {
+                const parsed = JSON.parse(cleanedScript);
+                if (parsed.roteiro) {
+                    cleanedScript = typeof parsed.roteiro === 'string' ? parsed.roteiro : JSON.stringify(parsed.roteiro);
+                } else if (parsed.script) {
+                    cleanedScript = typeof parsed.script === 'string' ? parsed.script : JSON.stringify(parsed.script);
+                } else if (parsed.content) {
+                    cleanedScript = typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content);
+                } else if (typeof parsed === 'string') {
+                    cleanedScript = parsed;
+                }
+                console.log(`[Script Laozhang] Parseado JSON e extraído conteúdo`);
+            } catch (parseErr) {
+                console.warn(`[Script Laozhang] Não foi possível parsear como JSON, usando texto limpo:`, parseErr.message);
+            }
+        }
+        
+        // 5. Limpeza final - remover TODAS as marcações para voice over
+        cleanedScript = cleanedScript
+            // Remover marcações de PARTE X com intervalos de tempo (mais agressivo - múltiplas tentativas)
+            .replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, '') // Remove linha inteira com "PARTE 1 0:00 - 3:00"
+            .replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, '') // Remove linha inteira com "Parte 1 0:00 - 3:00"
+            .replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, '') // Remove "PARTE 1 0:00 - 3:00" (sem quebra de linha)
+            .replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, '') // Remove "Parte 1 0:00 - 3:00" (sem quebra de linha)
+            .replace(/PARTE\s+\d+.*?(\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})/gi, '') // Remove "PARTE 1 0:00 - 3:00" (qualquer variação)
+            .replace(/Parte\s+\d+.*?(\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})/gi, '') // Remove "Parte 1 0:00 - 3:00" (qualquer variação)
+            .replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gmi, '') // Remove linha que começa com "0:00 - 3:00"
+            .replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*/gmi, '') // Remove "0:00 - 3:00" no início da linha (sem quebra)
+            .replace(/PARTE\s+\d+\s*$/gmi, '') // Remove "PARTE 1" sozinho no final da linha
+            .replace(/Parte\s+\d+\s*$/gmi, '') // Remove "Parte 1" sozinho no final da linha
+            // Remover marcações de cenas
+            .replace(/^Cena\s+\d+:\s*/gmi, '') // Remove "Cena 1:", "Cena 2:", etc.
+            .replace(/^CENA\s+\d+:\s*/gmi, '') // Remove "CENA 1:", "CENA 2:", etc.
+            .replace(/^Scene\s+\d+:\s*/gmi, '') // Remove "Scene 1:", "Scene 2:", etc.
+            .replace(/^SCENE\s+\d+:\s*/gmi, '') // Remove "SCENE 1:", "SCENE 2:", etc.
+            .replace(/^Parte\s+\d+:\s*/gmi, '') // Remove "Parte 1:", "Parte 2:", etc.
+            .replace(/^PARTE\s+\d+:\s*/gmi, '') // Remove "PARTE 1:", "PARTE 2:", etc.
+            // Remover marcações de tempo
+            .replace(/\[?\d{1,2}:\d{2}-\d{1,2}:\d{2}\]?\s*/g, '') // Remove [0:00-0:30]
+            .replace(/\(\d{1,2}:\d{2}\)\s*/g, '') // Remove (0:30)
+            .replace(/^\d{1,2}:\d{2}\s*/gm, '') // Remove 0:30 no início da linha
+            // Remover títulos de seções em maiúsculas
+            .replace(/^[A-Z][A-Z\s]+:\s*/gm, '') // Remove títulos em maiúsculas seguidos de dois pontos
+            // Limpar aspas
+            .replace(/^\s*["']+/, '')  // Remove aspas no início
+            .replace(/["']+\s*$/, '')  // Remove aspas no final
+            // Limpar espaços e quebras excessivas
+            .replace(/\n{3,}/g, '\n\n') // Remove múltiplas quebras de linha
+            .replace(/^\s+/gm, '') // Remove espaços no início de cada linha
+            .replace(/\s+$/gm, '') // Remove espaços no final de cada linha
+            .trim();
+        
+        // 6. Se o script estiver vazio ou muito curto, usar a resposta original
+        if (!cleanedScript || cleanedScript.length < 100) {
+            console.warn(`[Script Laozhang] Script limpo muito curto (${cleanedScript?.length || 0} chars), usando resposta original`);
+            cleanedScript = scriptContent.trim();
+        }
+        
+        console.log(`[Script Laozhang] Script final (primeiros 300 chars):`, cleanedScript.substring(0, 300));
+        
+        // Validar e expandir roteiro se necessário
+        let wordCount = cleanedScript.split(/\s+/).filter(word => word.length > 0).length;
+        const expectedWordCount = targetWords;
+        const wordCountDifference = Math.abs(wordCount - expectedWordCount);
+        const wordCountPercentage = ((wordCount / expectedWordCount) * 100).toFixed(1);
+        
+        console.log(`[Script Laozhang] Validação de duração:`);
+        console.log(`  - Palavras esperadas: ${expectedWordCount} (${scriptDuration} minutos)`);
+        console.log(`  - Palavras geradas: ${wordCount}`);
+        console.log(`  - Diferença: ${wordCountDifference} palavras (${wordCountPercentage}% do esperado)`);
+        
+        // Se o roteiro estiver muito curto (menos de 95% do esperado), expandir
+        const minWordCount = Math.floor(expectedWordCount * 0.95); // 95% do esperado como mínimo absoluto
+        if (wordCount < minWordCount) {
+            const wordsNeeded = minWordCount - wordCount;
+            console.warn(`[Script Laozhang] ⚠️⚠️⚠️ CRÍTICO: Roteiro MUITO CURTO! Esperado MÍNIMO: ${minWordCount} palavras, Gerado: ${wordCount} palavras (${wordCountPercentage}%). Faltam ${wordsNeeded} palavras.`);
+            console.log(`[Script Laozhang] 🔄 Expandindo roteiro para atingir a duração mínima...`);
+            const expansionPrompt = `O roteiro abaixo está muito curto. Ele tem ${wordCount} palavras, mas precisa ter PELO MENOS ${minWordCount} palavras para garantir ${scriptDuration} minutos de duração.
+
+ROTEIRO ATUAL:
+${cleanedScript.substring(0, 2000)}
+
+INSTRUÇÕES:
+1. EXPANDA o roteiro acima adicionando pelo menos ${wordsNeeded} palavras
+2. Mantenha o mesmo estilo, tom e estrutura
+3. Adicione mais detalhes, exemplos, explicações ou desenvolvimentos
+4. NÃO altere o início ou o final, apenas EXPANDA o conteúdo do meio
+5. ⚠️ CRÍTICO: O roteiro expandido DEVE ter PELO MENOS ${minWordCount} palavras (é melhor ter mais do que menos)
+6. ⚠️ CRÍTICO: Conte as palavras antes de finalizar. O roteiro DEVE ter PELO MENOS ${minWordCount} palavras
+7. Retorne APENAS o roteiro expandido em texto simples, SEM JSON, SEM markdown, SEM marcações de parte ou tempo
+
+ROTEIRO EXPANDIDO:`;
+
+            try {
+                const expansionResponse = await callLaozhangAPI(
+                    expansionPrompt,
+                    laozhangApiKey,
+                    laozhangModel,
+                    null,
+                    userId,
+                    'api_script_agents_generate',
+                    JSON.stringify({ endpoint: '/api/script-agents/:agentId/generate/laozhang', model: laozhangModel, action: 'expand' })
+                );
+                
+                let expandedScript = typeof expansionResponse === 'string' ? expansionResponse.trim() : JSON.stringify(expansionResponse);
+                
+                // Limpar o roteiro expandido da mesma forma
+                expandedScript = expandedScript
+                    .replace(/```[\s\S]*?```/g, '')
+                    .replace(/```json[\s\S]*?```/gi, '')
+                    .replace(/\{[\s\S]*?"roteiro"[\s\S]*?\}/g, '')
+                    .replace(/"roteiro"\s*:\s*"([^"]+)"/gi, '$1')
+                    .replace(/\{[\s\S]*\}/g, '')
+                    .trim();
+                
+                const expandedWordCount = expandedScript.split(/\s+/).filter(word => word.length > 0).length;
+                
+                if (expandedWordCount >= expectedWordCount * 0.8) {
+                    cleanedScript = expandedScript;
+                    wordCount = expandedWordCount;
+                    console.log(`[Script Laozhang] ✅ Roteiro expandido com sucesso! Nova contagem: ${wordCount} palavras (${((wordCount / expectedWordCount) * 100).toFixed(1)}%)`);
+                } else {
+                    console.warn(`[Script Laozhang] ⚠️ Expansão não foi suficiente. Mantendo roteiro original.`);
+                }
+            } catch (expandErr) {
+                console.error(`[Script Laozhang] Erro ao expandir roteiro:`, expandErr);
+                console.warn(`[Script Laozhang] Mantendo roteiro original apesar de estar curto.`);
+            }
+        } else if (wordCount > expectedWordCount * 1.3) {
+            console.warn(`[Script Laozhang] ⚠️ ATENÇÃO: Roteiro muito longo! Esperado: ${expectedWordCount} palavras, Gerado: ${wordCount} palavras (${wordCountPercentage}%)`);
+        } else {
+            console.log(`[Script Laozhang] ✅ Duração do roteiro está dentro do esperado (${wordCountPercentage}%)`);
+        }
+
+        // Salvar roteiro no banco
+        // Verificar se as colunas duration_minutes e language existem
+        let columnsToInsert = ['user_id', 'script_agent_id', 'title', 'script_content', 'model_used', 'niche', 'subniche'];
+        let valuesToInsert = [userId, agentId, title, cleanedScript, `laozhang-${laozhangModel}`, agent.niche, agent.subniche];
+        
+        try {
+            // Tentar verificar se as colunas existem
+            const tableInfo = await db.all(`PRAGMA table_info(generated_scripts)`);
+            const columnNames = tableInfo.map(col => col.name);
+            
+            if (columnNames.includes('duration_minutes')) {
+                columnsToInsert.push('duration_minutes');
+                valuesToInsert.push(scriptDuration);
+            }
+            if (columnNames.includes('language')) {
+                columnsToInsert.push('language');
+                valuesToInsert.push(scriptLanguage);
+            }
+        } catch (pragmaErr) {
+            console.warn('[Script Laozhang] Erro ao verificar colunas, usando apenas colunas básicas:', pragmaErr.message);
+        }
+        
+        const result = await db.run(
+            `INSERT INTO generated_scripts (${columnsToInsert.join(', ')})
+             VALUES (${columnsToInsert.map(() => '?').join(', ')})`,
+            valuesToInsert
+        );
+
+        // Enviar progresso final
+        if (sessionId) {
+            sendProgress(sessionId, {
+                stage: 'completed',
+                progress: 100,
+                message: 'Roteiro gerado com sucesso!',
+                details: { completed: true, scriptId: result.lastID }
+            });
+        }
+
+        res.status(200).json({
+            msg: 'Roteiro gerado com sucesso!',
+            scriptId: result.lastID,
+            script: cleanedScript
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/script-agents/:agentId/generate/laozhang]:', err);
         res.status(500).json({ msg: err.message || 'Erro ao gerar roteiro.' });
     }
 });
@@ -6242,6 +16057,67 @@ app.post('/api/niche/find-subniche', authenticateToken, async (req, res) => {
     }
 });
 
+// === ROTA LAOZHANG PARA ENCONTRAR SUBNICHOS ===
+app.post('/api/niche/find-subniche/laozhang', authenticateToken, async (req, res) => {
+    const { nichePrincipal, ideiaInicial, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!nichePrincipal || !ideiaInicial) {
+        return res.status(400).json({ msg: 'Nicho principal e ideia inicial são obrigatórios.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+                             selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
+                             'gpt-4o';
+
+        const prompt = `
+Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS MILIONÁRIOS NO YOUTUBE.
+
+OBJETIVO: Encontrar um subnicho dentro de "${nichePrincipal}" que permita criar um canal MILIONÁRIO.
+
+Quero criar um canal no YouTube dentro do nicho de "${nichePrincipal}", inicialmente pensei em abordar "${ideiaInicial}", mas percebi que já há bastante concorrência.
+
+Estou em busca de uma ideia de subnicho dentro de "${nichePrincipal}" que:
+- Ainda esteja pouco explorada no YouTube, com pouca ou nenhuma concorrência
+- Tenha alto volume de buscas e interesse crescente
+- Tenha bom potencial de monetização
+- TENHA ALTO POTENCIAL DE VIRALIZAÇÃO e capacidade de gerar milhões de views
+- Permita criar conteúdo com alto CTR (acima de 25%)
+- Tenha oportunidades de criar títulos e thumbnails virais
+
+Forneça uma análise detalhada que inclua:
+- O subnicho recomendado e por que ele tem potencial para gerar milhões de views
+- Análise de concorrência e oportunidades
+- Potencial de viralização e alto CTR
+- Estratégias para criar conteúdo que viralize
+- Sugestões de títulos e thumbnails que gerem alto CTR
+`;
+
+        const response = await callLaozhangAPI(
+            prompt,
+            laozhangApiKey,
+            laozhangModel,
+            null,
+            userId,
+            'api_niche_find_subniche',
+            JSON.stringify({ endpoint: '/api/niche/find-subniche/laozhang', model: laozhangModel })
+        );
+
+        const recommendation = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        res.status(200).json({ recommendation: recommendation });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/niche/find-subniche/laozhang]:', err);
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor.' });
+    }
+});
+
 app.post('/api/niche/analyze-competitor', authenticateToken, async (req, res) => {
     const { competitorUrl, model } = req.body;
     const userId = req.user.id;
@@ -6372,6 +16248,117 @@ app.post('/api/niche/analyze-competitor', authenticateToken, async (req, res) =>
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/niche/analyze-competitor]:', err);
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor.' });
+    }
+});
+
+// === ROTA LAOZHANG PARA ANÁLISE DE CONCORRENTES ===
+app.post('/api/niche/analyze-competitor/laozhang', authenticateToken, async (req, res) => {
+    const { competitorUrl, selectedModel } = req.body;
+    const userId = req.user.id;
+
+    if (!competitorUrl) {
+        return res.status(400).json({ msg: 'URL do canal é obrigatória.' });
+    }
+
+    try {
+        const laozhangApiKey = await getLaozhangApiKey();
+        if (!laozhangApiKey) {
+            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+        }
+
+        // Buscar chave do Gemini/YouTube para buscar dados do canal
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        
+        let apiKey = null;
+        if (youtubeKeyData) {
+            apiKey = youtubeKeyData.api_key.includes(':') ? decrypt(youtubeKeyData.api_key) : youtubeKeyData.api_key;
+        } else if (geminiKeyData) {
+            apiKey = geminiKeyData.api_key.includes(':') ? decrypt(geminiKeyData.api_key) : geminiKeyData.api_key;
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube ou Gemini é necessária para buscar dados do canal.' });
+        }
+
+        // Obter ID do canal (mesma lógica da rota original)
+        const match = competitorUrl.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+))/);
+        if (!match) return res.status(400).json({ msg: 'Formato de URL do canal não suportado.' });
+        
+        let ytChannelId;
+        const handle = match[1];
+        const legacyId = match[2];
+
+        if (handle) {
+            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${handle}&type=channel&maxResults=1&key=${apiKey}`;
+            const searchResponse = await fetch(searchApiUrl);
+            const searchData = await searchResponse.json();
+            if (searchResponse.ok && searchData.items && searchData.items.length > 0) {
+                ytChannelId = searchData.items[0].id.channelId;
+            }
+        }
+
+        if (!ytChannelId && legacyId) {
+            ytChannelId = legacyId;
+        }
+
+        if (!ytChannelId) {
+            return res.status(400).json({ msg: 'Não foi possível identificar o canal a partir da URL fornecida.' });
+        }
+
+        // Buscar dados do canal e vídeos (mesma lógica da rota original, simplificada)
+        const channelUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${ytChannelId}&key=${apiKey}`;
+        const channelResponse = await fetch(channelUrl);
+        const channelData = await channelResponse.json();
+
+        if (!channelResponse.ok || !channelData.items || channelData.items.length === 0) {
+            return res.status(400).json({ msg: 'Canal não encontrado.' });
+        }
+
+        const channel = channelData.items[0];
+        const competitorData = await getChannelVideosWithDetails(ytChannelId, apiKey, 'viewCount', 5);
+
+        // Criar prompt para análise
+        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+                             selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
+                             'gpt-4o';
+
+        const prompt = `
+Analise este canal concorrente do YouTube e forneça insights estratégicos:
+
+CANAL: ${channel.snippet.title}
+DESCRIÇÃO: ${channel.snippet.description || 'N/A'}
+INSCRITOS: ${channel.statistics.subscriberCount || 'N/A'}
+VÍDEOS: ${channel.statistics.videoCount || 'N/A'}
+TOTAL DE VIEWS: ${channel.statistics.viewCount || 'N/A'}
+
+VÍDEOS MAIS POPULARES:
+${competitorData.map((v, i) => `${i + 1}. ${v.title} - ${v.views} views`).join('\n')}
+
+Forneça uma análise detalhada incluindo:
+- Estratégias de conteúdo que funcionam
+- Padrões de títulos e thumbnails
+- Frequência de postagem
+- Nicho e subnichos abordados
+- Oportunidades de diferenciação
+`;
+
+        const response = await callLaozhangAPI(
+            prompt,
+            laozhangApiKey,
+            laozhangModel,
+            null,
+            userId,
+            'api_niche_analyze_competitor',
+            JSON.stringify({ endpoint: '/api/niche/analyze-competitor/laozhang', model: laozhangModel })
+        );
+
+        const analysis = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        res.status(200).json({ analysis: analysis });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/niche/analyze-competitor/laozhang]:', err);
         res.status(500).json({ msg: err.message || 'Erro interno do servidor.' });
     }
 });
@@ -6541,29 +16528,68 @@ app.delete('/api/folders/:folderId', authenticateToken, async (req, res) => {
 });
 app.get('/api/history', authenticateToken, async (req, res) => {
     const userId = req.user.id;
-    const { folderId, page = 1, limit = 50 } = req.query;
+    const { folderId, page = 1, limit = 50, search, niche, dateFilter } = req.query;
     
     try {
         const pageNum = parseInt(page) || 1;
         const limitNum = parseInt(limit) || 50;
         const offset = (pageNum - 1) * limitNum;
         
-        let query;
-        let countQuery;
-        let params;
-        let countParams;
+        let baseWhere = 'user_id = ?';
+        let params = [userId];
+        let countParams = [userId];
         
         if (folderId) {
-            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id = ? ORDER BY analyzed_at DESC LIMIT ? OFFSET ?';
-            params = [userId, folderId, limitNum, offset];
-            countQuery = 'SELECT COUNT(*) as total FROM analyzed_videos WHERE user_id = ? AND folder_id = ?';
-            countParams = [userId, folderId];
+            baseWhere += ' AND folder_id = ?';
+            params.push(folderId);
+            countParams.push(folderId);
         } else {
-            query = 'SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE user_id = ? AND folder_id IS NULL ORDER BY analyzed_at DESC LIMIT ? OFFSET ?';
-            params = [userId, limitNum, offset];
-            countQuery = 'SELECT COUNT(*) as total FROM analyzed_videos WHERE user_id = ? AND folder_id IS NULL';
-            countParams = [userId];
+            baseWhere += ' AND folder_id IS NULL';
         }
+        
+        // Filtro de busca
+        if (search) {
+            baseWhere += ' AND original_title LIKE ?';
+            params.push(`%${search}%`);
+            countParams.push(`%${search}%`);
+        }
+        
+        // Filtro de nicho
+        if (niche) {
+            baseWhere += ' AND detected_subniche LIKE ?';
+            params.push(`%${niche}%`);
+            countParams.push(`%${niche}%`);
+        }
+        
+        // Filtro de data
+        if (dateFilter) {
+            const now = new Date();
+            let dateStart;
+            switch (dateFilter) {
+                case 'today':
+                    dateStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    break;
+                case 'week':
+                    dateStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    break;
+                case 'month':
+                    dateStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                    break;
+                case 'year':
+                    dateStart = new Date(now.getFullYear(), 0, 1);
+                    break;
+            }
+            if (dateStart) {
+                baseWhere += ' AND analyzed_at >= ?';
+                params.push(dateStart.toISOString());
+                countParams.push(dateStart.toISOString());
+            }
+        }
+        
+        let query = `SELECT id, original_title, detected_subniche, analyzed_at FROM analyzed_videos WHERE ${baseWhere} ORDER BY analyzed_at DESC LIMIT ? OFFSET ?`;
+        params.push(limitNum, offset);
+        
+        let countQuery = `SELECT COUNT(*) as total FROM analyzed_videos WHERE ${baseWhere}`;
         
         const [history, totalResult] = await Promise.all([
             db.all(query, params),
@@ -6618,6 +16644,27 @@ app.delete('/api/history', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('Erro ao excluir análises:', err);
         res.status(500).json({ msg: 'Erro no servidor ao excluir análises.' });
+    }
+});
+
+// Rota para buscar nichos únicos do histórico
+app.get('/api/history/niches', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const niches = await db.all(
+            `SELECT DISTINCT detected_subniche as niche 
+             FROM analyzed_videos 
+             WHERE user_id = ? AND detected_subniche IS NOT NULL AND detected_subniche != '' 
+             ORDER BY detected_subniche`,
+            [userId]
+        );
+
+        const nichesArray = niches.map(row => row.niche).filter(Boolean);
+        res.status(200).json({ niches: nichesArray });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/history/niches]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar nichos.' });
     }
 });
 
@@ -8141,8 +18188,8 @@ app.post('/api/library/thumbnails', authenticateToken, async (req, res) => {
 // Buscar thumbnails da biblioteca
 app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
     const userId = req.user.id;
-    const { niche, subniche, minViews, minCtr, favorite, style } = req.query;
-    console.log(`[Biblioteca Thumbnails] Requisição recebida para userId: ${userId}`, { niche, minViews, favorite, style });
+    const { niche, subniche, minViews, minCtr, favorite, style, search } = req.query;
+    console.log(`[Biblioteca Thumbnails] Requisição recebida para userId: ${userId}`, { niche, minViews, favorite, style, search });
 
     try {
         if (!db) {
@@ -8176,6 +18223,11 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
             query += ' AND style = ?';
             params.push(style);
         }
+        if (search) {
+            query += ' AND (niche LIKE ? OR subniche LIKE ? OR thumbnail_description LIKE ?)';
+            const searchPattern = `%${search}%`;
+            params.push(searchPattern, searchPattern, searchPattern);
+        }
 
         query += ' ORDER BY created_at DESC LIMIT 100';
 
@@ -8196,6 +18248,44 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
         console.error('[ERRO NA ROTA /api/library/thumbnails]:', err);
         // Sempre retornar JSON válido (array vazio), nunca HTML
         res.status(200).json([]);
+    }
+});
+
+// Rota para buscar nichos únicos da biblioteca
+app.get('/api/library/niches', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        if (!db) {
+            console.error('[Biblioteca Niches] Banco de dados não está disponível');
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        // Buscar nichos únicos de títulos e thumbnails
+        const titlesNiches = await db.all(
+            `SELECT DISTINCT niche FROM viral_titles_library WHERE user_id = ? AND niche IS NOT NULL AND niche != ''`,
+            [userId]
+        );
+        
+        const thumbnailsNiches = await db.all(
+            `SELECT DISTINCT niche FROM viral_thumbnails_library WHERE user_id = ? AND niche IS NOT NULL AND niche != ''`,
+            [userId]
+        );
+
+        // Combinar e remover duplicatas
+        const allNiches = new Set();
+        titlesNiches.forEach(row => {
+            if (row.niche) allNiches.add(row.niche);
+        });
+        thumbnailsNiches.forEach(row => {
+            if (row.niche) allNiches.add(row.niche);
+        });
+
+        const nichesArray = Array.from(allNiches).sort();
+        res.status(200).json({ niches: nichesArray });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/niches]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar nichos.' });
     }
 });
 
@@ -8920,6 +19010,1724 @@ Responda APENAS com o JSON, sem texto adicional.`;
     } catch (err) {
         console.error('[ERRO NA ROTA /api/youtube/generate-metadata]:', err);
         res.status(500).json({ msg: 'Erro ao gerar metadata.' });
+    }
+});
+
+// === ROTAS DE GERAÇÃO DE VÍDEO (VEO) ===
+
+// Armazenar operações de geração de vídeo em memória (em produção, usar Redis ou banco)
+const videoOperations = new Map();
+
+const decodeOperationId = (encodedId) => {
+    try {
+        let decoded = decodeURIComponent(encodedId);
+        decoded = decoded.replace(/^\/+/, '');
+        return decoded;
+    } catch (error) {
+        console.error('[Veo] Erro ao decodificar operationId:', error.message);
+        return encodedId;
+    }
+};
+
+// POST /api/video/generate - Gerar vídeo usando Veo
+app.post('/api/video/generate', authenticateToken, async (req, res) => {
+    const {
+        prompt,
+        model = 'sora_video2-15s',
+        aspectRatio = '16:9',
+        resolution = '720p',
+        mode = 'text-to-video',
+        startFrame,
+        endFrame,
+        referenceImages = [],
+        styleImage,
+        inputVideo,
+        isLooping = false
+    } = req.body;
+
+    const userId = req.user.id;
+
+    console.log('[Veo] Dados recebidos do frontend:', {
+        prompt: prompt ? `"${prompt.substring(0, 50)}..."` : 'VAZIO',
+        model,
+        mode,
+        aspectRatio,
+        resolution,
+        hasStartFrame: !!startFrame,
+        hasEndFrame: !!endFrame,
+        hasReferenceImages: referenceImages?.length > 0,
+        hasInputVideo: !!inputVideo
+    });
+
+    try {
+        // Verificar preferência do usuário (usar créditos ou API própria)
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+
+        let useLaozhang = false;
+        let useAdminApi = false;
+        let adminApi = null;
+        let apiKey = null;
+        let usingPanelVideoKey = false;
+        let apiKeySource = null;
+        let userGeminiKeyRow = null;
+
+        let laozhangApiKey = null;
+        const panelVideoApiKey = useCredits ? null : await getAdminVideoApiKey();
+        if (panelVideoApiKey) {
+            apiKey = panelVideoApiKey;
+            usingPanelVideoKey = true;
+            apiKeySource = 'panel_video';
+            console.log('[Veo] Usando chave de vídeo configurada no painel admin');
+        }
+
+        // Se usuário prefere usar créditos, usar Laozhang.ai (obrigatório)
+        if (useCredits) {
+            laozhangApiKey = await getLaozhangApiKey();
+            if (laozhangApiKey) {
+                useLaozhang = true;
+                apiKeySource = 'laozhang';
+                console.log('[Veo] Usando Laozhang.ai com créditos (preferência do usuário)');
+            } else {
+                console.warn('[Veo] Preferência por créditos, mas Laozhang.ai não está configurada');
+                return res.status(400).json({
+                    message: 'Para usar créditos, configure a chave da Laozhang.ai no painel admin.',
+                    details: 'A geração via créditos depende da API Laozhang.ai. Configure a chave ou desmarque a opção de créditos.'
+                });
+            }
+        }
+
+        // Se não usar Laozhang, buscar chave do usuário ou admin
+        if (!useLaozhang && !usingPanelVideoKey) {
+            // Buscar chave do usuário
+            const geminiKeyData = await db.get('SELECT id, api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            let userApiKey = null;
+            if (geminiKeyData && geminiKeyData.api_key) {
+                try {
+                    userApiKey = decrypt(geminiKeyData.api_key);
+                } catch (decryptError) {
+                    console.warn('[Veo] Erro ao descriptografar chave do usuário:', decryptError.message);
+                    // Se falhar, tentar usar diretamente (pode não estar criptografada)
+                    userApiKey = geminiKeyData.api_key;
+                }
+            }
+            if (userApiKey) {
+                userGeminiKeyRow = geminiKeyData;
+            }
+            // Buscar API do admin (qualquer tipo, mas preferir Gemini)
+            adminApi = await getDefaultAdminApi();
+            let adminApiKey = null;
+            
+            // Primeiro tentar buscar API Gemini do admin
+            if (adminApi && adminApi.provider === 'gemini' && adminApi.api_key) {
+                // Tentar descriptografar a chave do admin se necessário
+                if (adminApi.api_key.includes(':')) {
+                    try {
+                        adminApiKey = decrypt(adminApi.api_key);
+                    } catch (decryptError) {
+                        console.warn('[Veo] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                        adminApiKey = adminApi.api_key;
+                    }
+                } else {
+                    adminApiKey = adminApi.api_key;
+                }
+            }
+            
+            // Se não encontrou Gemini, buscar qualquer API do admin ativa
+            if (!adminApiKey && adminApi && adminApi.api_key) {
+                console.warn('[Veo] API do admin não é Gemini, mas tentando usar mesmo assim');
+                if (adminApi.api_key.includes(':')) {
+                    try {
+                        adminApiKey = decrypt(adminApi.api_key);
+                    } catch (decryptError) {
+                        adminApiKey = adminApi.api_key;
+                    }
+                } else {
+                    adminApiKey = adminApi.api_key;
+                }
+            }
+
+            // Decidir qual chave usar
+            if (userApiKey) {
+                apiKey = userApiKey;
+                apiKeySource = 'user_gemini';
+                console.log('[Veo] Usando API própria do usuário');
+            } else if (adminApiKey) {
+                // Fallback: usar API do admin se própria não disponível
+                apiKey = adminApiKey;
+                useAdminApi = true;
+                apiKeySource = 'admin_provider';
+                console.log('[Veo] Usando API do admin (API própria não disponível)');
+            }
+        }
+
+        // Validar API key antes de usar
+        if (!useLaozhang && (!apiKey || apiKey.trim() === '')) {
+            console.error('[Veo] ❌ API Key não encontrada ou vazia');
+            console.error('[Veo] - useCredits:', useCredits);
+            console.error('[Veo] - useLaozhang:', useLaozhang);
+            
+            // Se preferir créditos mas não tem API, sugerir configurar Laozhang.ai ou API Gemini no admin
+            if (useCredits) {
+                return res.status(400).json({ 
+                    message: 'Para usar créditos na geração de vídeo, configure uma API Gemini no painel admin ou configure Laozhang.ai.',
+                    details: 'Veo requer uma API do tipo Gemini com billing habilitado. Configure no painel admin.'
+                });
+            }
+            
+            return res.status(400).json({ 
+                message: 'Chave de API do Gemini não configurada ou inválida. Veo requer uma chave do Gemini com billing habilitado. Configure no painel admin (tipo Gemini) ou nas suas configurações.' 
+            });
+        }
+        
+        // Se usar Laozhang, usar a API da Laozhang.ai com modelo Veo
+        if (useLaozhang) {
+            const laozhangKey = laozhangApiKey || await getLaozhangApiKey();
+            if (!laozhangKey) {
+                return res.status(400).json({ 
+                    message: 'Laozhang.ai não configurada no painel admin. Configure a chave de API Laozhang.ai primeiro.' 
+                });
+            }
+            
+            // Mapear modelo do frontend para modelo Laozhang.ai
+            // Documentação: https://docs1.laozhang.ai/api-capabilities/veo/veo-31-overview
+            // Para 16:9 (paisagem), usar modelos landscape: veo-3.1-landscape-fast ou veo-3.1-landscape
+            // Para outros formatos, usar modelos padrão: veo-3.1-fast ou veo-3.1
+            let laozhangModel = model;
+            
+            // Determinar se é image-to-video baseado no modo e frames disponíveis
+            // Para extend-video, vamos extrair o último frame e usar como imagem inicial
+            const isImageToVideo = (mode === 'frames-to-video' || mode === 'references-to-video' || mode === 'extend-video') && 
+                                   (startFrame || referenceImages?.length > 0 || (mode === 'extend-video' && inputVideo));
+            
+            // Determinar se é paisagem (16:9)
+            const isLandscape = aspectRatio === '16:9';
+            
+            // Mapear modelos Sora 2 (apenas 15s - maior qualidade)
+            if (model === 'sora_video2-15s' || model === 'sora_video2-landscape-15s' || model.includes('sora_video2')) {
+                // Sora 2 de 15s usa modelos específicos conforme aspect ratio
+                // sora_video2-15s = Portrait (704×1280, 15s), sora_video2-landscape-15s = Landscape (1280×704, 15s)
+                if (isLandscape) {
+                    laozhangModel = 'sora_video2-landscape-15s';
+                } else {
+                    laozhangModel = 'sora_video2-15s';
+                }
+                // Sora 2 suporta image-to-video nativamente, não precisa de modelo diferente
+                console.log(`[Sora 2 Laozhang] Modelo selecionado: ${laozhangModel} (${isLandscape ? 'Landscape' : 'Portrait'}, 15s)`);
+            } else if (model === 'veo-3.1-fast-generate-preview' || model.includes('veo-3.1-fast')) {
+                if (isLandscape) {
+                    // Para paisagem 16:9, usar modelos landscape
+                    laozhangModel = isImageToVideo ? 'veo-3.1-landscape-fast-fl' : 'veo-3.1-landscape-fast';
+                } else {
+                    // Para outros formatos, usar modelos padrão
+                    laozhangModel = isImageToVideo ? 'veo-3.1-fast-fl' : 'veo-3.1-fast';
+                }
+            } else if (model === 'veo-3.1-generate-preview' || model.includes('veo-3.1-generate')) {
+                if (isLandscape) {
+                    // Para paisagem 16:9, usar modelos landscape
+                    laozhangModel = isImageToVideo ? 'veo-3.1-landscape-fl' : 'veo-3.1-landscape';
+                } else {
+                    // Para outros formatos, usar modelos padrão
+                    laozhangModel = isImageToVideo ? 'veo-3.1-fl' : 'veo-3.1';
+                }
+            } else {
+                // Se já for um modelo específico, usar diretamente
+                laozhangModel = model.replace('-generate-preview', '');
+            }
+            
+            const isSora2 = laozhangModel.includes('sora_video2');
+            const modelType = isSora2 ? 'Sora 2' : 'Veo';
+            console.log(`[${modelType} Laozhang] Modo detectado: ${mode}, Image-to-video: ${isImageToVideo}, Aspect Ratio: ${aspectRatio}, Landscape: ${isLandscape}, Modelo selecionado: ${laozhangModel}`);
+            
+            console.log(`[${modelType} Laozhang] Usando Laozhang.ai com modelo:`, laozhangModel);
+            console.log('[Veo Laozhang] Prompt:', prompt ? `"${prompt.substring(0, 100)}..."` : 'VAZIO');
+            
+            // Construir payload no formato Chat Completions da Laozhang.ai
+            // Documentação: https://docs1.laozhang.ai/api-capabilities/veo/veo-31-overview
+            // Formato: messages com role "user" e content como array de objetos {type, text/image_url}
+            
+            const laozhangMessages = [];
+            
+            // Adicionar texto do prompt
+            // Para extend-video, o prompt deve enfatizar continuar o vídeo existente
+            if (mode === 'extend-video') {
+                // Instruções muito específicas para garantir que o vídeo seja estendido, não recriado
+                // A Laozhang.ai pode não suportar extend-video diretamente, então vamos usar uma abordagem alternativa
+                let extendPrompt = `VIDEO EXTENSION REQUEST:
+
+You have been provided with a video above. Your task is to EXTEND this video, creating a seamless continuation.
+
+CRITICAL REQUIREMENTS:
+1. This is NOT a new video - it is an EXTENSION of the existing video
+2. The extended video must start EXACTLY where the provided video ends
+3. Maintain IDENTICAL scene, characters, camera angle, lighting, colors, and visual style
+4. Create a smooth, natural continuation - it should feel like ONE continuous video
+5. The transition between the original and extension must be seamless
+6. Do NOT change the scene, location, or context
+7. Do NOT introduce new characters or elements that weren't in the original
+8. The final output should be a SINGLE continuous video that combines the original 8 seconds with approximately 7 more seconds of extension, totaling around 15 seconds
+
+${prompt && prompt.trim() ? `Additional continuation direction: ${prompt.trim()}` : 'Continue the video naturally, maintaining the exact same visual style and narrative flow.'}
+
+Remember: The goal is to create ONE unified video, not two separate videos. The extension must connect seamlessly.`;
+
+                laozhangMessages.push({
+                    type: 'text',
+                    text: extendPrompt
+                });
+                console.log('[Veo Laozhang] Prompt para extend-video:', extendPrompt.substring(0, 300));
+            } else if (prompt && prompt.trim()) {
+                laozhangMessages.push({
+                    type: 'text',
+                    text: prompt.trim()
+                });
+            }
+            
+            // Adicionar imagens se for image-to-video (veo-3.1-fl)
+            if (mode === 'frames-to-video' && startFrame) {
+                // Converter base64 para URL ou usar diretamente
+                let imageUrl = startFrame;
+                if (startFrame.base64) {
+                    // Se for base64, usar data URL
+                    const mimeType = startFrame.mimeType || 'image/jpeg';
+                    imageUrl = `data:${mimeType};base64,${startFrame.base64}`;
+                }
+                
+                laozhangMessages.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: imageUrl
+                    }
+                });
+                
+                // Adicionar frame final se houver (para looping)
+                if (endFrame && !isLooping) {
+                    let endImageUrl = endFrame;
+                    if (endFrame.base64) {
+                        const mimeType = endFrame.mimeType || 'image/jpeg';
+                        endImageUrl = `data:${mimeType};base64,${endFrame.base64}`;
+                    }
+                    laozhangMessages.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: endImageUrl
+                        }
+                    });
+                }
+            }
+            
+            // Adicionar imagens de referência se houver
+            if (referenceImages && referenceImages.length > 0) {
+                for (const img of referenceImages) {
+                    if (img.base64) {
+                        const mimeType = img.mimeType || 'image/jpeg';
+                        const imageUrl = `data:${mimeType};base64,${img.base64}`;
+                        laozhangMessages.push({
+                            type: 'image_url',
+                            image_url: {
+                                url: imageUrl
+                            }
+                        });
+                    }
+                }
+            }
+            
+            // Adicionar vídeo de entrada se for extend-video
+            // ESTRATÉGIA: Extrair o último frame do vídeo e usar como imagem inicial para gerar a continuação
+            if (mode === 'extend-video' && inputVideo) {
+                console.log('[Veo Laozhang] Modo extend-video detectado, extraindo último frame do vídeo...');
+                
+                try {
+                    let videoUri = null;
+                    if (inputVideo.uri) {
+                        videoUri = inputVideo.uri;
+                    } else if (inputVideo.base64) {
+                        // Se for base64, não podemos extrair frame diretamente, usar o vídeo como referência
+                        const mimeType = inputVideo.mimeType || 'video/mp4';
+                        videoUri = `data:${mimeType};base64,${inputVideo.base64}`;
+                    }
+                    
+                    if (videoUri && videoUri.startsWith('http')) {
+                        // Baixar vídeo e extrair último frame usando FFmpeg
+                        const tempVideoPath = path.join(__dirname, 'temp', `extend_${Date.now()}.mp4`);
+                        const tempFramePath = path.join(__dirname, 'temp', `last_frame_${Date.now()}.jpg`);
+                        
+                        // Criar diretório temp se não existir
+                        await fse.ensureDir(path.dirname(tempVideoPath));
+                        
+                        // Baixar vídeo
+                        console.log('[Veo Laozhang] Baixando vídeo para extrair último frame...');
+                        const videoResponse = await axios({
+                            url: videoUri,
+                            method: 'GET',
+                            responseType: 'stream',
+                            timeout: 30000
+                        });
+                        
+                        const videoStream = fs.createWriteStream(tempVideoPath);
+                        await new Promise((resolve, reject) => {
+                            videoResponse.data.pipe(videoStream);
+                            videoStream.on('finish', resolve);
+                            videoStream.on('error', reject);
+                        });
+                        
+                        // Extrair último frame usando FFmpeg
+                        console.log('[Veo Laozhang] Extraindo último frame com FFmpeg...');
+                        await new Promise((resolve, reject) => {
+                            ffmpeg(tempVideoPath)
+                                .screenshots({
+                                    timestamps: ['99%'], // Pegar frame em 99% do vídeo
+                                    filename: path.basename(tempFramePath),
+                                    folder: path.dirname(tempFramePath),
+                                    size: '1280x720' // Manter resolução alta
+                                })
+                                .on('end', () => {
+                                    console.log('[Veo Laozhang] ✅ Último frame extraído com sucesso');
+                                    resolve();
+                                })
+                                .on('error', (err) => {
+                                    console.error('[Veo Laozhang] ❌ Erro ao extrair frame:', err.message);
+                                    reject(err);
+                                });
+                        });
+                        
+                        // Ler frame como base64
+                        const frameBuffer = await fs.promises.readFile(tempFramePath);
+                        const frameBase64 = frameBuffer.toString('base64');
+                        const frameDataUrl = `data:image/jpeg;base64,${frameBase64}`;
+                        
+                        // Limpar arquivos temporários
+                        try {
+                            await fs.unlink(tempVideoPath);
+                            await fs.unlink(tempFramePath);
+                        } catch (cleanupErr) {
+                            console.warn('[Veo Laozhang] Aviso ao limpar arquivos temporários:', cleanupErr.message);
+                        }
+                        
+                        // Adicionar frame como imagem inicial
+                        laozhangMessages.unshift({
+                            type: 'image_url',
+                            image_url: {
+                                url: frameDataUrl
+                            }
+                        });
+                        
+                        // Mudar modo para frames-to-video para usar o frame como início
+                        // Mas manter o prompt de extensão
+                        console.log('[Veo Laozhang] Último frame adicionado como imagem inicial para continuação');
+                    } else {
+                        // Se não for URL HTTP, usar o vídeo como referência direta
+                        console.log('[Veo Laozhang] Vídeo não é URL HTTP, usando como referência direta');
+                        laozhangMessages.unshift({
+                            type: 'video_url',
+                            video_url: {
+                                url: videoUri
+                            }
+                        });
+                    }
+                } catch (extractError) {
+                    console.error('[Veo Laozhang] Erro ao extrair último frame, usando vídeo como referência:', extractError.message);
+                    // Fallback: usar vídeo como referência
+                    if (inputVideo.uri) {
+                        laozhangMessages.unshift({
+                            type: 'video_url',
+                            video_url: {
+                                url: inputVideo.uri
+                            }
+                        });
+                    }
+                }
+                
+                // Adicionar instrução de extensão
+                const extendInstruction = `VIDEO EXTENSION: The image/video above is the LAST FRAME of an 8-second video. Generate a continuation that:
+1. Starts EXACTLY from this frame
+2. Maintains the SAME scene, characters, camera angle, lighting, and visual style
+3. Creates approximately 7 more seconds of video
+4. Results in a TOTAL video of 15 seconds (8s original + 7s extension)
+5. The continuation must be SEAMLESS and feel like ONE continuous video
+
+${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Continue naturally, maintaining the exact same visual style.'}`;
+                
+                laozhangMessages.push({
+                    type: 'text',
+                    text: extendInstruction
+                });
+                
+                console.log('[Veo Laozhang] Instrução de extensão adicionada');
+            }
+            
+            // Construir payload final no formato Chat Completions
+            const laozhangPayload = {
+                model: laozhangModel,
+                messages: [
+                    {
+                        role: 'user',
+                        content: laozhangMessages
+                    }
+                ],
+                stream: true, // Recomendado pela documentação para obter progresso
+                n: 1 // Número de vídeos a gerar (1-4)
+            };
+            
+            // Adicionar parâmetros adicionais se necessário
+            // Nota: resolução e aspect ratio são controlados pelo modelo escolhido
+            // veo-3.1-landscape* para 16:9, outros para formato padrão
+            
+            try {
+                // Laozhang.ai usa endpoint Chat Completions padrão
+                const endpoint = LAOZHANG_CHAT_ENDPOINT;
+                
+                console.log(`[Veo Laozhang] Usando endpoint: ${endpoint}`);
+                console.log(`[Veo Laozhang] Modelo: ${laozhangModel}`);
+                console.log(`[Veo Laozhang] Modo: ${mode}`);
+                console.log(`[Veo Laozhang] Payload (resumido):`, JSON.stringify({
+                    model: laozhangPayload.model,
+                    messages: laozhangPayload.messages.map(m => ({
+                        role: m.role,
+                        content: m.content.map(c => c.type === 'text' ? { type: c.type, text: c.text.substring(0, 50) + '...' } : { type: c.type })
+                    })),
+                    stream: laozhangPayload.stream,
+                    n: laozhangPayload.n
+                }, null, 2));
+                
+                // Debitar créditos antes da chamada
+                const laozhangProviderId = await getLaozhangApiProviderId();
+                if (laozhangProviderId && userId) {
+                    // Estimar créditos baseado na resolução e modelo
+                    // Sora 2 = $0.15, veo-3.1-fast* = $0.15, veo-3.1 (padrão) = $0.25
+                    const isSora2 = laozhangModel.includes('sora_video2');
+                    const isFastModel = laozhangModel.includes('fast');
+                    const estimatedCredits = (isSora2 || isFastModel) ? 15 : 25; // Aproximado em créditos
+                    await checkAndDebitCredits(
+                        userId,
+                        laozhangProviderId,
+                        estimatedCredits,
+                        'api_video_generation',
+                        JSON.stringify({ 
+                            endpoint: '/api/video/generate', 
+                            model: laozhangModel, 
+                            mode, 
+                            resolution, 
+                            aspectRatio 
+                        })
+                    );
+                }
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${laozhangKey}`
+                    },
+                    body: JSON.stringify(laozhangPayload)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[Veo Laozhang] ❌ Erro HTTP ${response.status}:`, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                // Laozhang.ai retorna stream quando stream=true
+                // Processar resposta stream ou JSON
+                let laozhangResponse;
+                const contentType = response.headers.get('content-type');
+                
+                // Verificar se o frontend quer SSE para progresso em tempo real
+                const acceptHeader = req.headers.accept || '';
+                const wantsSSE = acceptHeader.includes('text/event-stream');
+                
+                if (contentType && contentType.includes('text/event-stream')) {
+                    // Resposta é stream - processar eventos SSE
+                    console.log('[Veo Laozhang] Resposta é stream, processando eventos SSE...');
+                    
+                    // Se frontend quer SSE, configurar resposta como SSE
+                    if (wantsSSE) {
+                        res.setHeader('Content-Type', 'text/event-stream');
+                        res.setHeader('Cache-Control', 'no-cache');
+                        res.setHeader('Connection', 'keep-alive');
+                    }
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let operationId = null;
+                    let fullContent = ''; // Acumular todo o conteúdo
+                    let isFinished = false;
+                    let lastProgress = 0; // Última porcentagem enviada
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+                        
+                        for (const line of lines) {
+                            if (line.trim() === '' || line === '[DONE]') continue;
+                            
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const dataStr = line.substring(6);
+                                    if (dataStr === '[DONE]') {
+                                        isFinished = true;
+                                        break;
+                                    }
+                                    
+                                    const data = JSON.parse(dataStr);
+                                    
+                                    // Procurar por operationId
+                                    if (data.id) {
+                                        operationId = data.id;
+                                    }
+                                    
+                                    // Acumular conteúdo dos chunks
+                                    if (data.choices && data.choices.length > 0) {
+                                        const choice = data.choices[0];
+                                        if (choice.delta) {
+                                            // Acumular conteúdo se existir
+                                            if (choice.delta.content) {
+                                                fullContent += choice.delta.content;
+                                                console.log('[Veo Laozhang] Conteúdo acumulado:', fullContent.length, 'chars. Último chunk:', choice.delta.content.substring(0, 50));
+                                                
+                                                // Extrair porcentagem de progresso do conteúdo
+                                                // Padrões: "进度：9.0%", "Progress: 36.0%", "🏃 进度：44.9%"
+                                                const progressMatch = choice.delta.content.match(/(?:进度|Progress)[：:]\s*(\d+\.?\d*)%/i) || 
+                                                                     choice.delta.content.match(/(\d+\.?\d*)%/);
+                                                if (progressMatch && progressMatch[1]) {
+                                                    const progressPercent = parseFloat(progressMatch[1]);
+                                                    if (!isNaN(progressPercent) && progressPercent !== lastProgress) {
+                                                        lastProgress = progressPercent;
+                                                        console.log(`[Veo Laozhang] 📊 Progresso detectado: ${progressPercent}%`);
+                                                        
+                                                        // Atualizar progresso na operação se já existir
+                                                        if (operationId && videoOperations.has(operationId)) {
+                                                            const op = videoOperations.get(operationId);
+                                                            op.progress = progressPercent;
+                                                            op.progressMessage = `Gerando vídeo... ${progressPercent.toFixed(1)}%`;
+                                                            videoOperations.set(operationId, op);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Verificar se há vídeo diretamente no delta
+                                            if (choice.delta.video || choice.delta.uri || choice.delta.url) {
+                                                const videoUri = choice.delta.video?.uri || choice.delta.uri || choice.delta.url;
+                                                console.log('[Veo Laozhang] ✅ Vídeo URI encontrado no delta:', videoUri);
+                                                return res.json({
+                                                    video: { uri: videoUri },
+                                                    status: 'completed',
+                                                    message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                                });
+                                            }
+                                            
+                                            // Verificar outros campos que podem conter o vídeo
+                                            if (choice.delta.role === 'assistant' && choice.delta.function_call) {
+                                                console.log('[Veo Laozhang] Function call encontrado no delta');
+                                            }
+                                        }
+                                        
+                                        // Verificar se terminou
+                                        if (choice.finish_reason === 'stop') {
+                                            isFinished = true;
+                                            console.log('[Veo Laozhang] ✅ Stream finalizado. Conteúdo total acumulado:', fullContent.length, 'caracteres');
+                                            if (fullContent.length > 0) {
+                                                console.log('[Veo Laozhang] Primeiros 500 chars do conteúdo:', fullContent.substring(0, 500));
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Se vídeo estiver pronto diretamente no evento
+                                    if (data.video || data.uri || data.url) {
+                                        const videoUri = data.video?.uri || data.uri || data.url;
+                                        return res.json({
+                                            video: { uri: videoUri },
+                                            status: 'completed',
+                                            message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                        });
+                                    }
+                                } catch (e) {
+                                    // Ignorar linhas que não são JSON
+                                    console.warn('[Veo Laozhang] Erro ao parsear evento SSE:', e.message);
+                                }
+                            }
+                        }
+                        
+                        if (isFinished) break;
+                    }
+                    
+                    // Processar conteúdo completo quando stream terminar
+                    if (fullContent && fullContent.trim()) {
+                        console.log('[Veo Laozhang] Conteúdo completo recebido (', fullContent.length, 'caracteres):', fullContent.substring(0, 500));
+                        
+                        // Limpar o conteúdo (pode ter markdown code blocks)
+                        let cleanContent = fullContent.trim();
+                        cleanContent = cleanContent.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+                        
+                        // Tentar parsear como JSON
+                        let contentData = null;
+                        try {
+                            contentData = JSON.parse(cleanContent);
+                            console.log('[Veo Laozhang] ✅ Conteúdo parseado como JSON');
+                        } catch (parseError) {
+                            // Se não for JSON válido, tentar extrair JSON do texto
+                            console.log('[Veo Laozhang] Conteúdo não é JSON puro, tentando extrair JSON...');
+                            const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                try {
+                                    contentData = JSON.parse(jsonMatch[0]);
+                                    console.log('[Veo Laozhang] ✅ JSON extraído do texto');
+                                } catch (e) {
+                                    console.warn('[Veo Laozhang] Não foi possível parsear JSON extraído');
+                                }
+                            }
+                        }
+                        
+                        // Se conseguiu parsear como JSON
+                        if (contentData) {
+                            // Procurar vídeo URI em diferentes formatos
+                            const videoUri = contentData.video?.uri || 
+                                          contentData.video?.url ||
+                                          contentData.uri || 
+                                          contentData.url ||
+                                          contentData.videoUri ||
+                                          contentData.video_url;
+                            
+                            if (videoUri) {
+                                console.log('[Veo Laozhang] ✅ Vídeo URI encontrado no JSON:', videoUri);
+                                return res.json({
+                                    video: { uri: videoUri },
+                                    status: 'completed',
+                                    message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                });
+                            }
+                            
+                            // Se contém operationId para polling
+                            if (contentData.operationId || contentData.id || contentData.operation) {
+                                operationId = contentData.operationId || contentData.id || contentData.operation;
+                            }
+                        }
+                        
+                        // Se não encontrou no JSON, tentar extrair URI do texto (regex)
+                        console.log('[Veo Laozhang] Tentando extrair URI do texto com regex...');
+                        // Padrões mais específicos primeiro, depois genéricos
+                        // Sora 2 retorna links em formato markdown: [click here](https://sora.gptkey.asia/assets/sora/xxx.mp4)
+                        const uriPatterns = [
+                            /\[[^\]]+\]\(([^\)]+\.mp4[^\)]*)\)/g,  // Markdown links [text](url.mp4) - Sora 2
+                            /https?:\/\/[^\s"',<>\)]+\.mp4[^\)]*/g,  // URLs .mp4 (prioridade)
+                            /https?:\/\/[^\s"',<>\)]+/g,  // URLs completas (sem parênteses no final)
+                            /https?:\/\/[^\s"',<>]+/g,  // URLs completas (fallback)
+                            /uri["\s:]+["']?([^"'\s]+)["']?/i,  // uri: "url"
+                            /url["\s:]+["']?([^"'\s]+)["']?/i   // url: "url"
+                        ];
+                        
+                        for (const pattern of uriPatterns) {
+                            const matches = cleanContent.match(pattern);
+                            if (matches && matches.length > 0) {
+                                console.log('[Veo Laozhang] Matches encontrados:', matches.length, matches.slice(0, 3));
+                                
+                                // Pegar a primeira URL que parece ser de vídeo
+                                let videoUri = matches.find(url => 
+                                    url.includes('googleapis.com') || 
+                                    url.includes('storage.googleapis.com') ||
+                                    url.includes('aliyuncs.com') ||  // Laozhang.ai usa Aliyun CDN
+                                    url.includes('sora.gptkey.asia') ||  // Sora 2 CDN
+                                    url.includes('mycdn') ||
+                                    url.includes('video') ||
+                                    url.match(/https?:\/\/[^\s"']+\.mp4/i)
+                                ) || matches[0];
+                                
+                                // Se o match foi de markdown, extrair apenas a URL
+                                if (videoUri && videoUri.includes('](')) {
+                                    const markdownMatch = videoUri.match(/\]\(([^\)]+)\)/);
+                                    if (markdownMatch && markdownMatch[1]) {
+                                        videoUri = markdownMatch[1];
+                                    }
+                                }
+                                
+                                if (videoUri) {
+                                    // Limpar a URL: remover parênteses, colchetes, aspas e outros caracteres inválidos no final
+                                    videoUri = videoUri.replace(/[\)\]\}"']+$/, '').trim();
+                                    
+                                    // Verificar se é uma URL válida
+                                    try {
+                                        new URL(videoUri);
+                                        console.log('[Veo Laozhang] ✅ Vídeo URI extraído e limpo:', videoUri);
+                                        console.log('[Veo Laozhang] Retornando resposta com vídeo URI...');
+                                        
+                                        // IMPORTANTE: Retornar resposta no formato que o frontend espera
+                                        // Frontend espera: { status: 'completed', videoUri: '...' }
+                                        const responseData = {
+                                            status: 'completed',
+                                            videoUri: videoUri,
+                                            message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                        };
+                                        console.log('[Veo Laozhang] Resposta sendo enviada:', JSON.stringify(responseData));
+                                        
+                                        // Armazenar também na operação para polling
+                                        if (operationId) {
+                                            videoOperations.set(operationId, {
+                                                userId,
+                                                operation: { id: operationId },
+                                                useAdminApi: false,
+                                                adminApi: null,
+                                                createdAt: new Date(),
+                                                status: 'completed',
+                                                videoUri: videoUri,
+                                                useLaozhang: true,
+                                                laozhangKey: laozhangKey
+                                            });
+                                        }
+                                        
+                                        return res.json(responseData);
+                                    } catch (urlError) {
+                                        console.warn('[Veo Laozhang] ⚠️ URL extraída não é válida:', videoUri, urlError.message);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        console.warn('[Veo Laozhang] ⚠️ Não foi possível extrair vídeo URI do conteúdo');
+                        console.log('[Veo Laozhang] Conteúdo completo para debug:', cleanContent.substring(0, 1000));
+                    }
+                    
+                    // Se chegou aqui e tem operationId, retornar para polling
+                    if (operationId) {
+                        // Tentar fazer uma chamada adicional para obter o vídeo se o conteúdo não tiver URI
+                        // A Laozhang.ai pode retornar o vídeo em uma chamada separada
+                        if (fullContent && !fullContent.match(/https?:\/\/[^\s"']+/)) {
+                            console.log('[Veo Laozhang] Conteúdo não contém URI, tentando obter vídeo via polling...');
+                            
+                            // Tentar fazer polling imediatamente (algumas APIs retornam o vídeo logo após)
+                            try {
+                                // Aguardar um pouco antes de fazer polling
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                
+                                // Fazer uma chamada para verificar se o vídeo está pronto
+                                // Nota: A Laozhang.ai pode ter um endpoint específico para isso
+                                // Por enquanto, armazenar e deixar o polling do frontend verificar
+                            } catch (pollError) {
+                                console.warn('[Veo Laozhang] Erro ao tentar polling imediato:', pollError.message);
+                            }
+                        }
+                        
+                        // Extrair última porcentagem do conteúdo completo
+                        let finalProgress = 0;
+                        const finalProgressMatch = fullContent.match(/(?:进度|Progress)[：:]\s*(\d+\.?\d*)%/gi);
+                        if (finalProgressMatch && finalProgressMatch.length > 0) {
+                            const lastMatch = finalProgressMatch[finalProgressMatch.length - 1];
+                            const percentMatch = lastMatch.match(/(\d+\.?\d*)%/);
+                            if (percentMatch && percentMatch[1]) {
+                                finalProgress = parseFloat(percentMatch[1]);
+                            }
+                        }
+                        
+                        // Armazenar operação com o conteúdo completo para processamento posterior
+                        videoOperations.set(operationId, {
+                            userId,
+                            operation: { 
+                                id: operationId,
+                                content: fullContent,
+                                model: laozhangModel
+                            },
+                            useAdminApi: false,
+                            adminApi: null,
+                            createdAt: new Date(),
+                            status: fullContent && fullContent.length > 0 ? 'processing' : 'processing',
+                            useLaozhang: true,
+                            laozhangKey: laozhangKey,
+                            // Armazenar conteúdo para processamento na rota de status
+                            rawContent: fullContent,
+                            // Armazenar progresso extraído
+                            progress: finalProgress,
+                            progressMessage: finalProgress > 0 ? `Gerando vídeo... ${finalProgress.toFixed(1)}%` : 'Processando...'
+                        });
+                        
+                        console.log(`[Veo Laozhang] Operação ${operationId} armazenada para polling. Conteúdo (${fullContent.length} chars): ${fullContent.substring(0, 200)}...`);
+                        
+                        return res.json({
+                            operationId: operationId,
+                            status: 'processing',
+                            message: 'Geração de vídeo iniciada via Laozhang.ai. Use o operationId para verificar o status.'
+                        });
+                    }
+                    
+                    // Se não tem operationId nem conteúdo, retornar erro
+                    throw new Error('Não foi possível obter operationId ou vídeo da resposta da Laozhang.ai. Conteúdo recebido: ' + (fullContent ? fullContent.substring(0, 200) : 'vazio'));
+                } else {
+                    // Resposta é JSON normal
+                    laozhangResponse = await response.json();
+                    console.log(`[Veo Laozhang] ✅ Resposta JSON recebida:`, JSON.stringify(laozhangResponse, null, 2).substring(0, 500));
+                }
+                
+                // Processar resposta JSON
+                let responseData = laozhangResponse;
+                
+                // Se a resposta contém choices (formato Chat Completions)
+                if (responseData.choices && responseData.choices.length > 0) {
+                    const choice = responseData.choices[0];
+                    if (choice.message && choice.message.content) {
+                        // Tentar parsear o content como JSON
+                        try {
+                            const contentData = JSON.parse(choice.message.content);
+                            responseData = contentData;
+                        } catch (e) {
+                            // Se não for JSON, usar o content como está
+                            responseData = { content: choice.message.content };
+                        }
+                    }
+                }
+                
+                // Se a resposta contém operationId ou similar, retornar
+                if (responseData.operationId || responseData.operation || responseData.id || responseData.name) {
+                    const operationId = responseData.operationId || responseData.operation || responseData.id || responseData.name;
+                    
+                    // Armazenar operação
+                    const laozhangOperation = {
+                        userId,
+                        operation: responseData,
+                        useAdminApi: false,
+                        adminApi: null,
+                        createdAt: new Date(),
+                        status: 'processing',
+                        useLaozhang: true,
+                        laozhangKey: laozhangKey
+                    };
+                    videoOperations.set(operationId, laozhangOperation);
+                    await cacheVideoOperationMetadata(operationId, userId, {
+                        apiKeySource: 'laozhang',
+                        useLaozhang: true
+                    });
+                    
+                    return res.json({
+                        operationId: operationId,
+                        status: 'processing',
+                        message: 'Geração de vídeo iniciada via Laozhang.ai. Use o operationId para verificar o status.'
+                    });
+                }
+                
+                // Se a resposta contém vídeo diretamente
+                if (responseData.video || responseData.uri || responseData.url) {
+                    const videoUri = responseData.video?.uri || responseData.uri || responseData.url;
+                    // Frontend espera: { status: 'completed', videoUri: '...' }
+                    return res.json({
+                        status: 'completed',
+                        videoUri: videoUri,
+                        message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                    });
+                }
+                
+                // Retornar resposta como está
+                return res.json({
+                    status: 'processing',
+                    data: responseData,
+                    message: 'Geração de vídeo iniciada via Laozhang.ai.'
+                });
+                
+            } catch (laozhangError) {
+                console.error('[Veo Laozhang] Erro ao chamar Laozhang.ai:', laozhangError);
+                return res.status(500).json({ 
+                    message: 'Erro ao gerar vídeo via Laozhang.ai: ' + (laozhangError.message || 'Erro desconhecido'),
+                    details: laozhangError.details || laozhangError.error || 'Erro ao processar requisição'
+                });
+            }
+        }
+
+        // Validar formato da API key (deve começar com AIza ou similar)
+        if (!apiKey.startsWith('AIza') && apiKey.length < 20) {
+            console.warn('[Veo] ⚠️ API Key pode estar em formato inválido. Esperado formato Google API key.');
+        }
+
+        console.log('[Veo] ✅ API Key configurada:', apiKey.substring(0, 10) + '...' + apiKey.substring(apiKey.length - 4));
+        console.log('[Veo] - Tamanho da chave:', apiKey.length, 'caracteres');
+        console.log('[Veo] - Usando API do admin:', useAdminApi);
+
+        // Construir payload para a API Veo
+        const config = {
+            numberOfVideos: 1,
+            resolution: resolution
+        };
+
+        if (mode !== 'extend-video') {
+            config.aspectRatio = aspectRatio;
+        }
+
+        // Construir payload base
+        const generateVideoPayload = {
+            model: model,
+            config: config
+        };
+
+        // Adicionar prompt se fornecido (obrigatório para text-to-video)
+        // Para extend-video, o prompt deve enfatizar continuar o vídeo existente
+        if (mode === 'extend-video') {
+            // Instruções muito específicas para garantir que o vídeo seja estendido, não recriado
+            let extendPrompt = `VIDEO EXTENSION REQUEST:
+
+You have been provided with a video. Your task is to EXTEND this video, creating a seamless continuation.
+
+CRITICAL REQUIREMENTS:
+1. This is NOT a new video - it is an EXTENSION of the existing video
+2. The extended video must start EXACTLY where the provided video ends
+3. Maintain IDENTICAL scene, characters, camera angle, lighting, colors, and visual style
+4. Create a smooth, natural continuation - it should feel like ONE continuous video
+5. The transition between the original and extension must be seamless
+6. Do NOT change the scene, location, or context
+7. Do NOT introduce new characters or elements that weren't in the original
+8. The final output should be a SINGLE continuous video that combines the original 8 seconds with approximately 7 more seconds of extension, totaling around 15 seconds
+
+${prompt && prompt.trim() ? `Additional continuation direction: ${prompt.trim()}` : 'Continue the video naturally, maintaining the exact same visual style and narrative flow.'}
+
+Remember: The goal is to create ONE unified video, not two separate videos. The extension must connect seamlessly.`;
+            
+            generateVideoPayload.prompt = extendPrompt;
+            console.log('[Veo] Prompt para extend-video:', extendPrompt.substring(0, 300));
+        } else if (prompt && prompt.trim()) {
+            generateVideoPayload.prompt = prompt.trim();
+        }
+
+        // Modo: Frames to Video
+        if (mode === 'frames-to-video') {
+            if (startFrame && startFrame.base64) {
+                generateVideoPayload.image = {
+                    imageBytes: startFrame.base64,
+                    mimeType: startFrame.mimeType || 'image/jpeg'
+                };
+            }
+
+            const finalEndFrame = isLooping ? startFrame : endFrame;
+            if (finalEndFrame && finalEndFrame.base64) {
+                generateVideoPayload.config.lastFrame = {
+                    imageBytes: finalEndFrame.base64,
+                    mimeType: finalEndFrame.mimeType || 'image/jpeg'
+                };
+            }
+        }
+        // Modo: References to Video
+        else if (mode === 'references-to-video') {
+            const referenceImagesPayload = [];
+
+            for (const img of referenceImages) {
+                if (img.base64) {
+                    referenceImagesPayload.push({
+                        image: {
+                            imageBytes: img.base64,
+                            mimeType: img.mimeType || 'image/jpeg'
+                        },
+                        referenceType: 'ASSET'
+                    });
+                }
+            }
+
+            if (styleImage && styleImage.base64) {
+                referenceImagesPayload.push({
+                    image: {
+                        imageBytes: styleImage.base64,
+                        mimeType: styleImage.mimeType || 'image/jpeg'
+                    },
+                    referenceType: 'STYLE'
+                });
+            }
+
+            if (referenceImagesPayload.length > 0) {
+                generateVideoPayload.config.referenceImages = referenceImagesPayload;
+            }
+        }
+        // Modo: Extend Video
+        else if (mode === 'extend-video') {
+            // Para estender, precisamos do URI do vídeo gerado anteriormente
+            // ESTRATÉGIA: Extrair o último frame e usar como imagem inicial
+            if (!inputVideo) {
+                return res.status(400).json({ message: 'Vídeo de entrada é obrigatório para estender.' });
+            }
+            
+            try {
+                let videoUri = null;
+                if (inputVideo.uri) {
+                    videoUri = inputVideo.uri;
+                } else if (inputVideo.base64) {
+                    const mimeType = inputVideo.mimeType || 'video/mp4';
+                    videoUri = `data:${mimeType};base64,${inputVideo.base64}`;
+                }
+                
+                if (videoUri && videoUri.startsWith('http')) {
+                    // Baixar vídeo e extrair último frame usando FFmpeg
+                    const tempVideoPath = path.join(__dirname, 'temp', `extend_${Date.now()}.mp4`);
+                    const tempFramePath = path.join(__dirname, 'temp', `last_frame_${Date.now()}.jpg`);
+                    
+                    // Criar diretório temp se não existir
+                    await fse.ensureDir(path.dirname(tempVideoPath));
+                    
+                    // Baixar vídeo
+                    console.log('[Veo] Baixando vídeo para extrair último frame...');
+                    const videoResponse = await axios({
+                        url: videoUri,
+                        method: 'GET',
+                        responseType: 'stream',
+                        timeout: 30000,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (compatible; VideoGeneratorBot/1.0; +https://lacasa.ai)',
+                            'Referer': videoUri
+                        }
+                    });
+                    
+                    const videoStream = fs.createWriteStream(tempVideoPath);
+                    await new Promise((resolve, reject) => {
+                        videoResponse.data.pipe(videoStream);
+                        videoStream.on('finish', resolve);
+                        videoStream.on('error', reject);
+                    });
+                    
+                    // Extrair último frame usando FFmpeg
+                    console.log('[Veo] Extraindo último frame com FFmpeg...');
+                    await new Promise((resolve, reject) => {
+                        ffmpeg(tempVideoPath)
+                            .screenshots({
+                                timestamps: ['99%'], // Pegar frame em 99% do vídeo
+                                filename: path.basename(tempFramePath),
+                                folder: path.dirname(tempFramePath),
+                                size: '1280x720' // Manter resolução alta
+                            })
+                            .on('end', () => {
+                                console.log('[Veo] ✅ Último frame extraído com sucesso');
+                                resolve();
+                            })
+                            .on('error', (err) => {
+                                console.error('[Veo] ❌ Erro ao extrair frame:', err.message);
+                                reject(err);
+                            });
+                    });
+                    
+                    // Ler frame como base64
+                    const frameBuffer = await fs.readFile(tempFramePath);
+                    const frameBase64 = frameBuffer.toString('base64');
+                    
+                    // Limpar arquivos temporários
+                    try {
+                        await fs.unlink(tempVideoPath);
+                        await fs.unlink(tempFramePath);
+                    } catch (cleanupErr) {
+                        console.warn('[Veo] Aviso ao limpar arquivos temporários:', cleanupErr.message);
+                    }
+                    
+                    // Usar frame como imagem inicial (modo frames-to-video)
+                    generateVideoPayload.image = {
+                        imageBytes: frameBase64,
+                        mimeType: 'image/jpeg'
+                    };
+                    
+                    // Atualizar prompt para enfatizar continuação
+                    if (generateVideoPayload.prompt) {
+                        generateVideoPayload.prompt = `VIDEO EXTENSION: The image above is the LAST FRAME of an 8-second video. Generate a continuation that starts EXACTLY from this frame, maintains the SAME scene, characters, camera angle, lighting, and visual style, and creates approximately 7 more seconds of video, resulting in a TOTAL of 15 seconds (8s original + 7s extension). The continuation must be SEAMLESS and feel like ONE continuous video. ${generateVideoPayload.prompt}`;
+                    }
+                    
+                    console.log('[Veo] Último frame extraído e configurado como imagem inicial para continuação');
+                } else if (inputVideo.uri) {
+                    // Fallback: usar URI diretamente se não for HTTP
+                    generateVideoPayload.video = {
+                        uri: inputVideo.uri
+                    };
+                } else {
+                    return res.status(400).json({ message: 'Para estender um vídeo, você precisa usar um vídeo gerado anteriormente pelo Veo (que possui URI).' });
+                }
+            } catch (extractError) {
+                console.error('[Veo] Erro ao extrair último frame:', extractError.message);
+                // Fallback: tentar usar URI diretamente
+                if (inputVideo.uri) {
+                    generateVideoPayload.video = {
+                        uri: inputVideo.uri
+                    };
+                } else {
+                    return res.status(400).json({ message: `Erro ao processar vídeo para extensão: ${extractError.message}` });
+                }
+            }
+        }
+
+        console.log('[Veo] Prompt recebido:', prompt ? `"${prompt.substring(0, 100)}..."` : 'VAZIO');
+        console.log('[Veo] Payload completo:', JSON.stringify(generateVideoPayload, null, 2));
+
+        // Usar SDK do Google GenAI para Veo
+        // Garantir que a API key está limpa (sem espaços)
+        const cleanApiKey = apiKey.trim();
+        
+        if (!cleanApiKey || cleanApiKey.length === 0) {
+            console.error('[Veo] ❌ API Key está vazia após limpeza!');
+            return res.status(400).json({ 
+                message: 'Chave de API inválida. Verifique se a chave do Gemini está correta e tem billing habilitado para usar o Veo.' 
+            });
+        }
+        
+        console.log('[Veo] Inicializando SDK do Google GenAI...');
+        console.log('[Veo] - Modelo:', model);
+        console.log('[Veo] - API Key (primeiros 10 chars):', cleanApiKey.substring(0, 10));
+        
+        const ai = new GoogleGenAI({ apiKey: cleanApiKey });
+        
+        // Garantir que o prompt está presente se necessário
+        if (mode === 'text-to-video' && (!prompt || !prompt.trim())) {
+            return res.status(400).json({ message: 'Prompt é obrigatório para geração de vídeo a partir de texto.' });
+        }
+
+        // O SDK espera o formato exato: model, config, e opcionalmente prompt, image, video, etc.
+        // Construir payload exatamente como no exemplo do VETA
+        const sdkPayload = {
+            model: model,
+            config: generateVideoPayload.config
+        };
+
+        // Adicionar prompt se existir (obrigatório para text-to-video)
+        if (generateVideoPayload.prompt) {
+            sdkPayload.prompt = generateVideoPayload.prompt;
+            console.log('[Veo] Prompt adicionado ao SDK payload:', sdkPayload.prompt.substring(0, 100));
+        } else {
+            console.warn('[Veo] ATENÇÃO: Prompt não encontrado no generateVideoPayload!');
+            // Se for text-to-video e não tiver prompt, adicionar do parâmetro original
+            if (mode === 'text-to-video' && prompt && prompt.trim()) {
+                sdkPayload.prompt = prompt.trim();
+                console.log('[Veo] Prompt adicionado do parâmetro original:', sdkPayload.prompt.substring(0, 100));
+            }
+        }
+
+        // Adicionar image se existir (frames-to-video)
+        if (generateVideoPayload.image) {
+            sdkPayload.image = generateVideoPayload.image;
+        }
+
+        // Adicionar video se existir (extend-video)
+        if (generateVideoPayload.video) {
+            sdkPayload.video = generateVideoPayload.video;
+        }
+
+        // referenceImages já está em config.referenceImages, não precisa adicionar separadamente
+
+        console.log('[Veo] Payload completo para SDK:', JSON.stringify(sdkPayload, null, 2).substring(0, 1000));
+        console.log('[Veo] Chamando SDK generateVideos com modelo:', model);
+        
+        // Validar que o modelo está correto
+        const validModels = ['veo-3.1-fast-generate-preview', 'veo-3.1-generate-preview'];
+        if (!validModels.includes(model)) {
+            console.warn(`[Veo] Modelo "${model}" não está na lista de modelos válidos. Usando modelo padrão.`);
+            sdkPayload.model = 'veo-3.1-fast-generate-preview';
+        }
+        
+        // Chamar SDK - passar o payload diretamente como no exemplo do VETA
+        let operation;
+        try {
+            operation = await ai.models.generateVideos(sdkPayload);
+        } catch (sdkError) {
+            console.error('[Veo] Erro ao chamar SDK generateVideos:', sdkError);
+            
+            // Tratar erros específicos da API
+            if (sdkError.status === 400 && sdkError.message?.includes('API key')) {
+                return res.status(400).json({ 
+                    message: 'Chave de API inválida. Verifique se a chave do Gemini está correta e tem billing habilitado para usar o Veo.',
+                    details: 'A chave de API precisa ter acesso ao Veo e billing habilitado no Google Cloud.'
+                });
+            }
+            
+            // Re-enviar erro genérico
+            return res.status(sdkError.status || 500).json({ 
+                message: sdkError.message || 'Erro ao gerar vídeo com Veo.',
+                details: sdkError.details || sdkError.error || 'Erro desconhecido'
+            });
+        }
+        
+        console.log('[Veo] Operação criada:', operation.name || 'Sem nome');
+
+        // Usar o nome completo da operação como ID (pode conter barras)
+        const operationId = operation.name || `operation-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        
+        console.log('[Veo] OperationId salvo:', operationId);
+
+        // Armazenar operação usando o operationId completo
+        const operationData = {
+            userId,
+            operation,
+            useAdminApi,
+            adminApi,
+            createdAt: new Date(),
+            status: 'processing'
+        };
+        videoOperations.set(operationId, operationData);
+        await cacheVideoOperationMetadata(operationId, userId, {
+            apiKeySource: apiKeySource || (useLaozhang ? 'laozhang' : 'unknown'),
+            userKeyId: userGeminiKeyRow?.id || null,
+            adminApiId: adminApi?.id || null,
+            useLaozhang
+        });
+        
+        console.log('[Veo] Operação armazenada. Total de operações:', videoOperations.size);
+
+        // Se usou API do admin, debitar créditos (estimado)
+        if (useAdminApi && adminApi) {
+            try {
+                // Estimar créditos baseado na resolução e modo
+                const estimatedCredits = resolution === '1080p' ? 50 : 25;
+                const creditResult = await checkAndDebitCredits(
+                    userId,
+                    adminApi.id,
+                    estimatedCredits,
+                    'api_video_generation',
+                    JSON.stringify({ model, mode, resolution, aspectRatio })
+                );
+                console.log(`💳 [CRÉDITOS] ${creditResult.creditsUsed.toFixed(2)} créditos debitados. Saldo restante: ${creditResult.newBalance.toFixed(2)}`);
+            } catch (creditError) {
+                console.error('❌ [CRÉDITOS] Erro ao debitar créditos:', creditError);
+            }
+        }
+
+        // Iniciar polling em background (usar cleanApiKey)
+        pollVideoOperation(operationId, cleanApiKey);
+
+        res.json({
+            operationId: operationId,
+            status: 'processing',
+            message: 'Geração de vídeo iniciada. Use o operationId para verificar o status.'
+        });
+
+    } catch (error) {
+        console.error('[Veo] Erro ao gerar vídeo:', error);
+        if (error.response) {
+            console.error('[Veo] Status:', error.response.status);
+            console.error('[Veo] Data:', error.response.data);
+        }
+        
+        // Tratar erros específicos
+        let errorMessage = 'Erro ao gerar vídeo';
+        let statusCode = 500;
+        
+        if (error.message?.includes('API key') || error.message?.includes('INVALID_ARGUMENT') || 
+            error.response?.data?.error?.message?.includes('API key') ||
+            error.response?.data?.error?.status === 'INVALID_ARGUMENT') {
+            errorMessage = 'Chave de API inválida ou não configurada. Verifique se a chave do Gemini está correta e tem billing habilitado para usar o Veo.';
+            statusCode = 400;
+        } else if (error.message?.includes('PERMISSION_DENIED') || error.response?.data?.error?.status === 'PERMISSION_DENIED') {
+            errorMessage = 'Permissão negada. Verifique se a chave de API tem acesso ao Veo e se o billing está habilitado.';
+            statusCode = 403;
+        } else if (error.response?.data?.error?.message) {
+            errorMessage = error.response.data.error.message;
+            statusCode = error.response.status || 500;
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+
+        res.status(statusCode).json({ 
+            message: errorMessage,
+            error: error.message || 'Erro desconhecido',
+            details: error.response?.data?.error || error.details || null
+        });
+    }
+});
+
+// Função para fazer polling da operação
+async function pollVideoOperation(operationId, apiKey) {
+    const maxAttempts = 60; // 10 minutos máximo (10s * 60)
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+        try {
+            const operationData = videoOperations.get(operationId);
+            if (!operationData) {
+                console.log(`[Veo] Operação ${operationId} não encontrada`);
+                break;
+            }
+
+            const operation = operationData.operation;
+            if (!operation.name) {
+                console.log(`[Veo] Operação ${operationId} sem nome`);
+                break;
+            }
+
+            // Usar SDK para verificar status
+            const ai = new GoogleGenAI({ apiKey: apiKey });
+            
+            // Obter operação atualizada do SDK (precisa do nome da operação)
+            const updatedOperation = await ai.operations.getVideosOperation({ name: operationId });
+            
+            console.log(`[Veo] Status da operação ${operationId}:`, updatedOperation.done ? 'Concluída' : 'Processando');
+
+            if (updatedOperation.done) {
+                // Operação concluída
+                if (updatedOperation.response && updatedOperation.response.generatedVideos) {
+                    const videos = updatedOperation.response.generatedVideos;
+                    if (videos.length > 0 && videos[0].video && videos[0].video.uri) {
+                        const videoUri = videos[0].video.uri;
+                        
+                        console.log(`[Veo] Vídeo gerado. URI: ${videoUri}`);
+                        
+                        try {
+                            // Baixar vídeo - o URI já contém a URL completa
+                            let videoUrl = videoUri;
+                            if (!videoUrl.includes('key=')) {
+                                videoUrl = `${videoUri}${videoUri.includes('?') ? '&' : '?'}key=${apiKey}`;
+                            }
+                            
+                            console.log(`[Veo] Baixando vídeo de: ${videoUrl.substring(0, 100)}...`);
+                            
+                            const videoResponse = await axios.get(videoUrl, {
+                                responseType: 'arraybuffer',
+                                timeout: 120000
+                            });
+
+                            const videoBuffer = Buffer.from(videoResponse.data);
+                            const videoBase64 = videoBuffer.toString('base64');
+
+                            // Atualizar operação
+                            videoOperations.set(operationId, {
+                                ...operationData,
+                                status: 'completed',
+                                videoUri: videoUri,
+                                videoBase64: videoBase64,
+                                videoMimeType: 'video/mp4'
+                            });
+
+                            console.log(`[Veo] Vídeo gerado com sucesso: ${operationId} (${videoBuffer.length} bytes)`);
+                            await removeVideoOperationCache(operationId);
+                            return;
+                        } catch (downloadError) {
+                            console.error(`[Veo] Erro ao baixar vídeo:`, downloadError.message);
+                            // Mesmo com erro no download, retornar o URI para o frontend tentar baixar
+                            videoOperations.set(operationId, {
+                                ...operationData,
+                                status: 'completed',
+                                videoUri: videoUri,
+                                videoBase64: null,
+                                videoMimeType: 'video/mp4',
+                                downloadError: downloadError.message
+                            });
+                            await removeVideoOperationCache(operationId);
+                            return;
+                        }
+                    }
+                }
+
+                // Verificar se há erro na operação
+                if (updatedOperation.error) {
+                    videoOperations.set(operationId, {
+                        ...operationData,
+                        status: 'error',
+                        error: updatedOperation.error.message || 'Erro na geração do vídeo'
+                    });
+                    await removeVideoOperationCache(operationId);
+                } else {
+                    videoOperations.set(operationId, {
+                        ...operationData,
+                        status: 'error',
+                        error: 'Nenhum vídeo foi gerado na resposta'
+                    });
+                    await removeVideoOperationCache(operationId);
+                }
+                break;
+            }
+
+            // Atualizar operação no storage
+            videoOperations.set(operationId, {
+                ...operationData,
+                operation: updatedOperation
+            });
+
+            // Ainda processando
+            attempts++;
+            await new Promise(resolve => setTimeout(resolve, 10000)); // Aguardar 10 segundos
+
+        } catch (error) {
+            console.error(`[Veo] Erro ao verificar status da operação ${operationId}:`, error.message);
+            videoOperations.set(operationId, {
+                ...videoOperations.get(operationId),
+                status: 'error',
+                error: error.message
+            });
+            await removeVideoOperationCache(operationId);
+            break;
+        }
+    }
+
+    if (attempts >= maxAttempts) {
+        videoOperations.set(operationId, {
+            ...videoOperations.get(operationId),
+            status: 'timeout',
+            error: 'Timeout aguardando conclusão da geração'
+        });
+        await removeVideoOperationCache(operationId);
+    }
+}
+
+// GET /api/video/status/:operationId - Verificar status da geração
+app.get('/api/video/status/:operationId', authenticateToken, async (req, res) => {
+    // Decodificar o operationId (pode conter barras e caracteres especiais)
+    let operationId = decodeURIComponent(req.params.operationId);
+    const userId = req.user.id;
+
+    console.log('[Veo] Verificando status para operationId:', operationId);
+    console.log('[Veo] Operações disponíveis:', Array.from(videoOperations.keys()));
+
+    try {
+        const operationData = videoOperations.get(operationId);
+        
+        if (!operationData) {
+            console.warn('[Veo] Operação não encontrada no Map. Tentando reidratar a partir do banco...');
+            const cached = await db.get('SELECT * FROM video_operations_cache WHERE operation_id = ?', [operationId]);
+            if (cached) {
+                const apiKey = await resolveCachedVideoApiKey(cached);
+                if (apiKey) {
+                    const restoredOperation = {
+                        userId: cached.user_id,
+                        operation: { name: operationId },
+                        status: 'processing',
+                        useAdminApi: cached.api_key_source === 'admin_provider',
+                        adminApi: cached.admin_api_id ? await db.get('SELECT * FROM api_providers WHERE id = ?', [cached.admin_api_id]) : null,
+                        useLaozhang: cached.use_laozhang === 1
+                    };
+                    videoOperations.set(operationId, restoredOperation);
+                    pollVideoOperation(operationId, apiKey);
+                    return res.json({ status: 'processing', restored: true, progress: 0, progressMessage: 'Processando...' });
+                }
+            }
+            
+            console.error('[Veo] Operação não encontrada nem no cache. OperationId procurado:', operationId);
+            console.error('[Veo] Chaves disponíveis:', Array.from(videoOperations.keys()));
+            return res.status(404).json({ message: 'Operação não encontrada' });
+        }
+
+        if (operationData.userId !== userId) {
+            return res.status(403).json({ message: 'Acesso negado' });
+        }
+
+        // Extrair progresso atual se disponível
+        let currentProgress = operationData.progress || 0;
+        let progressMessage = operationData.progressMessage || 'Processando...';
+        
+        // Se não tem progresso armazenado mas tem conteúdo, tentar extrair
+        if (currentProgress === 0 && (operationData.operation?.content || operationData.rawContent)) {
+            const content = operationData.operation?.content || operationData.rawContent || '';
+            const progressMatch = content.match(/(?:进度|Progress)[：:]\s*(\d+\.?\d*)%/gi);
+            if (progressMatch && progressMatch.length > 0) {
+                const lastMatch = progressMatch[progressMatch.length - 1];
+                const percentMatch = lastMatch.match(/(\d+\.?\d*)%/);
+                if (percentMatch && percentMatch[1]) {
+                    currentProgress = parseFloat(percentMatch[1]);
+                    progressMessage = `Gerando vídeo... ${currentProgress.toFixed(1)}%`;
+                    // Atualizar operação com progresso extraído
+                    operationData.progress = currentProgress;
+                    operationData.progressMessage = progressMessage;
+                    videoOperations.set(operationId, operationData);
+                }
+            }
+        }
+        
+        // Se for Laozhang.ai e tiver conteúdo, processar para extrair vídeo URI
+        if (operationData.useLaozhang && (operationData.operation?.content || operationData.rawContent) && !operationData.videoUri) {
+            try {
+                let content = operationData.operation?.content || operationData.rawContent || '';
+                console.log('[Veo Laozhang] Processando conteúdo para extrair vídeo URI (', content.length, 'chars)');
+                
+                if (!content || content.trim().length === 0) {
+                    console.warn('[Veo Laozhang] ⚠️ Conteúdo vazio, não é possível extrair vídeo URI');
+                } else {
+                    console.log('[Veo Laozhang] Primeiros 500 chars do conteúdo:', content.substring(0, 500));
+                    
+                    // Limpar o conteúdo (pode ter markdown code blocks)
+                    let cleanContent = content.trim();
+                    cleanContent = cleanContent.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+                    
+                    // Tentar parsear como JSON
+                    let contentData = null;
+                    try {
+                        contentData = JSON.parse(cleanContent);
+                        console.log('[Veo Laozhang] ✅ Conteúdo parseado como JSON');
+                    } catch (parseError) {
+                        // Se não for JSON válido, tentar extrair JSON do texto
+                        console.log('[Veo Laozhang] Conteúdo não é JSON puro, tentando extrair JSON...');
+                        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            try {
+                                contentData = JSON.parse(jsonMatch[0]);
+                                console.log('[Veo Laozhang] ✅ JSON extraído do texto');
+                            } catch (e) {
+                                console.warn('[Veo Laozhang] Não foi possível parsear JSON extraído');
+                            }
+                        }
+                    }
+                    
+                    // Se conseguiu parsear como JSON
+                    if (contentData) {
+                        // Procurar vídeo URI em diferentes formatos
+                        const videoUri = contentData.video?.uri || 
+                                      contentData.video?.url ||
+                                      contentData.uri || 
+                                      contentData.url ||
+                                      contentData.videoUri ||
+                                      contentData.video_url ||
+                                      contentData.result?.video?.uri ||
+                                      contentData.result?.uri;
+                        
+                        if (videoUri) {
+                            console.log('[Veo Laozhang] ✅ Vídeo URI encontrado no JSON:', videoUri);
+                            // Atualizar operação com vídeo URI
+                            videoOperations.set(operationId, {
+                                ...operationData,
+                                videoUri: videoUri,
+                                status: 'completed'
+                            });
+                            
+                            return res.json({
+                                status: 'completed',
+                                videoUri: videoUri,
+                                videoBase64: null,
+                                videoMimeType: 'video/mp4',
+                                error: null,
+                                downloadError: null
+                            });
+                        }
+                    }
+                    
+                    // Se não encontrou no JSON, tentar extrair URI do texto (regex)
+                    console.log('[Veo Laozhang] Tentando extrair URI do texto com regex...');
+                    const uriPatterns = [
+                        /https?:\/\/[^\s"',<>]+/g,  // URLs completas
+                        /uri["\s:]+["']?([^"'\s]+)["']?/i,  // uri: "url"
+                        /url["\s:]+["']?([^"'\s]+)["']?/i   // url: "url"
+                    ];
+                    
+                    for (const pattern of uriPatterns) {
+                        const matches = cleanContent.match(pattern);
+                        if (matches && matches.length > 0) {
+                            // Pegar a primeira URL que parece ser de vídeo
+                            let videoUri = matches.find(url => 
+                                url.includes('googleapis.com') || 
+                                url.includes('storage.googleapis.com') ||
+                                url.includes('aliyuncs.com') ||  // Laozhang.ai usa Aliyun CDN
+                                url.includes('mycdn') ||
+                                url.includes('video') ||
+                                url.match(/https?:\/\/[^\s"']+\.mp4/i)
+                            ) || matches[0];
+                            
+                            if (videoUri) {
+                                // Limpar a URL: remover parênteses, colchetes, aspas e outros caracteres inválidos no final
+                                videoUri = videoUri.replace(/[\)\]\}"']+$/, '').trim();
+                                
+                                // Verificar se é uma URL válida
+                                try {
+                                    new URL(videoUri);
+                                    console.log('[Veo Laozhang] ✅ Vídeo URI extraído e limpo:', videoUri);
+                                    // Atualizar operação com vídeo URI
+                                    videoOperations.set(operationId, {
+                                        ...operationData,
+                                        videoUri: videoUri,
+                                        status: 'completed'
+                                    });
+                                    
+                                    return res.json({
+                                        status: 'completed',
+                                        videoUri: videoUri,
+                                        videoBase64: null,
+                                        videoMimeType: 'video/mp4',
+                                        error: null,
+                                        downloadError: null
+                                    });
+                                } catch (urlError) {
+                                    console.warn('[Veo Laozhang] ⚠️ URL extraída não é válida:', videoUri);
+                                }
+                            }
+                        }
+                    }
+                    
+                    console.warn('[Veo Laozhang] ⚠️ Não foi possível extrair vídeo URI do conteúdo');
+                }
+            } catch (error) {
+                console.error('[Veo Laozhang] Erro ao processar conteúdo:', error);
+            }
+        }
+        
+        res.json({
+            status: operationData.status,
+            videoUri: operationData.videoUri || null,
+            videoBase64: operationData.videoBase64 || null,
+            videoMimeType: operationData.videoMimeType || null,
+            error: operationData.error || null,
+            downloadError: operationData.downloadError || null,
+            progress: currentProgress,
+            progressMessage: progressMessage
+        });
+
+    } catch (error) {
+        console.error('[Veo] Erro ao verificar status:', error);
+        res.status(500).json({ message: 'Erro ao verificar status' });
+    }
+});
+
+// GET /api/video/download/:operationId - Baixar vídeo gerado
+app.get('/api/video/download/:operationId', authenticateToken, async (req, res) => {
+    // Decodificar o operationId
+    let operationId = decodeURIComponent(req.params.operationId);
+    const userId = req.user.id;
+
+    try {
+        const operationData = videoOperations.get(operationId);
+        
+        if (!operationData) {
+            return res.status(404).json({ message: 'Operação não encontrada' });
+        }
+
+        if (operationData.userId !== userId) {
+            return res.status(403).json({ message: 'Acesso negado' });
+        }
+
+        if (operationData.status !== 'completed') {
+            return res.status(400).json({ message: 'Vídeo ainda não está pronto' });
+        }
+
+        // Se tiver base64, retornar diretamente
+        if (operationData.videoBase64) {
+            const videoBuffer = Buffer.from(operationData.videoBase64, 'base64');
+            res.setHeader('Content-Type', operationData.videoMimeType || 'video/mp4');
+            res.setHeader('Content-Disposition', `attachment; filename="video-${Date.now()}.mp4"`);
+            res.setHeader('Content-Length', videoBuffer.length);
+            return res.send(videoBuffer);
+        }
+
+        // Se não tiver base64 mas tiver URI, baixar do Google e servir
+        if (operationData.videoUri) {
+            // Buscar API key
+            const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            let apiKey = null;
+            
+            if (geminiKeyData) {
+                apiKey = decrypt(geminiKeyData.api_key);
+            } else if (operationData.useAdminApi && operationData.adminApi) {
+                apiKey = operationData.adminApi.api_key;
+            }
+
+            if (!apiKey) {
+                return res.status(500).json({ message: 'Chave de API não encontrada' });
+            }
+
+            // Adicionar key ao URI se não tiver
+            let videoUrl = operationData.videoUri;
+            if (!videoUrl.includes('key=')) {
+                videoUrl = `${operationData.videoUri}${operationData.videoUri.includes('?') ? '&' : '?'}key=${apiKey}`;
+            }
+
+            // Baixar vídeo do Google
+            const videoResponse = await axios.get(videoUrl, {
+                responseType: 'arraybuffer',
+                timeout: 120000
+            });
+
+            const videoBuffer = Buffer.from(videoResponse.data);
+            res.setHeader('Content-Type', operationData.videoMimeType || 'video/mp4');
+            res.setHeader('Content-Disposition', `attachment; filename="video-${Date.now()}.mp4"`);
+            res.setHeader('Content-Length', videoBuffer.length);
+            return res.send(videoBuffer);
+        }
+
+        return res.status(404).json({ message: 'Vídeo não disponível' });
+
+    } catch (error) {
+        console.error('[Veo] Erro ao baixar vídeo:', error);
+        res.status(500).json({ message: 'Erro ao baixar vídeo' });
     }
 });
 

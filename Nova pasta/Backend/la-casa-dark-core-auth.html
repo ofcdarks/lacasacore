@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Casa Dark Core - Autenticação</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonte Premium: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Aplicando a fonte premium ao corpo */
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            /* Desativa a seleção de texto */
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10+ */
+            user-select: none; /* Padrão */
+        }
+        
+        /* Estilo customizado para o título focar em CORE */
+        .brand-title {
+            font-weight: 500; /* Peso médio para "La Casa Dark" */
+            color: #6b7280; /* Cinza */
+            letter-spacing: 0.05em;
+        }
+        .brand-title-core {
+            font-weight: 800; /* ExtraBold para "CORE" */
+            color: #f59e0b; /* Âmbar/Dourado */
+            letter-spacing: 0.1em;
+            font-size: 1.25em; /* Ligeiramente maior */
+        }
+
+        /* Ocultar formulários por padrão */
+        #register-form, #forgot-form {
+            display: none;
+        }
+
+        /* Mensagem de erro customizada */
+        .error-message {
+            background-color: #450a0a; /* Fundo vermelho escuro */
+            color: #fecaca; /* Texto vermelho claro */
+            border: 1px solid #991b1b; /* Borda vermelha */
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+            display: none; /* Oculta por padrão */
+        }
+        
+        /* Mensagem de sucesso customizada */
+        .success-message {
+            background-color: #064e3b; /* Fundo verde escuro */
+            color: #d1fae5; /* Texto verde claro */
+            border: 1px solid #047857; /* Borda verde */
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+            text-align: center;
+            display: none; /* Oculta por padrão */
+        }
+    </style>
+</head>
+<body class="bg-black text-gray-300 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-md">
+        <!-- Cabeçalho com o Título -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl brand-title">
+                La Casa Dark
+                <span class="brand-title-core">CORE</span>
+            </h1>
+        </div>
+
+        <!-- Card Principal -->
+        <div class="bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-8">
+
+            <!-- Formulário de Login (Padrão) -->
+            <div id="login-form">
+                <h2 class="text-2xl font-bold text-center text-white mb-6">Acesse sua conta</h2>
+                
+                <!-- Mensagem de Erro (Login) -->
+                <div id="login-error" class="error-message"></div>
+
+                <form onsubmit="handleLogin(event)">
+                    <div class="mb-4">
+                        <label for="login-email" class="block text-sm font-medium mb-2">Email</label>
+                        <input type="email" id="login-email" name="email" required
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="login-password" class="block text-sm font-medium">Senha</label>
+                            <a href="#" id="forgot-link" class="text-sm text-amber-500 hover:text-amber-400 font-medium">Esqueceu a senha?</a>
+                        </div>
+                        <input type="password" id="login-password" name="password" required
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <button type="submit" id="login-button"
+                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
+                        Entrar
+                    </button>
+                </form>
+                <p class="text-center text-sm mt-6">
+                    Não tem uma conta?
+                    <a href="#" id="register-link" class="font-medium text-amber-500 hover:text-amber-400">Crie uma agora</a>
+                </p>
+            </div>
+
+            <!-- Formulário de Cadastro (Oculto) -->
+            <div id="register-form">
+                <h2 class="text-2xl font-bold text-center text-white mb-6">Crie sua conta</h2>
+                
+                <!-- Mensagem de Sucesso (Cadastro) -->
+                <div id="register-success" class="success-message"></div>
+
+                <!-- Mensagem de Erro (Cadastro) -->
+                <div id="register-error" class="error-message"></div>
+
+                <form onsubmit="handleRegister(event)">
+                    <div class="mb-4">
+                        <label for="register-name" class="block text-sm font-medium mb-2">Nome</label>
+                        <input type="text" id="register-name" name="name" required
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-email" class="block text-sm font-medium mb-2">Email</label>
+                        <input type="email" id="register-email" name="email" required
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <div class="mb-4">
+                        <label for="register-whatsapp" class="block text-sm font-medium mb-2">WhatsApp (com DDD)</label>
+                        <input type="tel" id="register-whatsapp" name="whatsapp" required placeholder="(11) 99999-9999"
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <div class="mb-6">
+                        <label for="register-password" class="block text-sm font-medium mb-2">Crie uma senha</label>
+                        <input type="password" id="register-password" name="password" required minlength="6"
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <button type="submit" id="register-button"
+                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
+                        Criar nova conta
+                    </button>
+                </form>
+                <p class="text-center text-sm mt-6">
+                    Já tem uma conta?
+                    <a href="#" id="login-link-from-register" class="font-medium text-amber-500 hover:text-amber-400">Faça login</a>
+                </p>
+            </div>
+
+            <!-- Formulário de Resetar Senha (Oculto) -->
+            <div id="forgot-form">
+                <h2 class="text-2xl font-bold text-center text-white mb-6">Resetar sua senha</h2>
+                
+                <!-- Mensagem de Erro (Reset) -->
+                <div id="forgot-error" class="error-message"></div>
+
+                <form onsubmit="handleForgot(event)">
+                    <p class="text-sm mb-4">Digite seu email e enviaremos um link para você resetar sua senha.</p>
+                    <div class="mb-6">
+                        <label for="forgot-email" class="block text-sm font-medium mb-2">Email</label>
+                        <input type="email" id="forgot-email" name="email" required
+                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                    </div>
+                    <button type="submit" id="forgot-button"
+                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
+                        Enviar link de reset
+                    </button>
+                </form>
+                <p class="text-center text-sm mt-6">
+                    Lembrou a senha?
+                    <a href="#" id="login-link-from-forgot" class="font-medium text-amber-500 hover:text-amber-400">Faça login</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // URLs da API - Detecta automaticamente a porta do backend
+        // Se estiver rodando no live-server (porta 5500) ou não estiver na porta 5001, usa o backend na porta 5001
+        const currentPort = window.location.port;
+        const isBackendPort = currentPort === '5001' || currentPort === '';
+        const API_BASE_URL = isBackendPort 
+            ? '/api/auth' 
+            : `http://${window.location.hostname}:5001/api/auth`;
+
+        // Seletores dos Formulários
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const forgotForm = document.getElementById('forgot-form');
+
+        // Seletores dos Links
+        const registerLink = document.getElementById('register-link');
+        const forgotLink = document.getElementById('forgot-link');
+        const loginLinkFromRegister = document.getElementById('login-link-from-register');
+        const loginLinkFromForgot = document.getElementById('login-link-from-forgot');
+
+        // Função para mostrar um formulário e ocultar os outros
+        function showForm(formToShow) {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'none';
+            forgotForm.style.display = 'none';
+            formToShow.style.display = 'block';
+        }
+
+        // Navegação entre formulários
+        registerLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showForm(registerForm);
+        });
+        forgotLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showForm(forgotForm);
+        });
+        loginLinkFromRegister.addEventListener('click', (e) => {
+            e.preventDefault();
+            showForm(loginForm);
+        });
+        loginLinkFromForgot.addEventListener('click', (e) => {
+            e.preventDefault();
+            showForm(loginForm);
+        });
+
+        // Função genérica para mostrar erros
+        function showErrorMessage(errorElementId, message) {
+            const errorBox = document.getElementById(errorElementId);
+            errorBox.innerText = message;
+            errorBox.style.display = 'block';
+        }
+
+        // --- LÓGICA DE API ---
+
+        // Lógica de Login
+        async function handleLogin(event) {
+            event.preventDefault();
+            const form = event.target;
+            const email = form.email.value;
+            const password = form.password.value;
+            const button = document.getElementById('login-button');
+            const errorBox = document.getElementById('login-error');
+
+            // Desabilitar botão e mostrar loading
+            button.disabled = true;
+            button.innerText = 'Entrando...';
+            errorBox.style.display = 'none'; // Ocultar erros antigos
+
+            try {
+                console.log('Tentando fazer login...', { email, API_BASE_URL });
+                
+                const response = await fetch(`${API_BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                console.log('Resposta recebida:', { status: response.status, statusText: response.statusText });
+
+                // Ler o texto da resposta uma única vez
+                const text = await response.text();
+                
+                // Verificar se há conteúdo
+                if (!text || text.trim() === '') {
+                    throw new Error('O servidor retornou uma resposta vazia. Verifique se o servidor está rodando.');
+                }
+
+                // Verificar se é JSON válido
+                const contentType = response.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('Erro ao parsear JSON:', text);
+                        throw new Error('Resposta do servidor inválida. Verifique se o servidor está funcionando corretamente.');
+                    }
+                } else {
+                    // Se não for JSON, mostrar o texto da resposta
+                    throw new Error(`Erro no servidor: ${text.substring(0, 200)}`);
+                }
+
+                if (!response.ok) {
+                    // Mensagens específicas para diferentes códigos de erro
+                    if (response.status === 403) {
+                        throw new Error(data.msg || 'A sua conta está pendente de aprovação ou foi bloqueada. Entre em contacto com o suporte.');
+                    } else if (response.status === 400) {
+                        throw new Error(data.msg || 'Credenciais inválidas. Verifique seu email e senha.');
+                    } else if (response.status === 503) {
+                        throw new Error(data.msg || 'Servidor ainda não está pronto. Aguarde alguns instantes e tente novamente.');
+                    } else {
+                        throw new Error(data.msg || 'Erro ao tentar fazer login.');
+                    }
+                }
+                
+                // Verificar se o token foi retornado
+                if (!data.token) {
+                    throw new Error('Token não foi retornado pelo servidor. Tente novamente.');
+                }
+                
+                // SUCESSO!
+                console.log('Login bem-sucedido!', { hasToken: !!data.token, isAdmin: data.isAdmin });
+                
+                // Salvar o token
+                localStorage.setItem('core_token', data.token);
+                
+                // Verificar se o token foi salvo corretamente
+                const savedToken = localStorage.getItem('core_token');
+                if (!savedToken || savedToken === 'undefined') {
+                    throw new Error('Erro ao salvar o token. Tente novamente.');
+                }
+                
+                console.log('Token salvo com sucesso!');
+                
+                // Mudar o botão para "Sucesso!" e redirecionar
+                button.innerText = 'Sucesso! Redirecionando...';
+                
+                // Redirecionar após um pequeno delay para garantir que o localStorage seja escrito
+                setTimeout(() => {
+                    console.log('Redirecionando para dashboard...');
+                    window.location.href = 'dashboard.html';
+                }, 200); // Aumentado para 200ms para garantir
+
+            } catch (error) {
+                console.error('Erro no login:', error);
+                // Tratar diferentes tipos de erro
+                let errorMessage = error.message;
+                
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001. Abra o terminal e execute: cd Backend && node server.js';
+                } else if (error.message.includes('Unexpected end of JSON input')) {
+                    errorMessage = 'Erro na comunicação com o servidor. Verifique se o servidor está funcionando corretamente.';
+                } else if (error.message.includes('resposta vazia')) {
+                    errorMessage = 'O servidor não está respondendo. Verifique se o servidor está rodando.';
+                }
+                
+                showErrorMessage('login-error', errorMessage);
+                
+                // Reabilitar o botão apenas em caso de erro
+                button.disabled = false;
+                button.innerText = 'Entrar';
+            }
+        }
+
+        // Lógica de Cadastro
+        async function handleRegister(event) {
+            event.preventDefault();
+            const form = event.target;
+            const name = form.name.value;
+            const email = form.email.value;
+            const whatsapp = form.whatsapp.value;
+            const password = form.password.value;
+            const button = document.getElementById('register-button');
+            const errorBox = document.getElementById('register-error');
+            const successBox = document.getElementById('register-success');
+
+            // Desabilitar botão e mostrar loading
+            button.disabled = true;
+            button.innerText = 'Criando...';
+            errorBox.style.display = 'none';
+            successBox.style.display = 'none';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, whatsapp, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    // Se a API retornar um erro (ex: email já existe)
+                    throw new Error(data.msg || 'Erro ao criar conta.');
+                }
+                
+                // SUCESSO!
+                console.log('Registro bem-sucedido!', data);
+                
+                // Esconde o formulário
+                form.style.display = 'none';
+                
+                // Mostra a mensagem de sucesso do servidor
+                successBox.innerText = data.msg;
+                successBox.style.display = 'block';
+
+            } catch (error) {
+                console.error('Erro no registro:', error.message);
+                showErrorMessage('register-error', error.message);
+                // Reabilita o botão apenas em caso de erro
+                button.disabled = false;
+                button.innerText = 'Criar nova conta';
+            }
+        }
+
+        // Lógica de Resetar Senha
+        async function handleForgot(event) {
+            event.preventDefault();
+            const form = event.target;
+            const email = form.email.value;
+            const button = document.getElementById('forgot-button');
+            const errorBox = document.getElementById('forgot-error');
+
+            // Desabilitar botão e mostrar loading
+            button.disabled = true;
+            button.innerText = 'Enviando...';
+            errorBox.style.display = 'none';
+            
+            // Simulação (ainda não implementado no backend)
+            console.log('Simulando envio de reset para:', email);
+            
+            // Simular uma chamada de API
+            setTimeout(() => {
+                // Aqui podemos mostrar um erro se o backend falhar
+                // showErrorMessage('forgot-error', 'Serviço de email indisponível.');
+
+                // Ou mostrar sucesso
+                alert('Se este email estiver cadastrado, um link de reset será enviado!');
+                
+                // Reabilitar o botão
+                button.disabled = false;
+                button.innerText = 'Enviar link de reset';
+                showForm(loginForm); // Envia de volta pro login
+            }, 1500);
+            
+            // TODO: Implementar a chamada fetch para o endpoint /api/auth/forgot-password
+            // quando ele estiver pronto no backend.
+        }
+
+    </script>
+    
+    <!-- Script de Proteção de Código -->
+    <script>
+        // Desativa o clique com o botão direito
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // Desativa atalhos de teclado
+        document.addEventListener('keydown', event => {
+            // Bloqueia F12 (Dev Tools)
+            if (event.key === 'F12') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+Shift+I (Dev Tools)
+            if (event.ctrlKey && event.shiftKey && event.key === 'I') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+U (Ver código-fonte)
+            if (event.ctrlKey && event.key === 'U') {
+                event.preventDefault();
+            }
+            // Bloqueia Ctrl+C (Copiar)
+            if (event.ctrlKey && event.key === 'C') {
+                event.preventDefault();
+            }
+        });
+    </script>
+</body>
+</html>

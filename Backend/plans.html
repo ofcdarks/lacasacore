@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planos de Créditos - La Casa Dark Core</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #000000;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: 140px;
+        }
+        
+        /* Header estilo Netflix */
+        .header-netflix {
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.85) 50%, transparent 100%);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Hero com gradientes */
+        .hero-netflix {
+            background: linear-gradient(
+                180deg,
+                #000000 0%,
+                #0a0a0f 50%,
+                #000000 100%
+            );
+            padding: 100px 0 60px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-netflix::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(245, 158, 11, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.1) 0%, transparent 60%);
+            pointer-events: none;
+            animation: pulseGlow 8s ease-in-out infinite;
+        }
+        
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .hero-netflix > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Cards premium */
+        .plan-card-netflix {
+            background: linear-gradient(
+                135deg,
+                rgba(20, 20, 20, 0.95) 0%,
+                rgba(15, 15, 15, 0.98) 50%,
+                rgba(20, 20, 20, 0.95) 100%
+            );
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .plan-card-netflix::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #f59e0b, #3b82f6);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: 2;
+        }
+        
+        .plan-card-netflix::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle,
+                rgba(245, 158, 11, 0.12) 0%,
+                rgba(59, 130, 246, 0.08) 30%,
+                transparent 70%
+            );
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 0;
+            pointer-events: none;
+        }
+        
+        .plan-card-netflix:hover {
+            border-color: rgba(245, 158, 11, 0.5);
+            transform: translateY(-4px);
+            box-shadow: 
+                0 12px 32px rgba(0, 0, 0, 0.6),
+                0 0 30px rgba(245, 158, 11, 0.15);
+        }
+        
+        .plan-card-netflix:hover::before {
+            opacity: 1;
+        }
+        
+        .plan-card-netflix:hover::after {
+            opacity: 1;
+        }
+        
+        .plan-card-netflix > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .plan-card-netflix.featured {
+            border: 2px solid #f59e0b;
+            background: linear-gradient(
+                135deg,
+                rgba(30, 20, 10, 0.98) 0%,
+                rgba(20, 20, 20, 0.98) 50%,
+                rgba(30, 20, 10, 0.98) 100%
+            );
+            box-shadow: 0 0 40px rgba(245, 158, 11, 0.25);
+        }
+        
+        .plan-card-netflix.featured::before {
+            opacity: 1;
+            height: 4px;
+            background: linear-gradient(90deg, #f59e0b, #d97706, #f59e0b);
+            background-size: 200% 100%;
+            animation: shimmer 2s linear infinite;
+        }
+        
+        .plan-card-netflix.featured::after {
+            background: radial-gradient(
+                circle,
+                rgba(245, 158, 11, 0.18) 0%,
+                rgba(217, 119, 6, 0.12) 30%,
+                transparent 70%
+            );
+            opacity: 1;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        /* Badge */
+        .badge-netflix {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: #f59e0b;
+            color: #000;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+        
+        /* Botões */
+        .btn-netflix {
+            background: #f59e0b;
+            color: #000;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            width: 100%;
+        }
+        
+        .btn-netflix:hover {
+            background: #d97706;
+            transform: scale(1.02);
+            box-shadow: 0 8px 20px rgba(245, 158, 11, 0.4);
+        }
+        
+        .btn-netflix-secondary {
+            background: transparent;
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 14px 32px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            width: 100%;
+        }
+        
+        .btn-netflix-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Navegação */
+        .nav-netflix {
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: sticky;
+            top: 73px;
+            z-index: 40;
+        }
+        
+        .nav-netflix::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(0, 0, 0, 0.5) 20%,
+                rgba(0, 0, 0, 0.8) 50%,
+                rgba(0, 0, 0, 0.5) 80%,
+                transparent 100%
+            );
+            pointer-events: none;
+        }
+        
+        .nav-link {
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            padding: 14px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            transition: color 0.2s ease;
+            position: relative;
+            white-space: nowrap;
+        }
+        
+        .nav-link:hover {
+            color: #ffffff;
+        }
+        
+        .nav-link.active {
+            color: #f59e0b;
+        }
+        
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 20px;
+            right: 20px;
+            height: 2px;
+            background: #f59e0b;
+        }
+        
+        /* Tipografia */
+        .title-netflix {
+            font-size: 52px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.1;
+        }
+        
+        .subtitle-netflix {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 400;
+            margin-top: 20px;
+        }
+        
+        .section-title {
+            font-size: 36px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 16px;
+        }
+        
+        .section-subtitle {
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 48px;
+        }
+        
+        /* Preço */
+        .price-netflix {
+            font-size: 64px;
+            font-weight: 900;
+            letter-spacing: -2px;
+            line-height: 1;
+        }
+        
+        .price-period {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 400;
+        }
+        
+        .credits-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            margin-top: 12px;
+        }
+        
+        /* Features */
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 24px 0;
+        }
+        
+        .feature-item {
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.5;
+        }
+        
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-icon {
+            color: #10b981;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        
+        .feature-highlight {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        
+        /* Grid */
+        .plans-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 28px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        @media (min-width: 640px) {
+            .plans-grid {
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+        }
+        
+        @media (min-width: 1024px) {
+            .plans-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        
+        /* Responsividade geral */
+        @media (max-width: 768px) {
+            .title-netflix {
+                font-size: 36px;
+            }
+            
+            .subtitle-netflix {
+                font-size: 16px;
+            }
+            
+            .section-title {
+                font-size: 28px;
+            }
+            
+            .section-subtitle {
+                font-size: 16px;
+            }
+            
+            .price-netflix {
+                font-size: 48px;
+            }
+            
+            .price-period {
+                font-size: 16px;
+            }
+            
+            .hero-netflix {
+                padding: 80px 0 40px;
+            }
+            
+            .section-netflix,
+            .section-netflix-alt {
+                padding: 60px 0;
+            }
+            
+            .container-netflix {
+                padding: 0 16px;
+            }
+            
+            .plan-card-netflix {
+                padding: 24px !important;
+            }
+            
+            .nav-link {
+                font-size: 14px;
+                padding: 12px 16px;
+            }
+            
+            .comparison-table {
+                font-size: 12px;
+            }
+            
+            .comparison-table th,
+            .comparison-table td {
+                padding: 12px 8px;
+                font-size: 12px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .title-netflix {
+                font-size: 28px;
+            }
+            
+            .price-netflix {
+                font-size: 36px;
+            }
+            
+            .plan-card-netflix {
+                padding: 20px !important;
+            }
+            
+            .feature-item {
+                font-size: 14px;
+                padding: 12px 0;
+            }
+            
+            .btn-netflix,
+            .btn-netflix-secondary {
+                padding: 12px 24px;
+                font-size: 13px;
+            }
+        }
+        
+        /* Seções */
+        .section-netflix {
+            padding: 100px 0;
+            background: linear-gradient(
+                180deg,
+                #000000 0%,
+                #050505 50%,
+                #000000 100%
+            );
+            position: relative;
+        }
+        
+        .section-netflix::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(245, 158, 11, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        
+        .section-netflix::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 120px;
+            background: linear-gradient(
+                to bottom,
+                rgba(0, 0, 0, 0) 0%,
+                rgba(0, 0, 0, 0.2) 20%,
+                rgba(0, 0, 0, 0.5) 50%,
+                rgba(0, 0, 0, 0.8) 80%,
+                rgba(0, 0, 0, 0.95) 100%
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .section-netflix-alt {
+            padding: 100px 0;
+            background: linear-gradient(
+                180deg,
+                #0a0a0f 0%,
+                #0f0f15 50%,
+                #0a0a0f 100%
+            );
+            position: relative;
+        }
+        
+        .section-netflix-alt::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.08) 0%, transparent 60%),
+                linear-gradient(135deg, rgba(15, 12, 41, 0.15) 0%, transparent 50%, rgba(48, 43, 99, 0.15) 100%);
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        
+        .section-netflix-alt::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 120px;
+            background: linear-gradient(
+                to bottom,
+                rgba(0, 0, 0, 0) 0%,
+                rgba(10, 10, 15, 0.2) 20%,
+                rgba(10, 10, 15, 0.5) 50%,
+                rgba(10, 10, 15, 0.8) 80%,
+                rgba(10, 10, 15, 0.95) 100%
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .section-netflix .transition-bottom,
+        .section-netflix-alt .transition-bottom {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 120px;
+            background: linear-gradient(
+                to top,
+                rgba(0, 0, 0, 0) 0%,
+                rgba(0, 0, 0, 0.2) 20%,
+                rgba(0, 0, 0, 0.5) 50%,
+                rgba(0, 0, 0, 0.8) 80%,
+                rgba(0, 0, 0, 0.95) 100%
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .section-netflix-alt .transition-bottom {
+            background: linear-gradient(
+                to top,
+                rgba(10, 10, 15, 0) 0%,
+                rgba(10, 10, 15, 0.2) 20%,
+                rgba(10, 10, 15, 0.5) 50%,
+                rgba(10, 10, 15, 0.8) 80%,
+                rgba(10, 10, 15, 0.95) 100%
+            );
+        }
+        
+        .section-netflix > *,
+        .section-netflix-alt > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Container */
+        .container-netflix {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        
+        /* Animações */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #f59e0b;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #d97706;
+        }
+        
+        /* Badge de economia */
+        .badge-savings {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        
+        /* Exemplo de uso */
+        .example-box {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        
+        .example-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #f59e0b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        
+        .example-item {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            padding: 4px 0;
+        }
+        
+        /* Tabela comparativa */
+        .comparison-table {
+            overflow-x: auto;
+            margin-top: 40px;
+        }
+        
+        .comparison-table table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(20, 20, 20, 0.6);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .comparison-table th {
+            background: rgba(30, 30, 30, 0.8);
+            color: white;
+            font-weight: 700;
+            padding: 20px;
+            text-align: left;
+            border-bottom: 2px solid rgba(245, 158, 11, 0.3);
+            font-size: 14px;
+        }
+        
+        .comparison-table td {
+            padding: 18px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .comparison-table tr:hover {
+            background: rgba(245, 158, 11, 0.05);
+        }
+        
+        .comparison-table .highlight {
+            background: rgba(245, 158, 11, 0.1);
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header-netflix fixed top-0 left-0 right-0 z-50">
+        <div class="container-netflix">
+            <div class="flex items-center justify-between py-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded flex items-center justify-center">
+                        <i data-lucide="zap" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">La Casa Dark Core</h1>
+                        <p class="text-xs text-gray-400">Planos de Créditos</p>
+                    </div>
+                </div>
+                <a href="/dashboard.html" class="btn-netflix-secondary text-sm" style="width: auto; padding: 10px 20px;">
+                    <i data-lucide="arrow-left" class="w-4 h-4 inline mr-2"></i>
+                    Voltar
+                </a>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Navegação -->
+    <nav class="nav-netflix">
+        <div class="container-netflix">
+            <div class="flex items-center gap-2 overflow-x-auto py-3">
+                <a href="#mensais" class="nav-link">Mensais</a>
+                <a href="#anuais" class="nav-link">Anuais</a>
+                <a href="#pacotes" class="nav-link">Pacotes</a>
+                <a href="#tabela" class="nav-link">Comparação</a>
+                <a href="#faq" class="nav-link">FAQ</a>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Hero -->
+    <section class="hero-netflix">
+        <div class="container-netflix">
+            <h1 class="title-netflix fade-in">Escolha o Plano Perfeito</h1>
+            <p class="subtitle-netflix fade-in">Crie conteúdo profissional com créditos flexíveis. Sem compromisso, cancele quando quiser.</p>
+        </div>
+    </section>
+    
+    <!-- Planos Mensais -->
+    <section id="mensais" class="section-netflix">
+        <div class="transition-bottom"></div>
+        <div class="container-netflix">
+            <div class="text-center mb-16">
+                <h2 class="section-title">Planos Mensais</h2>
+                <p class="section-subtitle">Escolha o plano ideal para suas necessidades</p>
+            </div>
+            
+            <div class="plans-grid">
+                <!-- FREE -->
+                <div class="plan-card-netflix p-8 fade-in">
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">FREE</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 0</span>
+                            <span class="price-period">/mês</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">
+                            100 créditos/mês
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">5 vídeos</span> ou <span class="feature-highlight">5 roteiros</span> ou <span class="feature-highlight">15 min áudio</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (até 10 min/mês)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (1 agente)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Analisador de Vídeos (limitado)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Títulos Básico</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Thumbnails (5/mês)</span>
+                        </li>
+                    </ul>
+                    <button class="btn-netflix-secondary">Plano Gratuito</button>
+                </div>
+                
+                <!-- START CREATOR -->
+                <div class="plan-card-netflix p-8 fade-in">
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">START CREATOR</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 69,90</span>
+                            <span class="price-period">/mês</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);">
+                            1.000 créditos/mês
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">50 vídeos</span> ou <span class="feature-highlight">50 roteiros</span> ou <span class="feature-highlight">30 min–1h de áudio</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (até 2h/mês)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (até 5 agentes)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Ou combinação equivalente</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Analisador de Vídeos Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Títulos Avançado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Thumbnails Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Imagens Ilimitado</span>
+                        </li>
+                    </ul>
+                    <div class="example-box">
+                        <div class="example-title">Exemplo Real:</div>
+                        <div class="example-item">30 vídeos → 600 créditos</div>
+                        <div class="example-item">30 roteiros → 300 créditos</div>
+                        <div class="example-item">15 min áudio → 50 créditos</div>
+                        <div class="example-item" style="font-weight: 600; color: #f59e0b; margin-top: 8px;">Total → 950 créditos</div>
+                    </div>
+                    <button class="btn-netflix">Assinar Agora</button>
+                </div>
+                
+                <!-- TURBO MAKER -->
+                <div class="plan-card-netflix featured p-8 fade-in">
+                    <div class="badge-netflix">MAIS POPULAR</div>
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">TURBO MAKER</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 99,90</span>
+                            <span class="price-period">/mês</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">
+                            2.500 créditos/mês
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">125 vídeos</span> ou <span class="feature-highlight">250 roteiros</span> ou <span class="feature-highlight">1–2h de áudio</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (até 10h/mês)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (até 15 agentes)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Ou combinação avançada</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Todas funcionalidades START</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Biblioteca de Títulos Premium</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Analytics Avançado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Imagens em Lote Ilimitado</span>
+                        </li>
+                    </ul>
+                    <div class="example-box">
+                        <div class="example-title">Exemplo Real:</div>
+                        <div class="example-item">60 vídeos → 1.200 créditos</div>
+                        <div class="example-item">60 roteiros → 600 créditos</div>
+                        <div class="example-item">1h de áudio → 200 créditos</div>
+                        <div class="example-item" style="font-weight: 600; color: #f59e0b; margin-top: 8px;">Total → 2.000 créditos</div>
+                    </div>
+                    <button class="btn-netflix">Assinar Agora</button>
+                </div>
+                
+                <!-- MASTER PRO -->
+                <div class="plan-card-netflix p-8 fade-in">
+                    <div class="badge-netflix" style="background: #ef4444;">PRO</div>
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">MASTER PRO</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 149,90</span>
+                            <span class="price-period">/mês</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">
+                            5.000 créditos/mês
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">250 vídeos</span> ou <span class="feature-highlight">250 roteiros</span> ou <span class="feature-highlight">3 horas de áudio</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (Ilimitado)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (Ilimitado)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>E ainda sobra muito para vídeos/roteiros</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Todas funcionalidades TURBO</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Integração YouTube API</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Publicação Automática</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Imagens em Lote Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Analytics Enterprise</span>
+                        </li>
+                    </ul>
+                    <div class="example-box">
+                        <div class="example-title">Exemplo Real:</div>
+                        <div class="example-item">120 vídeos → 2.400 créditos</div>
+                        <div class="example-item">120 roteiros → 1.200 créditos</div>
+                        <div class="example-item">1h30 áudio → 300 créditos</div>
+                        <div class="example-item" style="font-weight: 600; color: #f59e0b; margin-top: 8px;">Total → 3.900 créditos</div>
+                    </div>
+                    <button class="btn-netflix">Assinar Agora</button>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Planos Anuais -->
+    <section id="anuais" class="section-netflix-alt">
+        <div class="transition-bottom"></div>
+        <div class="container-netflix">
+            <div class="text-center mb-16">
+                <h2 class="section-title">Planos Anuais</h2>
+                <p class="section-subtitle">
+                    Pague anualmente e economize mais
+                    <span class="badge-savings">20% OFF</span>
+                </p>
+            </div>
+            
+            <div class="plans-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+                <!-- START CREATOR ANUAL -->
+                <div class="plan-card-netflix p-8 fade-in">
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">START CREATOR</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 699,00</span>
+                            <span class="price-period">/ano</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);">
+                            12.000 créditos/ano
+                        </div>
+                        <div class="text-sm text-gray-400 mt-2">= 1.000 créditos/mês</div>
+                        <div class="mt-4 p-3 rounded-lg" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div class="flex items-center justify-center gap-2">
+                                <i data-lucide="sparkles" class="w-4 h-4" style="color: #10b981;"></i>
+                                <span class="text-sm font-bold" style="color: #10b981;">Todas Atualizações Inclusas</span>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>30–50 vídeos/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>30–100 roteiros/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>30–60 min de áudio/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Gerador de Imagens Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Todas funcionalidades START</span>
+                        </li>
+                    </ul>
+                    <button class="btn-netflix">Assinar Anual</button>
+                </div>
+                
+                <!-- TURBO MAKER ANUAL -->
+                <div class="plan-card-netflix featured p-8 fade-in">
+                    <div class="badge-netflix">MAIS POPULAR</div>
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">TURBO MAKER</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 999,00</span>
+                            <span class="price-period">/ano</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">
+                            30.000 créditos/ano
+                        </div>
+                        <div class="text-sm text-gray-400 mt-2">= 2.500 créditos/mês</div>
+                        <div class="mt-4 p-3 rounded-lg" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div class="flex items-center justify-center gap-2">
+                                <i data-lucide="sparkles" class="w-4 h-4" style="color: #10b981;"></i>
+                                <span class="text-sm font-bold" style="color: #10b981;">Todas Atualizações Inclusas</span>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>60–125 vídeos/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>60–250 roteiros/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>1–2h de áudio/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (até 10h/mês)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (até 15 agentes)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Imagens em Lote Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Todas funcionalidades TURBO</span>
+                        </li>
+                    </ul>
+                    <button class="btn-netflix">Assinar Anual</button>
+                </div>
+                
+                <!-- MASTER PRO ANUAL -->
+                <div class="plan-card-netflix p-8 fade-in">
+                    <div class="badge-netflix" style="background: #ef4444;">PRO</div>
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold mb-4">MASTER PRO</h3>
+                        <div class="mb-4">
+                            <span class="price-netflix">R$ 1.499,00</span>
+                            <span class="price-period">/ano</span>
+                        </div>
+                        <div class="credits-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">
+                            60.000 créditos/ano
+                        </div>
+                        <div class="text-sm text-gray-400 mt-2">= 5.000 créditos/mês</div>
+                        <div class="mt-4 p-3 rounded-lg" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3);">
+                            <div class="flex items-center justify-center gap-2">
+                                <i data-lucide="sparkles" class="w-4 h-4" style="color: #10b981;"></i>
+                                <span class="text-sm font-bold" style="color: #10b981;">Todas Atualizações Inclusas</span>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>120–250 vídeos/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>120–500 roteiros/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>3h+ de áudio/mês</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Transcrição de Vídeo (Ilimitado)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Criação de Agente (Ilimitado)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Imagens em Lote Ilimitado</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>Todas funcionalidades MASTER</span>
+                        </li>
+                    </ul>
+                    <button class="btn-netflix">Assinar Anual</button>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Pacotes Avulsos -->
+    <section id="pacotes" class="section-netflix">
+        <div class="transition-bottom"></div>
+        <div class="container-netflix">
+            <div class="text-center mb-16">
+                <h2 class="section-title">Pacotes de Créditos</h2>
+                <p class="section-subtitle">Ideal para upgrades e faturamento extra</p>
+            </div>
+            
+            <div class="plans-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                <div class="plan-card-netflix p-6 text-center fade-in">
+                    <h3 class="text-xl font-bold mb-4">1.000 CRÉDITOS</h3>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 69,90</div>
+                    <div class="text-sm text-gray-400 mb-6">Mesmo valor do plano START</div>
+                    <button class="btn-netflix-secondary text-sm">Comprar</button>
+                </div>
+                <div class="plan-card-netflix p-6 text-center fade-in">
+                    <h3 class="text-xl font-bold mb-4">2.500 CRÉDITOS</h3>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 99,90</div>
+                    <div class="text-sm text-gray-400 mb-6">Mesmo valor do plano TURBO</div>
+                    <button class="btn-netflix-secondary text-sm">Comprar</button>
+                </div>
+                <div class="plan-card-netflix p-6 text-center fade-in">
+                    <h3 class="text-xl font-bold mb-4">5.000 CRÉDITOS</h3>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 149,90</div>
+                    <div class="text-sm text-gray-400 mb-6">Mesmo valor do plano MASTER</div>
+                    <button class="btn-netflix-secondary text-sm">Comprar</button>
+                </div>
+                <div class="plan-card-netflix p-6 text-center fade-in">
+                    <h3 class="text-xl font-bold mb-4">10.000 CRÉDITOS</h3>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 249,90</div>
+                    <div class="text-sm text-gray-400 mb-6">Preço supereconômico</div>
+                    <button class="btn-netflix-secondary text-sm">Comprar</button>
+                </div>
+                <div class="plan-card-netflix p-6 text-center fade-in">
+                    <h3 class="text-xl font-bold mb-4">20.000 CRÉDITOS</h3>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 399,90</div>
+                    <div class="text-sm text-gray-400 mb-6">Perfeito para canais grandes</div>
+                    <button class="btn-netflix-secondary text-sm">Comprar</button>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Tabela Comparativa -->
+    <section id="tabela" class="section-netflix-alt">
+        <div class="transition-bottom"></div>
+        <div class="container-netflix">
+            <div class="text-center mb-16">
+                <h2 class="section-title">Comparação de Planos</h2>
+                <p class="section-subtitle">Compare todos os planos em uma única tabela</p>
+            </div>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Plano</th>
+                            <th>Valor</th>
+                            <th>Créditos Mensais</th>
+                            <th>Créditos Anuais</th>
+                            <th>Vídeos/mês</th>
+                            <th>Roteiros/mês</th>
+                            <th>Áudio/mês</th>
+                            <th>Transcrição</th>
+                            <th>Agentes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="highlight">FREE</td>
+                            <td>R$ 0</td>
+                            <td>100</td>
+                            <td>—</td>
+                            <td>5</td>
+                            <td>10</td>
+                            <td>15 min</td>
+                            <td>10 min/mês</td>
+                            <td>1 agente</td>
+                        </tr>
+                        <tr>
+                            <td class="highlight">START</td>
+                            <td>R$ 69,90</td>
+                            <td>1.000</td>
+                            <td>12.000</td>
+                            <td>30–50</td>
+                            <td>30–100</td>
+                            <td>30–60 min</td>
+                            <td>2h/mês</td>
+                            <td>5 agentes</td>
+                        </tr>
+                        <tr>
+                            <td class="highlight">TURBO</td>
+                            <td>R$ 99,90</td>
+                            <td>2.500</td>
+                            <td>30.000</td>
+                            <td>60–125</td>
+                            <td>60–250</td>
+                            <td>1–2h</td>
+                            <td>10h/mês</td>
+                            <td>15 agentes</td>
+                        </tr>
+                        <tr>
+                            <td class="highlight">MASTER</td>
+                            <td>R$ 149,90</td>
+                            <td>5.000</td>
+                            <td>60.000</td>
+                            <td>120–250</td>
+                            <td>120–500</td>
+                            <td>3h+</td>
+                            <td>Ilimitado</td>
+                            <td>Ilimitado</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+    
+    <!-- FAQ -->
+    <section id="faq" class="section-netflix">
+        <div class="transition-bottom"></div>
+        <div class="container-netflix" style="max-width: 800px;">
+            <div class="text-center mb-16">
+                <h2 class="section-title">Perguntas Frequentes</h2>
+            </div>
+            <div class="space-y-4">
+                <div class="plan-card-netflix p-6 fade-in">
+                    <h3 class="text-lg font-bold mb-3">Os créditos expiram?</h3>
+                    <p class="text-gray-400">Créditos de planos mensais expiram ao final do mês. Créditos de planos anuais expiram ao final do ano. Pacotes avulsos não expiram.</p>
+                </div>
+                <div class="plan-card-netflix p-6 fade-in">
+                    <h3 class="text-lg font-bold mb-3">Posso cancelar a qualquer momento?</h3>
+                    <p class="text-gray-400">Sim! Você pode cancelar sua assinatura a qualquer momento. Não há taxas de cancelamento e você continuará tendo acesso até o final do período pago.</p>
+                </div>
+                <div class="plan-card-netflix p-6 fade-in">
+                    <h3 class="text-lg font-bold mb-3">Posso mudar de plano?</h3>
+                    <p class="text-gray-400">Sim, você pode fazer upgrade ou downgrade do seu plano a qualquer momento. O valor será ajustado proporcionalmente.</p>
+                </div>
+                <div class="plan-card-netflix p-6 fade-in">
+                    <h3 class="text-lg font-bold mb-3">Como funciona o pagamento?</h3>
+                    <p class="text-gray-400">Aceitamos cartão de crédito e PIX. O pagamento é processado de forma segura e você recebe os créditos imediatamente após a confirmação.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- CTA Final -->
+    <section class="section-netflix-alt">
+        <div class="container-netflix text-center">
+            <h2 class="section-title">Pronto para começar?</h2>
+            <p class="subtitle-netflix mb-8">Escolha o plano ideal e comece a criar conteúdo profissional hoje mesmo.</p>
+            <a href="/dashboard.html" class="btn-netflix inline-block" style="width: auto; padding: 16px 48px;">Ver Meu Dashboard</a>
+        </div>
+    </section>
+    
+    <!-- Footer -->
+    <footer class="bg-black border-t border-gray-900 py-8">
+        <div class="container-netflix text-center">
+            <p class="text-gray-400 text-sm">© 2024 La Casa Dark Core. Todos os direitos reservados.</p>
+        </div>
+    </footer>
+    
+    <script>
+        // Inicializar ícones
+        function initIcons() {
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initIcons);
+        } else {
+            initIcons();
+        }
+        
+        setTimeout(initIcons, 100);
+        
+        // Navegação ativa
+        const sections = document.querySelectorAll('section[id]');
+        const navLinks = document.querySelectorAll('.nav-link');
+        
+        function updateActiveNav() {
+            let current = '';
+            const scrollPosition = window.pageYOffset + 200;
+            
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                const sectionHeight = section.clientHeight;
+                if (scrollPosition >= sectionTop && scrollPosition < sectionTop + sectionHeight) {
+                    current = section.getAttribute('id');
+                }
+            });
+            
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === `#${current}`) {
+                    link.classList.add('active');
+                }
+            });
+        }
+        
+        window.addEventListener('scroll', updateActiveNav);
+        updateActiveNav();
+        
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const offset = 140;
+                    const targetPosition = target.getBoundingClientRect().top + window.pageYOffset - offset;
+                    window.scrollTo({
+                        top: targetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

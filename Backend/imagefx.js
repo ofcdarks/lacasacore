@@ -1,25 +1,31 @@
+const crypto = require('crypto');
+const sharp = require('sharp');
+const { ajustarPara169 } = require('./resize_16_9');
+const { sanitizePrompt } = require('./sanitizePrompt');
+
 const DefaultHeader = {
-  "Origin": "https://labs.google",
+  Origin: "https://labs.google",
   "content-type": "application/json",
-  "Referer": "https://labs.google/fx/tools/image-fx"
+  Referer: "https://labs.google/fx/tools/image-fx"
 };
+
 const Model = Object.freeze({
   IMAGEN_3: "IMAGEN_3",
-  IMAGEN_3_1: "IMAGEN_3_1",
   IMAGEN_3_5: "IMAGEN_3_5"
 });
+
 const AspectRatio = Object.freeze({
   SQUARE: "IMAGE_ASPECT_RATIO_SQUARE",
   PORTRAIT: "IMAGE_ASPECT_RATIO_PORTRAIT",
   LANDSCAPE: "IMAGE_ASPECT_RATIO_LANDSCAPE",
-  UNSPECIFIED: "IMAGE_ASPECT_RATIO_UNSPECIFIED"
+  UNSPECIFIED: "IMAGE_ASPECT_RATIO_SQUARE"
 });
 
 class ImageFXError extends Error {
-  constructor(message, code) { 
+  constructor(message, code) {
     super(message);
     this.name = "ImageFXError";
-    this.code = code; 
+    this.code = code;
   }
 }
 
@@ -33,40 +39,27 @@ class AccountError extends Error {
 
 class Account {
   constructor(cookie) {
-    if (!cookie?.trim()) {
-      throw new AccountError("O cookie é obrigatório e não pode estar vazio.");
-    }
+    if (!cookie?.trim()) throw new AccountError("O cookie é obrigatório.");
     this.cookie = cookie;
     this.user = null;
     this.token = null;
     this.tokenExpiry = null;
   }
 
-  /**
-   * Refreshes the session token if it's missing, expired, or about to expire.
-   * Throws an AccountError if session refresh fails.
-   */
   async refreshSession() {
-    // Refresh if token is expired or will expire within 30 seconds (proactive refresh)
-    if (!this.token || !this.tokenExpiry || this.tokenExpiry <= new Date(Date.now() + 30 * 1000)) {
-      const sessionResult = await this.fetchSession();
-      if (!sessionResult || !sessionResult.access_token || !sessionResult.expires || !sessionResult.user) {
-        throw new AccountError("A resposta da sessão não contém os campos esperados: access_token, expires, user.");
+    if (!this.token || !this.tokenExpiry || this.tokenExpiry <= new Date(Date.now() + 30000)) {
+      const session = await this.fetchSession();
+      if (!session?.access_token || !session?.expires || !session?.user) {
+        throw new AccountError("A resposta da sessão não contém os campos esperados.");
       }
-      this.user = sessionResult.user;
-      this.token = sessionResult.access_token;
-      this.tokenExpiry = new Date(sessionResult.expires);
+      this.user = session.user;
+      this.token = session.access_token;
+      this.tokenExpiry = new Date(session.expires);
     }
   }
 
-  /**
-   * Returns the authentication headers including the session cookie and bearer token.
-   * Throws an AccountError if the token is missing.
-   */
   getAuthHeaders() {
-    if (!this.token) {
-      throw new AccountError("Token de autenticação em falta. A atualização da sessão pode ter falhado.");
-    }
+    if (!this.token) throw new AccountError("Token ausente.");
     return {
       ...DefaultHeader,
       "Cookie": this.cookie,
@@ -74,82 +67,72 @@ class Account {
     };
   }
 
-  /**
-   * Fetches the current session data from the ImageFX authentication endpoint.
-   * Throws an AccountError for authentication failures or invalid session data.
-   */
   async fetchSession() {
-    const response = await fetch("https://labs.google/fx/api/auth/session", {
+    const res = await fetch("https://labs.google/fx/api/auth/session", {
       headers: {
-        ...DefaultHeader,
-        "Cookie": this.cookie // Use the raw cookie string directly for session endpoint
+        Origin: "https://labs.google",
+        Referer: "https://labs.google/fx/tools/image-fx",
+        "Cookie": this.cookie
       }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 401 || response.status === 403) {
-        throw new AccountError(`Falha na autenticação (${response.status}). Verifique se os seus cookies são válidos e atualizados.`, response.status);
+    if (!res.ok) {
+      const errorText = await res.text();
+      if ([401, 403].includes(res.status)) {
+        throw new AccountError(`Falha de autenticação (${res.status}). Verifique os cookies.`, res.status);
       }
-      throw new AccountError(`Falha na autenticação (${response.status}): ${errorText}.`, response.status);
+      throw new AccountError(`Erro ${res.status}: ${errorText}`, res.status);
     }
 
-    const sessionData = await response.json();
-    // Validate essential fields in the session response
-    if (!sessionData.access_token || !sessionData.expires || !sessionData.user) {
-      throw new AccountError(`Resposta de sessão inválida: faltam campos obrigatórios (access_token, expires, user). Dados recebidos: ${JSON.stringify(sessionData)}`);
+    const data = await res.json();
+    if (!data.access_token || !data.expires || !data.user) {
+      throw new AccountError(`Resposta inválida: ${JSON.stringify(data)}`);
     }
-    return sessionData;
+    return data;
   }
 }
 
-/**
- * Represents the payload for a prompt request to the ImageFX API.
- */
 class Prompt {
   constructor(args) {
-    // Ensure the prompt text is valid before constructing the object
-    if (!args.prompt?.trim()) {
-      throw new ImageFXError("O texto do prompt é obrigatório e não pode estar vazio.");
-    }
-    this.seed = args.seed ?? Math.floor(Math.random() * 1000000);
+    if (!args.prompt?.trim()) throw new ImageFXError("O prompt é obrigatório.");
+    this.seed = args.seed ?? Math.floor(Math.random() * 2147483647);
     this.prompt = args.prompt;
+    this.negativePrompt = args.negativePrompt ?? '';
     this.numberOfImages = args.numberOfImages ?? 1;
-    this.aspectRatio = args.aspectRatio ?? AspectRatio.SQUARE; 
-    this.generationModel = args.generationModel ?? Model.IMAGEN_3_5;
+    this.aspectRatio = args.aspectRatio ?? AspectRatio.SQUARE;
+    this.generationModel = ["IMAGEN_3", "IMAGEN_3_5"].includes(args.generationModel)
+      ? args.generationModel
+      : Model.IMAGEN_3_5;
   }
 
-  /**
-   * Converts the Prompt object to a JSON string suitable for the ImageFX API request body.
-   */
   toString() {
-    return JSON.stringify({
-      "userInput": {
-        "candidatesCount": this.numberOfImages,
-        "prompts": [this.prompt],
-        "seed": this.seed
+    const payload = {
+      userInput: {
+        candidatesCount: this.numberOfImages,
+        prompts: [this.prompt],
+        seed: this.seed
       },
-      "clientContext": {
-        "sessionId": `${Date.now()}`, // Unique session ID for client context
-        "tool": "IMAGE_FX"
+      clientContext: {
+        sessionId: `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`,
+        tool: "IMAGE_FX"
       },
-      "modelInput": {
-        "modelNameType": this.generationModel
+      modelInput: {
+        modelNameType: this.generationModel
       },
-      "aspectRatio": this.aspectRatio
-    });
+      aspectRatio: this.aspectRatio
+    };
+
+    if (this.negativePrompt?.trim()) {
+      payload.userInput.negativePrompts = [this.negativePrompt.trim()];
+    }
+
+    return JSON.stringify(payload);
   }
 }
 
-/**
- * Represents a single generated image result from the ImageFX API.
- */
 class Image {
   constructor(args) {
-    // Ensure encodedImage is not empty or null
-    if (!args.encodedImage?.trim()) {
-      throw new ImageFXError("Dados da imagem codificada são obrigatórios e não podem estar vazios.");
-    }
+    if (!args.encodedImage?.trim()) throw new ImageFXError("Imagem codificada ausente.");
     this.seed = args.seed;
     this.prompt = args.prompt;
     this.model = args.modelNameType;
@@ -160,9 +143,6 @@ class Image {
     this.fingerprintId = args.fingerprintLogRecordId;
   }
 
-  /**
-   * Returns formatted image data for display or download.
-   */
   getImageData() {
     return {
       url: `data:image/png;base64,${this.encodedImage}`,
@@ -173,112 +153,113 @@ class Image {
   }
 }
 
-/**
- * Main class for interacting with the Google ImageFX API.
- * Handles authentication via cookies and image generation requests.
- */
+async function isAlready169(base64) {
+  const buffer = Buffer.from(base64, 'base64');
+  const { width, height } = await sharp(buffer).metadata();
+  const ratio = width / height;
+  return Math.abs(ratio - 16 / 9) <= 0.05;
+}
+
 class ImageFX {
   constructor(cookie) {
-    if (!cookie?.trim()) {
-      throw new ImageFXError("O cookie é obrigatório e não pode estar vazio.");
-    }
+    if (!cookie?.trim()) throw new ImageFXError("O cookie é obrigatório.");
     this.account = new Account(cookie);
   }
 
-  /**
-   * Generates images based on a given prompt and options.
-   *
-   * @param {string} promptText The text prompt for image generation.
-   * @param {object} options Optional parameters for generation (seed, numberOfImages, aspectRatio, generationModel, retries).
-   * @returns {Promise<Array<Image>>} An array of Image objects.
-   * @throws {ImageFXError|AccountError} If generation fails due to API issues or authentication.
-   */
-  async generateImage(promptText, options = {}) {
-    if (!promptText?.trim()) {
-      throw new ImageFXError("O prompt não pode estar vazio.");
-    }
+  _parseHumanError(text, status) {
+    try {
+      const json = JSON.parse(text);
+      const reason = json?.error?.details?.[0]?.reason;
+      const fallback = json?.error?.message || `Erro ${status}`;
 
-    // Ensure session is fresh before attempting generation
+      switch (reason) {
+        case "PUBLIC_ERROR_UNSAFE_GENERATION":
+          return "Prompt bloqueado: conteúdo inseguro.";
+        case "PUBLIC_ERROR_PROMINENT_PEOPLE_FILTER_FAILED":
+          return "Prompt bloqueado: uso de pessoas famosas.";
+        case "PUBLIC_ERROR_QUALITY_FILTER_FAILED":
+        case "PUBLIC_ERROR_AESTHETIC_FILTER_FAILED":
+          return "Prompt bloqueado: qualidade ou estética baixa.";
+        case "PUBLIC_ERROR_USER_REQUESTS_THROTTLED":
+          return "Erro 429: limite de requisições atingido. Aguarde alguns segundos.";
+        default:
+          return reason ? `Erro não mapeado: ${reason}` : fallback;
+      }
+    } catch {
+      return status === 429 ? "Erro 429: limite de requisições atingido." : `Erro ${status}: ${text}`;
+    }
+  }
+
+  async generateImage(promptOriginal, options = {}) {
+    if (!promptOriginal?.trim()) throw new ImageFXError("Prompt vazio.");
+
     await this.account.refreshSession();
 
+    const { sanitized, alerts } = sanitizePrompt(promptOriginal);
+
     const prompt = new Prompt({
-      prompt: promptText,
+      prompt: sanitized,
       seed: options.seed,
       numberOfImages: options.numberOfImages,
       aspectRatio: options.aspectRatio,
-      generationModel: options.generationModel
+      generationModel: Model.IMAGEN_3_5,
+      negativePrompt: options.negativePrompt
     });
 
-    const generatedImagesData = await this.fetchImages(prompt, options.retries || 2);
-    return generatedImagesData.map((data) => new Image(data));
+    const generatedData = await this.fetchImages(prompt, options.retries || 2);
+    const results = [];
+
+    for (const data of generatedData) {
+      const img = new Image(data);
+
+      if (options.resizeTo16_9 === true) {
+        const precisa = !(await isAlready169(img.encodedImage));
+        if (precisa) {
+          img.encodedImage = await ajustarPara169(img.encodedImage);
+        }
+      }
+
+      results.push({
+        ...img.getImageData(),
+        sanitizedPrompt: sanitized,
+        wasSanitized: alerts.length > 0,
+        alerts
+      });
+    }
+
+    return results;
   }
 
-  /**
-   * Internal method to send the image generation request and handle retries.
-   *
-   * @param {Prompt} prompt The Prompt object containing generation parameters.
-   * @param {number} retry Number of retries remaining.
-   * @returns {Promise<Array<object>>} An array of raw image data from the API response.
-   * @throws {ImageFXError|AccountError} If generation fails.
-   */
   async fetchImages(prompt, retry = 0) {
     try {
-      const response = await fetch("https://aisandbox-pa.googleapis.com/v1:runImageFx", {
+      console.log("💡 Payload enviado para a API:");
+      console.log(prompt.toString());
+
+      const res = await fetch("https://aisandbox-pa.googleapis.com/v1:runImageFx", {
         method: "POST",
         body: prompt.toString(),
         headers: this.account.getAuthHeaders()
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        if (response.status === 401 || response.status === 403) {
-          // If a token expired between refreshSession and this fetch, this will catch it.
-          // It's crucial to throw an AccountError here to avoid retrying with invalid credentials.
-          throw new AccountError(`Falha na autenticação (${response.status}). Por favor, verifique se os seus cookies são válidos e atualizados.`, response.status);
-        }
-        // Specific message for 429 errors from ImageFX
-        let specificErrorMessage = `O servidor ImageFX respondeu com um erro (${response.status}): ${errorText}`;
-        if (response.status === 429) {
-          specificErrorMessage = `O servidor ImageFX atingiu o limite de taxa (429). Por favor, tente novamente mais tarde. Detalhes: ${errorText}`;
-        }
-        // Create error with full details for policy error detection
-        const error = new ImageFXError(specificErrorMessage, response.status);
-        // Attach raw error text for policy error detection
-        error.rawError = errorText;
-        try {
-          const errorJson = JSON.parse(errorText);
-          if (errorJson.error) {
-            error.errorDetails = errorJson.error;
-          }
-        } catch (e) {
-          // Ignore JSON parse errors
-        }
-        throw error;
+      if (!res.ok) {
+        const errText = await res.text();
+        const msg = this._parseHumanError(errText, res.status);
+        throw new ImageFXError(msg, res.status);
       }
 
-      const jsonResponse = await response.json();
-      const generatedImages = jsonResponse?.imagePanels?.[0]?.generatedImages;
+      const json = await res.json();
+      const images = json?.imagePanels?.[0]?.generatedImages;
+      if (!images?.length) throw new ImageFXError("A API não retornou imagens.");
+      return images;
 
-      if (!generatedImages || generatedImages.length === 0) {
-        // More specific message if API returns no images but no explicit error structure
-        throw new ImageFXError("A API não retornou imagens. O prompt pode ter sido bloqueado, ser muito genérico ou houve um problema temporário com o serviço.");
-      }
-      return generatedImages;
-
-    } catch (error) {
-      // Retry logic for transient errors, but not for explicit authentication failures
-      if (retry > 0 && !(error instanceof AccountError)) {
-        console.warn(`[ImageFX] Falha ao gerar imagem. Tentando novamente... (${retry} tentativas restantes)`);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second before retrying
+    } catch (err) {
+      if (retry > 0 && !(err instanceof AccountError)) {
+        console.warn(`[ImageFX] Falha ao gerar imagem. Tentando novamente... (${retry} restantes)`);
+        await new Promise(res => setTimeout(res, 500));
         return this.fetchImages(prompt, retry - 1);
       }
 
-      // Re-throw custom errors directly to maintain type and code for upstream handling
-      if (error instanceof ImageFXError || error instanceof AccountError) {
-        throw error;
-      }
-      // Catch any other unexpected network or parsing errors
-      throw new ImageFXError(`Falha ao comunicar com a API: ${error.message}`);
+      throw err instanceof ImageFXError ? err : new ImageFXError(`Erro inesperado: ${err.message}`);
     }
   }
 }
