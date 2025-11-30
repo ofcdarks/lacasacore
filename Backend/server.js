@@ -3153,7 +3153,9 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 isAdmin BOOLEAN NOT NULL DEFAULT 0,
                 isBlocked BOOLEAN NOT NULL DEFAULT 0,
                 isApproved BOOLEAN NOT NULL DEFAULT 0,
-                last_login_at DATETIME
+                last_login_at DATETIME,
+                plan TEXT DEFAULT 'plan-free',
+                subscription_plan TEXT DEFAULT 'plan-free'
             );
         `);
         
@@ -3270,6 +3272,14 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             console.log('MIGRATION: Adding column "last_login_at" to "users"...');
             await db.exec('ALTER TABLE users ADD COLUMN last_login_at DATETIME');
         }
+        if (!usersInfo.some(c => c.name === 'plan')) {
+            console.log('MIGRATION: Adding column "plan" to "users"...');
+            await db.exec('ALTER TABLE users ADD COLUMN plan TEXT DEFAULT "plan-free"');
+        }
+        if (!usersInfo.some(c => c.name === 'subscription_plan')) {
+            console.log('MIGRATION: Adding column "subscription_plan" to "users"...');
+            await db.exec('ALTER TABLE users ADD COLUMN subscription_plan TEXT DEFAULT "plan-free"');
+        }
 
         const analyzedVideosInfo = await db.all("PRAGMA table_info(analyzed_videos)");
         const analyzedVideosColumns = {
@@ -3299,6 +3309,236 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             if (!generatedTitlesInfo.some(c => c.name === col)) {
                 console.log(`MIGRATION: Adding column "${col}" to "generated_titles"...`);
                 await db.exec(`ALTER TABLE generated_titles ADD COLUMN ${col} ${type}`);
+            }
+        }
+        
+        // Criar tabela de limites customizados de armazenamento
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS user_storage_limits (
+                user_id INTEGER PRIMARY KEY,
+                custom_limit INTEGER NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        `);
+        
+        // Criar tabela de créditos por plano
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS plan_credits (
+                plan_name TEXT PRIMARY KEY,
+                monthly_credits INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        // Inicializar créditos padrão dos planos
+        const defaultPlanCredits = {
+            'plan-free': 100,
+            'plan-start': 1000,
+            'plan-turbo': 2500,
+            'plan-master': 5000,
+            'plan-start-annual': 1000, // Mensal (12.000/12)
+            'plan-turbo-annual': 2500, // Mensal (30.000/12)
+            'plan-master-annual': 5000 // Mensal (60.000/12)
+        };
+        
+        for (const [plan, credits] of Object.entries(defaultPlanCredits)) {
+            await db.run(`
+                INSERT OR IGNORE INTO plan_credits (plan_name, monthly_credits)
+                VALUES (?, ?)
+            `, [plan, credits]);
+        }
+        
+        // Criar tabela de renovação de créditos
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS credit_renewals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                plan_name TEXT NOT NULL,
+                credits_added INTEGER NOT NULL,
+                renewal_date DATETIME NOT NULL,
+                next_renewal_date DATETIME,
+                is_annual BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        `);
+        
+        // Criar tabela de permissões de planos
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS plan_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_name TEXT NOT NULL,
+                feature_name TEXT NOT NULL,
+                is_allowed BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(plan_name, feature_name)
+            )
+        `);
+        
+        // Criar tabela de notificações
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                type TEXT DEFAULT 'info',
+                is_read BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        `);
+        
+        // Criar tabela de usuários fictícios
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS fake_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                type TEXT DEFAULT 'purchase',
+                plan_name TEXT DEFAULT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        // Migração: adicionar coluna plan_name se não existir
+        try {
+            const fakeUsersInfo = await db.all("PRAGMA table_info(fake_users)");
+            if (!fakeUsersInfo.some(c => c.name === 'plan_name')) {
+                console.log('MIGRATION: Adding column "plan_name" to "fake_users"...');
+                await db.exec('ALTER TABLE fake_users ADD COLUMN plan_name TEXT DEFAULT NULL');
+            }
+        } catch (err) {
+            // Ignorar se já existe
+        }
+        
+        // Criar tabela de configurações de notificações
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS notification_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
+        // Inicializar permissões padrão
+        const defaultFeatures = [
+            'video_analyzer',
+            'niche_explorer',
+            'script_generator',
+            'voice_generator',
+            'image_generator',
+            'video_generator',
+            'youtube_integration',
+            'api_propria',
+            'batch_images',
+            'analytics',
+            'viral_library'
+        ];
+        
+        const defaultPermissions = {
+            'plan-free': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': false,
+                'image_generator': false,
+                'video_generator': false,
+                'youtube_integration': false,
+                'api_propria': false,
+                'batch_images': false,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-start': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': false,
+                'api_propria': false,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-turbo': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': false,
+                'api_propria': false,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-master': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': true,
+                'api_propria': true,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-start-annual': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': true,
+                'api_propria': true,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-turbo-annual': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': true,
+                'api_propria': true,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            },
+            'plan-master-annual': {
+                'video_analyzer': true,
+                'niche_explorer': true,
+                'script_generator': true,
+                'voice_generator': true,
+                'image_generator': true,
+                'video_generator': true,
+                'youtube_integration': true,
+                'api_propria': true,
+                'batch_images': true,
+                'analytics': true,
+                'viral_library': true
+            }
+        };
+        
+        for (const [plan, features] of Object.entries(defaultPermissions)) {
+            for (const [feature, allowed] of Object.entries(features)) {
+                await db.run(`
+                    INSERT OR IGNORE INTO plan_permissions (plan_name, feature_name, is_allowed)
+                    VALUES (?, ?, ?)
+                `, [plan, feature, allowed ? 1 : 0]);
             }
         }
         // Migração: Corrigir constraint UNIQUE em monitored_channels (permitir múltiplos canais por usuário)
@@ -4047,6 +4287,399 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
 
 
 // --- ROTAS DE API ---
+// ================================================
+// ROTAS DE NOTIFICAÇÕES
+// ================================================
+
+// GET /api/notifications/pending - Obter notificações pendentes do usuário
+app.get('/api/notifications/pending', authenticateToken, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    type TEXT DEFAULT 'info',
+                    is_read BOOLEAN DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const notifications = await db.all(
+            'SELECT * FROM notifications WHERE (user_id IS NULL OR user_id = ?) AND is_read = 0 ORDER BY created_at DESC LIMIT 10',
+            [req.user.id]
+        );
+        res.json(notifications);
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao buscar notificações:', error);
+        res.status(500).json({ message: 'Erro ao buscar notificações: ' + error.message });
+    }
+});
+
+// POST /api/notifications/:id/read - Marcar notificação como lida
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    try {
+        await db.run('UPDATE notifications SET is_read = 1 WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao marcar notificação como lida:', error);
+        res.status(500).json({ message: 'Erro ao marcar notificação como lida' });
+    }
+});
+
+// POST /api/admin/notifications/create - Criar notificação (admin)
+app.post('/api/admin/notifications/create', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { title, message, type = 'info', user_id = null } = req.body;
+        
+        if (!title || !message) {
+            return res.status(400).json({ message: 'Título e mensagem são obrigatórios' });
+        }
+        
+        await db.run(
+            'INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)',
+            [user_id, title, message, type]
+        );
+        
+        res.json({ success: true, message: 'Notificação criada com sucesso' });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao criar notificação:', error);
+        res.status(500).json({ message: 'Erro ao criar notificação' });
+    }
+});
+
+// GET /api/admin/notifications/config - Obter configurações de notificações
+app.get('/api/admin/notifications/config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS notification_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const configs = await db.all('SELECT * FROM notification_config');
+        const config = {};
+        configs.forEach(c => {
+            config[c.key] = c.value;
+        });
+        
+        // Valores padrão
+        res.json({
+            purchase_enabled: config.purchase_enabled === 'true',
+            purchase_interval: parseInt(config.purchase_interval) || 5,
+            purchase_message: config.purchase_message || '🎉 {name} acabou de comprar o plano {plan}!',
+            user_enabled: config.user_enabled === 'true',
+            user_interval: parseInt(config.user_interval) || 5,
+            user_message: config.user_message || '👋 {name} acabou de se cadastrar na plataforma!'
+        });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao buscar configurações:', error);
+        res.status(500).json({ message: 'Erro ao buscar configurações: ' + error.message });
+    }
+});
+
+// POST /api/admin/notifications/config - Salvar configurações de notificações
+app.post('/api/admin/notifications/config', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS notification_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const { purchase_enabled, purchase_interval, purchase_message, user_enabled, user_interval, user_message } = req.body;
+        
+        const configs = [
+            { key: 'purchase_enabled', value: String(purchase_enabled || false) },
+            { key: 'purchase_interval', value: String(purchase_interval || 5) },
+            { key: 'purchase_message', value: purchase_message || '🎉 {name} acabou de comprar o plano {plan}!' },
+            { key: 'user_enabled', value: String(user_enabled || false) },
+            { key: 'user_interval', value: String(user_interval || 5) },
+            { key: 'user_message', value: user_message || '👋 {name} acabou de se cadastrar na plataforma!' }
+        ];
+        
+        for (const config of configs) {
+            await db.run(
+                'INSERT OR REPLACE INTO notification_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+                [config.key, config.value]
+            );
+        }
+        
+        res.json({ success: true, message: 'Configurações salvas com sucesso' });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao salvar configurações:', error);
+        res.status(500).json({ message: 'Erro ao salvar configurações: ' + error.message });
+    }
+});
+
+// GET /api/admin/notifications/fake-users - Listar usuários fictícios
+app.get('/api/admin/notifications/fake-users', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS fake_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    type TEXT DEFAULT 'purchase',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const users = await db.all('SELECT * FROM fake_users ORDER BY created_at DESC');
+        res.json(users);
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao listar usuários fictícios:', error);
+        res.status(500).json({ message: 'Erro ao listar usuários fictícios: ' + error.message });
+    }
+});
+
+// POST /api/admin/notifications/fake-users - Criar usuário fictício
+app.post('/api/admin/notifications/fake-users', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS fake_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    type TEXT DEFAULT 'purchase',
+                    plan_name TEXT DEFAULT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const { name, email, type = 'purchase', plan_name = null, bulk = false } = req.body;
+        
+        if (bulk && Array.isArray(req.body.users)) {
+            // Criar múltiplos usuários
+            const results = [];
+            for (const user of req.body.users) {
+                try {
+                    const result = await db.run(
+                        'INSERT INTO fake_users (name, email, type, plan_name) VALUES (?, ?, ?, ?)',
+                        [user.name, user.email, user.type, user.plan_name || null]
+                    );
+                    results.push({ id: result.lastID, email: user.email });
+                } catch (err) {
+                    console.error(`[NOTIFICATIONS] Erro ao criar usuário ${user.email}:`, err);
+                }
+            }
+            res.json({ success: true, created: results.length, message: `${results.length} usuários fictícios criados com sucesso` });
+        } else {
+            if (!name || !email) {
+                return res.status(400).json({ message: 'Nome e email são obrigatórios' });
+            }
+            
+            const result = await db.run(
+                'INSERT INTO fake_users (name, email, type, plan_name) VALUES (?, ?, ?, ?)',
+                [name, email, type, plan_name]
+            );
+            
+            res.json({ success: true, id: result.lastID, message: 'Usuário fictício criado com sucesso' });
+        }
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao criar usuário fictício:', error);
+        res.status(500).json({ message: 'Erro ao criar usuário fictício: ' + error.message });
+    }
+});
+
+// DELETE /api/admin/notifications/fake-users/:id - Deletar usuário fictício
+app.delete('/api/admin/notifications/fake-users/:id', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM fake_users WHERE id = ?', [req.params.id]);
+        res.json({ success: true, message: 'Usuário fictício deletado com sucesso' });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao deletar usuário fictício:', error);
+        res.status(500).json({ message: 'Erro ao deletar usuário fictício' });
+    }
+});
+
+// ================================================
+// SISTEMA DE PERMISSÕES DE PLANOS
+// ================================================
+
+// Middleware para verificar permissão de funcionalidade
+function checkPlanPermission(featureName) {
+    return async (req, res, next) => {
+        try {
+            const userId = req.user.id;
+            
+            // Admin sempre tem acesso
+            const user = await db.get('SELECT isAdmin FROM users WHERE id = ?', [userId]);
+            if (user && (user.isAdmin === 1 || user.isAdmin === true || String(user.isAdmin) === '1')) {
+                return next();
+            }
+            
+            // Obter plano do usuário
+            const userData = await db.get('SELECT plan, subscription_plan FROM users WHERE id = ?', [userId]);
+            if (!userData) {
+                return res.status(403).json({ message: 'Usuário não encontrado' });
+            }
+            
+            const planName = userData.subscription_plan || userData.plan || 'plan-free';
+            
+            // Verificar permissão
+            const permission = await db.get(
+                'SELECT is_allowed FROM plan_permissions WHERE plan_name = ? AND feature_name = ?',
+                [planName, featureName]
+            );
+            
+            if (!permission || permission.is_allowed === 0) {
+                return res.status(403).json({ 
+                    message: `Esta funcionalidade não está disponível no seu plano atual.`,
+                    feature: featureName,
+                    plan: planName
+                });
+            }
+            
+            next();
+        } catch (error) {
+            console.error('[PERMISSIONS] Erro ao verificar permissão:', error);
+            res.status(500).json({ message: 'Erro ao verificar permissão' });
+        }
+    };
+}
+
+// GET /api/admin/plan-permissions - Listar todas as permissões
+app.get('/api/admin/plan-permissions', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const permissions = await db.all(`
+            SELECT pp.*, pc.monthly_credits
+            FROM plan_permissions pp
+            LEFT JOIN plan_credits pc ON pp.plan_name = pc.plan_name
+            ORDER BY pp.plan_name, pp.feature_name
+        `);
+        
+        // Organizar por plano
+        const organized = {};
+        permissions.forEach(p => {
+            if (!organized[p.plan_name]) {
+                organized[p.plan_name] = {
+                    plan_name: p.plan_name,
+                    monthly_credits: p.monthly_credits || 0,
+                    features: {}
+                };
+            }
+            organized[p.plan_name].features[p.feature_name] = p.is_allowed === 1;
+        });
+        
+        res.json(organized);
+    } catch (error) {
+        console.error('[PERMISSIONS] Erro ao listar permissões:', error);
+        res.status(500).json({ message: 'Erro ao listar permissões' });
+    }
+});
+
+// PUT /api/admin/plan-permissions/:planName/:featureName - Atualizar permissão
+app.put('/api/admin/plan-permissions/:planName/:featureName', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { planName, featureName } = req.params;
+        const { is_allowed } = req.body;
+        
+        await db.run(`
+            INSERT OR REPLACE INTO plan_permissions (plan_name, feature_name, is_allowed, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `, [planName, featureName, is_allowed ? 1 : 0]);
+        
+        res.json({ success: true, message: 'Permissão atualizada com sucesso' });
+    } catch (error) {
+        console.error('[PERMISSIONS] Erro ao atualizar permissão:', error);
+        res.status(500).json({ message: 'Erro ao atualizar permissão' });
+    }
+});
+
+// PUT /api/admin/plan-credits/:planName - Atualizar créditos do plano
+app.put('/api/admin/plan-credits/:planName', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { planName } = req.params;
+        const { monthly_credits } = req.body;
+        
+        if (!monthly_credits || monthly_credits < 0) {
+            return res.status(400).json({ message: 'Créditos mensais inválidos' });
+        }
+        
+        await db.run(`
+            INSERT OR REPLACE INTO plan_credits (plan_name, monthly_credits, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `, [planName, monthly_credits]);
+        
+        res.json({ success: true, message: 'Créditos do plano atualizados com sucesso' });
+    } catch (error) {
+        console.error('[PLAN CREDITS] Erro ao atualizar créditos:', error);
+        res.status(500).json({ message: 'Erro ao atualizar créditos' });
+    }
+});
+
+// GET /api/user/permissions - Obter permissões do usuário atual
+app.get('/api/user/permissions', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Admin sempre tem todas as permissões
+        const user = await db.get('SELECT isAdmin FROM users WHERE id = ?', [userId]);
+        if (user && (user.isAdmin === 1 || user.isAdmin === true || String(user.isAdmin) === '1')) {
+            const allFeatures = ['video_analyzer', 'niche_explorer', 'script_generator', 'voice_generator', 
+                               'image_generator', 'video_generator', 'youtube_integration', 'api_propria', 
+                               'batch_images', 'analytics', 'viral_library'];
+            const permissions = {};
+            allFeatures.forEach(f => permissions[f] = true);
+            return res.json({ permissions, plan: 'admin' });
+        }
+        
+        // Obter plano do usuário
+        const userData = await db.get('SELECT plan, subscription_plan FROM users WHERE id = ?', [userId]);
+        const planName = userData?.subscription_plan || userData?.plan || 'plan-free';
+        
+        // Obter permissões
+        const perms = await db.all(
+            'SELECT feature_name, is_allowed FROM plan_permissions WHERE plan_name = ?',
+            [planName]
+        );
+        
+        const permissions = {};
+        perms.forEach(p => {
+            permissions[p.feature_name] = p.is_allowed === 1;
+        });
+        
+        res.json({ permissions, plan: planName });
+    } catch (error) {
+        console.error('[PERMISSIONS] Erro ao obter permissões:', error);
+        res.status(500).json({ message: 'Erro ao obter permissões' });
+    }
+});
+
 // NOTA: Todas as rotas devem ser definidas ANTES do app.listen() para funcionarem corretamente
 
 // === ROTAS DE AUTENTICAÇÃO ===
@@ -4176,6 +4809,122 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 // ROTAS DO SISTEMA DE CRÉDITOS
 // ================================================
 
+// Função auxiliar para obter limite de armazenamento baseado no plano
+async function getStorageLimit(planName, isAdmin = false, userId = null) {
+    // Verificar se há limite customizado para o usuário
+    if (userId) {
+        try {
+            const customLimit = await db.get('SELECT custom_limit FROM user_storage_limits WHERE user_id = ?', [userId]);
+            if (customLimit) {
+                return customLimit.custom_limit;
+            }
+        } catch (err) {
+            // Tabela pode não existir ainda, continuar com limite padrão
+        }
+    }
+    
+    // Admin tem 100 GB de armazenamento e acesso ilimitado
+    if (isAdmin) {
+        return 100 * 1024 * 1024 * 1024; // 100 GB
+    }
+    
+    const storageLimits = {
+        'plan-free': 10 * 1024 * 1024, // 10 MB
+        'plan-start': 150 * 1024 * 1024, // 150 MB
+        'plan-turbo': 250 * 1024 * 1024, // 250 MB
+        'plan-master': 500 * 1024 * 1024, // 500 MB
+        'plan-start-annual': 1024 * 1024 * 1024, // 1 GB
+        'plan-turbo-annual': 1024 * 1024 * 1024, // 1 GB
+        'plan-master-annual': 1024 * 1024 * 1024 // 1 GB
+    };
+    return storageLimits[planName] || storageLimits['plan-free'];
+}
+
+// Função auxiliar para verificar se o usuário pode usar mais armazenamento
+// Retorna true se pode usar, false se excedeu o limite
+async function checkStorageLimit(userId, additionalSize = 0, isAdmin = false) {
+    // Admin sempre tem acesso ilimitado
+    if (isAdmin) {
+        return true;
+    }
+    
+    try {
+        const storageUsed = await calculateUserStorage(userId);
+        // Obter plano do usuário
+        let userPlan = 'plan-free';
+        try {
+            const user = await db.get('SELECT plan, subscription_plan FROM users WHERE id = ?', [userId]);
+            if (user) {
+                userPlan = user.subscription_plan || user.plan || 'plan-free';
+            }
+        } catch (err) {
+            // Usar padrão
+        }
+        
+        const storageLimit = await getStorageLimit(userPlan, isAdmin, userId);
+        return (storageUsed + additionalSize) <= storageLimit;
+    } catch (error) {
+        console.error('[STORAGE] Erro ao verificar limite de armazenamento:', error);
+        return false; // Em caso de erro, bloquear por segurança
+    }
+}
+
+// Função auxiliar para calcular armazenamento usado pelo usuário
+async function calculateUserStorage(userId) {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        let totalSize = 0;
+        
+        // Calcular tamanho dos arquivos em temp_audio (todos os arquivos temporários)
+        const tempAudioDir = path.join(__dirname, 'temp_audio');
+        if (fs.existsSync(tempAudioDir)) {
+            const files = fs.readdirSync(tempAudioDir);
+            for (const file of files) {
+                const filePath = path.join(tempAudioDir, file);
+                try {
+                    const stats = fs.statSync(filePath);
+                    if (stats.isFile()) {
+                        totalSize += stats.size;
+                    }
+                } catch (err) {
+                    // Ignorar erros de arquivos individuais
+                }
+            }
+        }
+        
+        // Calcular tamanho dos arquivos de vídeo/áudio gerados pelo usuário
+        // (se houver uma tabela de arquivos ou estrutura similar)
+        try {
+            const userFiles = await db.all('SELECT file_path, file_size FROM user_files WHERE user_id = ?', [userId]);
+            if (userFiles && userFiles.length > 0) {
+                for (const file of userFiles) {
+                    if (file.file_size) {
+                        totalSize += file.file_size;
+                    } else if (file.file_path) {
+                        try {
+                            const filePath = path.join(__dirname, file.file_path);
+                            if (fs.existsSync(filePath)) {
+                                const stats = fs.statSync(filePath);
+                                totalSize += stats.size;
+                            }
+                        } catch (err) {
+                            // Ignorar erros
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            // Tabela pode não existir ainda, ignorar
+        }
+        
+        return totalSize;
+    } catch (error) {
+        console.error('[STORAGE] Erro ao calcular armazenamento:', error);
+        return 0;
+    }
+}
+
 // GET /api/credits/balance - Usuário consulta seu próprio saldo
 app.get('/api/credits/balance', authenticateToken, async (req, res) => {
     try {
@@ -4186,8 +4935,58 @@ app.get('/api/credits/balance', authenticateToken, async (req, res) => {
             await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [req.user.id]);
             credits = { balance: 0 };
         }
+        
+        // Obter plano do usuário e verificar se é admin
+        let userPlan = 'plan-free'; // Padrão
+        let isAdmin = false;
+        
+        // Primeiro verificar se req.user já tem isAdmin (do token)
+        if (req.user && req.user.isAdmin !== undefined) {
+            isAdmin = req.user.isAdmin === 1 || req.user.isAdmin === true || req.user.isAdmin === '1';
+        }
+        
+        try {
+            // Buscar dados completos do usuário incluindo plano
+            const user = await db.get('SELECT id, isAdmin, email, plan, subscription_plan FROM users WHERE id = ?', [req.user.id]);
+            if (user) {
+                // Obter plano do usuário
+                userPlan = user.subscription_plan || user.plan || 'plan-free';
+                
+                // Verificação robusta de isAdmin (SQLite retorna como INTEGER)
+                const adminValue = user.isAdmin;
+                // Verificar todas as possibilidades
+                isAdmin = adminValue === 1 || 
+                         adminValue === true || 
+                         adminValue === '1' || 
+                         String(adminValue) === '1' ||
+                         Number(adminValue) === 1;
+                
+                console.log('[CRÉDITOS API] Usuário:', user.email, 'ID:', user.id);
+                console.log('[CRÉDITOS API] isAdmin valor bruto:', adminValue, 'tipo:', typeof adminValue);
+                console.log('[CRÉDITOS API] isAdmin resultado:', isAdmin);
+                console.log('[CRÉDITOS API] userPlan:', userPlan);
+            } else {
+                console.log('[CRÉDITOS API] Usuário não encontrado no banco de dados para ID:', req.user.id);
+            }
+        } catch (err) {
+            console.error('[CRÉDITOS API] Erro ao buscar usuário:', err);
+        }
+        
+        console.log('[CRÉDITOS API] Verificação final - isAdmin:', isAdmin, 'userPlan:', userPlan);
+        
+        // Calcular armazenamento
+        const storageUsed = await calculateUserStorage(req.user.id);
+        const storageLimit = await getStorageLimit(userPlan, isAdmin, req.user.id);
+        
         console.log('[CRÉDITOS API] Saldo encontrado:', credits.balance);
-        res.json({ balance: credits.balance });
+        console.log('[CRÉDITOS API] Armazenamento - Usado:', (storageUsed / (1024*1024)).toFixed(2), 'MB, Limite:', (storageLimit / (1024*1024*1024)).toFixed(2), 'GB, isAdmin:', isAdmin);
+        res.json({ 
+            balance: credits.balance,
+            storageUsed: storageUsed,
+            storageLimit: storageLimit,
+            plan: userPlan,
+            isAdmin: isAdmin // Incluir isAdmin na resposta para debug
+        });
     } catch (error) {
         console.error('[CRÉDITOS API] Erro ao consultar saldo:', error);
         res.status(500).json({ message: 'Erro ao consultar saldo' });
@@ -4202,7 +5001,45 @@ app.get('/api/user/credits', authenticateToken, async (req, res) => {
             await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, 0)', [req.user.id]);
             credits = { balance: 0 };
         }
-        res.json({ balance: credits.balance });
+        
+        // Obter plano e armazenamento
+        let userPlan = 'plan-free';
+        let isAdmin = false;
+        
+        // Primeiro verificar se req.user já tem isAdmin (do token)
+        if (req.user && req.user.isAdmin !== undefined) {
+            isAdmin = req.user.isAdmin === 1 || req.user.isAdmin === true || req.user.isAdmin === '1';
+        }
+        
+        try {
+            // Buscar dados completos do usuário incluindo plano
+            const user = await db.get('SELECT id, isAdmin, email, plan, subscription_plan FROM users WHERE id = ?', [req.user.id]);
+            if (user) {
+                // Obter plano do usuário
+                userPlan = user.subscription_plan || user.plan || 'plan-free';
+                
+                // Verificação robusta de isAdmin (SQLite retorna como INTEGER)
+                const adminValue = user.isAdmin;
+                isAdmin = adminValue === 1 || 
+                         adminValue === true || 
+                         adminValue === '1' || 
+                         String(adminValue) === '1' ||
+                         Number(adminValue) === 1;
+            }
+        } catch (err) {
+            console.error('[CRÉDITOS API] Erro ao buscar usuário:', err);
+        }
+        
+        const storageUsed = await calculateUserStorage(req.user.id);
+        const storageLimit = await getStorageLimit(userPlan, isAdmin, req.user.id);
+        
+        res.json({ 
+            balance: credits.balance,
+            storageUsed: storageUsed,
+            storageLimit: storageLimit,
+            plan: userPlan,
+            isAdmin: isAdmin
+        });
     } catch (error) {
         console.error('Erro ao consultar saldo:', error);
         res.status(500).json({ message: 'Erro ao consultar saldo' });
@@ -4517,6 +5354,279 @@ app.post('/api/admin/credits/add', authenticateToken, isAdmin, async (req, res) 
     } catch (error) {
         console.error('Erro ao adicionar créditos:', error);
         res.status(500).json({ message: 'Erro ao adicionar créditos' });
+    }
+});
+
+// ================================================
+// ROTAS DE ADMINISTRAÇÃO - ARMAZENAMENTO
+// ================================================
+
+// GET /api/admin/storage/stats - Obter estatísticas de armazenamento do servidor
+app.get('/api/admin/storage/stats', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        const { execSync } = require('child_process');
+        
+        // Calcular espaço total do disco (não RAM)
+        let totalSpace = 0;
+        try {
+            // Tentar usar comando do sistema para obter espaço em disco
+            if (process.platform === 'win32') {
+                // Windows: usar wmic
+                const output = execSync('wmic logicaldisk get size,freespace,caption', { encoding: 'utf-8' });
+                const lines = output.split('\n').filter(line => line.trim() && !line.includes('Caption'));
+                let total = 0;
+                for (const line of lines) {
+                    const parts = line.trim().split(/\s+/);
+                    if (parts.length >= 2) {
+                        const size = parseInt(parts[parts.length - 1]);
+                        if (!isNaN(size)) {
+                            total += size;
+                        }
+                    }
+                }
+                totalSpace = total;
+            } else {
+                // Linux/Unix: usar df
+                const output = execSync('df -B1 /', { encoding: 'utf-8' });
+                const lines = output.split('\n');
+                if (lines.length > 1) {
+                    const parts = lines[1].trim().split(/\s+/);
+                    if (parts.length >= 2) {
+                        totalSpace = parseInt(parts[1]); // Tamanho total em bytes
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao obter espaço em disco, usando fallback:', err.message);
+            // Fallback: tentar usar fs.statfs se disponível (Node.js 18+)
+            try {
+                const stats = fs.statfsSync ? fs.statfsSync('/') : null;
+                if (stats && stats.blocks && stats.bsize) {
+                    totalSpace = stats.blocks * stats.bsize;
+                } else {
+                    // Último fallback: usar espaço do diretório atual
+                    const stats = fs.statSync(__dirname);
+                    // Não temos como saber o tamanho total, então vamos usar um valor padrão ou calcular do diretório
+                    totalSpace = 200 * 1024 * 1024 * 1024; // 200 GB como padrão se não conseguir detectar
+                }
+            } catch (fallbackErr) {
+                console.warn('[STORAGE] Fallback também falhou, usando valor padrão');
+                totalSpace = 200 * 1024 * 1024 * 1024; // 200 GB como padrão
+            }
+        }
+        
+        // Calcular espaço usado em temp_audio
+        const tempAudioDir = path.join(__dirname, 'temp_audio');
+        let tempAudioSize = 0;
+        if (fs.existsSync(tempAudioDir)) {
+            const files = fs.readdirSync(tempAudioDir);
+            for (const file of files) {
+                try {
+                    const filePath = path.join(tempAudioDir, file);
+                    const stats = fs.statSync(filePath);
+                    if (stats.isFile()) {
+                        tempAudioSize += stats.size;
+                    }
+                } catch (err) {
+                    // Ignorar erros
+                }
+            }
+        }
+        
+        // Calcular espaço usado por todos os usuários
+        const allUsers = await db.all('SELECT id, email, name, isAdmin FROM users');
+        const usersStorage = [];
+        let totalUsersStorage = 0;
+        
+        for (const user of allUsers) {
+            const userStorage = await calculateUserStorage(user.id);
+            totalUsersStorage += userStorage;
+            
+            // Obter limite do usuário
+            let userPlan = 'plan-free';
+            let isUserAdmin = false;
+            try {
+                const userData = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [user.id]);
+                if (userData) {
+                    userPlan = userData.subscription_plan || userData.plan || 'plan-free';
+                    isUserAdmin = userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1';
+                }
+            } catch (err) {
+                // Ignorar
+            }
+            
+            const storageLimit = await getStorageLimit(userPlan, isUserAdmin, user.id);
+            
+            usersStorage.push({
+                userId: user.id,
+                email: user.email,
+                name: user.name,
+                isAdmin: isUserAdmin,
+                plan: userPlan,
+                storageUsed: userStorage,
+                storageLimit: storageLimit,
+                percentage: storageLimit > 0 ? (userStorage / storageLimit * 100) : 0
+            });
+        }
+        
+        res.json({
+            serverTotalSpace: totalSpace,
+            tempAudioSize: tempAudioSize,
+            totalUsersStorage: totalUsersStorage,
+            users: usersStorage,
+            totalUsers: usersStorage.length
+        });
+    } catch (error) {
+        console.error('[ADMIN STORAGE] Erro ao obter estatísticas:', error);
+        res.status(500).json({ message: 'Erro ao obter estatísticas de armazenamento' });
+    }
+});
+
+// PUT /api/admin/storage/reset/:userId - Zerar armazenamento de um usuário
+app.put('/api/admin/storage/reset/:userId', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId);
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Deletar arquivos em temp_audio do usuário (arquivos que contêm o userId ou são do usuário)
+        const tempAudioDir = path.join(__dirname, 'temp_audio');
+        let deletedFiles = 0;
+        let freedSpace = 0;
+        
+        if (fs.existsSync(tempAudioDir)) {
+            const files = fs.readdirSync(tempAudioDir);
+            for (const file of files) {
+                try {
+                    // Verificar se o arquivo pertence ao usuário (pode conter userId no nome ou timestamp)
+                    // Por segurança, vamos listar todos e verificar propriedades
+                    const filePath = path.join(tempAudioDir, file);
+                    const stats = fs.statSync(filePath);
+                    
+                    // Deletar arquivo (por enquanto deletamos todos os arquivos temporários)
+                    // Em produção, você pode querer associar arquivos a usuários em uma tabela
+                    fs.unlinkSync(filePath);
+                    deletedFiles++;
+                    freedSpace += stats.size;
+                } catch (err) {
+                    console.error(`[ADMIN STORAGE] Erro ao deletar arquivo ${file}:`, err);
+                }
+            }
+        }
+        
+        // Deletar arquivos associados ao usuário em user_files (se a tabela existir)
+        try {
+            const userFiles = await db.all('SELECT file_path FROM user_files WHERE user_id = ?', [userId]);
+            for (const file of userFiles) {
+                try {
+                    if (file.file_path) {
+                        const filePath = path.join(__dirname, file.file_path);
+                        if (fs.existsSync(filePath)) {
+                            const stats = fs.statSync(filePath);
+                            fs.unlinkSync(filePath);
+                            freedSpace += stats.size;
+                        }
+                    }
+                } catch (err) {
+                    // Ignorar erros
+                }
+            }
+            await db.run('DELETE FROM user_files WHERE user_id = ?', [userId]);
+        } catch (err) {
+            // Tabela pode não existir, ignorar
+        }
+        
+        res.json({
+            success: true,
+            message: `Armazenamento zerado para o usuário ${userId}`,
+            deletedFiles: deletedFiles,
+            freedSpace: freedSpace
+        });
+    } catch (error) {
+        console.error('[ADMIN STORAGE] Erro ao zerar armazenamento:', error);
+        res.status(500).json({ message: 'Erro ao zerar armazenamento' });
+    }
+});
+
+// PUT /api/admin/storage/limit/:userId - Alterar limite de armazenamento de um usuário
+app.put('/api/admin/storage/limit/:userId', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId);
+        const { storageLimit } = req.body;
+        
+        if (!storageLimit || storageLimit < 0) {
+            return res.status(400).json({ message: 'Limite de armazenamento inválido' });
+        }
+        
+        // Converter para bytes se necessário
+        let limitInBytes = storageLimit;
+        if (typeof storageLimit === 'string') {
+            // Se vier como "100GB", "500MB", etc
+            const match = storageLimit.match(/^(\d+(?:\.\d+)?)\s*(GB|MB|KB|B)$/i);
+            if (match) {
+                const value = parseFloat(match[1]);
+                const unit = match[2].toUpperCase();
+                if (unit === 'GB') limitInBytes = value * 1024 * 1024 * 1024;
+                else if (unit === 'MB') limitInBytes = value * 1024 * 1024;
+                else if (unit === 'KB') limitInBytes = value * 1024;
+                else limitInBytes = value;
+            } else {
+                limitInBytes = parseInt(storageLimit);
+            }
+        }
+        
+        // Criar ou atualizar limite customizado na tabela user_storage_limits (se não existir, criar)
+        try {
+            await db.run(`
+                CREATE TABLE IF NOT EXISTS user_storage_limits (
+                    user_id INTEGER PRIMARY KEY,
+                    custom_limit INTEGER NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            `);
+            
+            await db.run(`
+                INSERT OR REPLACE INTO user_storage_limits (user_id, custom_limit, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            `, [userId, limitInBytes]);
+        } catch (err) {
+            console.error('[ADMIN STORAGE] Erro ao salvar limite customizado:', err);
+            return res.status(500).json({ message: 'Erro ao salvar limite de armazenamento' });
+        }
+        
+        res.json({
+            success: true,
+            message: `Limite de armazenamento atualizado para ${(limitInBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`,
+            storageLimit: limitInBytes
+        });
+    } catch (error) {
+        console.error('[ADMIN STORAGE] Erro ao alterar limite:', error);
+        res.status(500).json({ message: 'Erro ao alterar limite de armazenamento' });
+    }
+});
+
+// GET /api/admin/storage/limit/:userId - Obter limite customizado de um usuário
+app.get('/api/admin/storage/limit/:userId', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId);
+        
+        try {
+            const customLimit = await db.get('SELECT custom_limit FROM user_storage_limits WHERE user_id = ?', [userId]);
+            if (customLimit) {
+                return res.json({ hasCustomLimit: true, storageLimit: customLimit.custom_limit });
+            }
+        } catch (err) {
+            // Tabela pode não existir ainda
+        }
+        
+        res.json({ hasCustomLimit: false });
+    } catch (error) {
+        console.error('[ADMIN STORAGE] Erro ao obter limite:', error);
+        res.status(500).json({ message: 'Erro ao obter limite de armazenamento' });
     }
 });
 
@@ -16388,7 +17498,7 @@ app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
 app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
     const { search, status } = req.query;
     try {
-        let query = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, created_at FROM users';
+        let query = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, plan, subscription_plan, created_at FROM users';
         const params = [];
         const conditions = [];
 
@@ -16449,6 +17559,124 @@ app.put('/api/admin/users/:id/password', authenticateToken, isAdmin, async (req,
         res.status(200).json({ msg: 'Senha atualizada com sucesso.' });
     } catch (err) {
         res.status(500).json({ msg: 'Erro ao atualizar a senha.' });
+    }
+});
+
+// Função para adicionar créditos automáticos baseado no plano
+async function addPlanCredits(userId, planName, isRenewal = false) {
+    try {
+        // Obter créditos do plano
+        const planCredits = await db.get('SELECT monthly_credits FROM plan_credits WHERE plan_name = ?', [planName]);
+        if (!planCredits) {
+            console.warn(`[PLAN CREDITS] Plano ${planName} não encontrado na tabela plan_credits`);
+            return;
+        }
+        
+        const creditsToAdd = planCredits.monthly_credits;
+        if (creditsToAdd <= 0) return;
+        
+        // Verificar se usuário já tem créditos
+        let userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
+        
+        if (!userCredits) {
+            // Criar registro de créditos
+            await db.run('INSERT INTO user_credits (user_id, balance) VALUES (?, ?)', [userId, creditsToAdd]);
+        } else {
+            // Adicionar créditos
+            await db.run(
+                'UPDATE user_credits SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+                [creditsToAdd, userId]
+            );
+        }
+        
+        // Registrar transação
+        await db.run(`
+            INSERT INTO credit_transactions (user_id, amount, transaction_type, description)
+            VALUES (?, ?, 'credit', ?)
+        `, [userId, creditsToAdd, isRenewal ? `Renovação mensal de créditos - Plano ${planName}` : `Créditos iniciais - Plano ${planName}`]);
+        
+        // Registrar renovação
+        const isAnnual = planName.includes('annual');
+        const nextRenewal = new Date();
+        nextRenewal.setMonth(nextRenewal.getMonth() + 1);
+        
+        await db.run(`
+            INSERT INTO credit_renewals (user_id, plan_name, credits_added, renewal_date, next_renewal_date, is_annual)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+        `, [userId, planName, creditsToAdd, nextRenewal.toISOString(), isAnnual ? 1 : 0]);
+        
+        console.log(`[PLAN CREDITS] ${creditsToAdd} créditos adicionados ao usuário ${userId} (Plano: ${planName})`);
+    } catch (error) {
+        console.error('[PLAN CREDITS] Erro ao adicionar créditos:', error);
+    }
+}
+
+// Função para verificar e renovar créditos mensalmente
+async function checkAndRenewCredits() {
+    try {
+        // Buscar usuários com planos ativos que precisam renovar
+        const usersToRenew = await db.all(`
+            SELECT u.id, u.subscription_plan, u.plan, cr.next_renewal_date
+            FROM users u
+            LEFT JOIN credit_renewals cr ON u.id = cr.user_id
+            WHERE (u.subscription_plan IS NOT NULL AND u.subscription_plan != 'plan-free')
+               OR (u.plan IS NOT NULL AND u.plan != 'plan-free')
+            GROUP BY u.id
+            HAVING MAX(cr.next_renewal_date) < datetime('now')
+               OR MAX(cr.next_renewal_date) IS NULL
+        `);
+        
+        for (const user of usersToRenew) {
+            const planName = user.subscription_plan || user.plan;
+            if (planName && planName !== 'plan-free') {
+                await addPlanCredits(user.id, planName, true);
+            }
+        }
+        
+        console.log(`[PLAN CREDITS] Verificação de renovação concluída. ${usersToRenew.length} usuários processados.`);
+    } catch (error) {
+        console.error('[PLAN CREDITS] Erro ao verificar renovações:', error);
+    }
+}
+
+// Executar verificação de renovação a cada hora
+setInterval(checkAndRenewCredits, 60 * 60 * 1000); // 1 hora
+
+// PUT /api/admin/users/:id/plan - Alterar plano do usuário
+app.put('/api/admin/users/:id/plan', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const userId = parseInt(req.params.id);
+        const { plan } = req.body;
+        
+        if (!plan) {
+            return res.status(400).json({ message: 'Plano é obrigatório' });
+        }
+        
+        const validPlans = ['plan-free', 'plan-start', 'plan-turbo', 'plan-master', 'plan-start-annual', 'plan-turbo-annual', 'plan-master-annual'];
+        if (!validPlans.includes(plan)) {
+            return res.status(400).json({ message: 'Plano inválido' });
+        }
+        
+        const user = await db.get('SELECT id, email FROM users WHERE id = ?', [userId]);
+        if (!user) {
+            return res.status(404).json({ message: 'Usuário não encontrado' });
+        }
+        
+        // Atualizar plano
+        await db.run('UPDATE users SET subscription_plan = ?, plan = ? WHERE id = ?', [plan, plan, userId]);
+        
+        // Adicionar créditos automáticos se não for plano free
+        if (plan !== 'plan-free') {
+            await addPlanCredits(userId, plan, false);
+        }
+        
+        res.json({ 
+            message: 'Plano alterado com sucesso',
+            plan: plan
+        });
+    } catch (error) {
+        console.error('Erro ao alterar plano:', error);
+        res.status(500).json({ message: 'Erro ao alterar plano' });
     }
 });
 

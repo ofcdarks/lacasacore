@@ -448,11 +448,31 @@
             
             .comparison-table {
                 font-size: 12px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .comparison-table table {
+                min-width: 800px;
             }
             
             .comparison-table th,
             .comparison-table td {
                 padding: 12px 8px;
+                font-size: 12px;
+            }
+            
+            .plans-grid {
+                grid-template-columns: 1fr !important;
+            }
+            
+            .feature-item {
+                font-size: 14px;
+                padding: 12px 0;
+            }
+            
+            .example-box {
+                padding: 12px;
                 font-size: 12px;
             }
         }
@@ -471,14 +491,75 @@
             }
             
             .feature-item {
-                font-size: 14px;
-                padding: 12px 0;
+                font-size: 13px;
+                padding: 10px 0;
+                gap: 8px;
+            }
+            
+            .feature-icon {
+                width: 16px !important;
+                height: 16px !important;
             }
             
             .btn-netflix,
             .btn-netflix-secondary {
                 padding: 12px 24px;
                 font-size: 13px;
+            }
+            
+            .credits-badge {
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+            
+            .example-box {
+                padding: 10px;
+                font-size: 11px;
+            }
+            
+            .comparison-table {
+                font-size: 11px;
+            }
+            
+            .comparison-table th,
+            .comparison-table td {
+                padding: 10px 6px;
+                font-size: 11px;
+            }
+            
+            .nav-link {
+                font-size: 13px;
+                padding: 10px 12px;
+            }
+        }
+        
+        /* Melhorias para tablets */
+        @media (min-width: 481px) and (max-width: 1024px) {
+            .plans-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+            
+            .comparison-table {
+                overflow-x: auto;
+            }
+        }
+        
+        /* Ajustes para telas muito pequenas */
+        @media (max-width: 360px) {
+            .title-netflix {
+                font-size: 24px;
+            }
+            
+            .price-netflix {
+                font-size: 32px;
+            }
+            
+            .section-title {
+                font-size: 24px;
+            }
+            
+            .plan-card-netflix {
+                padding: 16px !important;
             }
         }
         
@@ -793,7 +874,7 @@
                     <ul class="feature-list">
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span><span class="feature-highlight">5 vídeos</span> ou <span class="feature-highlight">5 roteiros</span> ou <span class="feature-highlight">15 min áudio</span></span>
+                            <span><span class="feature-highlight">5 vídeos</span> ou <span class="feature-highlight">até 40 min de roteiros</span> ou <span class="feature-highlight">15 min áudio</span></span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -815,6 +896,18 @@
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Gerador de Thumbnails (5/mês)</span>
                         </li>
+                        <li class="feature-item">
+                            <i data-lucide="x" class="feature-icon w-5 h-5" style="color: #ef4444;"></i>
+                            <span style="opacity: 0.6;">API Própria (apenas planos anuais)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>YouTube Data API + Cookies (configurável)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">10 MB</span> de armazenamento no servidor</span>
+                        </li>
                     </ul>
                     <button class="btn-netflix-secondary">Plano Gratuito</button>
                 </div>
@@ -824,7 +917,7 @@
                     <div class="text-center mb-8">
                         <h3 class="text-2xl font-bold mb-4">START CREATOR</h3>
                         <div class="mb-4">
-                            <span class="price-netflix">R$ 69,90</span>
+                            <span class="price-netflix">R$ 79,90</span>
                             <span class="price-period">/mês</span>
                         </div>
                         <div class="credits-badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);">
@@ -834,7 +927,7 @@
                     <ul class="feature-list">
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span><span class="feature-highlight">50 vídeos</span> ou <span class="feature-highlight">50 roteiros</span> ou <span class="feature-highlight">30 min–1h de áudio</span></span>
+                            <span><span class="feature-highlight">30–50 vídeos</span> ou <span class="feature-highlight">~200 min de roteiros</span> ou <span class="feature-highlight">30–60 min de áudio</span></span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -864,11 +957,23 @@
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Gerador de Imagens Ilimitado</span>
                         </li>
+                        <li class="feature-item">
+                            <i data-lucide="x" class="feature-icon w-5 h-5" style="color: #ef4444;"></i>
+                            <span style="opacity: 0.6;">API Própria (apenas planos anuais)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>YouTube Data API + Cookies (configurável)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">150 MB</span> de armazenamento no servidor</span>
+                        </li>
                     </ul>
                     <div class="example-box">
                         <div class="example-title">Exemplo Real:</div>
                         <div class="example-item">30 vídeos → 600 créditos</div>
-                        <div class="example-item">30 roteiros → 300 créditos</div>
+                        <div class="example-item">~200 min de roteiros → 300 créditos</div>
                         <div class="example-item">15 min áudio → 50 créditos</div>
                         <div class="example-item" style="font-weight: 600; color: #f59e0b; margin-top: 8px;">Total → 950 créditos</div>
                     </div>
@@ -891,7 +996,7 @@
                     <ul class="feature-list">
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span><span class="feature-highlight">125 vídeos</span> ou <span class="feature-highlight">250 roteiros</span> ou <span class="feature-highlight">1–2h de áudio</span></span>
+                            <span><span class="feature-highlight">60–125 vídeos</span> ou <span class="feature-highlight">~500 min de roteiros</span> ou <span class="feature-highlight">1–2h de áudio</span></span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -921,11 +1026,23 @@
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Imagens em Lote Ilimitado</span>
                         </li>
+                        <li class="feature-item">
+                            <i data-lucide="x" class="feature-icon w-5 h-5" style="color: #ef4444;"></i>
+                            <span style="opacity: 0.6;">API Própria (apenas planos anuais)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span>YouTube Data API + Cookies (configurável)</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">250 MB</span> de armazenamento no servidor</span>
+                        </li>
                     </ul>
                     <div class="example-box">
                         <div class="example-title">Exemplo Real:</div>
                         <div class="example-item">60 vídeos → 1.200 créditos</div>
-                        <div class="example-item">60 roteiros → 600 créditos</div>
+                        <div class="example-item">~500 min de roteiros → 600 créditos</div>
                         <div class="example-item">1h de áudio → 200 créditos</div>
                         <div class="example-item" style="font-weight: 600; color: #f59e0b; margin-top: 8px;">Total → 2.000 créditos</div>
                     </div>
@@ -948,7 +1065,7 @@
                     <ul class="feature-list">
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span><span class="feature-highlight">250 vídeos</span> ou <span class="feature-highlight">250 roteiros</span> ou <span class="feature-highlight">3 horas de áudio</span></span>
+                            <span><span class="feature-highlight">250 vídeos</span> ou <span class="feature-highlight">~10.000 min de roteiros</span> ou <span class="feature-highlight">25 horas de áudio</span></span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -968,7 +1085,7 @@
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span>Integração YouTube API</span>
+                            <span><span class="feature-highlight">API Própria Liberada</span> (YouTube Data API + Cookies)</span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -981,6 +1098,10 @@
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Analytics Enterprise</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">500 MB</span> de armazenamento no servidor</span>
                         </li>
                     </ul>
                     <div class="example-box">
@@ -1035,7 +1156,7 @@
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span>30–100 roteiros/mês</span>
+                            <span>~66 horas de roteiros/mês</span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -1048,6 +1169,14 @@
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Todas funcionalidades START</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">API Própria Liberada</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">1 GB</span> de armazenamento no servidor</span>
                         </li>
                     </ul>
                     <button class="btn-netflix">Assinar Anual</button>
@@ -1080,7 +1209,7 @@
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span>60–250 roteiros/mês</span>
+                            <span>~200 horas de roteiros/mês</span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -1101,6 +1230,14 @@
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Todas funcionalidades TURBO</span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">API Própria Liberada</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">1 GB</span> de armazenamento no servidor</span>
                         </li>
                     </ul>
                     <button class="btn-netflix">Assinar Anual</button>
@@ -1133,7 +1270,7 @@
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
-                            <span>120–500 roteiros/mês</span>
+                            <span>~400+ horas de roteiros/mês</span>
                         </li>
                         <li class="feature-item">
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
@@ -1155,6 +1292,14 @@
                             <i data-lucide="check" class="feature-icon w-5 h-5"></i>
                             <span>Todas funcionalidades MASTER</span>
                         </li>
+                        <li class="feature-item">
+                            <i data-lucide="check" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">API Própria Liberada</span></span>
+                        </li>
+                        <li class="feature-item">
+                            <i data-lucide="hard-drive" class="feature-icon w-5 h-5"></i>
+                            <span><span class="feature-highlight">1 GB</span> de armazenamento no servidor</span>
+                        </li>
                     </ul>
                     <button class="btn-netflix">Assinar Anual</button>
                 </div>
@@ -1174,7 +1319,7 @@
             <div class="plans-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
                 <div class="plan-card-netflix p-6 text-center fade-in">
                     <h3 class="text-xl font-bold mb-4">1.000 CRÉDITOS</h3>
-                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 69,90</div>
+                    <div class="price-netflix text-3xl mb-2" style="font-size: 42px;">R$ 79,90</div>
                     <div class="text-sm text-gray-400 mb-6">Mesmo valor do plano START</div>
                     <button class="btn-netflix-secondary text-sm">Comprar</button>
                 </div>
@@ -1237,18 +1382,18 @@
                             <td>100</td>
                             <td>—</td>
                             <td>5</td>
-                            <td>10</td>
+                            <td>até 40 min</td>
                             <td>15 min</td>
                             <td>10 min/mês</td>
                             <td>1 agente</td>
                         </tr>
                         <tr>
                             <td class="highlight">START</td>
-                            <td>R$ 69,90</td>
+                            <td>R$ 79,90</td>
                             <td>1.000</td>
                             <td>12.000</td>
                             <td>30–50</td>
-                            <td>30–100</td>
+                            <td>~200 min</td>
                             <td>30–60 min</td>
                             <td>2h/mês</td>
                             <td>5 agentes</td>
@@ -1259,7 +1404,7 @@
                             <td>2.500</td>
                             <td>30.000</td>
                             <td>60–125</td>
-                            <td>60–250</td>
+                            <td>~500 min</td>
                             <td>1–2h</td>
                             <td>10h/mês</td>
                             <td>15 agentes</td>
@@ -1270,7 +1415,7 @@
                             <td>5.000</td>
                             <td>60.000</td>
                             <td>120–250</td>
-                            <td>120–500</td>
+                            <td>~10.000 min</td>
                             <td>3h+</td>
                             <td>Ilimitado</td>
                             <td>Ilimitado</td>

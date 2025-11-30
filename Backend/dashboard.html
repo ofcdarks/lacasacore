@@ -193,6 +193,252 @@
             border-bottom-color: #f59e0b !important;
             color: #f59e0b !important;
         }
+        
+        /* Animação pulsante para botões de comprar créditos */
+        @keyframes pulse-credits {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+                transform: scale(1.02);
+            }
+        }
+        
+        .btn-credits-pulse {
+            animation: pulse-credits 2s ease-in-out infinite;
+        }
+        
+        /* Modal customizado */
+        .custom-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        .custom-modal {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(15, 15, 15, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(245, 158, 11, 0.2);
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: scaleIn 0.3s ease-out;
+            position: relative;
+        }
+        
+        .custom-modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .custom-modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .custom-modal-close {
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.6);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        
+        .custom-modal-close:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .custom-modal-body {
+            padding: 24px;
+        }
+        
+        .custom-modal-message {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        
+        .custom-modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(30, 30, 30, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+        }
+        
+        .custom-modal-input:focus {
+            outline: none;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+        }
+        
+        .custom-modal-footer {
+            padding: 20px 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .custom-modal-btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        
+        .custom-modal-btn-primary {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000000;
+        }
+        
+        .custom-modal-btn-primary:hover {
+            background: linear-gradient(135deg, #d97706, #b45309);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+        }
+        
+        .custom-modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .custom-modal-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Notificações */
+        .notification-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 400px;
+        }
+        
+        .notification {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(15, 15, 15, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-left: 4px solid #f59e0b;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 20px rgba(245, 158, 11, 0.15);
+            animation: slideInRight 0.3s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .notification::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            animation: shimmer 2s linear infinite;
+        }
+        
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: -100% 0; }
+            100% { background-position: 100% 0; }
+        }
+        
+        .notification-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .notification-icon {
+            width: 20px;
+            height: 20px;
+            color: #f59e0b;
+        }
+        
+        .notification-title {
+            font-weight: 700;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        
+        .notification-message {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .notification-close {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        
+        .notification-close:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        @media (max-width: 768px) {
+            .notification-container {
+                right: 10px;
+                bottom: 10px;
+                max-width: calc(100% - 20px);
+            }
+        }
     </style>
 </head>
 <body class="bg-black text-gray-300">
@@ -296,13 +542,30 @@
                     </div>
                     <p class="text-lg font-bold text-yellow-400" id="sidebar-user-credits-balance">0.00</p>
                     <div class="mt-2 space-y-2">
-                        <a href="/plans.html" id="sidebar-buy-credits-btn" class="block w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-lg transition duration-200 text-center cursor-pointer">
+                        <a href="/plans.html" id="sidebar-buy-credits-btn" class="block w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                             <i data-lucide="zap" class="w-3 h-3 inline-block mr-1"></i>
                             Comprar Créditos
                         </a>
                         <button id="sidebar-view-credits-history" class="w-full text-xs text-yellow-400 hover:text-yellow-300 underline text-left">
                         Ver Histórico
                     </button>
+                    </div>
+                </div>
+                
+                <!-- Armazenamento no Sidebar -->
+                <div class="mt-4 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="hard-drive" class="w-4 h-4 text-indigo-500"></i>
+                            <span class="text-xs font-medium text-gray-400">Armazenamento</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-bold text-white" id="sidebar-storage-used">0 MB</p>
+                    <p class="text-xs text-gray-500" id="sidebar-storage-limit">de 10 MB</p>
+                    <div class="mt-2">
+                        <div class="w-full bg-gray-700 rounded-full h-1.5">
+                            <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" id="sidebar-storage-progress" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -348,7 +611,7 @@
                 </header>
 
                 <!-- Dashboard de Estatísticas -->
-                <div id="dashboard-stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+                <div id="dashboard-stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
                     <!-- Card: Total de Vídeos -->
                     <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
                         <div class="flex items-center justify-between mb-4">
@@ -392,11 +655,29 @@
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Créditos Disponíveis</h3>
                         <p class="text-3xl font-bold text-white" id="stat-credits-balance">0.00</p>
                         <div class="mt-3 space-y-2">
-                            <a href="/plans.html" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer">
+                            <a href="/plans.html" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                                 <i data-lucide="zap" class="w-4 h-4 inline-block mr-1"></i>
                                 Comprar Créditos
                             </a>
                             <button id="view-credits-history-btn" class="w-full text-xs text-yellow-400 hover:text-yellow-300 underline text-center">Ver Histórico</button>
+                        </div>
+                    </div>
+
+                    <!-- Card: Armazenamento -->
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="p-3 bg-indigo-500/20 rounded-lg">
+                                <i data-lucide="hard-drive" class="w-6 h-6 text-indigo-500"></i>
+                            </div>
+                        </div>
+                        <h3 class="text-sm font-medium text-gray-400 mb-1">Armazenamento</h3>
+                        <p class="text-3xl font-bold text-white" id="stat-storage-used">0 MB</p>
+                        <p class="text-xs text-gray-500 mt-1" id="stat-storage-limit">de 10 MB</p>
+                        <div class="mt-3">
+                            <div class="w-full bg-gray-700 rounded-full h-2 mb-2">
+                                <div class="bg-indigo-500 h-2 rounded-full transition-all duration-300" id="stat-storage-progress" style="width: 0%"></div>
+                            </div>
+                            <p class="text-xs text-gray-400 text-center" id="stat-storage-percentage">0% usado</p>
                         </div>
                     </div>
 
@@ -2444,6 +2725,18 @@
                             <i data-lucide="trending-up" class="w-4 h-4 inline mr-2"></i>
                             Assinaturas
                         </button>
+                        <button class="admin-tab-btn px-6 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600 transition-colors" data-tab="storage">
+                            <i data-lucide="hard-drive" class="w-4 h-4 inline mr-2"></i>
+                            Armazenamento
+                        </button>
+                        <button class="admin-tab-btn px-6 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600 transition-colors" data-tab="notifications">
+                            <i data-lucide="bell" class="w-4 h-4 inline mr-2"></i>
+                            Notificações
+                        </button>
+                        <button class="admin-tab-btn px-6 py-3 text-sm font-medium text-gray-400 hover:text-white border-b-2 border-transparent hover:border-gray-600 transition-colors" data-tab="plan-permissions">
+                            <i data-lucide="shield" class="w-4 h-4 inline mr-2"></i>
+                            Permissões de Planos
+                        </button>
                     </nav>
                 </div>
 
@@ -2503,6 +2796,7 @@
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Email</th>
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Whatsapp</th>
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cargo</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Plano</th>
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Tags</th>
                                         <th class="p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Acoes</th>
@@ -3241,7 +3535,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">START CREATOR</h4>
-                                            <p class="text-sm text-gray-400">R$ 69,90 - 1.000 créditos/mês</p>
+                                            <p class="text-sm text-gray-400">R$ 79,90 - 1.000 créditos/mês</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -3335,7 +3629,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">1.000 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 69,90</p>
+                                            <p class="text-sm text-gray-400">R$ 79,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -3777,6 +4071,245 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     </div>
                 </div>
+
+                <!-- Aba: Armazenamento -->
+                <div id="admin-tab-storage" class="admin-tab-content space-y-8" style="display: none;">
+                    <!-- Estatísticas do Servidor -->
+                    <div class="bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
+                        <h2 class="text-2xl font-bold text-white mb-4 flex items-center">
+                            <i data-lucide="server" class="w-6 h-6 mr-2 text-indigo-500"></i>
+                            Estatísticas do Servidor
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm text-gray-400">Espaço Total</span>
+                                    <i data-lucide="hard-drive" class="w-5 h-5 text-blue-400"></i>
+                                </div>
+                                <p id="server-total-space" class="text-2xl font-bold text-white">0 GB</p>
+                                <p class="text-xs text-gray-500 mt-1">Capacidade total do servidor</p>
+                            </div>
+                            <div class="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm text-gray-400">Espaço Usado (Usuários)</span>
+                                    <i data-lucide="database" class="w-5 h-5 text-yellow-400"></i>
+                                </div>
+                                <p id="server-users-storage" class="text-2xl font-bold text-white">0 GB</p>
+                                <p class="text-xs text-gray-500 mt-1">Total usado por todos os usuários</p>
+                            </div>
+                            <div class="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm text-gray-400">Arquivos Temporários</span>
+                                    <i data-lucide="folder" class="w-5 h-5 text-green-400"></i>
+                                </div>
+                                <p id="server-temp-storage" class="text-2xl font-bold text-white">0 MB</p>
+                                <p class="text-xs text-gray-500 mt-1">Pasta temp_audio</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lista de Usuários e Armazenamento -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-semibold text-white flex items-center">
+                                <i data-lucide="users" class="w-5 h-5 mr-2 text-indigo-500"></i>
+                                Armazenamento por Usuário
+                            </h2>
+                            <div class="flex gap-2">
+                                <input type="text" id="storage-search" placeholder="Buscar por email ou nome..." class="px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm">
+                                <button id="refresh-storage-stats" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition text-sm">
+                                    <i data-lucide="refresh-cw" class="w-4 h-4 inline mr-2"></i>
+                                    Atualizar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-900">
+                                    <tr>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Usuário</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Plano</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Usado</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Limite</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Uso</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="storage-table-body">
+                                    <tr>
+                                        <td colspan="6" class="p-4 text-center text-gray-400">Carregando...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Aba: Notificações -->
+                <div id="admin-tab-notifications" class="admin-tab-content space-y-8" style="display: none;">
+                    <!-- Configuração de Notificações -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                            <i data-lucide="settings" class="w-5 h-5 mr-2 text-indigo-500"></i>
+                            Configuração de Notificações
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                    <i data-lucide="shopping-cart" class="w-4 h-4 mr-2 text-green-500"></i>
+                                    Notificações de Compra
+                                </h3>
+                                <div class="space-y-3">
+                                    <label class="flex items-center">
+                                        <input type="checkbox" id="notif-purchase-enabled" class="mr-2">
+                                        <span class="text-gray-300">Ativar notificações de compra</span>
+                                    </label>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-2">Intervalo entre notificações (segundos)</label>
+                                        <input type="number" id="notif-purchase-interval" value="5" min="1" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-2">Mensagem padrão</label>
+                                        <textarea id="notif-purchase-message" rows="3" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white" placeholder="Ex: {name} acabou de comprar {plan}">🎉 {name} acabou de comprar o plano {plan}!</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                    <i data-lucide="user-plus" class="w-4 h-4 mr-2 text-blue-500"></i>
+                                    Notificações de Novos Usuários
+                                </h3>
+                                <div class="space-y-3">
+                                    <label class="flex items-center">
+                                        <input type="checkbox" id="notif-user-enabled" class="mr-2">
+                                        <span class="text-gray-300">Ativar notificações de novos usuários</span>
+                                    </label>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-2">Intervalo entre notificações (segundos)</label>
+                                        <input type="number" id="notif-user-interval" value="5" min="1" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-2">Mensagem padrão</label>
+                                        <textarea id="notif-user-message" rows="3" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white" placeholder="Ex: {name} acabou de se cadastrar">👋 {name} acabou de se cadastrar na plataforma!</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <button id="save-notifications-config" class="flex-1 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+                                <i data-lucide="save" class="w-4 h-4 inline mr-2"></i>
+                                Salvar Configurações
+                            </button>
+                            <button id="test-notification-btn" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                                <i data-lucide="bell" class="w-4 h-4 inline mr-2"></i>
+                                Testar Notificação
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Usuários Fictícios -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                            <i data-lucide="users" class="w-5 h-5 mr-2 text-purple-500"></i>
+                            Usuários Fictícios
+                        </h2>
+                        <div class="mb-4 flex gap-3">
+                            <button id="add-fake-user-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition">
+                                <i data-lucide="plus" class="w-4 h-4 inline mr-2"></i>
+                                Adicionar Usuário Fictício
+                            </button>
+                            <button id="create-bulk-users-btn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">
+                                <i data-lucide="users" class="w-4 h-4 inline mr-2"></i>
+                                Criar 100 Usuários (50 Compra + 50 Novo)
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-900">
+                                    <tr>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Nome</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Email</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Tipo</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Status</th>
+                                        <th class="p-3 text-xs font-semibold text-gray-400 uppercase">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fake-users-table-body">
+                                    <tr>
+                                        <td colspan="5" class="p-4 text-center text-gray-400">Nenhum usuário fictício cadastrado</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Controles de Loop -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                            <i data-lucide="play-circle" class="w-5 h-5 mr-2 text-amber-500"></i>
+                            Controles de Loop
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">Notificações de Compra</h3>
+                                <div class="space-y-3">
+                                    <button id="start-purchase-loop" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+                                        <i data-lucide="play" class="w-4 h-4 inline mr-2"></i>
+                                        Iniciar Loop
+                                    </button>
+                                    <button id="stop-purchase-loop" class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition" disabled>
+                                        <i data-lucide="stop-circle" class="w-4 h-4 inline mr-2"></i>
+                                        Parar Loop
+                                    </button>
+                                    <div class="text-sm text-gray-400">
+                                        Status: <span id="purchase-loop-status" class="text-gray-300">Parado</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">Notificações de Novos Usuários</h3>
+                                <div class="space-y-3">
+                                    <button id="start-user-loop" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+                                        <i data-lucide="play" class="w-4 h-4 inline mr-2"></i>
+                                        Iniciar Loop
+                                    </button>
+                                    <button id="stop-user-loop" class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition" disabled>
+                                        <i data-lucide="stop-circle" class="w-4 h-4 inline mr-2"></i>
+                                        Parar Loop
+                                    </button>
+                                    <div class="text-sm text-gray-400">
+                                        Status: <span id="user-loop-status" class="text-gray-300">Parado</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Aba: Permissões de Planos -->
+                <div id="admin-tab-plan-permissions" class="admin-tab-content space-y-8" style="display: none;">
+                    <!-- Configuração de Créditos por Plano -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                            <i data-lucide="coins" class="w-5 h-5 mr-2 text-yellow-500"></i>
+                            Créditos Mensais por Plano
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="plan-credits-list">
+                            <!-- Será preenchido via JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- Permissões por Plano -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                            <i data-lucide="shield" class="w-5 h-5 mr-2 text-indigo-500"></i>
+                            Permissões de Funcionalidades por Plano
+                        </h2>
+                        <div id="plan-permissions-list" class="space-y-6">
+                            <!-- Será preenchido via JavaScript -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
         </main>
@@ -3798,6 +4331,32 @@ Equipe La Casa Dark Core</textarea>
             <div id="modal-error" class="error-message" style="display: none;"></div>
             <div id="modal-video-list" class="overflow-y-auto flex-1 space-y-6 pr-2">
                 <!-- Lista de vídeos será inserida aqui -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Container de Notificações -->
+    <div id="notification-container" class="notification-container"></div>
+    
+    <!-- Modal Customizado (substitui prompt/confirm) -->
+    <div id="custom-modal-overlay" class="custom-modal-overlay" style="display: none;">
+        <div class="custom-modal">
+            <div class="custom-modal-header">
+                <h3 class="custom-modal-title" id="custom-modal-title">
+                    <i data-lucide="alert-circle" class="w-5 h-5"></i>
+                    <span id="custom-modal-title-text">Confirmação</span>
+                </h3>
+                <button class="custom-modal-close" id="custom-modal-close">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="custom-modal-body">
+                <p class="custom-modal-message" id="custom-modal-message"></p>
+                <input type="text" id="custom-modal-input" class="custom-modal-input" style="display: none;" placeholder="">
+            </div>
+            <div class="custom-modal-footer">
+                <button class="custom-modal-btn custom-modal-btn-secondary" id="custom-modal-cancel">Cancelar</button>
+                <button class="custom-modal-btn custom-modal-btn-primary" id="custom-modal-confirm">Confirmar</button>
             </div>
         </div>
     </div>
@@ -4116,6 +4675,200 @@ Equipe La Casa Dark Core</textarea>
                 };
             }
 
+            // ================================================
+            // SISTEMA DE MODAL CUSTOMIZADO
+            // ================================================
+            
+            function showCustomConfirm(message, title = 'Confirmação') {
+                return new Promise((resolve) => {
+                    const overlay = document.getElementById('custom-modal-overlay');
+                    const titleEl = document.getElementById('custom-modal-title-text');
+                    const messageEl = document.getElementById('custom-modal-message');
+                    const inputEl = document.getElementById('custom-modal-input');
+                    const confirmBtn = document.getElementById('custom-modal-confirm');
+                    const cancelBtn = document.getElementById('custom-modal-cancel');
+                    const closeBtn = document.getElementById('custom-modal-close');
+                    
+                    // Configurar modal
+                    titleEl.textContent = title;
+                    messageEl.textContent = message;
+                    inputEl.style.display = 'none';
+                    confirmBtn.textContent = 'Confirmar';
+                    
+                    // Mostrar modal
+                    overlay.style.display = 'flex';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Handlers
+                    const cleanup = () => {
+                        overlay.style.display = 'none';
+                        confirmBtn.onclick = null;
+                        cancelBtn.onclick = null;
+                        closeBtn.onclick = null;
+                    };
+                    
+                    confirmBtn.onclick = () => {
+                        cleanup();
+                        resolve(true);
+                    };
+                    
+                    cancelBtn.onclick = () => {
+                        cleanup();
+                        resolve(false);
+                    };
+                    
+                    closeBtn.onclick = () => {
+                        cleanup();
+                        resolve(false);
+                    };
+                });
+            }
+            
+            function showCustomPrompt(message, defaultValue = '', title = 'Entrada') {
+                return new Promise((resolve) => {
+                    const overlay = document.getElementById('custom-modal-overlay');
+                    const titleEl = document.getElementById('custom-modal-title-text');
+                    const messageEl = document.getElementById('custom-modal-message');
+                    const inputEl = document.getElementById('custom-modal-input');
+                    const confirmBtn = document.getElementById('custom-modal-confirm');
+                    const cancelBtn = document.getElementById('custom-modal-cancel');
+                    const closeBtn = document.getElementById('custom-modal-close');
+                    
+                    // Configurar modal
+                    titleEl.textContent = title;
+                    messageEl.textContent = message;
+                    inputEl.style.display = 'block';
+                    inputEl.value = defaultValue;
+                    inputEl.focus();
+                    inputEl.select();
+                    confirmBtn.textContent = 'OK';
+                    
+                    // Mostrar modal
+                    overlay.style.display = 'flex';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Handlers
+                    const cleanup = () => {
+                        overlay.style.display = 'none';
+                        confirmBtn.onclick = null;
+                        cancelBtn.onclick = null;
+                        closeBtn.onclick = null;
+                        inputEl.onkeydown = null;
+                    };
+                    
+                    const handleConfirm = () => {
+                        const value = inputEl.value;
+                        cleanup();
+                        resolve(value);
+                    };
+                    
+                    const handleCancel = () => {
+                        cleanup();
+                        resolve(null);
+                    };
+                    
+                    confirmBtn.onclick = handleConfirm;
+                    cancelBtn.onclick = handleCancel;
+                    closeBtn.onclick = handleCancel;
+                    
+                    inputEl.onkeydown = (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleConfirm();
+                        } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            handleCancel();
+                        }
+                    };
+                });
+            }
+            
+            // ================================================
+            // SISTEMA DE NOTIFICAÇÕES
+            // ================================================
+            
+            function showNotification(title, message, type = 'info', duration = 5000) {
+                const container = document.getElementById('notification-container');
+                if (!container) return;
+                
+                const notification = document.createElement('div');
+                notification.className = 'notification';
+                
+                const icons = {
+                    info: 'info',
+                    success: 'check-circle',
+                    warning: 'alert-triangle',
+                    error: 'x-circle',
+                    user: 'user-plus',
+                    purchase: 'shopping-cart'
+                };
+                
+                const icon = icons[type] || 'info';
+                
+                notification.innerHTML = `
+                    <button class="notification-close">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                    <div class="notification-header">
+                        <i data-lucide="${icon}" class="notification-icon"></i>
+                        <span class="notification-title">${title}</span>
+                    </div>
+                    <div class="notification-message">${message}</div>
+                `;
+                
+                container.appendChild(notification);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                
+                // Auto-remover após duração
+                if (duration > 0) {
+                    setTimeout(() => {
+                        notification.style.animation = 'slideInRight 0.3s ease-out reverse';
+                        setTimeout(() => notification.remove(), 300);
+                    }, duration);
+                }
+                
+                // Botão de fechar
+                notification.querySelector('.notification-close').addEventListener('click', () => {
+                    notification.style.animation = 'slideInRight 0.3s ease-out reverse';
+                    setTimeout(() => notification.remove(), 300);
+                });
+            }
+            
+            // Polling para notificações
+            let notificationPollInterval = null;
+            
+            function startNotificationPolling() {
+                if (notificationPollInterval) return;
+                
+                notificationPollInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/api/notifications/pending`, {
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        if (response.ok) {
+                            const notifications = await response.json();
+                            notifications.forEach(notif => {
+                                showNotification(notif.title, notif.message, notif.type, notif.duration || 5000);
+                                // Marcar como lida
+                                fetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
+                                    method: 'POST',
+                                    headers: { 'Authorization': `Bearer ${userToken}` }
+                                }).catch(() => {});
+                            });
+                        }
+                    } catch (err) {
+                        console.error('Erro ao buscar notificações:', err);
+                    }
+                }, 3000); // Verificar a cada 3 segundos
+            }
+            
+            function stopNotificationPolling() {
+                if (notificationPollInterval) {
+                    clearInterval(notificationPollInterval);
+                    notificationPollInterval = null;
+                }
+            }
+            
             function showMessage(elementId, message, isError = false) {
                 const msgBox = document.getElementById(elementId);
                 if (!msgBox) return;
@@ -4327,7 +5080,8 @@ Equipe La Casa Dark Core</textarea>
             }
 
             async function toggleUserBlockStatus(userId, isBlocked) {
-                if (!confirm(`Tem certeza que deseja ${isBlocked ? 'bloquear' : 'desbloquear'} este utilizador?`)) return;
+                const confirmed = await showCustomConfirm(`Tem certeza que deseja ${isBlocked ? 'bloquear' : 'desbloquear'} este utilizador?`);
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/admin/users/${userId}/status`, {
                         method: 'PUT',
@@ -4347,7 +5101,8 @@ Equipe La Casa Dark Core</textarea>
             }
 
             async function deleteUser(userId) {
-                if (!confirm('Tem certeza que deseja EXCLUIR este utilizador? Esta ação é irreversível.')) return;
+                const confirmed = await showCustomConfirm('Tem certeza que deseja EXCLUIR este utilizador? Esta ação é irreversível.');
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
                         method: 'DELETE',
@@ -4456,6 +5211,29 @@ Equipe La Casa Dark Core</textarea>
                         const roleText = user.isAdmin ? 'Admin' : 'Utilizador';
                         const tags = 'N/A'; // Placeholder for tags
                         const whatsappLink = createWhatsAppLink(user.whatsapp);
+                        
+                        // Formatar plano
+                        const planName = user.subscription_plan || user.plan || 'plan-free';
+                        const planLabels = {
+                            'plan-free': 'FREE',
+                            'plan-start': 'START',
+                            'plan-turbo': 'TURBO',
+                            'plan-master': 'MASTER',
+                            'plan-start-annual': 'START ANUAL',
+                            'plan-turbo-annual': 'TURBO ANUAL',
+                            'plan-master-annual': 'MASTER ANUAL'
+                        };
+                        const planLabel = planLabels[planName] || planName;
+                        const planColors = {
+                            'plan-free': 'bg-gray-600/50 text-gray-300',
+                            'plan-start': 'bg-blue-600/50 text-blue-300',
+                            'plan-turbo': 'bg-yellow-600/50 text-yellow-300',
+                            'plan-master': 'bg-purple-600/50 text-purple-300',
+                            'plan-start-annual': 'bg-blue-700/50 text-blue-200',
+                            'plan-turbo-annual': 'bg-yellow-700/50 text-yellow-200',
+                            'plan-master-annual': 'bg-purple-700/50 text-purple-200'
+                        };
+                        const planColor = planColors[planName] || 'bg-gray-600/50 text-gray-300';
 
                         tableBody.innerHTML += `
                             <tr class="border-b border-gray-700 hover:bg-gray-700/50">
@@ -4463,6 +5241,11 @@ Equipe La Casa Dark Core</textarea>
                                 <td class="p-3 text-sm text-gray-200">${user.email}</td>
                                 <td class="p-3 text-sm">${whatsappLink}</td>
                                 <td class="p-3 text-sm text-gray-400">${roleText}</td>
+                                <td class="p-3">
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${planColor}">
+                                        ${planLabel}
+                                    </span>
+                                </td>
                                 <td class="p-3">
                                     <span class="px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">
                                         ${statusText}
@@ -4483,6 +5266,9 @@ Equipe La Casa Dark Core</textarea>
                                         </button>
                                         <button title="${user.isBlocked ? 'Desbloquear' : 'Bloquear'}" class="p-2 rounded-md hover:bg-gray-700 transition-colors ${user.isBlocked ? 'text-green-500' : 'text-red-500'} btn-admin-action" data-action="toggle-block" data-id="${user.id}" data-is-blocked="${user.isBlocked}">
                                             <i data-lucide="${user.isBlocked ? 'unlock' : 'lock'}" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
+                                        <button title="Alterar Plano" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-purple-500 btn-admin-action" data-action="change-plan" data-id="${user.id}" data-user='${JSON.stringify(user)}'>
+                                            <i data-lucide="credit-card" class="w-4 h-4 pointer-events-none"></i>
                                         </button>
                                         <button title="Excluir" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-red-600 btn-admin-action" data-action="delete" data-id="${user.id}">
                                             <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
@@ -4538,6 +5324,12 @@ Equipe La Casa Dark Core</textarea>
                             } else if (targetTab === 'subscriptions') {
                                 attachSubscriptionsListeners();
                                 loadAdminSubscriptions();
+                            } else if (targetTab === 'storage') {
+                                loadAdminStorage();
+                            } else if (targetTab === 'notifications') {
+                                loadAdminNotifications();
+                            } else if (targetTab === 'plan-permissions') {
+                                loadAdminPlanPermissions();
                             }
                         }
                     });
@@ -4549,6 +5341,765 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
+            // Função para carregar e gerenciar notificações
+            let purchaseLoopInterval = null;
+            let userLoopInterval = null;
+            
+            async function loadAdminNotifications() {
+                try {
+                    // Carregar configurações
+                    const configResponse = await fetch(`${API_BASE}/api/admin/notifications/config`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (configResponse.ok) {
+                        const config = await configResponse.json();
+                        document.getElementById('notif-purchase-enabled').checked = config.purchase_enabled;
+                        document.getElementById('notif-purchase-interval').value = config.purchase_interval;
+                        document.getElementById('notif-purchase-message').value = config.purchase_message;
+                        document.getElementById('notif-user-enabled').checked = config.user_enabled;
+                        document.getElementById('notif-user-interval').value = config.user_interval;
+                        document.getElementById('notif-user-message').value = config.user_message;
+                    }
+                    
+                    // Carregar usuários fictícios
+                    await loadFakeUsers();
+                    
+                    // Botão para criar usuários em massa
+                    const createBulkUsersBtn = document.getElementById('create-bulk-users-btn');
+                    if (createBulkUsersBtn) {
+                        // Remover listener antigo se existir
+                        const newBtn = createBulkUsersBtn.cloneNode(true);
+                        createBulkUsersBtn.parentNode.replaceChild(newBtn, createBulkUsersBtn);
+                        newBtn.addEventListener('click', createBulkUsers);
+                    }
+                    
+                    // Remover event listeners antigos para evitar duplicação
+                    const oldSaveBtn = document.getElementById('save-notifications-config');
+                    const oldAddBtn = document.getElementById('add-fake-user-btn');
+                    const oldStartPurchase = document.getElementById('start-purchase-loop');
+                    const oldStopPurchase = document.getElementById('stop-purchase-loop');
+                    const oldStartUser = document.getElementById('start-user-loop');
+                    const oldStopUser = document.getElementById('stop-user-loop');
+                    
+                    // Clonar e substituir para remover listeners antigos
+                    if (oldSaveBtn) {
+                        const newSaveBtn = oldSaveBtn.cloneNode(true);
+                        oldSaveBtn.parentNode.replaceChild(newSaveBtn, oldSaveBtn);
+                    }
+                    if (oldAddBtn) {
+                        const newAddBtn = oldAddBtn.cloneNode(true);
+                        oldAddBtn.parentNode.replaceChild(newAddBtn, oldAddBtn);
+                    }
+                    if (oldStartPurchase) {
+                        const newStartPurchase = oldStartPurchase.cloneNode(true);
+                        oldStartPurchase.parentNode.replaceChild(newStartPurchase, oldStartPurchase);
+                    }
+                    if (oldStopPurchase) {
+                        const newStopPurchase = oldStopPurchase.cloneNode(true);
+                        oldStopPurchase.parentNode.replaceChild(newStopPurchase, oldStopPurchase);
+                    }
+                    if (oldStartUser) {
+                        const newStartUser = oldStartUser.cloneNode(true);
+                        oldStartUser.parentNode.replaceChild(newStartUser, oldStartUser);
+                    }
+                    if (oldStopUser) {
+                        const newStopUser = oldStopUser.cloneNode(true);
+                        oldStopUser.parentNode.replaceChild(newStopUser, oldStopUser);
+                    }
+                    
+                    // Adicionar event listeners
+                    document.getElementById('save-notifications-config')?.addEventListener('click', saveNotificationsConfig);
+                    document.getElementById('test-notification-btn')?.addEventListener('click', testNotification);
+                    document.getElementById('add-fake-user-btn')?.addEventListener('click', showAddFakeUserModal);
+                    document.getElementById('start-purchase-loop')?.addEventListener('click', startPurchaseLoop);
+                    document.getElementById('stop-purchase-loop')?.addEventListener('click', stopPurchaseLoop);
+                    document.getElementById('start-user-loop')?.addEventListener('click', startUserLoop);
+                    document.getElementById('stop-user-loop')?.addEventListener('click', stopUserLoop);
+                } catch (err) {
+                    console.error('Erro ao carregar notificações:', err);
+                    showMessage('admin-error-message', 'Erro ao carregar configurações de notificações', true);
+                }
+            }
+            
+            // Função para testar notificação
+            async function testNotification() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/create`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            title: 'Teste de Notificação',
+                            message: 'Esta é uma notificação de teste! 🎉',
+                            type: 'info',
+                            user_id: null
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        showMessage('admin-success-message', 'Notificação de teste criada! Ela aparecerá em alguns segundos.');
+                        // Forçar busca imediata de notificações
+                        setTimeout(async () => {
+                            try {
+                                const notifResponse = await fetch(`${API_BASE}/api/notifications/pending`, {
+                                    headers: { 'Authorization': `Bearer ${userToken}` }
+                                });
+                                if (notifResponse.ok) {
+                                    const notifications = await notifResponse.json();
+                                    if (notifications && notifications.length > 0) {
+                                        notifications.forEach(notif => {
+                                            showNotification(notif.title, notif.message, notif.type, 5000);
+                                            fetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
+                                                method: 'POST',
+                                                headers: { 'Authorization': `Bearer ${userToken}` }
+                                            }).catch(() => {});
+                                        });
+                                    }
+                                }
+                            } catch (err) {
+                                console.error('Erro ao buscar notificação de teste:', err);
+                            }
+                        }, 1000);
+                    } else {
+                        throw new Error('Erro ao criar notificação de teste');
+                    }
+                } catch (err) {
+                    showMessage('admin-error-message', err.message, true);
+                }
+            }
+            
+            async function saveNotificationsConfig() {
+                try {
+                    const config = {
+                        purchase_enabled: document.getElementById('notif-purchase-enabled').checked,
+                        purchase_interval: parseInt(document.getElementById('notif-purchase-interval').value),
+                        purchase_message: document.getElementById('notif-purchase-message').value,
+                        user_enabled: document.getElementById('notif-user-enabled').checked,
+                        user_interval: parseInt(document.getElementById('notif-user-interval').value),
+                        user_message: document.getElementById('notif-user-message').value
+                    };
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/config`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify(config)
+                    });
+                    
+                    if (response.ok) {
+                        showMessage('admin-success-message', 'Configurações salvas com sucesso!');
+                    } else {
+                        const error = await response.json();
+                        throw new Error(error.message || 'Erro ao salvar configurações');
+                    }
+                } catch (err) {
+                    showMessage('admin-error-message', err.message, true);
+                }
+            }
+            
+            async function loadFakeUsers() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (response.ok) {
+                        const users = await response.json();
+                        const tbody = document.getElementById('fake-users-table-body');
+                        if (!tbody) return;
+                        
+                        tbody.innerHTML = '';
+                        
+                        if (users.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">Nenhum usuário fictício cadastrado</td></tr>';
+                        } else {
+                            users.forEach(user => {
+                                tbody.innerHTML += `
+                                    <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                        <td class="p-3 text-sm text-white">${user.name}</td>
+                                        <td class="p-3 text-sm text-gray-300">${user.email}</td>
+                                        <td class="p-3">
+                                            <div class="flex flex-col gap-1">
+                                                <span class="px-2 py-1 text-xs font-semibold rounded-full ${user.type === 'purchase' ? 'bg-green-700 text-white' : 'bg-blue-700 text-white'}">
+                                                    ${user.type === 'purchase' ? 'Compra' : 'Usuário'}
+                                                </span>
+                                                ${user.plan_name ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-purple-700 text-white">${user.plan_name}</span>` : ''}
+                                            </div>
+                                        </td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 text-xs font-semibold rounded-full ${user.is_active ? 'bg-green-700 text-white' : 'bg-gray-700 text-gray-300'}">
+                                                ${user.is_active ? 'Ativo' : 'Inativo'}
+                                            </span>
+                                        </td>
+                                        <td class="p-3">
+                                            <button class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded btn-delete-fake-user" data-id="${user.id}">
+                                                <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            // Event listeners para deletar
+                            document.querySelectorAll('.btn-delete-fake-user').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const id = btn.dataset.id;
+                                    const confirmed = await showCustomConfirm('Tem certeza que deseja deletar este usuário fictício?');
+                                    if (!confirmed) return;
+                                    
+                                    try {
+                                        const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users/${id}`, {
+                                            method: 'DELETE',
+                                            headers: { 'Authorization': `Bearer ${userToken}` }
+                                        });
+                                        
+                                        if (response.ok) {
+                                            showMessage('admin-success-message', 'Usuário fictício deletado com sucesso!');
+                                            loadFakeUsers();
+                                        } else {
+                                            throw new Error('Erro ao deletar usuário fictício');
+                                        }
+                                    } catch (err) {
+                                        showMessage('admin-error-message', err.message, true);
+                                    }
+                                });
+                            });
+                        }
+                        
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar usuários fictícios:', err);
+                }
+            }
+            
+            // Função para criar usuários em massa
+            async function createBulkUsers() {
+                const confirmed = await showCustomConfirm(
+                    'Isso criará 100 usuários fictícios (50 para compras e 50 para novos usuários). Deseja continuar?',
+                    'Criar Usuários em Massa'
+                );
+                if (!confirmed) return;
+                
+                const emails = [
+                    'carlos.ventura@gmail.com', 'ana.clarice@gmail.com', 'lucas.araujo@gmail.com', 'mariana.teixeira@gmail.com', 'pedro.mendes@gmail.com',
+                    'julia.freitas@gmail.com', 'victor.cardoso@gmail.com', 'renata.costa@gmail.com', 'felipe.andrade@gmail.com', 'larissa.dias@gmail.com',
+                    'rodrigo.silveira@hotmail.com', 'tamara.ramos@hotmail.com', 'eduardo.santos@hotmail.com', 'bianca.motta@hotmail.com', 'igor.felix@hotmail.com',
+                    'aline.martins@hotmail.com', 'caio.monteiro@hotmail.com', 'priscila.souza@hotmail.com', 'daniel.bernardo@hotmail.com', 'gabriela.torres@hotmail.com',
+                    'joao.castro@uol.com.br', 'rafaela.lima@uol.com.br', 'diego.siqueira@uol.com.br', 'carolina.amaral@uol.com.br', 'ricardo.prado@uol.com.br',
+                    'elisa.nogueira@uol.com.br', 'tiago.rodrigues@uol.com.br', 'beatriz.vasconcelos@uol.com.br', 'henrique.moraes@uol.com.br', 'fabiana.dias@uol.com.br',
+                    'sofia.santana@gmail.com', 'bruno.pereira@gmail.com', 'luciana.castro@gmail.com', 'marcelo.correia@gmail.com', 'patricia.monteiro@gmail.com',
+                    'leonardo.silva@hotmail.com', 'isabela.nunes@hotmail.com', 'adriano.almeida@hotmail.com', 'cristina.mello@hotmail.com', 'vitor.macedo@hotmail.com',
+                    'micaela.luz@uol.com.br', 'rogerio.martins@uol.com.br', 'eduarda.pinho@uol.com.br', 'fernando.reis@uol.com.br', 'jessica.moraes@uol.com.br',
+                    'alexandre.campos@gmail.com', 'natasha.coelho@hotmail.com', 'brenda.macedo@uol.com.br', 'enzo.guimaraes@gmail.com', 'helena.souza@hotmail.com'
+                ];
+                
+                // Função para extrair primeiro nome do email
+                const getFirstName = (email) => {
+                    if (!email || typeof email !== 'string') {
+                        return 'Usuário';
+                    }
+                    try {
+                        const namePart = email.split('@')[0];
+                        if (!namePart) return 'Usuário';
+                        const parts = namePart.split('.');
+                        const firstName = parts[0] || namePart;
+                        return firstName.charAt(0).toUpperCase() + firstName.slice(1);
+                    } catch (err) {
+                        console.error('Erro ao extrair nome do email:', email, err);
+                        return 'Usuário';
+                    }
+                };
+                
+                // Criar lista de usuários
+                const users = [];
+                
+                // Primeiros 50 para compras (com planos aleatórios)
+                for (let i = 0; i < 50 && i < emails.length; i++) {
+                    const email = emails[i];
+                    if (email && typeof email === 'string') {
+                        users.push({
+                            name: getFirstName(email),
+                            email: email,
+                            type: 'purchase',
+                            plan_name: null // Aleatório
+                        });
+                    }
+                }
+                
+                // Últimos 50 para novos usuários
+                for (let i = 50; i < emails.length; i++) {
+                    const email = emails[i];
+                    if (email && typeof email === 'string') {
+                        users.push({
+                            name: getFirstName(email),
+                            email: email,
+                            type: 'user',
+                            plan_name: null
+                        });
+                    }
+                }
+                
+                if (users.length === 0) {
+                    showMessage('admin-error-message', 'Nenhum email válido encontrado!', true);
+                    return;
+                }
+                
+                try {
+                    showMessage('admin-success-message', `Criando ${users.length} usuários... Aguarde.`);
+                    
+                    console.log('[BULK USERS] Total de usuários a criar:', users.length);
+                    console.log('[BULK USERS] Primeiros 3:', users.slice(0, 3));
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ bulk: true, users })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        showMessage('admin-success-message', `${result.created || users.length} usuários fictícios criados com sucesso!`);
+                        loadFakeUsers();
+                    } else {
+                        throw new Error(result.message || 'Erro ao criar usuários');
+                    }
+                } catch (err) {
+                    console.error('[BULK USERS] Erro completo:', err);
+                    showMessage('admin-error-message', err.message || 'Erro ao criar usuários', true);
+                }
+            }
+            
+            async function showAddFakeUserModal() {
+                const name = await showCustomPrompt('Nome do usuário fictício:', '', 'Adicionar Usuário Fictício');
+                if (!name) return;
+                
+                const email = await showCustomPrompt('Email do usuário fictício:', `fake${Date.now()}@example.com`, 'Adicionar Usuário Fictício');
+                if (!email) return;
+                
+                // Criar modal para selecionar tipo e plano
+                const modal = document.getElementById('custom-modal-overlay');
+                const messageEl = document.getElementById('custom-modal-message');
+                const inputEl = document.getElementById('custom-modal-input');
+                const titleEl = document.getElementById('custom-modal-title-text');
+                
+                titleEl.textContent = 'Adicionar Usuário Fictício';
+                messageEl.innerHTML = `
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Tipo de notificação:</label>
+                            <select id="temp-type-select" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                                <option value="purchase">Compra</option>
+                                <option value="user">Usuário Novo</option>
+                            </select>
+                        </div>
+                        <div id="plan-select-container" style="display: none;">
+                            <label class="block text-sm text-gray-400 mb-2">Plano (para notificações de compra):</label>
+                            <select id="temp-plan-select" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                                <option value="">Aleatório</option>
+                                <option value="START CREATOR">START CREATOR</option>
+                                <option value="TURBO MAKER">TURBO MAKER</option>
+                                <option value="MASTER PRO">MASTER PRO</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+                inputEl.style.display = 'none';
+                
+                modal.style.display = 'flex';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                
+                const typeSelect = document.getElementById('temp-type-select');
+                const planSelect = document.getElementById('temp-plan-select');
+                const planContainer = document.getElementById('plan-select-container');
+                
+                // Mostrar/ocultar seleção de plano baseado no tipo
+                typeSelect.addEventListener('change', () => {
+                    planContainer.style.display = typeSelect.value === 'purchase' ? 'block' : 'none';
+                });
+                
+                const confirmBtn = document.getElementById('custom-modal-confirm');
+                const cancelBtn = document.getElementById('custom-modal-cancel');
+                const closeBtn = document.getElementById('custom-modal-close');
+                
+                const cleanup = () => {
+                    modal.style.display = 'none';
+                    messageEl.innerHTML = '';
+                    confirmBtn.onclick = null;
+                    cancelBtn.onclick = null;
+                    closeBtn.onclick = null;
+                    typeSelect.onchange = null;
+                };
+                
+                confirmBtn.onclick = async () => {
+                    const type = typeSelect.value;
+                    const planName = type === 'purchase' ? planSelect.value : null;
+                    try {
+                        const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({ name, email, type, plan_name: planName || null })
+                        });
+                        
+                        if (response.ok) {
+                            showMessage('admin-success-message', 'Usuário fictício criado com sucesso!');
+                            loadFakeUsers();
+                        } else {
+                            const error = await response.json();
+                            throw new Error(error.message || 'Erro ao criar usuário fictício');
+                        }
+                    } catch (err) {
+                        showMessage('admin-error-message', err.message, true);
+                    }
+                    cleanup();
+                };
+                
+                cancelBtn.onclick = cleanup;
+                closeBtn.onclick = cleanup;
+            }
+            
+            async function startPurchaseLoop() {
+                if (purchaseLoopInterval) return;
+                
+                const enabled = document.getElementById('notif-purchase-enabled').checked;
+                if (!enabled) {
+                    showMessage('admin-error-message', 'Ative as notificações de compra primeiro!', true);
+                    return;
+                }
+                
+                const interval = parseInt(document.getElementById('notif-purchase-interval').value) * 1000;
+                const message = document.getElementById('notif-purchase-message').value;
+                
+                // Buscar usuários fictícios de compra
+                const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
+                    headers: { 'Authorization': `Bearer ${userToken}` }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ message: 'Erro ao buscar usuários fictícios' }));
+                    throw new Error(error.message || 'Erro ao buscar usuários fictícios');
+                }
+                
+                const users = await response.json();
+                const purchaseUsers = users.filter(u => u.type === 'purchase' && u.is_active);
+                
+                if (purchaseUsers.length === 0) {
+                    showMessage('admin-error-message', 'Nenhum usuário fictício de compra cadastrado!', true);
+                    return;
+                }
+                
+                // Função para criar notificação de compra
+                const createPurchaseNotification = async () => {
+                    // Selecionar usuário aleatório
+                    const randomUserIndex = Math.floor(Math.random() * purchaseUsers.length);
+                    const user = purchaseUsers[randomUserIndex];
+                    
+                    // Usar plano do usuário fictício ou plano aleatório
+                    const planNames = ['START CREATOR', 'TURBO MAKER', 'MASTER PRO'];
+                    const plan = user.plan_name || planNames[Math.floor(Math.random() * planNames.length)];
+                    
+                    const notificationMessage = message
+                        .replace('{name}', user.name)
+                        .replace('{plan}', plan);
+                    
+                    // Criar notificação global (user_id = null)
+                    await fetch(`${API_BASE}/api/admin/notifications/create`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            title: 'Nova Compra!',
+                            message: notificationMessage,
+                            type: 'purchase',
+                            user_id: null
+                        })
+                    });
+                };
+                
+                // Criar primeira notificação imediatamente
+                createPurchaseNotification();
+                
+                // Agendar próxima notificação com intervalo aleatório
+                const scheduleNext = () => {
+                    // Intervalo aleatório entre 50% e 150% do intervalo configurado
+                    const minInterval = interval * 0.5;
+                    const maxInterval = interval * 1.5;
+                    const randomInterval = Math.floor(Math.random() * (maxInterval - minInterval) + minInterval);
+                    
+                    purchaseLoopInterval = setTimeout(async () => {
+                        await createPurchaseNotification();
+                        scheduleNext();
+                    }, randomInterval);
+                };
+                
+                scheduleNext();
+                
+                document.getElementById('start-purchase-loop').disabled = true;
+                document.getElementById('stop-purchase-loop').disabled = false;
+                document.getElementById('purchase-loop-status').textContent = 'Em execução';
+            }
+            
+            function stopPurchaseLoop() {
+                if (purchaseLoopInterval) {
+                    clearTimeout(purchaseLoopInterval);
+                    purchaseLoopInterval = null;
+                }
+                document.getElementById('start-purchase-loop').disabled = false;
+                document.getElementById('stop-purchase-loop').disabled = true;
+                document.getElementById('purchase-loop-status').textContent = 'Parado';
+            }
+            
+            async function startUserLoop() {
+                if (userLoopInterval) return;
+                
+                const enabled = document.getElementById('notif-user-enabled').checked;
+                if (!enabled) {
+                    showMessage('admin-error-message', 'Ative as notificações de novos usuários primeiro!', true);
+                    return;
+                }
+                
+                const interval = parseInt(document.getElementById('notif-user-interval').value) * 1000;
+                const message = document.getElementById('notif-user-message').value;
+                
+                // Buscar usuários fictícios de usuário
+                const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
+                    headers: { 'Authorization': `Bearer ${userToken}` }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ message: 'Erro ao buscar usuários fictícios' }));
+                    throw new Error(error.message || 'Erro ao buscar usuários fictícios');
+                }
+                
+                const users = await response.json();
+                const userUsers = users.filter(u => u.type === 'user' && u.is_active);
+                
+                if (userUsers.length === 0) {
+                    showMessage('admin-error-message', 'Nenhum usuário fictício de novo usuário cadastrado!', true);
+                    return;
+                }
+                
+                // Função para criar notificação de novo usuário
+                const createUserNotification = async () => {
+                    // Selecionar usuário aleatório
+                    const randomUserIndex = Math.floor(Math.random() * userUsers.length);
+                    const user = userUsers[randomUserIndex];
+                    
+                    const notificationMessage = message.replace('{name}', user.name);
+                    
+                    // Criar notificação global (user_id = null)
+                    await fetch(`${API_BASE}/api/admin/notifications/create`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            title: 'Novo Usuário!',
+                            message: notificationMessage,
+                            type: 'user',
+                            user_id: null
+                        })
+                    });
+                };
+                
+                // Criar primeira notificação imediatamente
+                createUserNotification();
+                
+                // Agendar próxima notificação com intervalo aleatório
+                const scheduleNext = () => {
+                    // Intervalo aleatório entre 50% e 150% do intervalo configurado
+                    const minInterval = interval * 0.5;
+                    const maxInterval = interval * 1.5;
+                    const randomInterval = Math.floor(Math.random() * (maxInterval - minInterval) + minInterval);
+                    
+                    userLoopInterval = setTimeout(async () => {
+                        await createUserNotification();
+                        scheduleNext();
+                    }, randomInterval);
+                };
+                
+                scheduleNext();
+                
+                document.getElementById('start-user-loop').disabled = true;
+                document.getElementById('stop-user-loop').disabled = false;
+                document.getElementById('user-loop-status').textContent = 'Em execução';
+            }
+            
+            function stopUserLoop() {
+                if (userLoopInterval) {
+                    clearTimeout(userLoopInterval);
+                    userLoopInterval = null;
+                }
+                document.getElementById('start-user-loop').disabled = false;
+                document.getElementById('stop-user-loop').disabled = true;
+                document.getElementById('user-loop-status').textContent = 'Parado';
+            }
+
+            // Função para carregar permissões de planos
+            async function loadAdminPlanPermissions() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/plan-permissions`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) throw new Error('Erro ao carregar permissões');
+                    
+                    const permissions = await response.json();
+                    
+                    // Carregar créditos
+                    const planNames = ['plan-free', 'plan-start', 'plan-turbo', 'plan-master', 
+                                     'plan-start-annual', 'plan-turbo-annual', 'plan-master-annual'];
+                    const planLabels = {
+                        'plan-free': 'FREE',
+                        'plan-start': 'START CREATOR',
+                        'plan-turbo': 'TURBO MAKER',
+                        'plan-master': 'MASTER PRO',
+                        'plan-start-annual': 'START ANUAL',
+                        'plan-turbo-annual': 'TURBO ANUAL',
+                        'plan-master-annual': 'MASTER ANUAL'
+                    };
+                    
+                    // Renderizar créditos
+                    const creditsList = document.getElementById('plan-credits-list');
+                    if (creditsList) {
+                        creditsList.innerHTML = '';
+                        planNames.forEach(planName => {
+                            const planData = permissions[planName] || { monthly_credits: 0 };
+                            creditsList.innerHTML += `
+                                <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                    <h3 class="text-lg font-semibold text-white mb-2">${planLabels[planName] || planName}</h3>
+                                    <input type="number" id="credits-${planName}" value="${planData.monthly_credits || 0}" 
+                                           class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white mb-2">
+                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg btn-save-credits" 
+                                            data-plan="${planName}">
+                                        Salvar Créditos
+                                    </button>
+                                </div>
+                            `;
+                        });
+                        
+                        // Event listeners para salvar créditos
+                        document.querySelectorAll('.btn-save-credits').forEach(btn => {
+                            btn.addEventListener('click', async () => {
+                                const planName = btn.dataset.plan;
+                                const credits = parseInt(document.getElementById(`credits-${planName}`).value);
+                                
+                                try {
+                                    const response = await fetch(`${API_BASE}/api/admin/plan-credits/${planName}`, {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${userToken}`
+                                        },
+                                        body: JSON.stringify({ monthly_credits: credits })
+                                    });
+                                    
+                                    if (response.ok) {
+                                        showMessage('admin-success-message', `Créditos do plano ${planLabels[planName]} atualizados!`);
+                                    } else {
+                                        throw new Error('Erro ao salvar créditos');
+                                    }
+                                } catch (err) {
+                                    showMessage('admin-error-message', err.message, true);
+                                }
+                            });
+                        });
+                    }
+                    
+                    // Renderizar permissões
+                    const features = [
+                        { name: 'video_analyzer', label: 'Analisador de Vídeos' },
+                        { name: 'niche_explorer', label: 'Explorar Nicho' },
+                        { name: 'script_generator', label: 'Gerador de Roteiro' },
+                        { name: 'voice_generator', label: 'Gerador de Voz' },
+                        { name: 'image_generator', label: 'Gerador de Imagens' },
+                        { name: 'video_generator', label: 'Gerador de Vídeo' },
+                        { name: 'youtube_integration', label: 'Integração YouTube' },
+                        { name: 'api_propria', label: 'API Própria' },
+                        { name: 'batch_images', label: 'Imagens em Lote' },
+                        { name: 'analytics', label: 'Analytics' },
+                        { name: 'viral_library', label: 'Biblioteca Virais' }
+                    ];
+                    
+                    const permissionsList = document.getElementById('plan-permissions-list');
+                    if (permissionsList) {
+                        permissionsList.innerHTML = '';
+                        
+                        planNames.forEach(planName => {
+                            const planData = permissions[planName] || { features: {} };
+                            permissionsList.innerHTML += `
+                                <div class="bg-gray-900 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-xl font-semibold text-white mb-4">${planLabels[planName] || planName}</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                        ${features.map(feature => {
+                                            const isAllowed = planData.features && planData.features[feature.name] === true;
+                                            return `
+                                                <label class="flex items-center p-3 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-750 transition">
+                                                    <input type="checkbox" 
+                                                           class="mr-3 w-4 h-4 text-amber-500 rounded focus:ring-amber-500" 
+                                                           ${isAllowed ? 'checked' : ''}
+                                                           data-plan="${planName}" 
+                                                           data-feature="${feature.name}">
+                                                    <span class="text-gray-300">${feature.label}</span>
+                                                </label>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        // Event listeners para checkboxes
+                        document.querySelectorAll('input[type="checkbox"][data-plan]').forEach(checkbox => {
+                            checkbox.addEventListener('change', async () => {
+                                const planName = checkbox.dataset.plan;
+                                const featureName = checkbox.dataset.feature;
+                                const isAllowed = checkbox.checked;
+                                
+                                try {
+                                    const response = await fetch(`${API_BASE}/api/admin/plan-permissions/${planName}/${featureName}`, {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${userToken}`
+                                        },
+                                        body: JSON.stringify({ is_allowed: isAllowed })
+                                    });
+                                    
+                                    if (response.ok) {
+                                        showMessage('admin-success-message', 'Permissão atualizada com sucesso!');
+                                    } else {
+                                        checkbox.checked = !isAllowed; // Reverter
+                                        throw new Error('Erro ao atualizar permissão');
+                                    }
+                                } catch (err) {
+                                    showMessage('admin-error-message', err.message, true);
+                                }
+                            });
+                        });
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('Erro ao carregar permissões:', err);
+                    showMessage('admin-error-message', 'Erro ao carregar permissões de planos', true);
+                }
+            }
+
             // Variáveis para paginação de créditos
             let currentCreditsPage = 1;
             const creditsPerPage = 20;
@@ -4819,7 +6370,8 @@ Equipe La Casa Dark Core</textarea>
                             document.querySelectorAll('.btn-reset-user-credits').forEach(btn => {
                                 btn.addEventListener('click', async () => {
                                     const userId = btn.dataset.userId;
-                                    if (!confirm('Tem certeza que deseja zerar os créditos deste usuário?')) return;
+                                    const confirmed = await showCustomConfirm('Tem certeza que deseja zerar os créditos deste usuário?');
+                                    if (!confirmed) return;
                                     
                                     try {
                                         const response = await fetch(`${API_BASE}/api/admin/credits/reset`, {
@@ -6754,6 +8306,166 @@ Equipe La Casa Dark Core</textarea>
 
             // Carregar dados de assinaturas
             let isLoadingSubscriptions = false;
+            // Função para carregar dados de armazenamento
+            async function loadAdminStorage() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/storage/stats`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao buscar estatísticas de armazenamento.');
+                    const data = await response.json();
+                    
+                    // Atualizar estatísticas do servidor
+                    const totalSpaceGB = (data.serverTotalSpace / (1024 * 1024 * 1024)).toFixed(2);
+                    document.getElementById('server-total-space').textContent = `${totalSpaceGB} GB`;
+                    
+                    const usersStorageGB = (data.totalUsersStorage / (1024 * 1024 * 1024)).toFixed(2);
+                    document.getElementById('server-users-storage').textContent = `${usersStorageGB} GB`;
+                    
+                    const tempStorageMB = (data.tempAudioSize / (1024 * 1024)).toFixed(2);
+                    document.getElementById('server-temp-storage').textContent = `${tempStorageMB} MB`;
+                    
+                    // Preencher tabela de usuários
+                    const tableBody = document.getElementById('storage-table-body');
+                    if (!tableBody) return;
+                    
+                    tableBody.innerHTML = '';
+                    
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach((user) => {
+                            const usedMB = (user.storageUsed / (1024 * 1024)).toFixed(2);
+                            const limitMB = (user.storageLimit / (1024 * 1024)).toFixed(0);
+                            const limitGB = (user.storageLimit / (1024 * 1024 * 1024)).toFixed(1);
+                            const percentage = Math.min(user.percentage, 100);
+                            
+                            let limitDisplay = limitMB;
+                            if (user.storageLimit >= 1024 * 1024 * 1024) {
+                                limitDisplay = `${limitGB} GB`;
+                            } else {
+                                limitDisplay = `${limitMB} MB`;
+                            }
+                            
+                            let progressColor = 'bg-indigo-500';
+                            if (percentage >= 90) progressColor = 'bg-red-500';
+                            else if (percentage >= 70) progressColor = 'bg-yellow-500';
+                            
+                            const planDisplay = user.plan === 'plan-free' ? 'FREE' :
+                                                user.plan === 'plan-start' ? 'START' :
+                                                user.plan === 'plan-turbo' ? 'TURBO' :
+                                                user.plan === 'plan-master' ? 'MASTER' :
+                                                user.plan.includes('annual') ? user.plan.replace('plan-', '').replace('-annual', '').toUpperCase() + ' ANUAL' :
+                                                user.plan;
+                            
+                            tableBody.innerHTML += `
+                                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                                    <td class="p-3">
+                                        <div class="flex flex-col">
+                                            <span class="text-sm font-medium text-white">${user.name || user.email}</span>
+                                            <span class="text-xs text-gray-400">${user.email}</span>
+                                            ${user.isAdmin ? '<span class="text-xs text-red-400 font-semibold">ADMIN</span>' : ''}
+                                        </div>
+                                    </td>
+                                    <td class="p-3">
+                                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-600/50 text-gray-300">
+                                            ${planDisplay}
+                                        </span>
+                                    </td>
+                                    <td class="p-3 text-sm text-white">${usedMB} MB</td>
+                                    <td class="p-3 text-sm text-gray-300">${limitDisplay}</td>
+                                    <td class="p-3">
+                                        <div class="w-full bg-gray-700 rounded-full h-2">
+                                            <div class="${progressColor} h-2 rounded-full transition-all" style="width: ${percentage}%"></div>
+                                        </div>
+                                        <span class="text-xs text-gray-400 mt-1 block">${percentage.toFixed(1)}%</span>
+                                    </td>
+                                    <td class="p-3">
+                                        <div class="flex space-x-2">
+                                            <button title="Zerar Armazenamento" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-red-500 btn-storage-reset" data-user-id="${user.userId}" data-user-email="${user.email}">
+                                                <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
+                                            </button>
+                                            <button title="Alterar Limite" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-blue-500 btn-storage-limit" data-user-id="${user.userId}" data-user-email="${user.email}" data-current-limit="${user.storageLimit}">
+                                                <i data-lucide="edit" class="w-4 h-4 pointer-events-none"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                    } else {
+                        tableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-400">Nenhum usuário encontrado</td></tr>';
+                    }
+                    
+                    // Adicionar event listeners aos botões
+                    document.querySelectorAll('.btn-storage-reset').forEach(btn => {
+                        btn.addEventListener('click', async () => {
+                            const userId = btn.dataset.userId;
+                            const userEmail = btn.dataset.userEmail;
+                            const confirmed = await showCustomConfirm(`Tem certeza que deseja ZERAR o armazenamento do usuário ${userEmail}? Esta ação não pode ser desfeita.`);
+                            if (!confirmed) return;
+                            
+                            try {
+                                const response = await fetch(`${API_BASE}/api/admin/storage/reset/${userId}`, {
+                                    method: 'PUT',
+                                    headers: { 'Authorization': `Bearer ${userToken}` }
+                                });
+                                const result = await response.json();
+                                if (!response.ok) throw new Error(result.message || 'Erro ao zerar armazenamento');
+                                
+                                showMessage('admin-success-message', `Armazenamento zerado com sucesso! ${result.deletedFiles} arquivos deletados, ${(result.freedSpace / (1024 * 1024)).toFixed(2)} MB liberados.`);
+                                loadAdminStorage();
+                            } catch (err) {
+                                showMessage('admin-error-message', err.message, true);
+                            }
+                        });
+                    });
+                    
+                    document.querySelectorAll('.btn-storage-limit').forEach(btn => {
+                        btn.addEventListener('click', async () => {
+                            const userId = btn.dataset.userId;
+                            const userEmail = btn.dataset.userEmail;
+                            const currentLimit = parseInt(btn.dataset.currentLimit);
+                            const currentLimitGB = (currentLimit / (1024 * 1024 * 1024)).toFixed(1);
+                            const currentLimitMB = (currentLimit / (1024 * 1024)).toFixed(0);
+                            
+                            const currentLimitText = currentLimit >= 1024 * 1024 * 1024 ? currentLimitGB + ' GB' : currentLimitMB + ' MB';
+                            const newLimit = await showCustomPrompt(
+                                `Alterar limite de armazenamento para ${userEmail}\n\nLimite atual: ${currentLimitText}\n\nDigite o novo limite (ex: 500MB, 1GB, 2000MB, etc):`,
+                                currentLimit >= 1024 * 1024 * 1024 ? `${currentLimitGB}GB` : `${currentLimitMB}MB`,
+                                'Alterar Limite de Armazenamento'
+                            );
+                            
+                            if (!newLimit) return;
+                            
+                            try {
+                                const response = await fetch(`${API_BASE}/api/admin/storage/limit/${userId}`, {
+                                    method: 'PUT',
+                                    headers: {
+                                        'Authorization': `Bearer ${userToken}`,
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ storageLimit: newLimit })
+                                });
+                                const result = await response.json();
+                                if (!response.ok) throw new Error(result.message || 'Erro ao alterar limite');
+                                
+                                showMessage('admin-success-message', result.message);
+                                loadAdminStorage();
+                            } catch (err) {
+                                showMessage('admin-error-message', err.message, true);
+                            }
+                        });
+                    });
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('Erro ao carregar armazenamento:', err);
+                    const tableBody = document.getElementById('storage-table-body');
+                    if (tableBody) {
+                        tableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-red-400">Erro ao carregar dados: ' + err.message + '</td></tr>';
+                    }
+                }
+            }
+
             async function loadAdminSubscriptions() {
                 if (isLoadingSubscriptions) return; // Prevenir múltiplas chamadas simultâneas
                 isLoadingSubscriptions = true;
@@ -7293,7 +9005,8 @@ Equipe La Casa Dark Core</textarea>
             
             // Deletar API
             async function deleteApi(apiId) {
-                if (!confirm('Tem certeza que deseja excluir esta API?')) return;
+                const confirmed = await showCustomConfirm('Tem certeza que deseja excluir esta API?');
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/admin/api-providers/${apiId}`, {
                         method: 'DELETE',
@@ -7332,11 +9045,102 @@ Equipe La Casa Dark Core</textarea>
                                 const isBlocked = button.dataset.isBlocked === 'true';
                                 toggleUserBlockStatus(userId, !isBlocked);
                                 break;
+                            case 'change-plan':
+                                changeUserPlan(user);
+                                break;
                             case 'delete':
                                 deleteUser(userId);
                                 break;
                         }
                     });
+                }
+                
+                // Função para alterar plano do usuário
+                async function changeUserPlan(user) {
+                    const plans = [
+                        { value: 'plan-free', label: 'FREE' },
+                        { value: 'plan-start', label: 'START CREATOR' },
+                        { value: 'plan-turbo', label: 'TURBO MAKER' },
+                        { value: 'plan-master', label: 'MASTER PRO' },
+                        { value: 'plan-start-annual', label: 'START ANUAL' },
+                        { value: 'plan-turbo-annual', label: 'TURBO ANUAL' },
+                        { value: 'plan-master-annual', label: 'MASTER ANUAL' }
+                    ];
+                    
+                    const currentPlan = user.subscription_plan || user.plan || 'plan-free';
+                    const currentPlanLabel = plans.find(p => p.value === currentPlan)?.label || currentPlan;
+                    
+                    const planOptions = plans.map(p => 
+                        `<option value="${p.value}" ${p.value === currentPlan ? 'selected' : ''}>${p.label}</option>`
+                    ).join('');
+                    
+                    const message = `Alterar plano do usuário ${user.email}\n\nPlano atual: ${currentPlanLabel}\n\nSelecione o novo plano:`;
+                    
+                    // Criar select temporário
+                    const selectHtml = `
+                        <select id="temp-plan-select" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white mt-3">
+                            ${planOptions}
+                        </select>
+                    `;
+                    
+                    // Usar modal customizado com select
+                    const modal = document.getElementById('custom-modal-overlay');
+                    const messageEl = document.getElementById('custom-modal-message');
+                    const inputEl = document.getElementById('custom-modal-input');
+                    const titleEl = document.getElementById('custom-modal-title-text');
+                    
+                    titleEl.textContent = 'Alterar Plano';
+                    messageEl.innerHTML = message + selectHtml;
+                    inputEl.style.display = 'none';
+                    
+                    modal.style.display = 'flex';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    const select = document.getElementById('temp-plan-select');
+                    
+                    const confirmBtn = document.getElementById('custom-modal-confirm');
+                    const cancelBtn = document.getElementById('custom-modal-cancel');
+                    const closeBtn = document.getElementById('custom-modal-close');
+                    
+                    const cleanup = () => {
+                        modal.style.display = 'none';
+                        messageEl.innerHTML = '';
+                        confirmBtn.onclick = null;
+                        cancelBtn.onclick = null;
+                        closeBtn.onclick = null;
+                    };
+                    
+                    confirmBtn.onclick = async () => {
+                        const newPlan = select.value;
+                        if (newPlan === currentPlan) {
+                            cleanup();
+                            return;
+                        }
+                        
+                        try {
+                            const response = await fetch(`${API_BASE}/api/admin/users/${user.id}/plan`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${userToken}`
+                                },
+                                body: JSON.stringify({ plan: newPlan })
+                            });
+                            
+                            const data = await response.json();
+                            if (!response.ok) throw new Error(data.message || 'Erro ao alterar plano');
+                            
+                            showMessage('admin-success-message', `Plano alterado com sucesso para ${plans.find(p => p.value === newPlan)?.label || newPlan}`);
+                            loadAdminUsers();
+                            cleanup();
+                        } catch (err) {
+                            showMessage('admin-error-message', err.message, true);
+                            cleanup();
+                        }
+                    };
+                    
+                    cancelBtn.onclick = cleanup;
+                    closeBtn.onclick = cleanup;
                 }
                 
                 // Botão adicionar API
@@ -7346,8 +9150,20 @@ Equipe La Casa Dark Core</textarea>
 
                 document.getElementById('admin-search-input').addEventListener('input', loadAdminUsers);
                 document.getElementById('admin-status-filter').addEventListener('change', loadAdminUsers);
+                
+                // Listeners para aba de armazenamento
+                document.getElementById('refresh-storage-stats')?.addEventListener('click', loadAdminStorage);
+                document.getElementById('storage-search')?.addEventListener('input', (e) => {
+                    const search = e.target.value.toLowerCase();
+                    const rows = document.querySelectorAll('#storage-table-body tr');
+                    rows.forEach(row => {
+                        const text = row.textContent.toLowerCase();
+                        row.style.display = text.includes(search) ? '' : 'none';
+                    });
+                });
                 document.getElementById('btn-approve-all').addEventListener('click', async () => {
-                    if (!confirm('Tem a certeza que deseja aprovar todos os utilizadores pendentes?')) return;
+                    const confirmed = await showCustomConfirm('Tem a certeza que deseja aprovar todos os utilizadores pendentes?');
+                    if (!confirmed) return;
                     try {
                         const response = await fetch(`${API_BASE}/api/admin/users/approve-all`, {
                             method: 'POST',
@@ -11227,8 +13043,99 @@ Equipe La Casa Dark Core</textarea>
                     if (sidebarCreditsEl) {
                         sidebarCreditsEl.textContent = parseFloat(data.balance || 0).toFixed(2);
                     }
+                    
+                    // Carregar armazenamento se disponível
+                    if (data.storageUsed !== undefined && data.storageLimit !== undefined) {
+                        updateStorageDisplay(data.storageUsed, data.storageLimit);
+                        updateSidebarStorage(data.storageUsed, data.storageLimit);
+                    }
                 } catch (err) {
                     console.error('[CRÉDITOS] Erro ao carregar saldo de créditos:', err);
+                }
+            }
+            
+            // Função para atualizar exibição de armazenamento
+            function updateStorageDisplay(used, limit) {
+                const usedMB = (used / (1024 * 1024)).toFixed(2);
+                const limitMB = (limit / (1024 * 1024)).toFixed(0);
+                const limitGB = (limit / (1024 * 1024 * 1024)).toFixed(1);
+                const percentage = Math.min((used / limit) * 100, 100);
+                
+                const storageUsedEl = document.getElementById('stat-storage-used');
+                const storageLimitEl = document.getElementById('stat-storage-limit');
+                const storageProgressEl = document.getElementById('stat-storage-progress');
+                const storagePercentageEl = document.getElementById('stat-storage-percentage');
+                
+                if (storageUsedEl) {
+                    if (limit >= 1024 * 1024 * 1024) {
+                        // Mostrar em GB se for >= 1GB
+                        storageUsedEl.textContent = `${(used / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+                    } else {
+                        storageUsedEl.textContent = `${usedMB} MB`;
+                    }
+                }
+                
+                if (storageLimitEl) {
+                    if (limit >= 1024 * 1024 * 1024) {
+                        storageLimitEl.textContent = `de ${limitGB} GB`;
+                    } else {
+                        storageLimitEl.textContent = `de ${limitMB} MB`;
+                    }
+                }
+                
+                if (storageProgressEl) {
+                    storageProgressEl.style.width = `${percentage}%`;
+                    // Mudar cor baseado no uso
+                    if (percentage >= 90) {
+                        storageProgressEl.className = 'bg-red-500 h-2 rounded-full transition-all duration-300';
+                    } else if (percentage >= 70) {
+                        storageProgressEl.className = 'bg-yellow-500 h-2 rounded-full transition-all duration-300';
+                    } else {
+                        storageProgressEl.className = 'bg-indigo-500 h-2 rounded-full transition-all duration-300';
+                    }
+                }
+                
+                if (storagePercentageEl) {
+                    storagePercentageEl.textContent = `${percentage.toFixed(1)}% usado`;
+                }
+            }
+            
+            // Função para atualizar armazenamento no sidebar
+            function updateSidebarStorage(used, limit) {
+                const usedMB = (used / (1024 * 1024)).toFixed(2);
+                const limitMB = (limit / (1024 * 1024)).toFixed(0);
+                const limitGB = (limit / (1024 * 1024 * 1024)).toFixed(1);
+                const percentage = Math.min((used / limit) * 100, 100);
+                
+                const sidebarUsedEl = document.getElementById('sidebar-storage-used');
+                const sidebarLimitEl = document.getElementById('sidebar-storage-limit');
+                const sidebarProgressEl = document.getElementById('sidebar-storage-progress');
+                
+                if (sidebarUsedEl) {
+                    if (limit >= 1024 * 1024 * 1024) {
+                        sidebarUsedEl.textContent = `${(used / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+                    } else {
+                        sidebarUsedEl.textContent = `${usedMB} MB`;
+                    }
+                }
+                
+                if (sidebarLimitEl) {
+                    if (limit >= 1024 * 1024 * 1024) {
+                        sidebarLimitEl.textContent = `de ${limitGB} GB`;
+                    } else {
+                        sidebarLimitEl.textContent = `de ${limitMB} MB`;
+                    }
+                }
+                
+                if (sidebarProgressEl) {
+                    sidebarProgressEl.style.width = `${percentage}%`;
+                    if (percentage >= 90) {
+                        sidebarProgressEl.className = 'bg-red-500 h-1.5 rounded-full transition-all duration-300';
+                    } else if (percentage >= 70) {
+                        sidebarProgressEl.className = 'bg-yellow-500 h-1.5 rounded-full transition-all duration-300';
+                    } else {
+                        sidebarProgressEl.className = 'bg-indigo-500 h-1.5 rounded-full transition-all duration-300';
+                    }
                 }
             }
             
@@ -18960,6 +20867,14 @@ Equipe La Casa Dark Core</textarea>
                 document.getElementById('video-progress-modal').classList.add('hidden');
 
                 updateVideoModeUI();
+            }
+            
+            // Iniciar polling de notificações
+            if (userToken && userToken !== 'undefined') {
+                // Aguardar um pouco para garantir que tudo está carregado
+                setTimeout(() => {
+                    startNotificationPolling();
+                }, 2000);
             }
             
             // Inicialização: Carregar dashboard e créditos quando a página carrega
