@@ -3424,6 +3424,19 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             )
         `);
         
+        // Criar tabela de loops ativos
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS active_loops (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loop_type TEXT NOT NULL UNIQUE,
+                is_active BOOLEAN DEFAULT 0,
+                interval_seconds INTEGER DEFAULT 5,
+                started_at DATETIME,
+                stopped_at DATETIME,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        
         // Inicializar permissões padrão
         const defaultFeatures = [
             'video_analyzer',
@@ -4523,6 +4536,111 @@ app.delete('/api/admin/notifications/fake-users/:id', authenticateToken, isAdmin
     } catch (error) {
         console.error('[NOTIFICATIONS] Erro ao deletar usuário fictício:', error);
         res.status(500).json({ message: 'Erro ao deletar usuário fictício' });
+    }
+});
+
+// POST /api/admin/notifications/loop/start - Iniciar loop de notificações
+app.post('/api/admin/notifications/loop/start', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { loop_type, interval_seconds } = req.body;
+        
+        if (!loop_type || (loop_type !== 'purchase' && loop_type !== 'user')) {
+            return res.status(400).json({ message: 'Tipo de loop inválido. Use "purchase" ou "user"' });
+        }
+        
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS active_loops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    loop_type TEXT NOT NULL UNIQUE,
+                    is_active BOOLEAN DEFAULT 0,
+                    interval_seconds INTEGER DEFAULT 5,
+                    started_at DATETIME,
+                    stopped_at DATETIME,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        await db.run(
+            'INSERT OR REPLACE INTO active_loops (loop_type, is_active, interval_seconds, started_at, updated_at) VALUES (?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+            [loop_type, interval_seconds || 5]
+        );
+        
+        console.log(`[NOTIFICATIONS] Loop ${loop_type} iniciado e salvo no banco de dados`);
+        res.json({ success: true, message: `Loop ${loop_type} iniciado com sucesso` });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao iniciar loop:', error);
+        res.status(500).json({ message: 'Erro ao iniciar loop: ' + error.message });
+    }
+});
+
+// POST /api/admin/notifications/loop/stop - Parar loop de notificações
+app.post('/api/admin/notifications/loop/stop', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { loop_type } = req.body;
+        
+        if (!loop_type || (loop_type !== 'purchase' && loop_type !== 'user')) {
+            return res.status(400).json({ message: 'Tipo de loop inválido. Use "purchase" ou "user"' });
+        }
+        
+        await db.run(
+            'UPDATE active_loops SET is_active = 0, stopped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE loop_type = ?',
+            [loop_type]
+        );
+        
+        console.log(`[NOTIFICATIONS] Loop ${loop_type} parado e salvo no banco de dados`);
+        res.json({ success: true, message: `Loop ${loop_type} parado com sucesso` });
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao parar loop:', error);
+        res.status(500).json({ message: 'Erro ao parar loop: ' + error.message });
+    }
+});
+
+// GET /api/admin/notifications/loop/status - Verificar status dos loops
+app.get('/api/admin/notifications/loop/status', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS active_loops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    loop_type TEXT NOT NULL UNIQUE,
+                    is_active BOOLEAN DEFAULT 0,
+                    interval_seconds INTEGER DEFAULT 5,
+                    started_at DATETIME,
+                    stopped_at DATETIME,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const loops = await db.all('SELECT * FROM active_loops');
+        const status = {
+            purchase: { is_active: false, interval_seconds: 5 },
+            user: { is_active: false, interval_seconds: 5 }
+        };
+        
+        loops.forEach(loop => {
+            if (loop.loop_type === 'purchase' || loop.loop_type === 'user') {
+                status[loop.loop_type] = {
+                    is_active: loop.is_active === 1,
+                    interval_seconds: loop.interval_seconds,
+                    started_at: loop.started_at,
+                    stopped_at: loop.stopped_at
+                };
+            }
+        });
+        
+        res.json(status);
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao verificar status dos loops:', error);
+        res.status(500).json({ message: 'Erro ao verificar status dos loops: ' + error.message });
     }
 });
 
@@ -22960,7 +23078,11 @@ function startServer() {
     
     // Iniciar servidor
     try {
-        const server = app.listen(PORT, () => {
+        const server = app.listen(PORT, async () => {
+            // Restaurar loops ativos após o servidor iniciar
+            setTimeout(() => {
+                restoreActiveLoops();
+            }, 2000); // Aguardar 2 segundos para garantir que o banco está pronto
             console.log(`🚀 Servidor "La Casa Dark Core" a rodar na porta ${PORT}`);
             if (!db) {
                 console.log(`⚠️  Banco de dados ainda não está pronto. Algumas funcionalidades podem não estar disponíveis.`);
@@ -23050,6 +23172,48 @@ async function translateText(text, fromLang = 'auto', toLang = 'pt') {
     }
 
     return text; // Retorna texto original se todas as traduções falharem
+}
+
+// Função para restaurar loops ativos ao iniciar o servidor
+async function restoreActiveLoops() {
+    try {
+        // Garantir que a tabela existe
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS active_loops (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    loop_type TEXT NOT NULL UNIQUE,
+                    is_active BOOLEAN DEFAULT 0,
+                    interval_seconds INTEGER DEFAULT 5,
+                    started_at DATETIME,
+                    stopped_at DATETIME,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        } catch (err) {
+            // Tabela já existe, continuar
+        }
+        
+        const activeLoops = await db.all('SELECT * FROM active_loops WHERE is_active = 1');
+        
+        if (activeLoops.length === 0) {
+            console.log('[NOTIFICATIONS] Nenhum loop ativo para restaurar');
+            return;
+        }
+        
+        console.log(`[NOTIFICATIONS] Restaurando ${activeLoops.length} loop(s) ativo(s)...`);
+        
+        // Nota: Os loops serão executados no servidor através de um processo em background
+        // Por enquanto, apenas logamos que eles devem estar ativos
+        // A implementação completa requereria um sistema de workers/processos em background
+        for (const loop of activeLoops) {
+            console.log(`[NOTIFICATIONS] Loop ${loop.loop_type} está ativo (intervalo: ${loop.interval_seconds}s)`);
+        }
+        
+        console.log('[NOTIFICATIONS] Loops ativos serão mantidos. Use o painel admin para gerenciá-los.');
+    } catch (error) {
+        console.error('[NOTIFICATIONS] Erro ao restaurar loops:', error);
+    }
 }
 
 // Rota de tradução

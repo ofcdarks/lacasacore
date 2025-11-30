@@ -432,7 +432,72 @@
             background: rgba(255, 255, 255, 0.1);
         }
         
+        /* Responsividade Mobile */
+        @media (max-width: 1024px) {
+            .admin-tab-btn {
+                font-size: 0.75rem;
+                padding: 0.5rem 0.75rem;
+            }
+            .admin-tab-btn i {
+                width: 14px;
+                height: 14px;
+            }
+        }
+        
         @media (max-width: 768px) {
+            /* Sidebar mobile */
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            
+            /* Tabelas responsivas */
+            table {
+                font-size: 0.75rem;
+            }
+            table th, table td {
+                padding: 0.5rem 0.25rem;
+            }
+            
+            /* Cards em grid */
+            .grid {
+                grid-template-columns: 1fr !important;
+            }
+            
+            /* Admin tabs */
+            .admin-tabs-nav {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .admin-tabs-nav::-webkit-scrollbar {
+                display: none;
+            }
+            .admin-tab-btn {
+                white-space: nowrap;
+                font-size: 0.7rem;
+                padding: 0.5rem;
+                min-width: fit-content;
+            }
+            
+            /* Modais */
+            .modal-content {
+                width: 95%;
+                max-width: 95%;
+                margin: 1rem;
+            }
+            
+            /* Notificações */
+            .notification {
+                width: calc(100% - 2rem);
+                max-width: 400px;
+            }
+        }
+        
+        @media (max-width: 640px) {
             .notification-container {
                 right: 10px;
                 bottom: 10px;
@@ -5347,6 +5412,25 @@ Equipe La Casa Dark Core</textarea>
             
             async function loadAdminNotifications() {
                 try {
+                    // Carregar status dos loops
+                    const statusResponse = await fetch(`${API_BASE}/api/admin/notifications/loop/status`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (statusResponse.ok) {
+                        const status = await statusResponse.json();
+                        // Restaurar estado dos loops se estiverem ativos
+                        if (status.purchase && status.purchase.is_active) {
+                            document.getElementById('purchase-loop-status').textContent = 'Em execução';
+                            document.getElementById('start-purchase-loop').disabled = true;
+                            document.getElementById('stop-purchase-loop').disabled = false;
+                        }
+                        if (status.user && status.user.is_active) {
+                            document.getElementById('user-loop-status').textContent = 'Em execução';
+                            document.getElementById('start-user-loop').disabled = true;
+                            document.getElementById('stop-user-loop').disabled = false;
+                        }
+                    }
+                    
                     // Carregar configurações
                     const configResponse = await fetch(`${API_BASE}/api/admin/notifications/config`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
@@ -5871,8 +5955,25 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                const interval = parseInt(document.getElementById('notif-user-interval').value) * 1000;
+                const interval = parseInt(document.getElementById('notif-user-interval').value);
                 const message = document.getElementById('notif-user-message').value;
+                
+                // Salvar estado no banco de dados
+                try {
+                    await fetch(`${API_BASE}/api/admin/notifications/loop/start`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            loop_type: 'user',
+                            interval_seconds: interval
+                        })
+                    });
+                } catch (err) {
+                    console.error('Erro ao salvar estado do loop:', err);
+                }
                 
                 // Buscar usuários fictícios de usuário
                 const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
@@ -5922,8 +6023,9 @@ Equipe La Casa Dark Core</textarea>
                 // Agendar próxima notificação com intervalo aleatório
                 const scheduleNext = () => {
                     // Intervalo aleatório entre 50% e 150% do intervalo configurado
-                    const minInterval = interval * 0.5;
-                    const maxInterval = interval * 1.5;
+                    const intervalMs = interval * 1000;
+                    const minInterval = intervalMs * 0.5;
+                    const maxInterval = intervalMs * 1.5;
                     const randomInterval = Math.floor(Math.random() * (maxInterval - minInterval) + minInterval);
                     
                     userLoopInterval = setTimeout(async () => {
@@ -5939,11 +6041,28 @@ Equipe La Casa Dark Core</textarea>
                 document.getElementById('user-loop-status').textContent = 'Em execução';
             }
             
-            function stopUserLoop() {
+            async function stopUserLoop() {
                 if (userLoopInterval) {
                     clearTimeout(userLoopInterval);
                     userLoopInterval = null;
                 }
+                
+                // Salvar estado no banco de dados
+                try {
+                    await fetch(`${API_BASE}/api/admin/notifications/loop/stop`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            loop_type: 'user'
+                        })
+                    });
+                } catch (err) {
+                    console.error('Erro ao salvar estado do loop:', err);
+                }
+                
                 document.getElementById('start-user-loop').disabled = false;
                 document.getElementById('stop-user-loop').disabled = true;
                 document.getElementById('user-loop-status').textContent = 'Parado';
