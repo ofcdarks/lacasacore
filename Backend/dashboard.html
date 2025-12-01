@@ -139,6 +139,10 @@
         }
 
         /* --- ANIMAÇÕES PARA MODAL --- */
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -565,6 +569,11 @@
                 <a href="#" data-view="biblioteca" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
                     <i data-lucide="book-open"></i>
                     <span>Biblioteca Virais</span>
+                </a>
+                
+                <a href="#" data-view="viral-agents" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="bot"></i>
+                    <span>Agentes Virais</span>
                 </a>
                 
                 <a href="#" data-view="prompts-imagens" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
@@ -1538,6 +1547,163 @@
                 </div>
             </div>
 
+            <!-- VISÃO 7.5: Agentes Virais -->
+            <div id="view-viral-agents" style="display: none;">
+                <header class="mb-8">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h1 class="text-3xl md:text-4xl font-bold text-white">🤖 Agentes Virais</h1>
+                            <p class="text-lg text-gray-400">Crie e gerencie agentes de IA personalizados com memória, instruções e arquivos</p>
+                        </div>
+                        <button onclick="openCreateViralAgentModal()" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200 flex items-center space-x-2">
+                            <i data-lucide="plus"></i>
+                            <span>Novo Agente</span>
+                        </button>
+                    </div>
+                </header>
+
+                <div id="viral-agents-success-message" class="success-message mb-6" style="display: none;"></div>
+                <div id="viral-agents-error-message" class="error-message mb-6" style="display: none;"></div>
+
+                <!-- View: Lista de Agentes -->
+                <div id="viral-agents-list-view">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="viral-agents-list">
+                        <div class="text-center py-12">
+                            <i data-lucide="loader" class="w-8 h-8 mx-auto mb-2 animate-spin text-gray-400"></i>
+                            <p class="text-gray-400">Carregando agentes...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- View: Detalhes do Agente -->
+                <div id="viral-agents-detail-view" style="display: none;">
+                    <div class="flex gap-6">
+                        <!-- Conteúdo Principal -->
+                        <div class="flex-1">
+                            <!-- Header do Agente -->
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-4">
+                                    <button onclick="showViralAgentsListView()" class="text-gray-400 hover:text-white transition">
+                                        <i data-lucide="arrow-left"></i>
+                                    </button>
+                                    <div>
+                                        <h2 id="viral-agent-name-header" class="text-2xl font-bold text-white"></h2>
+                                        <p id="viral-agent-description-header" class="text-gray-400 text-sm"></p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="toggleViralAgentFavorite()" id="viral-favorite-btn" class="p-2 rounded-lg hover:bg-gray-800 transition">
+                                        <i data-lucide="star"></i>
+                                    </button>
+                                    <button onclick="openEditViralAgentModal()" class="p-2 rounded-lg hover:bg-gray-800 transition">
+                                        <i data-lucide="settings"></i>
+                                    </button>
+                                    <button onclick="deleteViralAgent()" class="p-2 rounded-lg hover:bg-red-900 transition text-red-400">
+                                        <i data-lucide="trash-2"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Abas -->
+                            <div class="flex gap-2 mb-6 border-b border-gray-800">
+                                <button onclick="showViralChatTab()" id="viral-tab-chat" class="px-4 py-2 font-semibold border-b-2 border-amber-500 text-amber-500">
+                                    Chat
+                                </button>
+                                <button onclick="showViralConversationsTab()" id="viral-tab-conversations" class="px-4 py-2 font-semibold border-b-2 border-transparent text-gray-400 hover:text-white">
+                                    Conversas
+                                </button>
+                            </div>
+
+                            <!-- Tab: Chat -->
+                            <div id="viral-tab-content-chat" class="tab-content">
+                                <div class="bg-gray-900 border border-gray-800 rounded-lg" style="height: 600px; display: flex; flex-direction: column;">
+                                    <div class="flex-1 overflow-y-auto p-6 space-y-4" id="viral-chat-messages">
+                                        <!-- Mensagens serão carregadas aqui -->
+                                    </div>
+                                    <div class="p-4 border-t border-gray-800 flex gap-3">
+                                        <input 
+                                            type="text" 
+                                            id="viral-chat-input" 
+                                            placeholder="Digite sua mensagem..."
+                                            class="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                            onkeypress="if(event.key === 'Enter') sendViralMessage()"
+                                        >
+                                        <button onclick="sendViralMessage()" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200">
+                                            <i data-lucide="send"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tab: Conversas -->
+                            <div id="viral-tab-content-conversations" class="tab-content" style="display: none;">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-white">Conversas Anteriores</h3>
+                                    <button onclick="createNewViralConversation()" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white hover:bg-gray-700 transition text-sm flex items-center space-x-2">
+                                        <i data-lucide="plus"></i>
+                                        <span>Nova Conversa</span>
+                                    </button>
+                                </div>
+                                <div id="viral-conversations-list" class="space-y-2">
+                                    <!-- Conversas serão carregadas aqui -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sidebar -->
+                        <div class="w-80">
+                            <!-- Memória -->
+                            <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-bold text-amber-500">Memória</span>
+                                        <span class="text-xs text-gray-500 flex items-center gap-1">
+                                            <i data-lucide="lock" class="w-3 h-3"></i>
+                                            Apenas você
+                                        </span>
+                                    </div>
+                                    <button onclick="editViralMemory()" class="text-gray-400 hover:text-white">
+                                        <i data-lucide="pencil" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                                <p id="viral-agent-memory" class="text-xs text-gray-300 whitespace-pre-wrap line-clamp-4" style="max-height: 120px; overflow: hidden; text-overflow: ellipsis;"></p>
+                                <p class="text-xs text-gray-500 mt-2" id="viral-memory-updated"></p>
+                            </div>
+
+                            <!-- Instruções -->
+                            <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-xs font-bold text-amber-500">Instruções</span>
+                                    <button onclick="editViralInstructions()" class="text-gray-400 hover:text-white">
+                                        <i data-lucide="pencil" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                                <p id="viral-agent-instructions" class="text-xs text-gray-300 whitespace-pre-wrap line-clamp-4" style="max-height: 120px; overflow: hidden; text-overflow: ellipsis;"></p>
+                            </div>
+
+                            <!-- Arquivos -->
+                            <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+                                <div class="flex items-center justify-between mb-3">
+                                    <span class="text-sm font-bold text-amber-500">Arquivos</span>
+                                    <button onclick="addViralFile()" class="text-gray-400 hover:text-white">
+                                        <i data-lucide="plus"></i>
+                                    </button>
+                                </div>
+                                <div id="viral-agent-files" class="space-y-2 mb-3">
+                                    <!-- Arquivos serão carregados aqui -->
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    <div class="w-full bg-gray-700 rounded-full h-2">
+                                        <div id="viral-storage-bar" class="bg-amber-500 h-2 rounded-full" style="width: 1%"></div>
+                                    </div>
+                                    <p class="mt-1" id="viral-storage-text">1% da capacidade do projeto utilizada</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- VISÃO 8: Gerador de Voz -->
             <div id="view-gerador-voz" style="display: none;">
                 <header class="mb-8">
@@ -1661,12 +1827,13 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label for="tts-voice-select" class="block text-sm font-medium text-gray-300 mb-2">Voz da Narração</label>
-                                <div class="flex items-center gap-2">
-                                    <select id="tts-voice-select" class="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                <div class="flex items-center gap-3">
+                                    <select id="tts-voice-select" class="flex-1 min-w-0 max-w-[calc(100%-140px)] px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 truncate" title="">
                                         <option value="">Carregando vozes...</option>
                                     </select>
-                                    <button id="tts-preview-btn" type="button" class="p-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition" title="Testar Voz">
+                                    <button id="tts-preview-btn" type="button" class="flex-shrink-0 px-4 py-3 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold transition shadow-lg hover:shadow-amber-500/50 flex items-center gap-2 whitespace-nowrap" title="Testar Voz">
                                         <i data-lucide="play" class="w-5 h-5"></i>
+                                        <span>Testar</span>
                                     </button>
                                 </div>
                             </div>
@@ -1683,15 +1850,7 @@
                         </div>
 
                         <!-- Controles específicos do DarkVoz -->
-                        <div id="darkvoz-controls" class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div>
-                                <label for="tts-model-select" class="block text-sm font-medium text-gray-300 mb-2">Modelo TTS</label>
-                                <select id="tts-model-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                                    <option value="tts-1" selected>TTS-1 (Rápido)</option>
-                                    <option value="tts-1-hd">TTS-1-HD (Alta Qualidade)</option>
-                                </select>
-                                <p class="text-xs text-gray-400 mt-1">Modelo de síntese de voz</p>
-                            </div>
+                        <div id="darkvoz-controls" class="mb-6">
                             <div>
                                 <label for="tts-speed-select" class="block text-sm font-medium text-gray-300 mb-2">Velocidade de Fala</label>
                                 <select id="tts-speed-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -1912,7 +2071,7 @@
                         </div>
                         <div class="mb-6">
                             <div class="w-full bg-gray-800/50 rounded-full h-3 overflow-hidden border border-gray-700/50 relative">
-                                <div class="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-full transition-all duration-500" id="video-progress-bar" style="width: 0%;"></div>
+                                <div class="h-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 rounded-full transition-all duration-500" id="video-progress-bar" style="width: 0%;"></div>
                                 <div class="absolute inset-0 flex items-center justify-center">
                                     <span class="text-xs font-semibold text-white" id="video-progress-percentage">0%</span>
                                 </div>
@@ -1927,15 +2086,10 @@
                 <div class="max-w-4xl mx-auto space-y-6">
                     <!-- Formulário de Geração -->
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-6">
-                        <!-- Seletor de Modo -->
+                        <!-- Modo fixo: Texto para Vídeo -->
                         <div>
                             <label class="block text-sm font-medium text-gray-300 mb-2">Modo de Geração</label>
-                            <select id="video-mode-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                <option value="text-to-video">Texto para Vídeo</option>
-                                <option value="frames-to-video">Frames para Vídeo</option>
-                                <option value="references-to-video">Referências para Vídeo</option>
-                                <option value="extend-video">Estender Vídeo</option>
-                            </select>
+                            <input type="text" value="Texto para Vídeo" readonly class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed">
                         </div>
 
                         <!-- Upload de Mídia (condicional baseado no modo) -->
@@ -2028,10 +2182,9 @@
                                     <div>
                                         <label class="block text-sm font-medium text-gray-300 mb-2">Modelo</label>
                                         <select id="video-model-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                            <option value="sora_video2-15s" selected>Sora 2 - 15s (Portrait)</option>
+                                            <option value="veo-3.1-fast" selected>Veo Fast</option>
+                                            <option value="sora_video2-15s">Sora 2 - 15s (Portrait)</option>
                                             <option value="sora_video2-landscape-15s">Sora 2 - 15s (Landscape)</option>
-                                            <option value="veo-3.1-fast-generate-preview">Veo Fast</option>
-                                            <option value="veo-3.1-generate-preview">Veo (Alta Qualidade)</option>
                                         </select>
                                     </div>
                                     <div>
@@ -2194,6 +2347,14 @@
                                 <input type="text" id="metadata-title" placeholder="Digite o título do vídeo" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
                             </div>
                             <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Modelo de IA</label>
+                                <select id="metadata-model" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                    <option value="gpt-4o">GPT-4o (2025)</option>
+                                    <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label class="block text-sm font-medium text-gray-300 mb-2">Nicho (Opcional)</label>
                                 <input type="text" id="metadata-niche" placeholder="Ex: Entretenimento" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
                             </div>
@@ -2234,19 +2395,89 @@
                         <p class="text-gray-400 mb-6">Escanee o YouTube por vídeos virais recentes no seu nicho</p>
                         
                         <form id="scan-trends-form" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
-                                <input type="text" id="trends-niche" placeholder="Ex: Entretenimento, Educação" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-2">Nicho</label>
+                                    <input type="text" id="trends-niche" placeholder="Ex: Entretenimento, Educação" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho (Opcional)</label>
+                                    <input type="text" id="trends-subniche" placeholder="Ex: Gaming, Finanças" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                </div>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho (Opcional)</label>
-                                <input type="text" id="trends-subniche" placeholder="Ex: Gaming, Finanças" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            
+                            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-sm font-semibold text-gray-300 mb-3">🔍 Filtros de Busca</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Idioma</label>
+                                        <select id="trends-language" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                            <option value="pt">Português (Brasil)</option>
+                                            <option value="en">Inglês</option>
+                                            <option value="es">Espanhol</option>
+                                            <option value="fr">Francês</option>
+                                            <option value="de">Alemão</option>
+                                            <option value="it">Italiano</option>
+                                            <option value="ja">Japonês</option>
+                                            <option value="ko">Coreano</option>
+                                            <option value="zh">Chinês</option>
+                                            <option value="ru">Russo</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Ordenar por</label>
+                                        <select id="trends-order-by" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                            <option value="viewCount">Mais Visualizações</option>
+                                            <option value="date">Mais Recente</option>
+                                            <option value="rating">Melhor Avaliação</option>
+                                            <option value="relevance">Mais Relevante</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Duração do Vídeo</label>
+                                        <select id="trends-duration" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                            <option value="any">Qualquer Duração</option>
+                                            <option value="short">Curto (&lt; 4 min)</option>
+                                            <option value="medium">Médio (4-20 min)</option>
+                                            <option value="long">Longo (&gt; 20 min)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Período de Publicação</label>
+                                        <select id="trends-published-after" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                            <option value="1">Últimas 24 horas</option>
+                                            <option value="3">Últimos 3 dias</option>
+                                            <option value="7" selected>Últimos 7 dias</option>
+                                            <option value="14">Últimos 14 dias</option>
+                                            <option value="30">Últimos 30 dias</option>
+                                            <option value="90">Últimos 90 dias</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
+                            
+                            <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                                <h3 class="text-sm font-semibold text-gray-300 mb-3">📊 Filtros de Performance</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Views Mínimas</label>
+                                        <input type="number" id="trends-min-views" value="0" min="0" step="1000" placeholder="Ex: 10000" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                        <p class="text-xs text-gray-500 mt-1">Deixe 0 para desabilitar</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Views por Dia Mínimas</label>
+                                        <input type="number" id="trends-min-views-per-day" value="0" min="0" step="100" placeholder="Ex: 1000" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                        <p class="text-xs text-gray-500 mt-1">Deixe 0 para desabilitar</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-300 mb-2">Número de Resultados</label>
                                 <input type="number" id="trends-max-results" value="10" min="1" max="50" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
                             </div>
-                            <button type="submit" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                            
+                            <button type="submit" class="w-full py-2 px-4 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-lg font-semibold transition-all shadow-lg shadow-amber-500/30">
                                 <i data-lucide="search" class="w-4 h-4 inline mr-2"></i> Escanear Tendências
                             </button>
                         </form>
@@ -4905,6 +5136,9 @@ Equipe La Casa Dark Core</textarea>
             function startNotificationPolling() {
                 if (notificationPollInterval) return;
                 
+                // Rastrear notificações já exibidas para evitar duplicatas
+                const displayedNotifications = new Set();
+                
                 notificationPollInterval = setInterval(async () => {
                     try {
                         const response = await fetch(`${API_BASE}/api/notifications/pending`, {
@@ -4913,24 +5147,73 @@ Equipe La Casa Dark Core</textarea>
                         if (response.ok) {
                             const notifications = await response.json();
                             notifications.forEach(notif => {
-                                showNotification(notif.title, notif.message, notif.type, notif.duration || 5000);
-                                // Marcar como lida
-                                fetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
-                                    method: 'POST',
-                                    headers: { 'Authorization': `Bearer ${userToken}` }
-                                }).catch(() => {});
+                                // Só exibir se ainda não foi exibida nesta sessão
+                                if (!displayedNotifications.has(notif.id)) {
+                                    showNotification(notif.title, notif.message, notif.type, notif.duration || 5000);
+                                    displayedNotifications.add(notif.id);
+                                    
+                                    // Marcar como lida apenas após o tempo de exibição
+                                    setTimeout(() => {
+                                        fetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
+                                            method: 'POST',
+                                            headers: { 'Authorization': `Bearer ${userToken}` }
+                                        }).catch(() => {});
+                                        // Remover do set após marcar como lida para permitir nova exibição se necessário
+                                        displayedNotifications.delete(notif.id);
+                                    }, notif.duration || 5000);
+                                }
                             });
                         }
                     } catch (err) {
                         console.error('Erro ao buscar notificações:', err);
                     }
-                }, 3000); // Verificar a cada 3 segundos
+                }, 2000); // Verificar a cada 2 segundos para melhor responsividade
             }
             
             function stopNotificationPolling() {
                 if (notificationPollInterval) {
                     clearInterval(notificationPollInterval);
                     notificationPollInterval = null;
+                }
+            }
+            
+            // Função para mostrar modal de loading genérico
+            function showLoadingModal(message = 'Processando...', icon = 'sparkles') {
+                // Remover modal existente se houver
+                const existingModal = document.getElementById('generic-loading-modal');
+                if (existingModal) {
+                    existingModal.remove();
+                }
+                
+                const modal = document.createElement('div');
+                modal.id = 'generic-loading-modal';
+                modal.className = 'custom-modal-overlay';
+                modal.innerHTML = `
+                    <div class="custom-modal">
+                        <div class="custom-modal-header">
+                            <div class="custom-modal-title">
+                                <i data-lucide="${icon}" class="w-5 h-5 text-amber-400 animate-spin"></i>
+                                <span>${message}</span>
+                            </div>
+                        </div>
+                        <div class="custom-modal-body">
+                            <div class="flex items-center justify-center py-8">
+                                <div class="loader"></div>
+                            </div>
+                            <p class="custom-modal-message text-center">Aguarde enquanto processamos sua solicitação...</p>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+            
+            // Função para esconder modal de loading
+            function hideLoadingModal() {
+                const modal = document.getElementById('generic-loading-modal');
+                if (modal) {
+                    modal.style.animation = 'fadeOut 0.2s ease-out';
+                    setTimeout(() => modal.remove(), 200);
                 }
             }
             
@@ -4976,24 +5259,150 @@ Equipe La Casa Dark Core</textarea>
             }
             
             // Helper function to render nested objects/arrays as HTML lists
-            function renderObjectAsList(obj) {
+            function renderObjectAsList(obj, depth = 0) {
                 if (typeof obj !== 'object' || obj === null) {
-                    return obj;
+                    return `<span class="text-gray-300">${String(obj)}</span>`;
                 }
-                let html = '<ul class="list-disc list-inside pl-4 space-y-1 mt-2">';
+                
+                if (Array.isArray(obj)) {
+                    let html = '<ul class="list-disc list-inside pl-6 space-y-2 mt-2">';
+                    obj.forEach((item, index) => {
+                        html += '<li class="text-gray-300">';
+                        if (typeof item === 'object' && item !== null) {
+                            html += renderObjectAsList(item, depth + 1);
+                        } else {
+                            html += `<span class="text-gray-300">${String(item)}</span>`;
+                        }
+                        html += '</li>';
+                    });
+                    html += '</ul>';
+                    return html;
+                }
+                
+                let html = '<div class="space-y-3 mt-2">';
                 for (const key in obj) {
-                    const title = isNaN(parseInt(key)) ? `<strong class="text-amber-400">${key.replace(/_/g, ' ')}:</strong> ` : '';
                     const value = obj[key];
-                    html += '<li>';
-                    html += title;
+                    const title = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    
+                    html += '<div class="bg-gray-800/50 rounded-lg p-4 border border-gray-700">';
+                    html += `<h4 class="text-amber-400 font-semibold mb-2 text-lg">${title}</h4>`;
+                    
                     if (typeof value === 'object' && value !== null) {
-                        html += renderObjectAsList(value);
+                        html += renderObjectAsList(value, depth + 1);
                     } else {
-                        html += value;
+                        html += `<p class="text-gray-300 leading-relaxed">${String(value)}</p>`;
                     }
-                    html += '</li>';
+                    html += '</div>';
                 }
-                html += '</ul>';
+                html += '</div>';
+                return html;
+            }
+            
+            function formatNicheRecommendation(data) {
+                if (typeof data === 'string') {
+                    // Tentar parsear se for JSON string
+                    try {
+                        const parsed = JSON.parse(data);
+                        return formatNicheRecommendation(parsed);
+                    } catch (e) {
+                        // Se não for JSON, retornar como texto formatado
+                        return `<div class="prose prose-invert max-w-none"><p class="text-gray-300 whitespace-pre-wrap">${data.replace(/\n/g, '<br>')}</p></div>`;
+                    }
+                }
+                
+                if (typeof data !== 'object' || data === null) {
+                    return `<p class="text-gray-300">${String(data)}</p>`;
+                }
+                
+                let html = '<div class="space-y-4">';
+                
+                // Subnicho Recomendado
+                if (data.subnicho_recomendado) {
+                    html += `
+                        <div class="bg-gradient-to-r from-amber-900/30 to-amber-800/20 rounded-lg p-6 border border-amber-700/50">
+                            <h3 class="text-2xl font-bold text-amber-400 mb-2">🎯 Subnicho Recomendado</h3>
+                            <p class="text-xl text-white font-semibold">${data.subnicho_recomendado}</p>
+                        </div>
+                    `;
+                }
+                
+                // Análise de Potencial
+                if (data.analise_potencial) {
+                    html += `
+                        <div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+                            <h3 class="text-xl font-semibold text-amber-400 mb-3">💡 Análise de Potencial</h3>
+                            <p class="text-gray-300 leading-relaxed">${data.analise_potencial}</p>
+                        </div>
+                    `;
+                }
+                
+                // Análise de Concorrência
+                if (data.analise_concorrencia) {
+                    html += `
+                        <div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+                            <h3 class="text-xl font-semibold text-amber-400 mb-3">📊 Análise de Concorrência</h3>
+                            <p class="text-gray-300 leading-relaxed">${data.analise_concorrencia}</p>
+                        </div>
+                    `;
+                }
+                
+                // Potencial de Viralização
+                if (data.potencial_viralizacao) {
+                    html += `
+                        <div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+                            <h3 class="text-xl font-semibold text-amber-400 mb-3">🚀 Potencial de Viralização</h3>
+                            <p class="text-gray-300 leading-relaxed">${data.potencial_viralizacao}</p>
+                        </div>
+                    `;
+                }
+                
+                // Estratégias de Conteúdo
+                if (data.estrategias_conteudo && Array.isArray(data.estrategias_conteudo)) {
+                    html += `
+                        <div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+                            <h3 class="text-xl font-semibold text-amber-400 mb-3">📝 Estratégias de Conteúdo</h3>
+                            <ul class="list-disc list-inside space-y-2 pl-4">
+                                ${data.estrategias_conteudo.map(strategy => `<li class="text-gray-300">${strategy}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+                
+                // Sugestões de Títulos e Thumbnails
+                if (data.sugestoes_titulos_thumbnails) {
+                    html += `
+                        <div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700">
+                            <h3 class="text-xl font-semibold text-amber-400 mb-4">🎨 Sugestões de Títulos e Thumbnails</h3>
+                            
+                            ${data.sugestoes_titulos_thumbnails.titulos && Array.isArray(data.sugestoes_titulos_thumbnails.titulos) ? `
+                                <div class="mb-4">
+                                    <h4 class="text-lg font-semibold text-white mb-2">📌 Títulos Virais</h4>
+                                    <ul class="list-disc list-inside space-y-2 pl-4">
+                                        ${data.sugestoes_titulos_thumbnails.titulos.map(title => `<li class="text-gray-300">${title}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            
+                            ${data.sugestoes_titulos_thumbnails.thumbnails && Array.isArray(data.sugestoes_titulos_thumbnails.thumbnails) ? `
+                                <div>
+                                    <h4 class="text-lg font-semibold text-white mb-2">🖼️ Thumbnails</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        ${data.sugestoes_titulos_thumbnails.thumbnails.map((thumb, idx) => `
+                                            <div class="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                                                <h5 class="text-amber-400 font-semibold mb-2">Thumbnail ${idx + 1}</h5>
+                                                <p class="text-gray-300 text-sm mb-1"><strong>Imagem:</strong> ${thumb.imagem || 'N/A'}</p>
+                                                <p class="text-gray-300 text-sm mb-1"><strong>Texto:</strong> ${thumb.texto || 'N/A'}</p>
+                                                <p class="text-gray-300 text-sm"><strong>Cores:</strong> ${thumb.cores || 'N/A'}</p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                html += '</div>';
                 return html;
             }
 
@@ -9307,6 +9716,26 @@ Equipe La Casa Dark Core</textarea>
             const sidebarOverlay = document.getElementById('sidebar-overlay');
             const hamburgerButton = document.getElementById('hamburger-button');
 
+            // Event delegation para links de navegação - DEVE SER CONFIGURADO PRIMEIRO
+            const mainNav = document.getElementById('main-nav');
+            if (mainNav) {
+                mainNav.addEventListener('click', (e) => {
+                    const link = e.target.closest('a');
+                    if (!link) return;
+                    
+                    // Se o link tem data-view, usar navegação SPA
+                    if (link.hasAttribute('data-view')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const viewName = link.getAttribute('data-view');
+                        navigateToView(viewName);
+                        return false;
+                    }
+                    // Se não tem data-view, deixar o link funcionar normalmente (navegação externa)
+                    // Não fazer preventDefault, permitir navegação normal
+                }, true); // Usar capture phase para garantir que executa primeiro
+            }
+
             // Função auxiliar para atualizar o dashboard se estiver na tela de início
             function refreshDashboardIfVisible() {
                 const inicioView = document.getElementById('view-inicio');
@@ -9376,6 +9805,21 @@ Equipe La Casa Dark Core</textarea>
                     // Carregar preferências do usuário
                     loadUserPreferences();
                 }
+                if (viewName === 'gerador-video') {
+                    console.log('[Dashboard] ========== NAVEGANDO PARA GERADOR DE VÍDEO ==========');
+                    console.log('[Dashboard] View name:', viewName);
+                    console.log('[Dashboard] Função initVideoGenerator existe?', typeof initVideoGenerator);
+                    // Aguardar um pouco para garantir que o DOM está pronto
+                    setTimeout(() => {
+                        console.log('[Dashboard] Chamando initVideoGenerator...');
+                        if (typeof initVideoGenerator === 'function') {
+                            initVideoGenerator();
+                        } else {
+                            console.error('[Dashboard] ❌ initVideoGenerator não é uma função!');
+                        }
+                    }, 300);
+                }
+                
                 if (viewName === 'inicio') {
                     loadDashboard(); // Recarregar dashboard quando voltar para a tela inicial
                     loadCreditsBalance(); // Carregar saldo de créditos
@@ -9420,9 +9864,15 @@ Equipe La Casa Dark Core</textarea>
                         loadBibliotecaAgents();
                     }
                 }
+                if (viewName === 'viral-agents') {
+                    loadViralAgents();
+                }
                 if (viewName === 'youtube-integration') {
                     loadYouTubeIntegrationStatus();
                     loadScheduledPosts();
+                    loadMonitoredCompetitors();
+                    loadAISuggestions();
+                    loadViralAlerts();
                     switchYouTubeTab('channels'); // Definir tab padrão
                 } else {
                     // Parar atualização automática quando sair da view de YouTube
@@ -9459,8 +9909,15 @@ Equipe La Casa Dark Core</textarea>
                     button.classList.remove('border-transparent', 'text-gray-400');
                 }
                 if (tabName === 'competitors') loadMonitoredCompetitors();
-                else if (tabName === 'suggestions') loadAISuggestions();
-                else if (tabName === 'alerts') loadViralAlerts();
+                else if (tabName === 'suggestions') {
+                    loadAISuggestions();
+                    // Garantir que o event listener está anexado quando a tab é aberta
+                    setTimeout(() => {
+                        if (typeof setupSuggestionsForm === 'function') {
+                            setupSuggestionsForm();
+                        }
+                    }, 100);
+                } else if (tabName === 'alerts') loadViralAlerts();
             };
 
             // A.1 - Agendamento Inteligente
@@ -9468,6 +9925,10 @@ Equipe La Casa Dark Core</textarea>
             if (suggestTimeForm) {
                 suggestTimeForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
+                    
+                    showLoadingModal('Analisando melhor horário para publicar...', 'calendar');
+                    
                     try {
                         const token = localStorage.getItem('core_token');
                         const response = await fetch(`${API_BASE}/api/youtube/suggest-best-time`, {
@@ -9502,36 +9963,85 @@ Equipe La Casa Dark Core</textarea>
             // A.3 - Gerador de Metadata
             const generateMetadataForm = document.getElementById('generate-metadata-form');
             if (generateMetadataForm) {
+                console.log('[Metadata Generator] Form encontrado, anexando event listener');
                 generateMetadataForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[Metadata Generator] Form submetido');
+                    
+                    const title = document.getElementById('metadata-title').value;
+                    const model = document.getElementById('metadata-model').value;
+                    const modelName = model === 'gpt-4o' ? 'GPT-4o' : model === 'claude-3-7-sonnet-20250219' ? 'Claude 3.7 Sonnet' : 'Gemini 2.5 Pro';
+                    
+                    showLoadingModal(`Gerando metadata com ${modelName}...`, 'wand-2');
+                    
                     try {
+                        const niche = document.getElementById('metadata-niche').value;
+                        const videoDescription = document.getElementById('metadata-description').value;
+                        
+                        console.log('[Metadata Generator] Dados:', { title, model, niche, videoDescription });
+                        
+                        if (!title) {
+                            hideLoadingModal();
+                            throw new Error('Título do vídeo é obrigatório');
+                        }
+                        
                         const token = localStorage.getItem('core_token');
+                        if (!token) {
+                            hideLoadingModal();
+                            throw new Error('Token de autenticação não encontrado. Faça login novamente.');
+                        }
+                        
+                        console.log('[Metadata Generator] Enviando requisição...');
                         const response = await fetch(`${API_BASE}/api/youtube/generate-metadata`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                             body: JSON.stringify({ 
-                                title: document.getElementById('metadata-title').value,
-                                niche: document.getElementById('metadata-niche').value,
-                                videoDescription: document.getElementById('metadata-description').value
+                                title: title,
+                                model: model,
+                                niche: niche,
+                                videoDescription: videoDescription
                             })
                         });
-                        if (!response.ok) throw new Error('Falha ao gerar metadata');
+                        
+                        console.log('[Metadata Generator] Resposta recebida:', response.status, response.ok);
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({ msg: 'Falha ao gerar metadata' }));
+                            hideLoadingModal();
+                            throw new Error(errorData.msg || 'Falha ao gerar metadata');
+                        }
+                        
                         const data = await response.json();
+                        console.log('[Metadata Generator] Dados recebidos:', data);
+                        
+                        hideLoadingModal();
+                        
                         const resultDiv = document.getElementById('generated-metadata-result');
                         if (resultDiv) {
-                            document.getElementById('generated-description').value = data.description;
+                            const descriptionField = document.getElementById('generated-description');
+                            if (descriptionField) {
+                                descriptionField.value = data.description || '';
+                            }
                             const tagsDiv = document.getElementById('generated-tags');
-                            if (tagsDiv && data.tags) {
+                            if (tagsDiv && data.tags && Array.isArray(data.tags)) {
                                 tagsDiv.innerHTML = data.tags.map(tag => 
                                     `<span class="px-3 py-1 bg-amber-600/20 text-amber-400 rounded text-sm border border-amber-600/30">${tag}</span>`
                                 ).join('');
                             }
                             resultDiv.classList.remove('hidden');
+                            showMessage('youtube-integration-success-message', `Metadata gerada com sucesso usando ${modelName}!`);
+                        } else {
+                            console.error('[Metadata Generator] resultDiv não encontrado');
                         }
                     } catch (err) {
-                        showMessage('youtube-integration-error-message', err.message, true);
+                        console.error('[Metadata Generator] Erro:', err);
+                        hideLoadingModal();
+                        showMessage('youtube-integration-error-message', err.message || 'Erro ao gerar metadata', true);
                     }
                 });
+            } else {
+                console.warn('[Metadata Generator] Form não encontrado!');
             }
 
             window.copyToClipboard = function(elementId) {
@@ -9548,6 +10058,10 @@ Equipe La Casa Dark Core</textarea>
             if (scanTrendsForm) {
                 scanTrendsForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
+                    
+                    showLoadingModal('Escanando tendências no YouTube...', 'search');
+                    
                     try {
                         const token = localStorage.getItem('core_token');
                         const response = await fetch(`${API_BASE}/api/youtube/scan-trends`, {
@@ -9556,36 +10070,62 @@ Equipe La Casa Dark Core</textarea>
                             body: JSON.stringify({ 
                                 niche: document.getElementById('trends-niche').value,
                                 subniche: document.getElementById('trends-subniche').value,
-                                maxResults: parseInt(document.getElementById('trends-max-results').value || 10)
+                                maxResults: parseInt(document.getElementById('trends-max-results').value || 10),
+                                minViews: parseInt(document.getElementById('trends-min-views').value || 0),
+                                minViewsPerDay: parseInt(document.getElementById('trends-min-views-per-day').value || 0),
+                                language: document.getElementById('trends-language').value || 'pt',
+                                orderBy: document.getElementById('trends-order-by').value || 'viewCount',
+                                publishedAfter: parseInt(document.getElementById('trends-published-after').value || 7),
+                                videoDuration: document.getElementById('trends-duration').value || 'any',
+                                videoDefinition: 'any'
                             })
                         });
-                        if (!response.ok) throw new Error('Falha ao escanear tendências');
+                        if (!response.ok) {
+                            hideLoadingModal();
+                            throw new Error('Falha ao escanear tendências');
+                        }
                         const data = await response.json();
+                        
+                        hideLoadingModal();
+                        
                         const resultsDiv = document.getElementById('trends-results');
                         if (resultsDiv) {
                             if (data.trends && data.trends.length > 0) {
-                                resultsDiv.innerHTML = data.trends.map(t => `
-                                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                resultsDiv.innerHTML = data.trends.map(t => {
+                                    const isViral = t.isViral !== false; // Assume viral se não especificado
+                                    return `
+                                    <div class="bg-gray-800 border ${isViral ? 'border-amber-500' : 'border-gray-700'} rounded-lg p-4 hover:bg-gray-750 transition-colors">
                                         <div class="flex items-start space-x-4">
-                                            ${t.thumbnailUrl ? `<img src="${t.thumbnailUrl}" alt="${t.title}" class="w-32 h-24 object-cover rounded">` : ''}
+                                            ${t.thumbnailUrl ? `<img src="${t.thumbnailUrl}" alt="${t.title}" class="w-32 h-24 object-cover rounded cursor-pointer" onclick="window.open('${t.url}', '_blank')">` : ''}
                                             <div class="flex-1">
-                                                <h3 class="text-white font-semibold mb-2"><a href="${t.url}" target="_blank" class="hover:text-amber-400">${t.title}</a></h3>
-                                                <p class="text-gray-400 text-sm mb-2">${t.channelName}</p>
+                                                <div class="flex items-center gap-2 mb-2">
+                                                    <h3 class="text-white font-semibold"><a href="${t.url}" target="_blank" class="hover:text-amber-400">${t.title}</a></h3>
+                                                    ${isViral ? '<span class="bg-amber-500 text-black text-xs font-bold px-2 py-1 rounded">VIRAL</span>' : '<span class="bg-gray-600 text-gray-300 text-xs font-semibold px-2 py-1 rounded">RELEVANTE</span>'}
+                                                </div>
+                                                <p class="text-gray-400 text-sm mb-2">📺 ${t.channelName}</p>
                                                 <div class="flex flex-wrap gap-4 text-sm">
-                                                    <span class="text-gray-300">👁️ ${formatNumber(t.views)} views</span>
-                                                    <span class="text-gray-300">📊 ${formatNumber(t.viewsPerDay)} views/dia</span>
-                                                    <span class="text-gray-300">📅 ${t.daysSince} dias</span>
+                                                    <span class="text-gray-300">👁️ ${typeof formatNumber === 'function' ? formatNumber(t.views) : t.views.toLocaleString('pt-BR')} views</span>
+                                                    <span class="text-gray-300">📊 ${typeof formatNumber === 'function' ? formatNumber(t.viewsPerDay) : t.viewsPerDay.toLocaleString('pt-BR')} views/dia</span>
+                                                    <span class="text-gray-300">📅 ${t.daysSince} ${t.daysSince === 1 ? 'dia' : 'dias'}</span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                `).join('');
+                                `;
+                                }).join('');
                             } else {
-                                resultsDiv.innerHTML = '<p class="text-gray-400">Nenhum vídeo viral encontrado.</p>';
+                                resultsDiv.innerHTML = '<p class="text-gray-400 text-center py-8">Nenhum vídeo encontrado para este nicho. Tente ajustar os termos de busca ou aumentar o número de resultados.</p>';
                             }
                         }
-                        showMessage('youtube-integration-success-message', data.msg || `${data.count} vídeo(s) encontrado(s).`);
+                        
+                        // Mostrar mensagem de sucesso ou informação
+                        if (data.msg) {
+                            showMessage('youtube-integration-success-message', data.msg);
+                        } else if (data.count > 0) {
+                            showMessage('youtube-integration-success-message', `${data.count} vídeo(s) encontrado(s).`);
+                        }
                     } catch (err) {
+                        hideLoadingModal();
                         showMessage('youtube-integration-error-message', err.message, true);
                     }
                 });
@@ -9596,6 +10136,10 @@ Equipe La Casa Dark Core</textarea>
             if (monitorCompetitorForm) {
                 monitorCompetitorForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
+                    
+                    showLoadingModal('Adicionando competidor para monitoramento...', 'users');
+                    
                     try {
                         const token = localStorage.getItem('core_token');
                         const response = await fetch(`${API_BASE}/api/youtube/monitor-competitor`, {
@@ -9608,12 +10152,18 @@ Equipe La Casa Dark Core</textarea>
                                 autoAnalyze: document.getElementById('competitor-auto-analyze').checked
                             })
                         });
-                        if (!response.ok) throw new Error('Falha ao adicionar competidor');
+                        if (!response.ok) {
+                            hideLoadingModal();
+                            throw new Error('Falha ao adicionar competidor');
+                        }
                         const data = await response.json();
+                        
+                        hideLoadingModal();
                         showMessage('youtube-integration-success-message', data.msg);
                         monitorCompetitorForm.reset();
                         loadMonitoredCompetitors();
                     } catch (err) {
+                        hideLoadingModal();
                         showMessage('youtube-integration-error-message', err.message, true);
                     }
                 });
@@ -9671,29 +10221,72 @@ Equipe La Casa Dark Core</textarea>
             };
 
             // B.4 - Sugestões Automáticas
-            const generateSuggestionsForm = document.getElementById('generate-suggestions-form');
-            if (generateSuggestionsForm) {
-                generateSuggestionsForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    try {
-                        const token = localStorage.getItem('core_token');
-                        const response = await fetch(`${API_BASE}/api/youtube/generate-suggestions`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                            body: JSON.stringify({ 
-                                niche: document.getElementById('suggestions-niche').value,
-                                subniche: document.getElementById('suggestions-subniche').value
-                            })
-                        });
-                        if (!response.ok) throw new Error('Falha ao gerar sugestões');
-                        const data = await response.json();
-                        showMessage('youtube-integration-success-message', data.msg || `${data.count} sugestão(ões) gerada(s).`);
-                        loadAISuggestions();
-                    } catch (err) {
-                        showMessage('youtube-integration-error-message', err.message, true);
-                    }
-                });
+            function setupSuggestionsForm() {
+                const generateSuggestionsForm = document.getElementById('generate-suggestions-form');
+                if (generateSuggestionsForm && !generateSuggestionsForm.hasAttribute('data-listener-attached')) {
+                    console.log('[Sugestões IA] Form encontrado, anexando event listener');
+                    generateSuggestionsForm.setAttribute('data-listener-attached', 'true');
+                    generateSuggestionsForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Sugestões IA] Form submetido');
+                        
+                        showLoadingModal('Gerando sugestões de vídeos com IA...', 'sparkles');
+                        
+                        try {
+                            const niche = document.getElementById('suggestions-niche').value;
+                            const subniche = document.getElementById('suggestions-subniche').value;
+                            
+                            console.log('[Sugestões IA] Dados:', { niche, subniche });
+                            
+                            if (!niche) {
+                                hideLoadingModal();
+                                throw new Error('Nicho é obrigatório para gerar sugestões');
+                            }
+                            
+                            const token = localStorage.getItem('core_token');
+                            if (!token) {
+                                hideLoadingModal();
+                                throw new Error('Token de autenticação não encontrado. Faça login novamente.');
+                            }
+                            
+                            console.log('[Sugestões IA] Enviando requisição...');
+                            const response = await fetch(`${API_BASE}/api/youtube/generate-suggestions`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ 
+                                    niche: niche,
+                                    subniche: subniche || null
+                                })
+                            });
+                            
+                            console.log('[Sugestões IA] Resposta recebida:', response.status, response.ok);
+                            
+                            if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({ msg: 'Falha ao gerar sugestões' }));
+                                hideLoadingModal();
+                                throw new Error(errorData.msg || 'Falha ao gerar sugestões');
+                            }
+                            
+                            const data = await response.json();
+                            console.log('[Sugestões IA] Dados recebidos:', data);
+                            
+                            hideLoadingModal();
+                            showMessage('youtube-integration-success-message', data.msg || `${data.count || 0} sugestão(ões) gerada(s).`);
+                            loadAISuggestions();
+                        } catch (err) {
+                            console.error('[Sugestões IA] Erro:', err);
+                            hideLoadingModal();
+                            showMessage('youtube-integration-error-message', err.message || 'Erro ao gerar sugestões', true);
+                        }
+                    });
+                } else if (!generateSuggestionsForm) {
+                    console.warn('[Sugestões IA] Form não encontrado!');
+                }
             }
+            
+            // Configurar o form inicialmente
+            setupSuggestionsForm();
 
             async function loadAISuggestions() {
                 try {
@@ -9922,17 +10515,18 @@ Equipe La Casa Dark Core</textarea>
                         const promises = models.map(async (modelKey) => {
                             try {
                                 console.log(`[Comparação] Iniciando requisição para: ${modelNames[modelKey]}`);
+                                // Se usar laozhang, enviar o modelo específico para que ele use o modelo correto
+                                const requestBody = useLaozhang 
+                                    ? { videoUrl, model: modelKey, folderId: folderId || null }
+                                    : { videoUrl, model: modelKey, folderId: folderId || null };
+                                    
                                 const response = await fetch(`${API_BASE}${endpoint}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}` 
                         },
-                        body: JSON.stringify({ 
-                            videoUrl, 
-                                        model: useLaozhang ? null : modelKey,
-                                        folderId: folderId || null
-                                    }) 
+                        body: JSON.stringify(requestBody)
                                 });
                                 
                                 const text = await response.text();
@@ -10339,7 +10933,7 @@ Equipe La Casa Dark Core</textarea>
                         </div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold text-white">Títulos Gerados (Modelo: ${formatModelNameForDisplay(data.modelUsed)})</h3>
+                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${formatModelNameForDisplay(data.modelUsed)})`}</h3>
                             <button type="button" id="btn-generate-more-titles" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                 <i data-lucide="refresh-cw" class="w-4 h-4 mr-1.5"></i>
                                 <span>Gerar Mais Títulos</span>
@@ -10366,7 +10960,7 @@ Equipe La Casa Dark Core</textarea>
                                 <div class="flex items-center space-x-3 flex-1">
                                     <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
                                     <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">
-                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold">[${titleObj.model}]</span> ` : ''}${titleObj.titulo}
+                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${titleObj.model}</span> ` : ''}${titleObj.titulo}
                                     </label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
@@ -11870,6 +12464,9 @@ Equipe La Casa Dark Core</textarea>
                             </tr>
                         `;
                     });
+                    
+                    // Carregar vídeos gerados
+                    loadGeneratedVideos();
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                     
                     // Atualizar paginação
@@ -11883,6 +12480,58 @@ Equipe La Casa Dark Core</textarea>
                     }
                     const paginationEl = document.getElementById('history-pagination');
                     if (paginationEl) paginationEl.style.display = 'none';
+                }
+            }
+            
+            // Carregar vídeos gerados
+            async function loadGeneratedVideos() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/videos/generated`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar vídeos gerados.');
+                    const result = await response.json();
+                    
+                    const videos = result.videos || [];
+                    if (videos.length === 0) return;
+                    
+                    // Adicionar seção de vídeos gerados antes da tabela de histórico
+                    const historyContainer = document.querySelector('#view-historico .md\\:col-span-2 > div');
+                    if (!historyContainer) return;
+                    
+                    // Verificar se já existe a seção
+                    let videosSection = document.getElementById('generated-videos-section');
+                    if (!videosSection) {
+                        videosSection = document.createElement('div');
+                        videosSection.id = 'generated-videos-section';
+                        videosSection.className = 'mb-8';
+                        historyContainer.insertBefore(videosSection, historyContainer.firstChild);
+                    }
+                    
+                    videosSection.innerHTML = `
+                        <h2 class="text-2xl font-bold text-white mb-4">🎬 Vídeos Gerados</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${videos.map(video => {
+                                const date = new Date(video.created_at).toLocaleDateString('pt-BR');
+                                const promptPreview = video.prompt ? (video.prompt.length > 50 ? video.prompt.substring(0, 50) + '...' : video.prompt) : 'Sem descrição';
+                                return `
+                                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                        <div class="mb-2">
+                                            <p class="text-sm text-gray-400 truncate">${promptPreview}</p>
+                                            <p class="text-xs text-gray-500 mt-1">${date} • ${video.model || 'N/A'}</p>
+                                        </div>
+                                        <a href="${video.video_uri}" target="_blank" class="text-amber-500 hover:text-amber-400 text-sm font-medium flex items-center gap-2">
+                                            <i data-lucide="play" class="w-4 h-4"></i>
+                                            Assistir Vídeo
+                                        </a>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (error) {
+                    console.error('Erro ao carregar vídeos gerados:', error);
                 }
             }
             
@@ -12953,21 +13602,33 @@ Equipe La Casa Dark Core</textarea>
                     let escapedRec;
                     let contentHtml;
 
+                    // Tentar parsear se for string JSON
+                    if (typeof recommendationContent === 'string') {
+                        try {
+                            const parsed = JSON.parse(recommendationContent);
+                            recommendationContent = parsed;
+                        } catch (e) {
+                            // Não é JSON, manter como string
+                        }
+                    }
+
                     if (typeof recommendationContent === 'object' && recommendationContent !== null) {
-                        contentHtml = renderObjectAsList(recommendationContent);
+                        contentHtml = formatNicheRecommendation(recommendationContent);
                         escapedRec = JSON.stringify(recommendationContent, null, 2);
                     } else {
                         recommendationContent = String(recommendationContent);
-                        contentHtml = recommendationContent.replace(/\n/g, '<br>');
+                        contentHtml = `<div class="prose prose-invert max-w-none"><p class="text-gray-300 whitespace-pre-wrap">${recommendationContent.replace(/\n/g, '<br>')}</p></div>`;
                         escapedRec = recommendationContent.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
                     }
 
                     resultsDiv.innerHTML = `
                         <div class="relative">
-                            <button title="Copiar Sugestão" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text='${escapedRec}'>
+                            <button title="Copiar Sugestão" class="btn-copy absolute top-2 right-2 z-10 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500 transition" data-copy-text='${escapedRec}'>
                                 <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                             </button>
-                            ${contentHtml}
+                            <div class="pr-12">
+                                ${contentHtml}
+                            </div>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -13024,31 +13685,144 @@ Equipe La Casa Dark Core</textarea>
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.msg);
 
+                    // Se a resposta vier com 'analysis' wrapper, extrair
+                    const analysisData = data.analysis || data;
+                    
                     let html = '';
                     let textToCopy = '';
-                    for (const key in data) {
-                        const title = key.replace(/_/g, ' ');
-                        html += `<h3 class="mt-4 font-bold text-amber-400">${title}</h3>`;
-                        textToCopy += `${title.toUpperCase()}\n`;
-                        const value = data[key];
-                        
-                        if (typeof value === 'object' && value !== null) {
-                            html += renderObjectAsList(value);
-                            textToCopy += JSON.stringify(value, null, 2) + '\n';
-                        } else {
-                            html += `<p>${value}</p>`;
-                            textToCopy += value + '\n';
-                        }
-                        textToCopy += '\n';
-                    }
                     
+                    // Formatação melhorada para análise de competidor
+                    const formatCompetitorAnalysis = (data) => {
+                        let html = '<div class="space-y-6">';
+                        
+                        // Content Strategies
+                        if (data.content_strategies) {
+                            html += `
+                                <div class="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">📹 Estratégias de Conteúdo</h3>
+                                    ${data.content_strategies.overview ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Visão Geral:</strong> ${data.content_strategies.overview}</p>` : ''}
+                                    ${data.content_strategies.playlist_strategy ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Estratégia de Playlists:</strong> ${data.content_strategies.playlist_strategy}</p>` : ''}
+                                    ${data.content_strategies.storytelling ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Storytelling:</strong> ${data.content_strategies.storytelling}</p>` : ''}
+                                    ${data.content_strategies.engagement_tactics ? `<p class="text-gray-300 leading-relaxed"><strong class="text-white">Táticas de Engajamento:</strong> ${data.content_strategies.engagement_tactics}</p>` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        // Title and Thumbnail Patterns
+                        if (data.title_and_thumbnail_patterns) {
+                            html += `
+                                <div class="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">🎨 Padrões de Títulos e Thumbnails</h3>
+                                    ${data.title_and_thumbnail_patterns.title_patterns ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Padrões de Títulos:</strong> ${data.title_and_thumbnail_patterns.title_patterns}</p>` : ''}
+                                    ${data.title_and_thumbnail_patterns.thumbnail_patterns ? `<p class="text-gray-300 leading-relaxed"><strong class="text-white">Padrões de Thumbnails:</strong> ${data.title_and_thumbnail_patterns.thumbnail_patterns}</p>` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        // Posting Frequency
+                        if (data.posting_frequency) {
+                            html += `
+                                <div class="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">📅 Frequência de Postagem</h3>
+                                    ${data.posting_frequency.current_frequency ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Frequência Atual:</strong> ${data.posting_frequency.current_frequency}</p>` : ''}
+                                    ${data.posting_frequency.recommendation ? `<p class="text-gray-300 leading-relaxed"><strong class="text-white">Recomendação:</strong> ${data.posting_frequency.recommendation}</p>` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        // Niche and Subniches
+                        if (data.niche_and_subniches) {
+                            html += `
+                                <div class="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">🎯 Nicho e Subnichos</h3>
+                                    ${data.niche_and_subniches.primary_niche ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Nicho Principal:</strong> ${data.niche_and_subniches.primary_niche}</p>` : ''}
+                                    ${data.niche_and_subniches.subniches && Array.isArray(data.niche_and_subniches.subniches) ? `
+                                        <div>
+                                            <strong class="text-white">Subnichos:</strong>
+                                            <ul class="list-disc list-inside space-y-1 pl-4 mt-2">
+                                                ${data.niche_and_subniches.subniches.map(sub => `<li class="text-gray-300">${sub}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        // Differentiation Opportunities
+                        if (data.differentiation_opportunities) {
+                            html += `
+                                <div class="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">💡 Oportunidades de Diferenciação</h3>
+                                    ${data.differentiation_opportunities.live_interactions ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Interações ao Vivo:</strong> ${data.differentiation_opportunities.live_interactions}</p>` : ''}
+                                    ${data.differentiation_opportunities.exclusive_interviews ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Entrevistas Exclusivas:</strong> ${data.differentiation_opportunities.exclusive_interviews}</p>` : ''}
+                                    ${data.differentiation_opportunities.collaborations ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Colaborações:</strong> ${data.differentiation_opportunities.collaborations}</p>` : ''}
+                                    ${data.differentiation_opportunities.content_gaps ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Lacunas de Conteúdo:</strong> ${data.differentiation_opportunities.content_gaps}</p>` : ''}
+                                    ${data.differentiation_opportunities.unique_angles ? `<p class="text-gray-300 leading-relaxed"><strong class="text-white">Ângulos Únicos:</strong> ${data.differentiation_opportunities.unique_angles}</p>` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        // Strategic Recommendations
+                        if (data.strategic_recommendations) {
+                            html += `
+                                <div class="bg-gradient-to-r from-amber-900/30 to-amber-800/20 rounded-lg p-6 border border-amber-700/50">
+                                    <h3 class="text-2xl font-bold text-amber-400 mb-4">🚀 Recomendações Estratégicas</h3>
+                                    ${data.strategic_recommendations.channel_name_suggestions && Array.isArray(data.strategic_recommendations.channel_name_suggestions) ? `
+                                        <div class="mb-4">
+                                            <strong class="text-white">Sugestões de Nome do Canal:</strong>
+                                            <ul class="list-disc list-inside space-y-1 pl-4 mt-2">
+                                                ${data.strategic_recommendations.channel_name_suggestions.map(name => `<li class="text-gray-300">${name}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${data.strategic_recommendations.first_videos_ideas && Array.isArray(data.strategic_recommendations.first_videos_ideas) ? `
+                                        <div class="mb-4">
+                                            <strong class="text-white">Ideias para Primeiros Vídeos:</strong>
+                                            <ul class="list-disc list-inside space-y-1 pl-4 mt-2">
+                                                ${data.strategic_recommendations.first_videos_ideas.map(idea => `<li class="text-gray-300">${idea}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${data.strategic_recommendations.growth_strategy ? `<p class="text-gray-300 mb-3 leading-relaxed"><strong class="text-white">Estratégia de Crescimento:</strong> ${data.strategic_recommendations.growth_strategy}</p>` : ''}
+                                    ${data.strategic_recommendations.monetization_opportunities ? `<p class="text-gray-300 leading-relaxed"><strong class="text-white">Oportunidades de Monetização:</strong> ${data.strategic_recommendations.monetization_opportunities}</p>` : ''}
+                                </div>
+                            `;
+                        }
+                        
+                        html += '</div>';
+                        return html;
+                    };
+                    
+                    // Usar formatação melhorada se os dados seguirem o formato esperado
+                    if (analysisData.content_strategies || analysisData.title_and_thumbnail_patterns || analysisData.differentiation_opportunities) {
+                        html = formatCompetitorAnalysis(analysisData);
+                        textToCopy = JSON.stringify(analysisData, null, 2);
+                    } else {
+                        // Fallback para formatação genérica
+                        for (const key in analysisData) {
+                            const title = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                            html += `<div class="bg-gray-800/50 rounded-lg p-5 border border-gray-700 mb-4"><h3 class="text-xl font-semibold text-amber-400 mb-3">${title}</h3>`;
+                            const value = analysisData[key];
+                            
+                            if (typeof value === 'object' && value !== null) {
+                                html += renderObjectAsList(value);
+                            } else {
+                                html += `<p class="text-gray-300 leading-relaxed">${value}</p>`;
+                            }
+                            html += '</div>';
+                        }
+                        textToCopy = JSON.stringify(analysisData, null, 2);
+                    }
                     const escapedText = textToCopy.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                    
                     resultsDiv.innerHTML = `
                         <div class="relative">
-                            <button title="Copiar Análise Completa" class="btn-copy absolute top-0 right-0 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500" data-copy-text='${escapedText}'>
+                            <button title="Copiar Análise Completa" class="btn-copy absolute top-2 right-2 z-10 p-2 rounded-md hover:bg-gray-800 text-gray-400 hover:text-amber-500 transition" data-copy-text='${escapedText}'>
                                 <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                             </button>
-                            ${html}
+                            <div class="pr-12">
+                                ${html}
+                            </div>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -20020,14 +20794,13 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                // Obter modelo e velocidade se for DarkVoz
+                // Obter velocidade se for DarkVoz (modelo será 'tts-1' por padrão)
                 let model = getProviderDefaultTtsModel(provider);
                 let speed = 1.0;
                 if (provider === 'laozhang') {
-                    const modelSelect = document.getElementById('tts-model-select');
                     const speedSelect = document.getElementById('tts-speed-select');
-                    if (modelSelect) model = modelSelect.value || 'tts-1';
                     if (speedSelect) speed = parseFloat(speedSelect.value) || 1.0;
+                    model = 'tts-1'; // Modelo fixo para laozhang
                 }
                 
                 // Mostrar modal de progresso
@@ -20271,7 +21044,7 @@ Equipe La Casa Dark Core</textarea>
                 const darkVozControls = document.getElementById('darkvoz-controls');
                 if (providerSelect && darkVozControls) {
                     if (providerSelect.value === 'laozhang') {
-                        darkVozControls.style.display = 'grid';
+                        darkVozControls.style.display = 'block';
                     } else {
                         darkVozControls.style.display = 'none';
                     }
@@ -20292,7 +21065,11 @@ Equipe La Casa Dark Core</textarea>
                         }, 100);
                     }
                     if (viewName === 'gerador-video') {
-                        initVideoGenerator();
+                        console.log('[Dashboard] Navegando para gerador de vídeo, inicializando...');
+                        // Aguardar um pouco para garantir que o DOM está pronto
+                        setTimeout(() => {
+                            initVideoGenerator();
+                        }, 200);
                     }
                     if (viewName === 'imagens-lote') {
                         setTimeout(() => {
@@ -20338,77 +21115,141 @@ Equipe La Casa Dark Core</textarea>
             }
 
             // Inicializar gerador de vídeo
-            function initVideoGenerator() {
-                // Atualizar UI baseado no modo
-                updateVideoModeUI();
+            window.initVideoGenerator = function() {
+                console.log('[Video Generator] ========== INICIANDO GERADOR DE VÍDEO ==========');
                 
-                // Event listeners
-                setupVideoEventListeners();
+                // Verificar se a view está visível
+                const viewElement = document.getElementById('view-gerador-video');
+                if (!viewElement) {
+                    console.error('[Video Generator] ❌ View não encontrada!');
+                    return;
+                }
+                
+                console.log('[Video Generator] View encontrada, display:', viewElement.style.display);
+                
+                // Aguardar um pouco para garantir que os elementos estão no DOM
+                setTimeout(() => {
+                    // Verificar elementos críticos antes de inicializar
+                    const generateBtn = document.getElementById('video-generate-btn');
+                    const settingsToggle = document.getElementById('video-settings-toggle');
+                    const modelSelect = document.getElementById('video-model-select');
+                    const promptInput = document.getElementById('video-prompt-input');
+                    const settingsPanel = document.getElementById('video-settings-panel');
+                    
+                    console.log('[Video Generator] Verificando elementos:', {
+                        view: !!viewElement,
+                        viewDisplay: viewElement.style.display,
+                        generateBtn: !!generateBtn,
+                        generateBtnId: generateBtn?.id,
+                        settingsToggle: !!settingsToggle,
+                        settingsToggleId: settingsToggle?.id,
+                        modelSelect: !!modelSelect,
+                        modelSelectId: modelSelect?.id,
+                        promptInput: !!promptInput,
+                        settingsPanel: !!settingsPanel
+                    });
+                    
+                    if (!generateBtn) {
+                        console.error('[Video Generator] ❌ Botão Gerar Vídeo não encontrado!');
+                    }
+                    if (!settingsToggle) {
+                        console.error('[Video Generator] ❌ Toggle de configurações não encontrado!');
+                    }
+                    if (!modelSelect) {
+                        console.error('[Video Generator] ❌ Select de modelo não encontrado!');
+                    }
+                    
+                    if (!generateBtn || !settingsToggle || !modelSelect) {
+                        console.error('[Video Generator] ❌ Elementos críticos não encontrados! Tentando novamente em 500ms...');
+                        setTimeout(() => initVideoGenerator(), 500);
+                        return;
+                    }
+                    
+                    // Atualizar UI baseado no modo
+                    updateVideoModeUI();
+                    
+                    // Event listeners
+                    setupVideoEventListeners();
+                    
+                    console.log('[Video Generator] ✅✅✅ GERADOR DE VÍDEO INICIALIZADO COM SUCESSO ✅✅✅');
+                }, 300);
             }
 
             function updateVideoModeUI() {
-                const mode = document.getElementById('video-mode-select').value;
+                // Modo fixo: text-to-video
+                const mode = 'text-to-video';
                 const mediaUploads = document.getElementById('video-media-uploads');
                 const framesSection = document.getElementById('frames-upload-section');
                 const referencesSection = document.getElementById('references-upload-section');
                 const extendSection = document.getElementById('extend-video-section');
                 const aspectRatioSelect = document.getElementById('video-aspect-ratio-select');
                 const resolutionSelect = document.getElementById('video-resolution-select');
+                const modelSelect = document.getElementById('video-model-select');
 
-                // Esconder todas as seções
-                framesSection.classList.add('hidden');
-                referencesSection.classList.add('hidden');
-                extendSection.classList.add('hidden');
-                mediaUploads.classList.add('hidden');
+                // Esconder todas as seções de upload
+                if (framesSection) framesSection.classList.add('hidden');
+                if (referencesSection) referencesSection.classList.add('hidden');
+                if (extendSection) extendSection.classList.add('hidden');
+                if (mediaUploads) mediaUploads.classList.add('hidden');
 
-                // Mostrar seção apropriada
-                if (mode === 'frames-to-video') {
-                    framesSection.classList.remove('hidden');
-                    mediaUploads.classList.remove('hidden');
+                // Text-to-video: habilitar proporção, resolução e modelo
+                if (aspectRatioSelect) {
                     aspectRatioSelect.disabled = false;
+                    aspectRatioSelect.removeAttribute('readonly');
+                }
+                if (resolutionSelect) {
                     resolutionSelect.disabled = false;
-                } else if (mode === 'references-to-video') {
-                    referencesSection.classList.remove('hidden');
-                    mediaUploads.classList.remove('hidden');
-                    aspectRatioSelect.disabled = true;
-                    resolutionSelect.disabled = true;
-                    aspectRatioSelect.value = '16:9';
-                    resolutionSelect.value = '720p';
-                } else if (mode === 'extend-video') {
-                    extendSection.classList.remove('hidden');
-                    mediaUploads.classList.remove('hidden');
-                    aspectRatioSelect.disabled = true;
-                    resolutionSelect.disabled = true;
-                    resolutionSelect.value = '720p';
-                } else {
-                    aspectRatioSelect.disabled = false;
-                    resolutionSelect.disabled = false;
+                    resolutionSelect.removeAttribute('readonly');
+                }
+                if (modelSelect) {
+                    modelSelect.disabled = false;
+                    modelSelect.removeAttribute('readonly');
                 }
 
                 videoState.mode = mode;
+                console.log('[Video Generator] UI atualizada - modo:', mode);
             }
 
             function setupVideoEventListeners() {
-                // Seletor de modo
-                document.getElementById('video-mode-select')?.addEventListener('change', updateVideoModeUI);
+                console.log('[Video Generator] Configurando event listeners...');
+                
+                // Modo fixo, não precisa de listener
+                // document.getElementById('video-mode-select')?.addEventListener('change', updateVideoModeUI);
 
                 // Toggle de configurações
-                document.getElementById('video-settings-toggle')?.addEventListener('click', () => {
-                    const panel = document.getElementById('video-settings-panel');
-                    const toggleBtn = document.getElementById('video-settings-toggle');
-                    const icon = toggleBtn?.querySelector('i');
-                    if (panel) {
-                    panel.classList.toggle('hidden');
-                        if (icon) {
-                    if (panel.classList.contains('hidden')) {
-                        icon.setAttribute('data-lucide', 'chevron-down');
-                    } else {
-                        icon.setAttribute('data-lucide', 'chevron-up');
-                    }
-                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                const settingsToggle = document.getElementById('video-settings-toggle');
+                if (settingsToggle) {
+                    // Remover listeners anteriores
+                    const newToggle = settingsToggle.cloneNode(true);
+                    settingsToggle.parentNode.replaceChild(newToggle, settingsToggle);
+                    
+                    newToggle.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Video Generator] ⚙️ Toggle de configurações clicado');
+                        const panel = document.getElementById('video-settings-panel');
+                        const toggleBtn = document.getElementById('video-settings-toggle');
+                        const icon = toggleBtn?.querySelector('i');
+                        if (panel) {
+                            const isHidden = panel.classList.contains('hidden');
+                            panel.classList.toggle('hidden');
+                            console.log('[Video Generator] Painel de configurações:', isHidden ? 'expandido' : 'oculto');
+                            if (icon) {
+                                if (panel.classList.contains('hidden')) {
+                                    icon.setAttribute('data-lucide', 'chevron-down');
+                                } else {
+                                    icon.setAttribute('data-lucide', 'chevron-up');
+                                }
+                                if (typeof lucide !== 'undefined') lucide.createIcons();
+                            }
+                        } else {
+                            console.error('[Video Generator] ❌ Painel de configurações não encontrado!');
                         }
-                    }
-                });
+                    };
+                    console.log('[Video Generator] ✅ Toggle de configurações configurado');
+                } else {
+                    console.error('[Video Generator] ❌ Botão de configurações não encontrado!');
+                }
 
                 // Upload de frame inicial
                 document.getElementById('video-start-frame-btn')?.addEventListener('click', () => {
@@ -20498,10 +21339,48 @@ Equipe La Casa Dark Core</textarea>
                 });
 
                 // Botão gerar
-                document.getElementById('video-generate-btn')?.addEventListener('click', handleVideoGenerate);
+                const generateBtn = document.getElementById('video-generate-btn');
+                if (generateBtn) {
+                    // Remover listeners anteriores
+                    const newGenerateBtn = generateBtn.cloneNode(true);
+                    generateBtn.parentNode.replaceChild(newGenerateBtn, generateBtn);
+                    
+                    newGenerateBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Video Generator] 🎬 Botão Gerar Vídeo clicado');
+                        if (typeof handleVideoGenerate === 'function') {
+                            handleVideoGenerate();
+                        } else {
+                            console.error('[Video Generator] ❌ Função handleVideoGenerate não encontrada!');
+                        }
+                    };
+                    console.log('[Video Generator] ✅ Botão Gerar Vídeo configurado');
+                } else {
+                    console.error('[Video Generator] ❌ Botão Gerar Vídeo não encontrado!');
+                }
 
                 // Botão reset
-                document.getElementById('video-reset-btn')?.addEventListener('click', resetVideoGenerator);
+                const resetBtn = document.getElementById('video-reset-btn');
+                if (resetBtn) {
+                    // Remover listeners anteriores
+                    const newResetBtn = resetBtn.cloneNode(true);
+                    resetBtn.parentNode.replaceChild(newResetBtn, resetBtn);
+                    
+                    newResetBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Video Generator] 🗑️ Botão Limpar Tudo clicado');
+                        if (typeof resetVideoGenerator === 'function') {
+                            resetVideoGenerator();
+                        } else {
+                            console.error('[Video Generator] ❌ Função resetVideoGenerator não encontrada!');
+                        }
+                    };
+                    console.log('[Video Generator] ✅ Botão Limpar Tudo configurado');
+                } else {
+                    console.warn('[Video Generator] ⚠️ Botão Limpar Tudo não encontrado');
+                }
 
                 // Botões de resultado
                 document.getElementById('video-retry-btn')?.addEventListener('click', () => {
@@ -20543,43 +21422,31 @@ Equipe La Casa Dark Core</textarea>
                 // Sempre pegar valores atuais do formulário
                 const promptInput = document.getElementById('video-prompt-input');
                 const prompt = promptInput ? promptInput.value.trim() : '';
-                const mode = document.getElementById('video-mode-select').value;
+                const mode = 'text-to-video'; // Modo fixo
                 const model = document.getElementById('video-model-select').value;
                 const aspectRatio = document.getElementById('video-aspect-ratio-select').value;
                 const resolution = document.getElementById('video-resolution-select').value;
 
                 console.log('[Frontend] Valores capturados:', { prompt: prompt ? `"${prompt.substring(0, 50)}..."` : 'VAZIO', mode, model, aspectRatio, resolution });
 
-                // Validações
-                if (mode === 'text-to-video' && !prompt) {
+                // Validações - apenas text-to-video
+                if (!prompt) {
                     showMessage('video-error-message', 'Por favor, descreva o vídeo que deseja criar.', true);
-                    return;
-                }
-                if (mode === 'frames-to-video' && !videoState.startFrame) {
-                    showMessage('video-error-message', 'Frame inicial é obrigatório.', true);
-                    return;
-                }
-                if (mode === 'references-to-video' && (videoState.referenceImages.length === 0 || !prompt)) {
-                    showMessage('video-error-message', 'Adicione pelo menos uma imagem de referência e descreva o vídeo.', true);
-                    return;
-                }
-                if (mode === 'extend-video' && !videoState.inputVideo) {
-                    showMessage('video-error-message', 'Vídeo de entrada é obrigatório para estender.', true);
                     return;
                 }
 
                 // Sempre usar valores atuais do formulário, não o config passado
                 currentVideoConfig = {
                     prompt: prompt || (config?.prompt || ''), // Usar prompt atual ou do config
-                    model: model || config?.model || 'veo-3.1-fast-generate-preview',
+                    model: model || config?.model || 'veo-3.1-fast',
                     aspectRatio: aspectRatio || config?.aspectRatio || '16:9',
                     resolution: resolution || config?.resolution || '720p',
-                    mode: mode || config?.mode || 'text-to-video',
-                    startFrame: videoState.startFrame || config?.startFrame || null,
-                    endFrame: videoState.endFrame || config?.endFrame || null,
-                    referenceImages: videoState.referenceImages.length > 0 ? videoState.referenceImages : (config?.referenceImages || []),
-                    inputVideo: videoState.inputVideo || config?.inputVideo || null,
-                    isLooping: videoState.isLooping || config?.isLooping || false
+                    mode: 'text-to-video', // Modo fixo
+                    startFrame: null,
+                    endFrame: null,
+                    referenceImages: [],
+                    inputVideo: null,
+                    isLooping: false
                 };
 
                 console.log('[Frontend] Config final sendo enviado:', {
@@ -20693,6 +21560,17 @@ Equipe La Casa Dark Core</textarea>
                             displayVideoResult(data.videoUri);
                         }
 
+                        // Atualizar barra de progresso para 100%
+                        const progressBar = document.getElementById('video-progress-bar');
+                        const progressPercentage = document.getElementById('video-progress-percentage');
+                        if (progressBar) {
+                            progressBar.style.width = '100%';
+                            progressBar.style.animation = 'none';
+                        }
+                        if (progressPercentage) {
+                            progressPercentage.textContent = '100%';
+                        }
+
                         document.getElementById('video-progress-modal').classList.add('hidden');
                         document.getElementById('video-result-section').classList.remove('hidden');
                         document.getElementById('video-extend-btn').style.display = 
@@ -20719,19 +21597,22 @@ Equipe La Casa Dark Core</textarea>
                                 progressStatus.textContent = progressText;
                             }
                             
-                            // Atualizar barra de progresso com gradiente animado
+                            // Atualizar barra de progresso com gradiente laranja
                             if (progressBar) {
                                 progressBar.style.width = `${progressPercent}%`;
-                                progressBar.style.transition = 'width 0.3s ease-out';
+                                progressBar.style.transition = 'width 0.5s ease-out';
                                 // Remover animação de pulse quando há progresso real
                                 progressBar.classList.remove('animate-pulse');
-                                // Garantir que o gradiente está visível
-                                progressBar.style.background = 'linear-gradient(to right, #6366f1, #8b5cf6, #6366f1)';
+                                // Gradiente laranja conforme a porcentagem
+                                progressBar.style.background = `linear-gradient(to right, #f59e0b, #fb923c, #f97316)`;
                                 progressBar.style.backgroundSize = '200% 100%';
                                 // Adicionar animação de gradiente se progresso > 0
-                                if (progressPercent > 0) {
+                                if (progressPercent > 0 && progressPercent < 100) {
                                     progressBar.style.animation = 'gradient-shift 2s ease infinite';
+                                } else {
+                                    progressBar.style.animation = 'none';
                                 }
+                                console.log('[Video Generator] 📊 Progresso atualizado:', progressPercent.toFixed(1) + '%');
                             }
                             
                             // Atualizar porcentagem no centro da barra
@@ -20836,7 +21717,7 @@ Equipe La Casa Dark Core</textarea>
 
                 // Mudar modo para extend-video
                 videoState.mode = 'extend-video';
-                document.getElementById('video-mode-select').value = 'extend-video';
+                // Modo fixo: text-to-video (não suporta extend-video)
                 // Sugerir prompt que enfatiza continuar o vídeo
                 document.getElementById('video-prompt-input').value = 'Continue o vídeo de forma natural e fluida, mantendo a mesma cena, personagens e estilo visual.';
                 document.getElementById('video-prompt-input').placeholder = 'Descreva a continuação natural do vídeo (opcional - deixe vazio para continuação automática)...';
@@ -20961,7 +21842,7 @@ Equipe La Casa Dark Core</textarea>
                     videoPollInterval = null;
                 }
 
-                document.getElementById('video-mode-select').value = 'text-to-video';
+                // Modo fixo: text-to-video
                 document.getElementById('video-prompt-input').value = '';
                 document.getElementById('video-start-frame').value = '';
                 document.getElementById('video-end-frame').value = '';
@@ -20987,7 +21868,1167 @@ Equipe La Casa Dark Core</textarea>
 
                 updateVideoModeUI();
             }
+
+            // ==================== FUNÇÕES PARA AGENTES VIRAIS ====================
+            let currentViralAgent = null;
+            let currentViralConversation = null;
+            let editingViralField = null;
+
+            async function loadViralAgents() {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao carregar agentes');
+
+                    const data = await response.json();
+                    renderViralAgents(data.agents);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    document.getElementById('viral-agents-list').innerHTML = `
+                        <div class="col-span-full text-center py-12">
+                            <p class="text-red-400">Erro ao carregar agentes: ${error.message}</p>
+                        </div>
+                    `;
+                }
+            }
+
+            function renderViralAgents(agents) {
+                const container = document.getElementById('viral-agents-list');
+                if (agents.length === 0) {
+                    container.innerHTML = `
+                        <div class="col-span-full text-center py-12">
+                            <p class="text-gray-400 mb-4">Nenhum agente criado ainda</p>
+                            <button onclick="openCreateViralAgentModal()" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200">
+                                Criar Primeiro Agente
+                            </button>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = agents.map(agent => `
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 cursor-pointer hover:border-amber-500 transition" onclick="openViralAgent(${agent.id})">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="flex-1">
+                                <h3 class="text-lg font-bold text-white mb-1">${escapeHtml(agent.name)}</h3>
+                                ${agent.description ? `<p class="text-sm text-gray-400">${escapeHtml(agent.description)}</p>` : ''}
+                            </div>
+                            ${agent.is_favorite ? '<i data-lucide="star" class="text-amber-500 fill-amber-500"></i>' : ''}
+                        </div>
+                        <div class="flex items-center gap-4 text-sm text-gray-500">
+                            <span><i data-lucide="file-text"></i> ${agent.file_count || 0} arquivos</span>
+                            <span><i data-lucide="message-square"></i> ${agent.conversation_count || 0} conversas</span>
+                        </div>
+                        <div class="mt-4 text-xs text-gray-500">
+                            ${formatDate(agent.updated_at)}
+                        </div>
+                    </div>
+                `).join('');
+
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            // Tornar função globalmente acessível
+            window.openViralAgent = async function(agentId) {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${agentId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao carregar agente');
+
+                    const data = await response.json();
+                    currentViralAgent = data.agent;
+                    
+                    showViralAgentsDetailView();
+                    loadViralAgentData();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao carregar agente');
+                }
+            };
+
+            function loadViralAgentData() {
+                if (!currentViralAgent) return;
+
+                const nameHeader = document.getElementById('viral-agent-name-header');
+                const descHeader = document.getElementById('viral-agent-description-header');
+                const memoryEl = document.getElementById('viral-agent-memory');
+                const instructionsEl = document.getElementById('viral-agent-instructions');
+                
+                if (nameHeader) nameHeader.textContent = currentViralAgent.name;
+                if (descHeader) descHeader.textContent = currentViralAgent.description || '';
+                if (memoryEl) {
+                    memoryEl.textContent = currentViralAgent.memory || 'Nenhuma memória definida';
+                    // Adicionar data de atualização se houver
+                    const memoryUpdated = document.getElementById('viral-memory-updated');
+                    if (memoryUpdated && currentViralAgent.updated_at) {
+                        const daysAgo = Math.floor((new Date() - new Date(currentViralAgent.updated_at)) / (1000 * 60 * 60 * 24));
+                        memoryUpdated.textContent = daysAgo === 0 ? 'Última atualização hoje' : `Última atualização há ${daysAgo} ${daysAgo === 1 ? 'dia' : 'dias'}`;
+                    }
+                }
+                if (instructionsEl) instructionsEl.textContent = currentViralAgent.instructions || 'Nenhuma instrução definida';
+                
+                // Favorito
+                const favoriteBtn = document.getElementById('viral-favorite-btn');
+                if (favoriteBtn) {
+                    const icon = favoriteBtn.querySelector('i');
+                    if (icon) {
+                        if (currentViralAgent.is_favorite) {
+                            icon.classList.add('text-amber-500', 'fill-amber-500');
+                        } else {
+                            icon.classList.remove('text-amber-500', 'fill-amber-500');
+                        }
+                    }
+                }
+
+                // Arquivos
+                renderViralFiles(currentViralAgent.files || []);
+                
+                // Conversas
+                renderViralConversations(currentViralAgent.conversations || []);
+
+                // Criar nova conversa se não houver
+                if (!currentViralConversation && (!currentViralAgent.conversations || currentViralAgent.conversations.length === 0)) {
+                    createNewViralConversation();
+                } else if (currentViralAgent.conversations && currentViralAgent.conversations.length > 0) {
+                    currentViralConversation = currentViralAgent.conversations[0].id;
+                    loadViralMessages(currentViralConversation);
+                }
+            }
+
+            function renderViralFiles(files) {
+                const container = document.getElementById('viral-agent-files');
+                if (!container) return;
+                
+                if (files.length === 0) {
+                    container.innerHTML = '<p class="text-sm text-gray-500">Nenhum arquivo</p>';
+                    return;
+                }
+
+                container.innerHTML = files.map(file => `
+                    <div class="flex items-center justify-between p-2 bg-gray-800 rounded-lg">
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-white">${escapeHtml(file.file_name)}</p>
+                            <p class="text-xs text-gray-500">${file.file_size || 0} bytes</p>
+                        </div>
+                        <button onclick="deleteViralFile(${file.id})" class="text-red-400 hover:text-red-300">
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    </div>
+                `).join('');
+
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+
+            function renderViralConversations(conversations) {
+                const container = document.getElementById('viral-conversations-list');
+                if (!container) return;
+                
+                if (conversations.length === 0) {
+                    container.innerHTML = '<p class="text-sm text-gray-500">Nenhuma conversa</p>';
+                    return;
+                }
+
+                container.innerHTML = conversations.map(conv => `
+                    <div class="p-3 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-700 transition ${currentViralConversation === conv.id ? 'border border-amber-500' : ''} group relative" 
+                         onclick="loadViralConversation(${conv.id})">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <p class="text-sm font-medium text-white">${escapeHtml(conv.title || 'Nova Conversa')}</p>
+                                <p class="text-xs text-gray-500 mt-1">${formatDate(conv.updated_at)}</p>
+                            </div>
+                            <button onclick="event.stopPropagation(); deleteViralConversation(${conv.id})" class="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded" title="Deletar conversa">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+                
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
             
+            window.deleteViralConversation = async function(conversationId) {
+                if (!currentViralAgent) return;
+                if (!confirm('Tem certeza que deseja deletar esta conversa?')) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/conversations/${conversationId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao deletar conversa');
+                    }
+
+                    // Se a conversa deletada era a atual, limpar chat
+                    if (currentViralConversation === conversationId) {
+                        currentViralConversation = null;
+                        const container = document.getElementById('viral-chat-messages');
+                        if (container) container.innerHTML = '';
+                    }
+
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao deletar conversa: ' + error.message);
+                }
+            };
+
+            // Tornar funções globalmente acessíveis
+            window.showViralAgentsListView = function() {
+                document.getElementById('viral-agents-list-view').style.display = 'block';
+                document.getElementById('viral-agents-detail-view').style.display = 'none';
+                currentViralAgent = null;
+                currentViralConversation = null;
+            };
+
+            window.showViralAgentsDetailView = function() {
+                document.getElementById('viral-agents-list-view').style.display = 'none';
+                document.getElementById('viral-agents-detail-view').style.display = 'block';
+            };
+
+            window.showViralChatTab = function() {
+                document.getElementById('viral-tab-content-chat').style.display = 'block';
+                document.getElementById('viral-tab-content-conversations').style.display = 'none';
+                document.getElementById('viral-tab-chat').classList.add('border-amber-500', 'text-amber-500');
+                document.getElementById('viral-tab-chat').classList.remove('border-transparent', 'text-gray-400');
+                document.getElementById('viral-tab-conversations').classList.remove('border-amber-500', 'text-amber-500');
+                document.getElementById('viral-tab-conversations').classList.add('border-transparent', 'text-gray-400');
+            };
+
+            window.showViralConversationsTab = function() {
+                document.getElementById('viral-tab-content-chat').style.display = 'none';
+                document.getElementById('viral-tab-content-conversations').style.display = 'block';
+                document.getElementById('viral-tab-conversations').classList.add('border-amber-500', 'text-amber-500');
+                document.getElementById('viral-tab-conversations').classList.remove('border-transparent', 'text-gray-400');
+                document.getElementById('viral-tab-chat').classList.remove('border-amber-500', 'text-amber-500');
+                document.getElementById('viral-tab-chat').classList.add('border-transparent', 'text-gray-400');
+            };
+
+            // Tornar função globalmente acessível
+            window.openCreateViralAgentModal = function() {
+                // Criar modal de criação de agente
+                const modalHTML = `
+                    <div id="viral-agent-create-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Novo Agente Viral</h3>
+                                <button onclick="closeViralAgentCreateModal()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <form id="viral-agent-create-form" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Nome do Agente *</label>
+                                    <input type="text" id="viral-agent-name-input" required class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: Agente de Histórias Emocionantes">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Descrição</label>
+                                    <input type="text" id="viral-agent-description-input" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: Roteiro viral para canal de histórias">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Memória</label>
+                                    <textarea id="viral-agent-memory-input" rows="4" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" placeholder="Informações que o agente deve lembrar..."></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Instruções</label>
+                                    <textarea id="viral-agent-instructions-input" rows="6" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" placeholder="Instruções para o agente..."></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
+                                    <select id="viral-agent-model-input" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                        <option value="gpt-4o" selected>GPT-4o (2025)</option>
+                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
+                                    </select>
+                                </div>
+                                <div class="flex justify-end space-x-3 pt-4">
+                                    <button type="button" onclick="closeViralAgentCreateModal()" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                    <button type="submit" class="py-2 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold">Criar Agente</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                `;
+                
+                // Remover modal existente se houver
+                const existingModal = document.getElementById('viral-agent-create-modal');
+                if (existingModal) {
+                    existingModal.remove();
+                }
+                
+                // Adicionar modal ao body
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                
+                // Criar ícones
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                
+                // Adicionar event listener ao formulário
+                document.getElementById('viral-agent-create-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await saveViralAgent();
+                });
+            };
+            
+            window.closeViralAgentCreateModal = function() {
+                const modal = document.getElementById('viral-agent-create-modal');
+                if (modal) {
+                    modal.remove();
+                }
+            };
+            
+            async function saveViralAgent() {
+                const name = document.getElementById('viral-agent-name-input').value.trim();
+                if (!name) {
+                    alert('Nome do agente é obrigatório');
+                    return;
+                }
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            name,
+                            description: document.getElementById('viral-agent-description-input').value.trim(),
+                            memory: document.getElementById('viral-agent-memory-input').value.trim(),
+                            instructions: document.getElementById('viral-agent-instructions-input').value.trim(),
+                            model: document.getElementById('viral-agent-model-input').value
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao criar agente');
+                    }
+
+                    closeViralAgentCreateModal();
+                    loadViralAgents();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao criar agente: ' + error.message);
+                }
+            }
+
+            window.openEditViralAgentModal = function() {
+                if (!currentViralAgent) return;
+                
+                const modalHTML = `
+                    <div id="viral-edit-agent-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Editar Agente</h3>
+                                <button onclick="closeViralEditAgentModal()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <form id="viral-edit-agent-form" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Nome do Agente *</label>
+                                    <input type="text" id="viral-edit-agent-name" required class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" value="${escapeHtml(currentViralAgent.name)}">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Descrição</label>
+                                    <input type="text" id="viral-edit-agent-description" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" value="${escapeHtml(currentViralAgent.description || '')}">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
+                                    <select id="viral-edit-agent-model" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                        <option value="gpt-4o" ${currentViralAgent.model === 'gpt-4o' ? 'selected' : ''}>GPT-4o (2025)</option>
+                                        <option value="claude-3-7-sonnet-20250219" ${currentViralAgent.model === 'claude-3-7-sonnet-20250219' ? 'selected' : ''}>Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="gemini-2.5-pro" ${currentViralAgent.model === 'gemini-2.5-pro' ? 'selected' : ''}>Gemini 2.5 Pro (2025)</option>
+                                    </select>
+                                </div>
+                                <div class="flex justify-end space-x-3 pt-4">
+                                    <button type="button" onclick="closeViralEditAgentModal()" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                    <button onclick="saveViralAgentEdit()" class="py-2 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold">Salvar</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                `;
+                
+                const existingModal = document.getElementById('viral-edit-agent-modal');
+                if (existingModal) existingModal.remove();
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+            
+            window.closeViralEditAgentModal = function() {
+                const modal = document.getElementById('viral-edit-agent-modal');
+                if (modal) modal.remove();
+            };
+            
+            window.saveViralAgentEdit = async function() {
+                if (!currentViralAgent) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            name: document.getElementById('viral-edit-agent-name').value.trim(),
+                            description: document.getElementById('viral-edit-agent-description').value.trim(),
+                            model: document.getElementById('viral-edit-agent-model').value
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao salvar');
+                    }
+
+                    closeViralEditAgentModal();
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao salvar: ' + error.message);
+                }
+            };
+
+            window.deleteViralAgent = async function() {
+                if (!currentViralAgent) return;
+                const confirmed = await showCustomConfirm('Tem certeza que deseja deletar este agente?');
+                if (!confirmed) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao deletar agente');
+
+                    showViralAgentsListView();
+                    loadViralAgents();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao deletar agente');
+                }
+            };
+
+            window.toggleViralAgentFavorite = async function() {
+                if (!currentViralAgent) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            is_favorite: !currentViralAgent.is_favorite
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao atualizar favorito');
+
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao atualizar favorito');
+                }
+            };
+
+            window.editViralMemory = function() {
+                if (!currentViralAgent) return;
+                editingViralField = 'memory';
+                
+                const modalHTML = `
+                    <div id="viral-edit-field-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Editar Memória</h3>
+                                <button onclick="closeViralEditFieldModal()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <textarea id="viral-edit-field-content" rows="12" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" placeholder="Informações que o agente deve lembrar...">${escapeHtml(currentViralAgent.memory || '')}</textarea>
+                            <div class="flex justify-end space-x-3 pt-4">
+                                <button type="button" onclick="closeViralEditFieldModal()" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                <button onclick="saveViralField()" class="py-2 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold">Salvar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                const existingModal = document.getElementById('viral-edit-field-modal');
+                if (existingModal) existingModal.remove();
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+
+            window.editViralInstructions = function() {
+                if (!currentViralAgent) return;
+                editingViralField = 'instructions';
+                
+                const modalHTML = `
+                    <div id="viral-edit-field-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Editar Instruções</h3>
+                                <button onclick="closeViralEditFieldModal()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <textarea id="viral-edit-field-content" rows="16" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none font-mono text-sm" placeholder="Instruções para o agente...">${escapeHtml(currentViralAgent.instructions || '')}</textarea>
+                            <div class="flex justify-end space-x-3 pt-4">
+                                <button type="button" onclick="closeViralEditFieldModal()" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                <button onclick="saveViralField()" class="py-2 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold">Salvar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                const existingModal = document.getElementById('viral-edit-field-modal');
+                if (existingModal) existingModal.remove();
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+            
+            window.closeViralEditFieldModal = function() {
+                const modal = document.getElementById('viral-edit-field-modal');
+                if (modal) modal.remove();
+                editingViralField = null;
+            };
+            
+            window.saveViralField = async function() {
+                if (!currentViralAgent || !editingViralField) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const content = document.getElementById('viral-edit-field-content').value.trim();
+                    
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            [editingViralField]: content
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao salvar');
+                    }
+
+                    closeViralEditFieldModal();
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao salvar: ' + error.message);
+                }
+            };
+
+            window.addViralFile = function() {
+                if (!currentViralAgent) return;
+                
+                const modalHTML = `
+                    <div id="viral-add-file-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-semibold text-white">Adicionar Arquivo</h3>
+                                <button onclick="closeViralAddFileModal()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Nome do Arquivo *</label>
+                                    <input type="text" id="viral-file-name-input" required class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: exemplo.txt">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-2 text-gray-300">Conteúdo *</label>
+                                    <textarea id="viral-file-content-input" rows="12" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none font-mono text-sm" placeholder="Cole ou digite o conteúdo do arquivo..."></textarea>
+                                </div>
+                            </div>
+                            <div class="flex justify-end space-x-3 pt-4">
+                                <button type="button" onclick="closeViralAddFileModal()" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
+                                <button onclick="saveViralFile()" class="py-2 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold">Adicionar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                const existingModal = document.getElementById('viral-add-file-modal');
+                if (existingModal) existingModal.remove();
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+            
+            window.closeViralAddFileModal = function() {
+                const modal = document.getElementById('viral-add-file-modal');
+                if (modal) modal.remove();
+            };
+            
+            window.saveViralFile = async function() {
+                if (!currentViralAgent) return;
+
+                const fileName = document.getElementById('viral-file-name-input').value.trim();
+                const fileContent = document.getElementById('viral-file-content-input').value.trim();
+
+                if (!fileName || !fileContent) {
+                    alert('Nome e conteúdo do arquivo são obrigatórios');
+                    return;
+                }
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/files`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            file_name: fileName,
+                            file_content: fileContent,
+                            file_type: 'text/plain',
+                            file_size: fileContent.length
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao adicionar arquivo');
+                    }
+
+                    closeViralAddFileModal();
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao adicionar arquivo: ' + error.message);
+                }
+            };
+
+            window.deleteViralFile = async function(fileId) {
+                if (!confirm('Tem certeza que deseja deletar este arquivo?')) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/files/${fileId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao deletar arquivo');
+
+                    await openViralAgent(currentViralAgent.id);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao deletar arquivo');
+                }
+            };
+
+            window.createNewViralConversation = async function() {
+                if (!currentViralAgent) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/conversations`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            title: 'Nova Conversa'
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao criar conversa');
+                    }
+
+                    const data = await response.json();
+                    currentViralConversation = data.conversation.id;
+                    await openViralAgent(currentViralAgent.id);
+                    await loadViralMessages(currentViralConversation);
+                    showViralChatTab();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao criar conversa: ' + error.message);
+                }
+            };
+
+            window.loadViralConversation = async function(conversationId) {
+                currentViralConversation = conversationId;
+                await loadViralMessages(conversationId);
+                showViralChatTab();
+            };
+
+            async function loadViralMessages(conversationId) {
+                if (!currentViralAgent || !conversationId) return;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/conversations/${conversationId}/messages`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Erro ao carregar mensagens');
+
+                    const data = await response.json();
+                    renderViralMessages(data.messages);
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao carregar mensagens');
+                }
+            }
+
+            // Armazenar mensagens globalmente para acesso na função de copiar
+            let currentViralMessages = [];
+            
+            function renderViralMessages(messages) {
+                const container = document.getElementById('viral-chat-messages');
+                if (!container) return;
+                
+                // Armazenar mensagens para acesso posterior
+                currentViralMessages = messages;
+                
+                container.innerHTML = messages.map((msg, index) => `
+                    <div class="p-3 rounded-lg ${msg.role === 'user' ? 'bg-amber-500/20 border border-amber-500/30 ml-auto max-w-[80%]' : 'bg-gray-800 border border-gray-700 mr-auto max-w-[80%]'} relative group">
+                        <p class="text-sm text-white whitespace-pre-wrap">${escapeHtml(msg.content)}</p>
+                        ${msg.role === 'assistant' ? `
+                            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                <button onclick="copyViralMessage(${index})" class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white" title="Copiar roteiro">
+                                    <i data-lucide="copy" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="openViralMarkdown()" class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white" title="Ver roteiro completo em MD">
+                                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+
+                container.scrollTop = container.scrollHeight;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+            
+            window.showViralRoteiroCompleteModal = function(nota, checklist, roteiro) {
+                // Definir checklist padrão se não vier
+                const checklistData = checklist || {
+                    gancho_inicial: false,
+                    estrutura_narrativa: false,
+                    engajamento_emocional: false,
+                    densidade_valor: false,
+                    tecnicas_retencao: false,
+                    linguagem_tom: false,
+                    elementos_estruturais: false,
+                    loops_abertos: false,
+                    variacao_emocional: false,
+                    final_satisfatorio: false
+                };
+                
+                const checklistItems = [
+                    { key: 'gancho_inicial', label: '1. GANCHO INICIAL (0-30 segundos)', desc: 'Abertura magnética que cria "lacuna de curiosidade". Promessa clara do valor do vídeo.' },
+                    { key: 'estrutura_narrativa', label: '2. ESTRUTURA NARRATIVA', desc: 'Arco dramático completo, ritmo variado, transições fluidas.' },
+                    { key: 'engajamento_emocional', label: '3. ENGAJAMENTO EMOCIONAL', desc: 'Apelo a emoções primárias, personagens identificáveis, stakes claros.' },
+                    { key: 'densidade_valor', label: '4. DENSIDADE DE VALOR', desc: 'Informação surpreendente a cada 30-60s, especificidade, sem enchimento.' },
+                    { key: 'tecnicas_retencao', label: '5. TÉCNICAS DE RETENÇÃO', desc: 'Pattern interrupts, foreshadowing, cliffhangers internos, payoff satisfatório.' },
+                    { key: 'linguagem_tom', label: '6. LINGUAGEM E TOM', desc: 'Voz ativa, frases variadas, naturalidade, vocabulário acessível.' },
+                    { key: 'elementos_estruturais', label: '7. ELEMENTOS ESTRUTURAIS', desc: 'Duração otimizada, CTA orgânica, final memorável.' },
+                    { key: 'loops_abertos', label: '8. LOOPS ABERTOS', desc: 'Loops abertos sendo fechados no momento certo.' },
+                    { key: 'variacao_emocional', label: '9. VARIAÇÃO EMOCIONAL', desc: 'A emoção varia ao longo do roteiro.' },
+                    { key: 'final_satisfatorio', label: '10. FINAL SATISFATÓRIO', desc: 'Todas as promessas cumpridas, final memorável.' }
+                ];
+                
+                const modalHTML = `
+                    <div id="viral-roteiro-complete-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 overflow-y-auto">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-8 max-w-2xl w-full mx-4 my-8">
+                            <div class="text-center mb-6">
+                                <div class="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i data-lucide="check-circle" class="w-10 h-10 text-amber-500"></i>
+                                </div>
+                                <h3 class="text-2xl font-bold text-white mb-2">Roteiro Finalizado!</h3>
+                                <p class="text-gray-400">Seu roteiro foi gerado com sucesso</p>
+                            </div>
+                            
+                            <div class="bg-gray-800 rounded-lg p-6 mb-6">
+                                <div class="flex items-center justify-between mb-6">
+                                    <span class="text-gray-400 text-lg">Nota do Roteiro</span>
+                                    <span class="text-4xl font-bold text-amber-500">${nota || 0}/10</span>
+                                </div>
+                                
+                                <div class="border-t border-gray-700 pt-4">
+                                    <h4 class="text-white font-semibold mb-4">Checklist de Avaliação</h4>
+                                    <div class="space-y-3 max-h-96 overflow-y-auto">
+                                        ${checklistItems.map(item => `
+                                            <div class="flex items-start space-x-3 p-3 rounded-lg ${checklistData[item.key] ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-gray-700/50 border border-gray-600/30'}">
+                                                <div class="flex-shrink-0 mt-0.5">
+                                                    <input type="checkbox" ${checklistData[item.key] ? 'checked' : ''} disabled class="w-5 h-5 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-gray-900 cursor-not-allowed">
+                                                </div>
+                                                <div class="flex-1">
+                                                    <label class="text-sm font-medium text-white cursor-not-allowed">${item.label}</label>
+                                                    <p class="text-xs text-gray-400 mt-1">${item.desc}</p>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3">
+                                <button onclick="copyViralRoteiroFromModal()" class="flex-1 px-6 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-white font-semibold transition duration-200 flex items-center justify-center space-x-2">
+                                    <i data-lucide="copy" class="w-5 h-5"></i>
+                                    <span>Copiar</span>
+                                </button>
+                                <button onclick="downloadViralRoteiro()" class="flex-1 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200 flex items-center justify-center space-x-2">
+                                    <i data-lucide="download" class="w-5 h-5"></i>
+                                    <span>Baixar</span>
+                                </button>
+                            </div>
+                            
+                            <button onclick="closeViralRoteiroCompleteModal()" class="w-full mt-4 px-4 py-2 text-gray-400 hover:text-white transition">
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Armazenar roteiro globalmente para acesso nos botões
+                window.currentViralRoteiro = roteiro;
+                
+                const existingModal = document.getElementById('viral-roteiro-complete-modal');
+                if (existingModal) existingModal.remove();
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+            
+            window.closeViralRoteiroCompleteModal = function() {
+                const modal = document.getElementById('viral-roteiro-complete-modal');
+                if (modal) modal.remove();
+                window.currentViralRoteiro = null;
+            };
+            
+            window.copyViralRoteiroFromModal = function() {
+                if (!window.currentViralRoteiro) return;
+                
+                navigator.clipboard.writeText(window.currentViralRoteiro).then(() => {
+                    showMessage('viral-agents-success-message', 'Roteiro copiado para a área de transferência!', false);
+                    closeViralRoteiroCompleteModal();
+                }).catch(err => {
+                    console.error('Erro ao copiar:', err);
+                    alert('Erro ao copiar roteiro');
+                });
+            };
+            
+            window.downloadViralRoteiro = function() {
+                if (!window.currentViralRoteiro || !currentViralAgent || !currentViralConversation) return;
+                
+                // Abrir markdown em nova aba (já tem a funcionalidade)
+                openViralMarkdown();
+                closeViralRoteiroCompleteModal();
+            };
+            
+            window.openViralMarkdown = async function() {
+                if (!currentViralAgent || !currentViralConversation) return;
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const url = `${API_BASE}/api/viral-agents/${currentViralAgent.id}/conversations/${currentViralConversation}/markdown`;
+                    const response = await fetch(url, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (!response.ok) throw new Error('Erro ao gerar documento');
+                    const html = await response.text();
+                    const newWindow = window.open('', '_blank');
+                    newWindow.document.write(html);
+                    newWindow.document.close();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao abrir documento: ' + error.message);
+                }
+            };
+            
+            window.copyViralMessage = function(messageIndex) {
+                if (!currentViralMessages || !currentViralMessages[messageIndex]) return;
+                
+                const message = currentViralMessages[messageIndex];
+                if (message.role !== 'assistant') return;
+                
+                const messageText = message.content;
+                
+                // Copiar para clipboard
+                navigator.clipboard.writeText(messageText).then(() => {
+                    // Mostrar feedback visual
+                    const container = document.getElementById('viral-chat-messages');
+                    if (container) {
+                        const messages = container.querySelectorAll('.bg-gray-800');
+                        if (messages[messageIndex]) {
+                            const button = messages[messageIndex].querySelector('button');
+                            if (button) {
+                                const icon = button.querySelector('i');
+                                if (icon) {
+                                    icon.setAttribute('data-lucide', 'check');
+                                    lucide.createIcons();
+                                    setTimeout(() => {
+                                        icon.setAttribute('data-lucide', 'copy');
+                                        lucide.createIcons();
+                                    }, 2000);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Mostrar notificação
+                    showMessage('viral-agents-success-message', 'Roteiro copiado para a área de transferência!', false);
+                }).catch(err => {
+                    console.error('Erro ao copiar:', err);
+                    // Fallback para navegadores mais antigos
+                    const textArea = document.createElement('textarea');
+                    textArea.value = messageText;
+                    textArea.style.position = 'fixed';
+                    textArea.style.opacity = '0';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        showMessage('viral-agents-success-message', 'Roteiro copiado para a área de transferência!', false);
+                    } catch (e) {
+                        alert('Erro ao copiar roteiro. Selecione o texto manualmente.');
+                    }
+                    document.body.removeChild(textArea);
+                });
+            };
+
+            window.sendViralMessage = async function() {
+                if (!currentViralAgent || !currentViralConversation) {
+                    await createNewViralConversation();
+                    if (!currentViralConversation) return;
+                }
+
+                const input = document.getElementById('viral-chat-input');
+                const message = input.value.trim();
+                if (!message) return;
+
+                // Adicionar mensagem do usuário ao array
+                currentViralMessages.push({
+                    role: 'user',
+                    content: message
+                });
+
+                // Adicionar mensagem do usuário na UI
+                const container = document.getElementById('viral-chat-messages');
+                container.innerHTML += `
+                    <div class="p-3 rounded-lg bg-amber-500/20 border border-amber-500/30 ml-auto max-w-[80%]">
+                        <p class="text-sm text-white whitespace-pre-wrap">${escapeHtml(message)}</p>
+                    </div>
+                `;
+                container.scrollTop = container.scrollHeight;
+
+                input.value = '';
+                input.disabled = true;
+
+                // Mostrar loading
+                container.innerHTML += `
+                    <div class="p-3 rounded-lg bg-gray-800 border border-gray-700 mr-auto max-w-[80%]">
+                        <p class="text-sm text-gray-400">Pensando...</p>
+                    </div>
+                `;
+                container.scrollTop = container.scrollHeight;
+
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const startTime = Date.now(); // Marcar início
+                    
+                    // Criar elemento de resposta que será atualizado em tempo real
+                    const loadingDiv = container.querySelector('.bg-gray-800:last-child');
+                    let responseDiv = null;
+                    let fullResponse = '';
+                    let roteiroFinal = '';
+                    
+                    if (loadingDiv && loadingDiv.textContent.includes('Pensando')) {
+                        loadingDiv.outerHTML = `
+                            <div id="viral-streaming-response" class="p-3 rounded-lg bg-gray-800 border border-gray-700 mr-auto max-w-[80%] relative group">
+                                <p id="viral-streaming-text" class="text-sm text-white whitespace-pre-wrap"></p>
+                                <div id="viral-streaming-buttons" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2" style="display: none;">
+                                    <button onclick="copyViralMessage(${currentViralMessages.length})" class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white" title="Copiar roteiro">
+                                        <i data-lucide="copy" class="w-4 h-4"></i>
+                                    </button>
+                                    <button onclick="openViralMarkdown()" class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white" title="Ver roteiro completo em MD">
+                                        <i data-lucide="file-text" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        responseDiv = document.getElementById('viral-streaming-response');
+                        container.scrollTop = container.scrollHeight;
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                    
+                    // Usar fetch com streaming
+                    const response = await fetch(`${API_BASE}/api/viral-agents/${currentViralAgent.id}/chat`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            conversation_id: currentViralConversation,
+                            message: message,
+                            model: currentViralAgent.model || 'gpt-4o',
+                            stream: true
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao enviar mensagem');
+                    }
+
+                    // Ler stream
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    const streamingText = document.getElementById('viral-streaming-text');
+                    let nota = null;
+                    let pontosFortes = [];
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    
+                                    if (data.done) {
+                                        // Extrair nota e checklist se vieram do servidor
+                                        let checklistData = null;
+                                        if (data.nota) {
+                                            nota = data.nota;
+                                            checklistData = data.checklist || null;
+                                        }
+                                        
+                                        // Remover JSON da resposta se houver
+                                        roteiroFinal = fullResponse.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                        
+                                        // Se não encontrou nota no JSON, tentar extrair do texto
+                                        if (!nota) {
+                                            const jsonMatch = fullResponse.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                            if (jsonMatch) {
+                                                try {
+                                                    const avaliacao = JSON.parse(jsonMatch[0]);
+                                                    nota = avaliacao.nota;
+                                                    checklistData = avaliacao.checklist || null;
+                                                    roteiroFinal = fullResponse.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                                } catch (e) {
+                                                    const notaMatch = fullResponse.match(/nota[:\s]*(\d+)\/10/i);
+                                                    if (notaMatch) {
+                                                        nota = parseInt(notaMatch[1]);
+                                                        roteiroFinal = fullResponse.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                                    } else {
+                                                        // Gerar nota padrão baseada no tamanho do roteiro
+                                                        nota = Math.min(10, Math.max(7, Math.floor(roteiroFinal.length / 1000) + 7));
+                                                    }
+                                                }
+                                            } else {
+                                                // Gerar nota padrão baseada no tamanho do roteiro
+                                                nota = Math.min(10, Math.max(7, Math.floor(roteiroFinal.length / 1000) + 7));
+                                            }
+                                        }
+                                        
+                                        // Atualizar texto final (sem a nota)
+                                        if (streamingText) {
+                                            streamingText.textContent = roteiroFinal;
+                                        }
+                                        
+                                        if (responseDiv) {
+                                            document.getElementById('viral-streaming-buttons').style.display = 'flex';
+                                        }
+                                        
+                                        // Adicionar mensagem completa ao array (sem nota)
+                                        currentViralMessages.push({
+                                            role: 'assistant',
+                                            content: roteiroFinal
+                                        });
+                                        
+                                        // Mostrar popup de conclusão com checklist
+                                        showViralRoteiroCompleteModal(nota, checklistData, roteiroFinal);
+                                        
+                                        // Recarregar conversas para atualizar timestamp
+                                        await openViralAgent(currentViralAgent.id);
+                                        break;
+                                    }
+                                    
+                                    if (data.text) {
+                                        fullResponse += data.text;
+                                        if (streamingText) {
+                                            streamingText.textContent = fullResponse;
+                                            container.scrollTop = container.scrollHeight;
+                                        }
+                                    }
+                                    
+                                    if (data.error) {
+                                        throw new Error(data.error);
+                                    }
+                                } catch (e) {
+                                    // Ignorar erros de parsing
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Erro:', error);
+                    container.innerHTML = container.innerHTML.replace(
+                        /<div class="p-3 rounded-lg bg-gray-800 border border-gray-700 mr-auto max-w-\[80%\]">[\s\S]*?Pensando\.\.\.[\s\S]*?<\/div>/,
+                        `<div class="p-3 rounded-lg bg-gray-800 border border-gray-700 mr-auto max-w-[80%]">
+                            <p class="text-sm text-red-400">Erro: ${escapeHtml(error.message)}</p>
+                        </div>`
+                    );
+                } finally {
+                    input.disabled = false;
+                    input.focus();
+                }
+            };
+            // ==================== FIM DAS FUNÇÕES PARA AGENTES VIRAIS ====================
+
             // Iniciar polling de notificações
             if (userToken && userToken !== 'undefined') {
                 // Aguardar um pouco para garantir que tudo está carregado
@@ -21048,4 +23089,5 @@ Equipe La Casa Dark Core</textarea>
     </script>
 
 </body>
+</html>
 </html>

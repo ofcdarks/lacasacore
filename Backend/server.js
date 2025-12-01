@@ -1335,12 +1335,19 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
     const promptTokens = Math.ceil((typeof prompt === 'string' ? prompt.length : JSON.stringify(prompt).length) / 4);
     // Para roteiros longos, estimar mais tokens de saída baseado no número de partes
     let estimatedOutputTokens = 2000; // Estimativa conservadora padrão
-    if (isScriptRequest && prompt.includes('partes')) {
-        const partsMatch = prompt.match(/dividido em.*?(\d+).*?partes/i) || prompt.match(/EXATAMENTE (\d+) PARTES/i);
-        const numParts = partsMatch ? parseInt(partsMatch[1]) : 1;
-        // Estimativa: ~450 palavras por parte × 1.3 tokens por palavra × número de partes
-        estimatedOutputTokens = Math.min(12000, Math.ceil(450 * 1.3 * numParts)); // Máximo 12000 tokens
-        console.log(`[Laozhang.ai API] Estimativa de tokens de saída para ${numParts} partes: ${estimatedOutputTokens}`);
+    if (isScriptRequest) {
+        if (prompt.includes('partes')) {
+            const partsMatch = prompt.match(/dividido em.*?(\d+).*?partes/i) || prompt.match(/EXATAMENTE (\d+) PARTES/i);
+            const numParts = partsMatch ? parseInt(partsMatch[1]) : 1;
+            // Estimativa: ~450 palavras por parte × 1.3 tokens por palavra × número de partes
+            estimatedOutputTokens = Math.min(12000, Math.ceil(450 * 1.3 * numParts)); // Máximo 12000 tokens
+            console.log(`[API] Estimativa de tokens de saída para ${numParts} partes: ${estimatedOutputTokens}`);
+        } else if (operationType && operationType.includes('viral_agent')) {
+            // Para agentes virais, estimar tokens baseado no max_tokens (geralmente 8192)
+            // Usar 80% do max_tokens como estimativa conservadora
+            estimatedOutputTokens = 6554; // ~80% de 8192
+            console.log(`[API] Estimativa de tokens para agente viral: ${estimatedOutputTokens}`);
+        }
     }
     const totalTokens = promptTokens + estimatedOutputTokens;
     
@@ -1357,10 +1364,10 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                     operationType,
                     details || JSON.stringify({ model: model || 'gpt-4o', service: 'laozhang' })
                 );
-                console.log(`[Laozhang.ai] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
+                console.log(`[API] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
             }
         } catch (creditError) {
-            console.error('[Laozhang.ai] ❌ Erro ao debitar créditos:', creditError.message);
+            console.error('[API] ❌ Erro ao debitar créditos:', creditError.message);
             // Se não tiver créditos suficientes, lançar erro
             if (creditError.message.includes('Créditos insuficientes')) {
                 throw creditError;
@@ -1391,18 +1398,28 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
     let lastError = null;
     for (const endpoint of possibleEndpoints) {
         try {
-            console.log(`[Laozhang.ai API] Tentando endpoint: ${endpoint}`);
+            console.log(`[API] Tentando endpoint: ${endpoint}`);
             const controller = new AbortController();
             // Timeout dinâmico baseado no tipo de requisição: roteiros longos precisam de mais tempo
             // Para roteiros: 10 minutos base + 1 minuto por parte (mínimo 5 minutos, máximo 20 minutos)
             const isLongScript = isScriptRequest && prompt.includes('partes');
-            let timeoutDuration = 180000; // 3 minutos padrão
+            // Aumentar timeout padrão para 5 minutos (300000ms) para dar mais tempo à API
+            let timeoutDuration = 300000; // 5 minutos padrão (aumentado de 3 minutos)
+            
+            // Detectar se é requisição de scene prompts ou outras operações que podem demorar
+            const isScenePrompts = operationType && operationType.includes('scene-prompts');
+            const isViralAgent = operationType && operationType.includes('viral_agent');
+            
             if (isLongScript) {
                 // Tentar extrair número de partes do prompt
                 const partsMatch = prompt.match(/dividido em.*?(\d+).*?partes/i) || prompt.match(/EXATAMENTE (\d+) PARTES/i);
                 const numParts = partsMatch ? parseInt(partsMatch[1]) : 1;
                 timeoutDuration = Math.min(1200000, Math.max(300000, 600000 + (numParts * 60000))); // 5-20 minutos
-                console.log(`[Laozhang.ai API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${numParts} partes)`);
+                console.log(`[API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${numParts} partes)`);
+            } else if (isScenePrompts || isViralAgent || isScriptRequest) {
+                // Para scene prompts, agentes virais e roteiros, usar 8 minutos
+                timeoutDuration = 480000; // 8 minutos
+                console.log(`[API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${isScenePrompts ? 'scene prompts' : isViralAgent ? 'agente viral' : 'roteiro'})`);
             }
             const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
             
@@ -1421,7 +1438,7 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             
             if (!response.ok) {
                 const errorText = await response.text().catch(() => response.statusText);
-                console.warn(`[Laozhang.ai API] Endpoint ${endpoint} retornou erro ${response.status}:`, errorText.substring(0, 500));
+                console.warn(`[API] Endpoint ${endpoint} retornou erro ${response.status}:`, errorText.substring(0, 500));
                 
                 // Tentar parsear o erro JSON para mais detalhes
                 let errorDetails = errorText;
@@ -1429,7 +1446,7 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                     const errorJson = JSON.parse(errorText);
                     if (errorJson.error) {
                         errorDetails = JSON.stringify(errorJson.error);
-                        console.error(`[Laozhang.ai API] Detalhes do erro:`, errorJson.error);
+                        console.error(`[API] Detalhes do erro:`, errorJson.error);
                     }
                 } catch (e) {
                     // Não é JSON, usar texto direto
@@ -1440,8 +1457,8 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             }
             
             const result = await response.json();
-            console.log(`[Laozhang.ai API] ✅ Sucesso com endpoint: ${endpoint}`);
-            console.log('[Laozhang.ai API] Estrutura da resposta:', JSON.stringify(result).substring(0, 300));
+            console.log(`[API] ✅ Sucesso com endpoint: ${endpoint}`);
+            console.log('[API] Estrutura da resposta:', JSON.stringify(result).substring(0, 300));
             
             // Se tiver informações de uso de tokens na resposta, ajustar créditos
             if (userId && creditDebitResult && result.usage) {
@@ -1467,10 +1484,10 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                                 WHERE id = (SELECT id FROM credit_usage WHERE user_id = ? AND api_provider_id = ? ORDER BY id DESC LIMIT 1)
                             `, [actualCredits, actualTokens, userId, laozhangProviderId]);
                             
-                            console.log(`[Laozhang.ai] 💰 Créditos ajustados: ${difference > 0 ? '+' : ''}${difference.toFixed(4)}`);
+                            console.log(`[API] 💰 Créditos ajustados: ${difference > 0 ? '+' : ''}${difference.toFixed(4)}`);
                         }
                     } catch (adjustError) {
-                        console.error('[Laozhang.ai] ⚠️ Erro ao ajustar créditos:', adjustError.message);
+                        console.error('[API] ⚠️ Erro ao ajustar créditos:', adjustError.message);
                     }
                 }
             }
@@ -1478,10 +1495,10 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             if (result.choices && result.choices[0] && result.choices[0].message) {
                 const content = result.choices[0].message.content;
                 
-                console.log('[Laozhang.ai API] Resposta recebida (primeiros 200 chars):', content.substring(0, 200));
+                console.log('[API] Resposta recebida (primeiros 200 chars):', content.substring(0, 200));
                 
                 if (isScriptRequest) {
-                    console.log('[Laozhang.ai API] Retornando texto puro de script');
+                    console.log('[API] Retornando texto puro de script');
                     return content; // Retorna string diretamente
                 } else {
                     // Para requisições JSON, retornar o conteúdo diretamente
@@ -1490,10 +1507,10 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             } else if (result.content) {
                 // Algumas APIs retornam content diretamente
                 const content = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
-                console.log('[Laozhang.ai API] Resposta recebida (formato alternativo)');
+                console.log('[API] Resposta recebida (formato alternativo)');
                 return content;
             } else {
-                console.warn(`[Laozhang.ai API] Estrutura de resposta inesperada em ${endpoint}:`, JSON.stringify(result).substring(0, 500));
+                console.warn(`[API] Estrutura de resposta inesperada em ${endpoint}:`, JSON.stringify(result).substring(0, 500));
                 lastError = new Error('Estrutura de resposta inesperada');
                 continue; // Tentar próximo endpoint
             }
@@ -1502,27 +1519,37 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             if (userId && creditDebitResult) {
                 try {
                     await refundCredits(userId, creditDebitResult.creditsUsed, 'Erro ao processar solicitação');
-                    console.log(`[Laozhang.ai] 💰 Créditos reembolsados: ${creditDebitResult.creditsUsed.toFixed(4)}`);
+                    console.log(`[API] 💰 Créditos reembolsados: ${creditDebitResult.creditsUsed.toFixed(4)}`);
                 } catch (refundError) {
-                    console.error('[Laozhang.ai] ⚠️ Erro ao reembolsar créditos:', refundError.message);
+                    console.error('[API] ⚠️ Erro ao reembolsar créditos:', refundError.message);
                 }
             }
             
-            // Ignorar erros de abort (timeout) apenas se não for o último endpoint
-            if (error.name === 'AbortError' && endpoint !== possibleEndpoints[possibleEndpoints.length - 1]) {
-                console.warn(`[Laozhang.ai API] Timeout ao tentar endpoint ${endpoint}, tentando próximo...`);
-                lastError = error;
+            // Tratar erros de abort (timeout)
+            if (error.name === 'AbortError') {
+                console.error(`[API] ⏱️ Timeout após ${timeoutDuration / 1000 / 60} minutos ao tentar endpoint ${endpoint}`);
+                lastError = new Error(`Timeout: A requisição demorou mais de ${timeoutDuration / 1000 / 60} minutos. Tente novamente ou use uma requisição menor.`);
+                // Se não for o último endpoint, tentar próximo
+                if (endpoint !== possibleEndpoints[possibleEndpoints.length - 1]) {
+                    console.warn(`[API] Tentando próximo endpoint...`);
+                    continue;
+                }
+                break; // Se for o último endpoint, sair do loop
+            }
+            
+            // Tratar outros erros
+            console.warn(`[API] Erro ao tentar endpoint ${endpoint}:`, error.message);
+            lastError = error;
+            // Se não for o último endpoint, tentar próximo
+            if (endpoint !== possibleEndpoints[possibleEndpoints.length - 1]) {
                 continue; // Tentar próximo endpoint
             }
-            console.warn(`[Laozhang.ai API] Erro ao tentar endpoint ${endpoint}:`, error.message);
-            lastError = error;
-            continue; // Tentar próximo endpoint
         }
     }
     
     // Se chegou aqui, nenhum endpoint funcionou
-    console.error('[Laozhang.ai API] ❌ Todos os endpoints falharam');
-    throw lastError || new Error('Falha ao chamar a API Laozhang.ai: nenhum endpoint funcionou');
+    console.error('[API] ❌ Todos os endpoints falharam');
+    throw lastError || new Error('Falha ao chamar a API: nenhum endpoint funcionou');
 }
 
 async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'openai', 'gemini']) {
@@ -1536,7 +1563,7 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
     // PRIMEIRO: Verificar se laozhang.ai está configurada como padrão no admin
     try {
         const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
-        console.log('[AI Provider] Verificando laozhang_use_as_default:', laozhangDefaultSetting);
+        console.log('[AI Provider] Verificando configuração padrão:', laozhangDefaultSetting);
         
         let laozhangUseAsDefault = false;
         if (laozhangDefaultSetting) {
@@ -1553,16 +1580,16 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
         
         if (laozhangUseAsDefault) {
             const laozhangKey = await getLaozhangApiKey();
-            console.log('[AI Provider] Laozhang key encontrada:', laozhangKey ? 'Sim' : 'Não');
+            console.log('[AI Provider] Chave de API encontrada:', laozhangKey ? 'Sim' : 'Não');
             if (laozhangKey) {
-                console.log('[AI Provider] ✅ Usando Laozhang.ai como padrão (configuração do admin)');
+                console.log('[AI Provider] ✅ Usando API configurada como padrão (configuração do admin)');
                 return {
                     service: 'laozhang',
                     apiKey: laozhangKey,
                     model: defaultModels.laozhang
                 };
             } else {
-                console.warn('[AI Provider] ⚠️ Laozhang.ai configurada como padrão mas chave não encontrada');
+                console.warn('[AI Provider] ⚠️ API configurada como padrão mas chave não encontrada');
             }
         } else {
             console.log('[AI Provider] Laozhang.ai não está configurada como padrão');
@@ -4044,6 +4071,73 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             );
         `);
 
+        // Tabela para Agentes Virais (seguindo modelo Claude AI)
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                memory TEXT,
+                instructions TEXT,
+                model TEXT DEFAULT 'gpt-4o',
+                is_favorite BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+        
+        // Adicionar coluna model se não existir (migração)
+        try {
+            await db.run(`ALTER TABLE viral_agents ADD COLUMN model TEXT DEFAULT 'gpt-4o'`);
+            console.log('[DB] Coluna model adicionada à tabela viral_agents.');
+        } catch (columnErr) {
+            if (!/duplicate column name/i.test(columnErr.message)) {
+                throw columnErr;
+            }
+        }
+
+        // Tabela para arquivos dos agentes virais
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_agent_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id INTEGER NOT NULL,
+                file_name TEXT NOT NULL,
+                file_content TEXT,
+                file_type TEXT,
+                file_size INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES viral_agents(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Tabela para conversas com agentes virais
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_agent_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                title TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES viral_agents(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Tabela para mensagens das conversas
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS viral_agent_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (conversation_id) REFERENCES viral_agent_conversations(id) ON DELETE CASCADE
+            );
+        `);
+
         // Tabela para histórico de prompts de cena
         await db.exec(`
             CREATE TABLE IF NOT EXISTS scene_prompts_history (
@@ -4591,6 +4685,12 @@ app.post('/api/admin/notifications/loop/stop', authenticateToken, isAdmin, async
             'UPDATE active_loops SET is_active = 0, stopped_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE loop_type = ?',
             [loop_type]
         );
+        
+        // Parar o loop imediatamente
+        if (notificationLoops[loop_type]) {
+            clearInterval(notificationLoops[loop_type]);
+            notificationLoops[loop_type] = null;
+        }
         
         console.log(`[NOTIFICATIONS] Loop ${loop_type} parado e salvo no banco de dados`);
         res.json({ success: true, message: `Loop ${loop_type} parado com sucesso` });
@@ -7641,7 +7741,88 @@ app.post('/api/admin/laozhang/verify', authenticateToken, isAdmin, async (req, r
 // GET /api/tts/voices - Lista vozes disponíveis (Voz Premium)
 app.get('/api/tts/voices', authenticateToken, async (req, res) => {
     try {
-        const { provider = 'voice_premium' } = req.query;
+        const { provider = 'laozhang' } = req.query;
+        
+        // Verificar preferência do usuário
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Se provider for laozhang ou se useCredits estiver marcado, retornar vozes da laozhang.ai
+        if (provider === 'laozhang' || useCredits) {
+            console.log('[TTS Voices] Retornando vozes da laozhang.ai');
+            
+            // Verificar se tem chave da laozhang.ai
+            const laozhangKey = await getLaozhangApiKey();
+            if (!laozhangKey) {
+                return res.status(400).json({ 
+                    message: 'Chave de API da laozhang.ai não configurada. Configure no painel admin.' 
+                });
+            }
+            
+            // Retornar todas as vozes disponíveis da laozhang.ai conforme documentação
+            const laozhangVoices = [
+                {
+                    id: 'alloy',
+                    name: 'alloy',
+                    voice_id: 'alloy',
+                    label: 'Alloy - Neutra, clara e natural',
+                    description: 'Voz neutra, clara e natural',
+                    gender: 'neutral',
+                    language: 'pt-BR'
+                },
+                {
+                    id: 'echo',
+                    name: 'echo',
+                    voice_id: 'echo',
+                    label: 'Echo - Masculina, firme e forte',
+                    description: 'Voz masculina, firme e forte',
+                    gender: 'male',
+                    language: 'pt-BR'
+                },
+                {
+                    id: 'fable',
+                    name: 'fable',
+                    voice_id: 'fable',
+                    label: 'Fable - Sotaque britânico, elegante',
+                    description: 'Voz com sotaque britânico, elegante',
+                    gender: 'neutral',
+                    language: 'en-GB'
+                },
+                {
+                    id: 'onyx',
+                    name: 'onyx',
+                    voice_id: 'onyx',
+                    label: 'Onyx - Masculina profunda, notícias/transmissão',
+                    description: 'Voz masculina profunda, ideal para notícias e transmissão',
+                    gender: 'male',
+                    language: 'pt-BR'
+                },
+                {
+                    id: 'nova',
+                    name: 'nova',
+                    voice_id: 'nova',
+                    label: 'Nova - Feminina, calorosa e amigável',
+                    description: 'Voz feminina, calorosa e amigável',
+                    gender: 'female',
+                    language: 'pt-BR'
+                },
+                {
+                    id: 'shimmer',
+                    name: 'shimmer',
+                    voice_id: 'shimmer',
+                    label: 'Shimmer - Feminina suave, narração',
+                    description: 'Voz feminina suave, ideal para narração',
+                    gender: 'female',
+                    language: 'pt-BR'
+                }
+            ];
+            
+            return res.status(200).json({ 
+                data: laozhangVoices,
+                provider: 'laozhang',
+                message: `${laozhangVoices.length} vozes disponíveis`
+            });
+        }
         
         // Chave configurada no painel admin (sempre priorizar se existir)
         const adminVoiceApiKey = await getAdminVoiceApiKey();
@@ -7936,15 +8117,42 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
         const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
         
-        // Chave configurada no painel admin (sempre priorizar se existir)
-        const adminVoiceApiKey = await getAdminVoiceApiKey();
-        if (adminVoiceApiKey && adminVoiceApiKey.trim().length >= 10) {
-            apiKey = adminVoiceApiKey.trim();
-            console.log('[TTS Preview] ✅ Usando chave de voz configurada no painel admin (Google Cloud/Gemini)');
-        }
-        
-        // Se provider for 'gemini', buscar API do Gemini diretamente
-        if (provider === 'gemini') {
+        // Se useCredits estiver marcado, usar laozhang.ai
+        if (useCredits) {
+            console.log(`[TTS Preview] useCredits marcado, usando laozhang.ai`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Chave da laozhang.ai não configurada. Configure no painel admin.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            actualProvider = 'laozhang';
+            console.log('[TTS Preview] ✅ Usando API laozhang.ai (useCredits marcado)');
+        } else if (provider === 'laozhang') {
+            console.log(`[TTS Preview] Provider: laozhang, Voice: ${previewVoice}`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Configure a chave do DarkVoz no painel admin para usar este provedor.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            actualProvider = 'laozhang';
+            console.log('[TTS Preview] ✅ Usando API DarkVoz (Laozhang.ai) do painel admin');
+        } else if (provider === 'gemini') {
+            // Chave configurada no painel admin (sempre priorizar se existir)
+            const adminVoiceApiKey = await getAdminVoiceApiKey();
+            if (adminVoiceApiKey && adminVoiceApiKey.trim().length >= 10) {
+                apiKey = adminVoiceApiKey.trim();
+                console.log('[TTS Preview] ✅ Usando chave de voz configurada no painel admin (Google Cloud/Gemini)');
+            }
             console.log(`[TTS Preview] Provider: gemini, Voice: ${previewVoice}`);
             
             // PRIORIDADE 2: Se não houver chave do admin, buscar API do Gemini do usuário
@@ -8188,11 +8396,11 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                 normalizedKey = String(laozhangKey.api_key).trim();
             }
             if (!normalizedKey || normalizedKey.length < 10) {
-                return res.status(400).json({ message: 'Configure a chave da Laozhang.ai no painel admin para usar este provedor.' });
+                return res.status(400).json({ message: 'Configure a chave do provedor externo no painel admin para usar este provedor.' });
             }
             const laozhangProviderId = await getLaozhangApiProviderId();
             if (!laozhangProviderId) {
-                return res.status(400).json({ message: 'Provider Laozhang.ai não está ativo no painel admin.' });
+                return res.status(400).json({ message: 'Provedor externo não está ativo no painel admin.' });
             }
             apiKey = normalizedKey;
             useAdminApi = true;
@@ -8381,9 +8589,9 @@ app.post('/api/tts/generate-from-script', authenticateToken, async (req, res) =>
     
     // Se não tiver modelo, usar padrão baseado no provider
     let finalTtsModel = ttsModel;
-    if (!finalTtsModel) {
+    if (!finalTtsModel || !finalTtsModel.trim()) {
         if (provider === 'laozhang') {
-            finalTtsModel = 'tts-1';
+            finalTtsModel = 'tts-1'; // Modelo padrão para laozhang
         } else if (provider === 'openai') {
             finalTtsModel = 'tts-1-hd';
         } else if (provider === 'gemini') {
@@ -8406,8 +8614,46 @@ app.post('/api/tts/generate-from-script', authenticateToken, async (req, res) =>
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
         const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
         
-        // Se provider for 'gemini', buscar API do Gemini diretamente
-        if (provider === 'gemini') {
+        // Se useCredits estiver marcado, usar laozhang.ai
+        if (useCredits) {
+            console.log(`[TTS Generate] useCredits marcado, usando laozhang.ai`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Chave da laozhang.ai não configurada. Configure no painel admin.' });
+            }
+            const laozhangProviderId = await getLaozhangApiProviderId();
+            if (!laozhangProviderId) {
+                return res.status(400).json({ message: 'Provider laozhang.ai não está ativo no painel admin.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            adminApi = { id: laozhangProviderId, provider: 'laozhang' };
+            // Forçar provider para laozhang
+            actualProvider = 'laozhang';
+            console.log('[TTS Generate] ✅ Usando API laozhang.ai (useCredits marcado)');
+        } else if (provider === 'laozhang') {
+            console.log(`[TTS Generate] Provider: laozhang, Voice: ${voice}`);
+            const laozhangKey = await getLaozhangApiKey();
+            let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
+            if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                normalizedKey = String(laozhangKey.api_key).trim();
+            }
+            if (!normalizedKey || normalizedKey.length < 10) {
+                return res.status(400).json({ message: 'Configure a chave do DarkVoz no painel admin para usar este provedor.' });
+            }
+            const laozhangProviderId = await getLaozhangApiProviderId();
+            if (!laozhangProviderId) {
+                return res.status(400).json({ message: 'Provider DarkVoz não está ativo no painel admin.' });
+            }
+            apiKey = normalizedKey;
+            useAdminApi = true;
+            adminApi = { id: laozhangProviderId, provider: 'laozhang' };
+            console.log('[TTS Generate] ✅ Usando API DarkVoz (Laozhang.ai) do painel admin');
+        } else if (provider === 'gemini') {
             console.log(`[TTS Generate] Provider: gemini, Voice: ${voice}`);
             
             // PRIORIDADE 2: Se não houver chave do admin, buscar API do Gemini do usuário
@@ -9345,7 +9591,7 @@ Tradução em PT-BR:`;
                 keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
 
                 if (!keys.claude || !keys.openai) {
-                    return res.status(400).json({ msg: 'Para "Comparar" com Laozhang.ai como padrão, precisa de ter as chaves de Claude E OpenAI configuradas.' });
+                    return res.status(400).json({ msg: 'Para "Comparar" com o provedor padrão, precisa de ter as chaves de Claude E OpenAI configuradas.' });
                 }
 
                 console.log('[Análise-All] A chamar IA em paralelo (Laozhang.ai + Claude + OpenAI)...');
@@ -9659,7 +9905,7 @@ Tradução em PT-BR:`;
 
 // Rota alternativa que SEMPRE usa Laozhang.ai para análise de títulos
 app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => {
-    const { videoUrl, folderId } = req.body;
+    const { videoUrl, model: requestedModel, folderId } = req.body;
     const userId = req.user.id;
 
     if (!videoUrl) {
@@ -9674,7 +9920,18 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         // SEMPRE usar laozhang.ai
         const laozhangKey = await getLaozhangApiKey();
         if (!laozhangKey) {
-            return res.status(400).json({ msg: 'Laozhang.ai não configurada no painel admin. Configure a chave de API primeiro.' });
+            return res.status(400).json({ msg: 'Provedor externo não configurado no painel admin. Configure a chave de API primeiro.' });
+        }
+
+        // Determinar qual modelo usar (se especificado, usar ele; senão, usar gpt-4o como padrão)
+        let modelToUse = requestedModel || 'gpt-4o';
+        // Mapear modelos para os nomes corretos da laozhang.ai
+        if (modelToUse === 'gpt-4o') {
+            modelToUse = 'gpt-4o';
+        } else if (modelToUse === 'claude-3-7-sonnet-20250219') {
+            modelToUse = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse === 'gemini-2.5-pro') {
+            modelToUse = 'gemini-2.5-pro';
         }
 
         const userId = req.user.id;
@@ -9804,11 +10061,11 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
         const response = await callLaozhangAPI(
             titlePrompt, 
             laozhangKey, 
-            'gpt-4o', 
+            modelToUse, 
             null, 
             userId, 
             'api_call', 
-            JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: 'gpt-4o' })
+            JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: modelToUse })
         );
         
         // callLaozhangAPI retorna string diretamente agora
@@ -9892,7 +10149,7 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analyze/titles/laozhang]:', err);
-        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao processar a análise com Laozhang.ai.' });
+        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao processar a análise.' });
     }
 });
 
@@ -10277,7 +10534,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             // Redirecionar para rota Laozhang
             const laozhangKeyData = await db.get('SELECT api_key FROM app_settings WHERE setting_key = ?', ['laozhang_api_key']);
             if (!laozhangKeyData || !laozhangKeyData.api_key) {
-                return res.status(400).json({ msg: 'Laozhang.ai configurada como padrão, mas chave não encontrada.' });
+                return res.status(400).json({ msg: 'Provedor externo configurado como padrão, mas chave não encontrada.' });
             }
             // Continuar com rota normal mas usando Laozhang internamente
         }
@@ -11284,7 +11541,7 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Mapear modelo selecionado para modelo Laozhang
@@ -11900,7 +12157,7 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
         // SEMPRE usar laozhang.ai
         const laozhangKey = await getLaozhangApiKey();
         if (!laozhangKey) {
-            return res.status(400).json({ msg: 'Laozhang.ai não configurada no painel admin. Configure a chave de API primeiro.' });
+            return res.status(400).json({ msg: 'Provedor externo não configurado no painel admin. Configure a chave de API primeiro.' });
         }
 
         // Calcular número estimado de cenas baseado no modo
@@ -12005,7 +12262,7 @@ IMPORTANTE:
             laozhangModel = modelMapping[selectedModel] || selectedModel; // Usar o modelo selecionado se não estiver no mapeamento
         }
         
-        console.log(`[Scene Prompts Laozhang] Gerando prompts com Laozhang.ai usando modelo: ${laozhangModel} (selecionado: ${selectedModel || 'N/A'})...`);
+        console.log(`[Scene Prompts] Gerando prompts usando modelo: ${laozhangModel} (selecionado: ${selectedModel || 'N/A'})...`);
         const response = await callLaozhangAPI(
             prompt, 
             laozhangKey, 
@@ -12020,7 +12277,7 @@ IMPORTANTE:
         let scenesData;
         let rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         
-        console.log(`[Scene Prompts Laozhang] Resposta bruta (primeiros 500 chars):`, rawResponse.substring(0, 500));
+        console.log(`[Scene Prompts] Resposta bruta (primeiros 500 chars):`, rawResponse.substring(0, 500));
         
         // Limpar markdown code blocks primeiro
         rawResponse = rawResponse
@@ -12033,7 +12290,7 @@ IMPORTANTE:
             // Tentar parsear diretamente
             scenesData = JSON.parse(rawResponse);
         } catch (e) {
-            console.log('[Scene Prompts Laozhang] Tentativa 1 de parsing falhou, tentando extrair JSON...');
+            console.log('[Scene Prompts] Tentativa 1 de parsing falhou, tentando extrair JSON...');
             // Tentar extrair JSON usando regex (procurar por { ... } completo)
             const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
@@ -12048,7 +12305,7 @@ IMPORTANTE:
                     
                     scenesData = JSON.parse(jsonStr);
                 } catch (e2) {
-                    console.log('[Scene Prompts Laozhang] Tentativa 2 de parsing falhou, tentando corrigir JSON truncado...');
+                    console.log('[Scene Prompts] Tentativa 2 de parsing falhou, tentando corrigir JSON truncado...');
                     // Tentar encontrar o array de scenes diretamente
                     const scenesArrayMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)\]/);
                     if (scenesArrayMatch) {
@@ -12065,7 +12322,7 @@ IMPORTANTE:
                             }
                             scenesData = JSON.parse(`{"scenes": [${scenesArrayStr}]}`);
                         } catch (e3) {
-                            console.log('[Scene Prompts Laozhang] Tentativa 3 de parsing falhou, tentando extrair cenas individuais...');
+                            console.log('[Scene Prompts] Tentativa 3 de parsing falhou, tentando extrair cenas individuais...');
                             // Última tentativa: extrair cenas individuais parseando objetos JSON completos
                             const simpleScenePattern = /\{\s*"scene_number"\s*:\s*\d+[\s\S]*?\}/g;
                             const simpleMatches = rawResponse.match(simpleScenePattern);
@@ -12082,12 +12339,12 @@ IMPORTANTE:
                                             });
                                         }
                                     } catch (parseErr) {
-                                        console.warn('[Scene Prompts Laozhang] Erro ao parsear cena individual:', parseErr.message);
+                                        console.warn('[Scene Prompts] Erro ao parsear cena individual:', parseErr.message);
                                     }
                                 }
                                 if (parsedScenes.length > 0) {
                                     scenesData = { scenes: parsedScenes };
-                                    console.log(`[Scene Prompts Laozhang] ✅ Extraídas ${parsedScenes.length} cenas parseando objetos individuais!`);
+                                    console.log(`[Scene Prompts] ✅ Extraídas ${parsedScenes.length} cenas parseando objetos individuais!`);
                                 } else {
                                     throw new Error(`Não foi possível extrair cenas da resposta. Primeiros 1000 caracteres: ${rawResponse.substring(0, 1000)}`);
                                 }
@@ -12106,8 +12363,8 @@ IMPORTANTE:
 
         if (!scenesData.scenes || !Array.isArray(scenesData.scenes)) {
             // Tentar encontrar scenes em diferentes níveis
-            console.log('[Scene Prompts Laozhang] Tentando encontrar scenes em diferentes níveis...');
-            console.log('[Scene Prompts Laozhang] Estrutura completa:', JSON.stringify(scenesData).substring(0, 1000));
+            console.log('[Scene Prompts] Tentando encontrar scenes em diferentes níveis...');
+            console.log('[Scene Prompts] Estrutura completa:', JSON.stringify(scenesData).substring(0, 1000));
             
             // Procurar scenes em qualquer nível
             const findScenes = (obj, path = '') => {
@@ -12128,7 +12385,7 @@ IMPORTANTE:
             
             const foundScenes = findScenes(scenesData);
             if (foundScenes && Array.isArray(foundScenes)) {
-                console.log('[Scene Prompts Laozhang] ✅ Scenes encontradas em nível aninhado!');
+                console.log('[Scene Prompts] ✅ Scenes encontradas em nível aninhado!');
                 scenesData.scenes = foundScenes;
             } else {
                 throw new Error(`A IA não retornou a estrutura esperada. Verifique se a resposta contém um campo "scenes". Estrutura recebida: ${JSON.stringify(scenesData).substring(0, 500)}`);
@@ -12151,18 +12408,18 @@ IMPORTANTE:
             prompt_text: scene.prompt_text || scene.prompt || scene.text || ''
         }));
 
-        console.log(`[Scene Prompts Laozhang] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
+        console.log(`[Scene Prompts] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
         
         // Verificar se gerou todas as cenas esperadas
         if (scenesData.scenes.length < minScenes) {
-            console.warn(`[Scene Prompts Laozhang] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
         }
 
         // Se selectedModel foi fornecido, usar ele, senão usar 'laozhang-gpt-4o'
         const modelToReturn = selectedModel ? `laozhang-${selectedModel}` : 'laozhang-gpt-4o';
         
         res.json({
-            msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso usando Laozhang.ai!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente.)` : ''}`,
+            msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente.)` : ''}`,
             scenes: scenesData.scenes,
             modelUsed: modelToReturn, // Retornar o modelo selecionado no frontend (com prefixo laozhang)
             expectedScenes: estimatedScenes,
@@ -12170,8 +12427,8 @@ IMPORTANTE:
         });
 
     } catch (err) {
-        console.error('[Scene Prompts Laozhang] Erro:', err);
-        res.status(500).json({ msg: err.message || 'Erro ao gerar prompts de cena com Laozhang.ai.' });
+        console.error('[Scene Prompts] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar prompts de cena.' });
     }
 });
 
@@ -12565,13 +12822,14 @@ app.post('/api/detect/characters/laozhang', authenticateToken, async (req, res) 
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Mapear modelo selecionado para modelo Laozhang
+        // Se não houver modelo selecionado, usar GPT-4o como padrão
         const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
-                             'gpt-4o';
+                             (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
         const prompt = `Você é um diretor de elenco especializado em analisar roteiros e identificar personagens para geração de imagens com IA.
 
@@ -12790,13 +13048,14 @@ app.post('/api/rewrite/blocked-prompt/laozhang', authenticateToken, async (req, 
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Mapear modelo selecionado para modelo Laozhang
+        // Se não houver modelo selecionado, usar GPT-4o como padrão
         const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
-                             'gpt-4o';
+                             (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
         const rewritePrompt = `O prompt a seguir foi bloqueado por violar políticas de conteúdo. Reescreva-o mantendo a essência visual, história e estilo, mas removendo qualquer conteúdo que possa ser considerado inseguro ou inadequado. O prompt reescrito deve ser em INGLÊS e otimizado para geração de imagens.
 
@@ -14179,7 +14438,7 @@ app.post('/api/video/transcript/analyze/laozhang', authenticateToken, async (req
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         const sanitizedTranscript = transcript.trim();
@@ -14610,7 +14869,7 @@ app.post('/api/script-agents/create/laozhang', authenticateToken, async (req, re
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Buscar transcrição (mesma lógica da rota original)
@@ -16349,7 +16608,7 @@ app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, asy
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Buscar o agente
@@ -17103,6 +17362,1416 @@ app.delete('/api/scripts/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// ==================== ROTAS PARA AGENTES VIRAIS ====================
+
+// Rota para criar um agente viral
+app.post('/api/viral-agents', authenticateToken, async (req, res) => {
+    const { name, description, memory, instructions, model } = req.body;
+    const userId = req.user.id;
+
+    if (!name || name.trim().length === 0) {
+        return res.status(400).json({ msg: 'Nome do agente é obrigatório.' });
+    }
+
+    try {
+        const result = await db.run(
+            `INSERT INTO viral_agents (user_id, name, description, memory, instructions, model)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, name.trim(), description || null, memory || null, instructions || null, model || 'gpt-4o']
+        );
+
+        const newAgent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ?`,
+            [result.lastID]
+        );
+
+        res.status(201).json({
+            msg: 'Agente viral criado com sucesso!',
+            agent: newAgent
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents POST]:', err);
+        res.status(500).json({ msg: 'Erro ao criar agente viral.' });
+    }
+});
+
+// Rota para listar todos os agentes virais do usuário
+app.get('/api/viral-agents', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const agents = await db.all(
+            `SELECT va.*, 
+                    COUNT(DISTINCT vaf.id) as file_count,
+                    COUNT(DISTINCT vac.id) as conversation_count
+             FROM viral_agents va
+             LEFT JOIN viral_agent_files vaf ON va.id = vaf.agent_id
+             LEFT JOIN viral_agent_conversations vac ON va.id = vac.agent_id
+             WHERE va.user_id = ?
+             GROUP BY va.id
+             ORDER BY va.is_favorite DESC, va.updated_at DESC`,
+            [userId]
+        );
+
+        res.status(200).json({ agents });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents GET]:', err);
+        res.status(500).json({ msg: 'Erro ao listar agentes virais.' });
+    }
+});
+
+// Rota para obter um agente viral específico
+app.get('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        const agent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        // Buscar arquivos do agente
+        const files = await db.all(
+            `SELECT * FROM viral_agent_files WHERE agent_id = ? ORDER BY created_at DESC`,
+            [agentId]
+        );
+
+        // Buscar conversas do agente
+        const conversations = await db.all(
+            `SELECT * FROM viral_agent_conversations 
+             WHERE agent_id = ? AND user_id = ? 
+             ORDER BY updated_at DESC`,
+            [agentId, userId]
+        );
+
+        res.status(200).json({
+            agent: {
+                ...agent,
+                files,
+                conversations
+            }
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId GET]:', err);
+        res.status(500).json({ msg: 'Erro ao obter agente viral.' });
+    }
+});
+
+// Rota para atualizar um agente viral
+app.put('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const { name, description, memory, instructions, is_favorite, model } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const agent = await db.get(
+            `SELECT id FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        const updates = [];
+        const values = [];
+
+        if (name !== undefined) {
+            updates.push('name = ?');
+            values.push(name.trim());
+        }
+        if (description !== undefined) {
+            updates.push('description = ?');
+            values.push(description);
+        }
+        if (memory !== undefined) {
+            updates.push('memory = ?');
+            values.push(memory);
+        }
+        if (instructions !== undefined) {
+            updates.push('instructions = ?');
+            values.push(instructions);
+        }
+        if (model !== undefined) {
+            updates.push('model = ?');
+            values.push(model);
+        }
+        if (is_favorite !== undefined) {
+            updates.push('is_favorite = ?');
+            values.push(is_favorite ? 1 : 0);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ msg: 'Nenhum campo para atualizar.' });
+        }
+
+        updates.push('updated_at = CURRENT_TIMESTAMP');
+        values.push(agentId);
+
+        await db.run(
+            `UPDATE viral_agents SET ${updates.join(', ')} WHERE id = ?`,
+            values
+        );
+
+        const updatedAgent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ?`,
+            [agentId]
+        );
+
+        res.status(200).json({
+            msg: 'Agente atualizado com sucesso!',
+            agent: updatedAgent
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId PUT]:', err);
+        res.status(500).json({ msg: 'Erro ao atualizar agente viral.' });
+    }
+});
+
+// Rota para deletar um agente viral
+app.delete('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        const result = await db.run(
+            `DELETE FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        res.status(200).json({ msg: 'Agente deletado com sucesso!' });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao deletar agente viral.' });
+    }
+});
+
+// Rota para adicionar arquivo a um agente viral
+app.post('/api/viral-agents/:agentId/files', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const { file_name, file_content, file_type, file_size } = req.body;
+    const userId = req.user.id;
+
+    if (!file_name || !file_content) {
+        return res.status(400).json({ msg: 'Nome e conteúdo do arquivo são obrigatórios.' });
+    }
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT id FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        const result = await db.run(
+            `INSERT INTO viral_agent_files (agent_id, file_name, file_content, file_type, file_size)
+             VALUES (?, ?, ?, ?, ?)`,
+            [agentId, file_name, file_content, file_type || 'text/plain', file_size || file_content.length]
+        );
+
+        const newFile = await db.get(
+            `SELECT * FROM viral_agent_files WHERE id = ?`,
+            [result.lastID]
+        );
+
+        res.status(201).json({
+            msg: 'Arquivo adicionado com sucesso!',
+            file: newFile
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/files POST]:', err);
+        res.status(500).json({ msg: 'Erro ao adicionar arquivo.' });
+    }
+});
+
+// Rota para listar arquivos de um agente viral
+app.get('/api/viral-agents/:agentId/files', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT id FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        const files = await db.all(
+            `SELECT * FROM viral_agent_files WHERE agent_id = ? ORDER BY created_at DESC`,
+            [agentId]
+        );
+
+        res.status(200).json({ files });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/files GET]:', err);
+        res.status(500).json({ msg: 'Erro ao listar arquivos.' });
+    }
+});
+
+// Rota para deletar arquivo de um agente viral
+app.delete('/api/viral-agents/:agentId/files/:fileId', authenticateToken, async (req, res) => {
+    const { agentId, fileId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT id FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        const result = await db.run(
+            `DELETE FROM viral_agent_files WHERE id = ? AND agent_id = ?`,
+            [fileId, agentId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Arquivo não encontrado.' });
+        }
+
+        res.status(200).json({ msg: 'Arquivo deletado com sucesso!' });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/files/:fileId DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao deletar arquivo.' });
+    }
+});
+
+// Rota para criar uma nova conversa com um agente viral
+app.post('/api/viral-agents/:agentId/conversations', authenticateToken, async (req, res) => {
+    const { agentId } = req.params;
+    const { title } = req.body;
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        const result = await db.run(
+            `INSERT INTO viral_agent_conversations (agent_id, user_id, title)
+             VALUES (?, ?, ?)`,
+            [agentId, userId, title || 'Nova Conversa']
+        );
+
+        const newConversation = await db.get(
+            `SELECT * FROM viral_agent_conversations WHERE id = ?`,
+            [result.lastID]
+        );
+
+        res.status(201).json({
+            msg: 'Conversa criada com sucesso!',
+            conversation: newConversation
+        });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/conversations POST]:', err);
+        res.status(500).json({ msg: 'Erro ao criar conversa.' });
+    }
+});
+
+// Rota para enviar mensagem para um agente viral (chat) - COM STREAMING
+app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) => {
+        const { agentId } = req.params;
+        const { conversation_id, message, model: requestModel, stream = true } = req.body;
+        const userId = req.user.id;
+
+    if (!message || !conversation_id) {
+        return res.status(400).json({ msg: 'Mensagem e ID da conversa são obrigatórios.' });
+    }
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+        
+        // Usar modelo do agente ou o modelo da requisição
+        const modelToUse = requestModel || agent.model || 'gpt-4o';
+
+        // Verificar se a conversa pertence ao usuário e ao agente
+        const conversation = await db.get(
+            `SELECT * FROM viral_agent_conversations 
+             WHERE id = ? AND agent_id = ? AND user_id = ?`,
+            [conversation_id, agentId, userId]
+        );
+
+        if (!conversation) {
+            return res.status(404).json({ msg: 'Conversa não encontrada.' });
+        }
+
+        // Salvar mensagem do usuário
+        await db.run(
+            `INSERT INTO viral_agent_messages (conversation_id, role, content)
+             VALUES (?, ?, ?)`,
+            [conversation_id, 'user', message]
+        );
+
+        // Buscar histórico de mensagens da conversa
+        const messageHistory = await db.all(
+            `SELECT role, content FROM viral_agent_messages 
+             WHERE conversation_id = ? 
+             ORDER BY created_at ASC`,
+            [conversation_id]
+        );
+
+        // Buscar arquivos do agente
+        const agentFiles = await db.all(
+            `SELECT file_name, file_content FROM viral_agent_files WHERE agent_id = ?`,
+            [agentId]
+        );
+
+        // Preparar contexto para o Claude
+        let systemPrompt = '';
+        if (agent.instructions) {
+            systemPrompt += `# Instruções\n${agent.instructions}\n\n`;
+        }
+        if (agent.memory) {
+            systemPrompt += `# Memória\n${agent.memory}\n\n`;
+        }
+        if (agentFiles.length > 0) {
+            systemPrompt += `# Arquivos Disponíveis\n`;
+            agentFiles.forEach(file => {
+                systemPrompt += `\n## ${file.file_name}\n${file.file_content}\n`;
+            });
+        }
+        
+        // Adicionar instrução para gerar avaliação separadamente (não no roteiro)
+        systemPrompt += `\n# IMPORTANTE: Após finalizar o roteiro completo, gere uma avaliação separada no formato JSON:\n`;
+        systemPrompt += `{"nota": X, "checklist": {"gancho_inicial": true/false, "estrutura_narrativa": true/false, "engajamento_emocional": true/false, "densidade_valor": true/false, "tecnicas_retencao": true/false, "linguagem_tom": true/false, "elementos_estruturais": true/false, "loops_abertos": true/false, "variacao_emocional": true/false, "final_satisfatorio": true/false}}\n`;
+        systemPrompt += `Onde X é uma nota de 1 a 10 baseada nos critérios:\n`;
+        systemPrompt += `1. GANCHO INICIAL (0-30 segundos): Abertura magnética que cria "lacuna de curiosidade". Promessa clara do valor do vídeo.\n`;
+        systemPrompt += `2. ESTRUTURA NARRATIVA: Arco dramático completo, ritmo variado, transições fluidas.\n`;
+        systemPrompt += `3. ENGAJAMENTO EMOCIONAL: Apelo a emoções primárias, personagens identificáveis, stakes claros.\n`;
+        systemPrompt += `4. DENSIDADE DE VALOR: Informação surpreendente a cada 30-60s, especificidade, sem enchimento.\n`;
+        systemPrompt += `5. TÉCNICAS DE RETENÇÃO: Pattern interrupts, foreshadowing, cliffhangers internos, payoff satisfatório.\n`;
+        systemPrompt += `6. LINGUAGEM E TOM: Voz ativa, frases variadas, naturalidade, vocabulário acessível.\n`;
+        systemPrompt += `7. ELEMENTOS ESTRUTURAIS: Duração otimizada, CTA orgânica, final memorável.\n`;
+        systemPrompt += `8. LOOPS ABERTOS: Loops abertos sendo fechados no momento certo.\n`;
+        systemPrompt += `9. VARIAÇÃO EMOCIONAL: A emoção varia ao longo do roteiro.\n`;
+        systemPrompt += `10. FINAL SATISFATÓRIO: Todas as promessas cumpridas, final memorável.\n`;
+        systemPrompt += `Avalie cada critério como true/false e calcule a nota baseada na quantidade de critérios atendidos.\n`;
+
+        // Verificar preferência do usuário: usar créditos (laozhang.ai) ou APIs próprias
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        console.log('[Viral Agents] Preferência do usuário:', { userId, useCredits, userPrefs });
+        
+        let useLaozhang = false;
+        let laozhangApiKey = null;
+        
+        if (useCredits) {
+            // Buscar chave da laozhang.ai usando a função existente
+            const laozhangKey = await getLaozhangApiKey();
+            console.log('[Viral Agents] Chave Laozhang encontrada:', laozhangKey ? 'Sim' : 'Não', typeof laozhangKey);
+            
+            if (laozhangKey) {
+                // Normalizar a chave (pode vir como objeto ou string)
+                if (typeof laozhangKey === 'object' && laozhangKey.api_key) {
+                    laozhangApiKey = laozhangKey.api_key;
+                } else if (typeof laozhangKey === 'string') {
+                    laozhangApiKey = laozhangKey.trim();
+                } else {
+                    laozhangApiKey = String(laozhangKey).trim();
+                }
+                
+                console.log('[Viral Agents] Chave Laozhang normalizada:', laozhangApiKey ? `Sim (${laozhangApiKey.length} chars)` : 'Não');
+                
+                if (laozhangApiKey && laozhangApiKey.length > 10) {
+                    useLaozhang = true;
+                    console.log('[Viral Agents] ✅ Usando Laozhang.ai (preferência: usar créditos) com modelo:', modelToUse);
+                } else {
+                    console.warn('[Viral Agents] ⚠️ Chave Laozhang inválida ou muito curta');
+                }
+            } else {
+                console.warn('[Viral Agents] ⚠️ Chave Laozhang não encontrada, mesmo com preferência marcada');
+            }
+        } else {
+            console.log('[Viral Agents] Preferência não marcada, usando APIs próprias');
+        }
+        
+        // Se não usar laozhang, determinar qual serviço usar baseado no modelo
+        let serviceName = 'claude';
+        if (!useLaozhang) {
+            if (modelToUse && (modelToUse.includes('gpt') || modelToUse.includes('GPT'))) {
+                serviceName = 'openai';
+            } else if (modelToUse && modelToUse.includes('gemini')) {
+                serviceName = 'gemini';
+            }
+
+            // Buscar API key do serviço apropriado
+            const apiKeyRow = await db.get(
+                'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                [userId, serviceName]
+            );
+
+            if (!apiKeyRow || !apiKeyRow.api_key) {
+                return res.status(400).json({ msg: `API key do ${serviceName === 'openai' ? 'OpenAI' : serviceName === 'gemini' ? 'Gemini' : 'Claude'} não configurada. Configure nas configurações.` });
+            }
+
+            var apiKey = decrypt(apiKeyRow.api_key);
+            if (!apiKey) {
+                return res.status(500).json({ msg: 'Erro ao descriptografar API key.' });
+            }
+        }
+
+        // Preparar mensagens
+        const messages = [];
+        
+        // Adicionar histórico de mensagens (apenas user e assistant)
+        messageHistory.forEach(msg => {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+                messages.push({
+                    role: msg.role,
+                    content: msg.content
+                });
+            }
+        });
+
+        let assistantMessage = '';
+
+        // Se usar laozhang.ai, chamar API laozhang
+        if (useLaozhang && laozhangApiKey) {
+            console.log('[Viral Agents] 🚀 Iniciando chamada Laozhang.ai com modelo:', modelToUse, 'Stream:', stream);
+            // Preparar prompt completo para laozhang
+            let fullPrompt = systemPrompt;
+            if (fullPrompt) {
+                fullPrompt += '\n\n';
+            }
+            
+            // Adicionar histórico
+            messages.forEach(msg => {
+                fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
+            });
+            
+            // Adicionar mensagem atual
+            fullPrompt += `Usuário: ${message}\nAssistente:`;
+            
+            if (stream) {
+                // Streaming com laozhang (usar endpoint direto com streaming)
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                
+                try {
+                    // Mapear modelo para formato laozhang (manter o mesmo formato)
+                    const laozhangModel = modelToUse || 'gpt-4o';
+                    console.log('[Viral Agents] 📝 Modelo Laozhang:', laozhangModel);
+                    
+                    // Preparar mensagens para cálculo de tokens
+                    const allMessages = [
+                        { role: 'system', content: systemPrompt || 'Você é um assistente útil.' },
+                        ...messages,
+                        { role: 'user', content: message }
+                    ];
+                    
+                    // Calcular tokens aproximados (input + output estimado)
+                    const promptText = allMessages.map(m => m.content).join('\n');
+                    const promptTokens = Math.ceil(promptText.length / 4);
+                    // Estimativa para roteiros: baseado no max_tokens configurado (8192)
+                    // Usar 80% do max_tokens como estimativa conservadora
+                    const estimatedOutputTokens = Math.ceil(8192 * 0.8);
+                    const totalTokens = promptTokens + estimatedOutputTokens;
+                    
+                    console.log('[Viral Agents] 💰 Calculando créditos:', {
+                        promptTokens,
+                        estimatedOutputTokens,
+                        totalTokens
+                    });
+                    
+                    // Debitar créditos ANTES da chamada
+                    let creditDebitResult = null;
+                    try {
+                        const laozhangProviderId = await getLaozhangApiProviderId();
+                        if (laozhangProviderId) {
+                            creditDebitResult = await checkAndDebitCredits(
+                                userId,
+                                laozhangProviderId,
+                                totalTokens,
+                                'viral_agent_chat',
+                                JSON.stringify({ agent_id: agentId, conversation_id: conversation_id, model: laozhangModel, stream: true })
+                            );
+                            console.log(`[Viral Agents] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
+                        } else {
+                            console.warn('[Viral Agents] ⚠️ Provider Laozhang não encontrado, pulando débito de créditos');
+                        }
+                    } catch (creditError) {
+                        console.error('[Viral Agents] ❌ Erro ao debitar créditos:', creditError.message);
+                        // Se não tiver créditos suficientes, lançar erro
+                        if (creditError.message.includes('Créditos insuficientes')) {
+                            res.write(`data: ${JSON.stringify({ error: creditError.message })}\n\n`);
+                            res.end();
+                            return;
+                        }
+                        // Se for outro erro, continuar mas logar
+                    }
+                    
+                    const payload = {
+                        model: laozhangModel,
+                        messages: allMessages,
+                        temperature: 0.7,
+                        max_tokens: 8192,
+                        stream: true
+                    };
+                    
+                    console.log('[Viral Agents] 📤 Enviando requisição para Laozhang.ai:', {
+                        endpoint: LAOZHANG_CHAT_ENDPOINT,
+                        model: laozhangModel,
+                        messages_count: payload.messages.length,
+                        system_prompt_length: systemPrompt?.length || 0
+                    });
+                    
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 300000);
+                    
+                    const response = await fetch(LAOZHANG_CHAT_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${laozhangApiKey}`,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+                    
+                    console.log('[Viral Agents] 📥 Resposta Laozhang:', response.status, response.statusText);
+                    
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({ error: { message: 'Erro desconhecido' } }));
+                        console.error('[Viral Agents] ❌ Erro Laozhang:', error);
+                        res.write(`data: ${JSON.stringify({ error: error.error?.message || error.message || 'Erro ao processar mensagem' })}\n\n`);
+                        res.end();
+                        return;
+                    }
+                    
+                    console.log('[Viral Agents] ✅ Resposta OK, iniciando leitura do stream...');
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullMessage = '';
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data === '[DONE]') {
+                                    clearTimeout(timeoutId);
+                                    
+                                    // Extrair nota e checklist
+                                    let nota = null;
+                                    let checklist = null;
+                                    let roteiroFinal = fullMessage;
+                                    
+                                    const jsonMatch = fullMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                    if (jsonMatch) {
+                                        try {
+                                            const avaliacao = JSON.parse(jsonMatch[0]);
+                                            nota = avaliacao.nota;
+                                            checklist = avaliacao.checklist || null;
+                                            roteiroFinal = fullMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                        } catch (e) {
+                                            const notaMatch = fullMessage.match(/nota[:\s]*(\d+)\/10/i);
+                                            if (notaMatch) {
+                                                nota = parseInt(notaMatch[1]);
+                                                roteiroFinal = fullMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                            }
+                                        }
+                                    }
+                                    
+                                    await db.run(
+                                        `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                         VALUES (?, ?, ?)`,
+                                        [conversation_id, 'assistant', roteiroFinal]
+                                    );
+                                    
+                                    const conversationTitle = await db.get(
+                                        `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                                        [conversation_id]
+                                    );
+                                    
+                                    if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                                        const firstPhrase = message.substring(0, 50).trim();
+                                        const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                                        await db.run(
+                                            `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                            [title, conversation_id]
+                                        );
+                                    } else {
+                                        await db.run(
+                                            `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                            [conversation_id]
+                                        );
+                                    }
+                                    
+                                    res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
+                                    res.end();
+                                    return;
+                                }
+                                
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.choices?.[0]?.delta?.content) {
+                                        const text = parsed.choices[0].delta.content;
+                                        fullMessage += text;
+                                        res.write(`data: ${JSON.stringify({ text: text })}\n\n`);
+                                    }
+                                } catch (e) {
+                                    // Ignorar linhas inválidas
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Laozhang Streaming] Erro:', err);
+                    res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
+                    res.end();
+                }
+                return;
+            } else {
+                // Modo não-streaming com laozhang
+                try {
+                    const laozhangModel = modelToUse || 'gpt-4o';
+                    console.log('[Viral Agents] 📝 Modo não-streaming Laozhang com modelo:', laozhangModel);
+                    console.log('[Viral Agents] 📤 Chamando callLaozhangAPI...');
+                    // Adicionar marcador para callLaozhangAPI detectar como roteiro
+                    const promptWithMarker = fullPrompt + '\n\nIMPORTANTE: Gere o roteiro completo em TEXTO SIMPLES, sem usar JSON ou formatações especiais.';
+                    assistantMessage = await callLaozhangAPI(promptWithMarker, laozhangApiKey, laozhangModel, null, userId, 'viral_agent_chat', JSON.stringify({ agent_id: agentId, conversation_id: conversation_id, model: laozhangModel }));
+                    console.log('[Viral Agents] ✅ Resposta recebida, tamanho:', assistantMessage?.length || 0);
+                    
+                    // Extrair nota e checklist do JSON (se houver) - modo não-streaming laozhang
+                    let nota = null;
+                    let checklist = null;
+                    let roteiroFinal = assistantMessage;
+                    
+                    const jsonMatch = assistantMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            const avaliacao = JSON.parse(jsonMatch[0]);
+                            nota = avaliacao.nota;
+                            checklist = avaliacao.checklist || null;
+                            roteiroFinal = assistantMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                        } catch (e) {
+                            const notaMatch = assistantMessage.match(/nota[:\s]*(\d+)\/10/i);
+                            if (notaMatch) {
+                                nota = parseInt(notaMatch[1]);
+                                roteiroFinal = assistantMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                            }
+                        }
+                    }
+                    
+                    // Salvar roteiro completo (sem a nota)
+                    await db.run(
+                        `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                         VALUES (?, ?, ?)`,
+                        [conversation_id, 'assistant', roteiroFinal]
+                    );
+                    
+                    const conversationTitle = await db.get(
+                        `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                        [conversation_id]
+                    );
+                    
+                    if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                        const firstPhrase = message.substring(0, 50).trim();
+                        const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                        await db.run(
+                            `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                            [title, conversation_id]
+                        );
+                    } else {
+                        await db.run(
+                            `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                            [conversation_id]
+                        );
+                    }
+                    
+                    return res.status(200).json({ response: roteiroFinal, nota: nota, checklist: checklist });
+                } catch (err) {
+                    console.error('[Laozhang API] Erro:', err);
+                    return res.status(500).json({ msg: err.message || 'Erro ao processar mensagem.' });
+                }
+            }
+        } else if (serviceName === 'claude') {
+            // API do Claude
+            const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+            
+            // Mapear modelo se necessário
+            const modelAliases = {
+                'claude-3-5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
+                'claude-3-5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
+                'claude-3-5-sonnet-latest': 'claude-3-7-sonnet-20250219',
+                'claude-3-sonnet-20240229': 'claude-3-7-sonnet-20250219',
+                'claude-3.5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
+                'claude-3.5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
+                'claude-3-haiku-20240307': 'claude-3-7-sonnet-20250219',
+                'claude-3.5-haiku-20241022': 'claude-3-7-sonnet-20250219',
+                'claude-3-5-haiku-20241022': 'claude-3-7-sonnet-20250219',
+                'claude-3-5-haiku-latest': 'claude-3-7-sonnet-20250219',
+                'claude-3-opus-20240229': 'claude-opus-4-20250514'
+            };
+            
+            let modelName = modelAliases[modelToUse] || modelToUse;
+            const supportedModels = new Set([
+                'claude-3-7-sonnet-20250219',
+                'claude-sonnet-4-20250514',
+                'claude-opus-4-20250514'
+            ]);
+            
+            if (!supportedModels.has(modelName)) {
+                if (modelToUse && modelToUse.toLowerCase().includes('opus')) {
+                    modelName = 'claude-opus-4-20250514';
+                } else if (modelToUse && (modelToUse.toLowerCase().includes('sonnet') || modelToUse.toLowerCase().includes('4'))) {
+                    modelName = 'claude-sonnet-4-20250514';
+                } else {
+                    modelName = 'claude-3-7-sonnet-20250219';
+                }
+            }
+            
+            const payload = {
+                model: modelName,
+                max_tokens: 8192, // Aumentado para garantir roteiro completo
+                messages: messages,
+                stream: stream // Habilitar streaming
+            };
+            
+            // Adicionar system prompt se houver
+            if (systemPrompt) {
+                payload.system = systemPrompt;
+            }
+
+            if (stream) {
+                // Configurar SSE para streaming
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutos para roteiros longos
+
+                try {
+                    const response = await fetch(CLAUDE_API_URL, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01'
+                        },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        res.write(`data: ${JSON.stringify({ error: error.error?.message || 'Erro ao processar mensagem' })}\n\n`);
+                        res.end();
+                        return;
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullMessage = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                    if (data === '[DONE]') {
+                                        clearTimeout(timeoutId);
+                                        
+                                        // Extrair nota e checklist do JSON (se houver)
+                                        let nota = null;
+                                        let checklist = null;
+                                        let roteiroFinal = fullMessage;
+                                        
+                                        // Tentar encontrar JSON no final da mensagem
+                                        const jsonMatch = fullMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                        if (jsonMatch) {
+                                            try {
+                                                const avaliacao = JSON.parse(jsonMatch[0]);
+                                                nota = avaliacao.nota;
+                                                checklist = avaliacao.checklist || null;
+                                                // Remover JSON do roteiro
+                                                roteiroFinal = fullMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                            } catch (e) {
+                                                // Se não conseguir parsear, tentar extrair nota manualmente
+                                                const notaMatch = fullMessage.match(/nota[:\s]*(\d+)\/10/i);
+                                                if (notaMatch) {
+                                                    nota = parseInt(notaMatch[1]);
+                                                    roteiroFinal = fullMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Salvar roteiro completo (sem a nota)
+                                        await db.run(
+                                            `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                             VALUES (?, ?, ?)`,
+                                            [conversation_id, 'assistant', roteiroFinal]
+                                        );
+                                        
+                                        // Atualizar título da conversa
+                                        const conversationTitle = await db.get(
+                                            `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                                            [conversation_id]
+                                        );
+                                        
+                                        if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                                            const firstPhrase = message.substring(0, 50).trim();
+                                            const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                                            await db.run(
+                                                `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                                [title, conversation_id]
+                                            );
+                                        } else {
+                                            await db.run(
+                                                `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                                [conversation_id]
+                                            );
+                                        }
+                                        
+                                        res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
+                                        res.end();
+                                        return;
+                                    }
+
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                                        const text = parsed.delta.text;
+                                        fullMessage += text;
+                                        res.write(`data: ${JSON.stringify({ text: text })}\n\n`);
+                                    }
+                                } catch (e) {
+                                    // Ignorar linhas inválidas
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    console.error('[Claude Streaming] Erro:', err);
+                    res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
+                    res.end();
+                }
+                return;
+            } else {
+                // Modo não-streaming (fallback)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+                const response = await fetch(CLAUDE_API_URL, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    console.error('[Claude API] Erro:', result);
+                    return res.status(response.status).json({ 
+                        msg: result.error?.message || 'Erro ao processar mensagem com Claude.',
+                        error: result.error 
+                    });
+                }
+
+                assistantMessage = result.content[0].text;
+            }
+            
+        } else if (serviceName === 'openai') {
+            // API do OpenAI
+            const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+            
+            const openaiMessages = [];
+            if (systemPrompt) {
+                openaiMessages.push({
+                    role: 'system',
+                    content: systemPrompt
+                });
+            }
+            openaiMessages.push(...messages);
+            
+            const payload = {
+                model: modelToUse || 'gpt-4o',
+                messages: openaiMessages,
+                max_tokens: 8192, // Aumentado para garantir roteiro completo
+                temperature: 0.7,
+                stream: stream
+            };
+            
+            if (stream) {
+                // Streaming para OpenAI
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+                try {
+                    const response = await fetch(OPENAI_API_URL, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        res.write(`data: ${JSON.stringify({ error: error.error?.message || 'Erro ao processar mensagem' })}\n\n`);
+                        res.end();
+                        return;
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullMessage = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data === '[DONE]') {
+                                    clearTimeout(timeoutId);
+                                    
+                                    // Extrair nota e pontos fortes do JSON (se houver)
+                                    let nota = null;
+                                    let pontosFortes = [];
+                                    let roteiroFinal = fullMessage;
+                                    
+                                    // Tentar encontrar JSON no final da mensagem
+                                    const jsonMatch = fullMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                    if (jsonMatch) {
+                                        try {
+                                            const avaliacao = JSON.parse(jsonMatch[0]);
+                                            nota = avaliacao.nota;
+                                                checklist = avaliacao.checklist || null;
+                                            // Remover JSON do roteiro
+                                            roteiroFinal = fullMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                        } catch (e) {
+                                            // Se não conseguir parsear, tentar extrair nota manualmente
+                                            const notaMatch = fullMessage.match(/nota[:\s]*(\d+)\/10/i);
+                                            if (notaMatch) {
+                                                nota = parseInt(notaMatch[1]);
+                                                roteiroFinal = fullMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Salvar roteiro completo (sem a nota)
+                                    await db.run(
+                                        `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                         VALUES (?, ?, ?)`,
+                                        [conversation_id, 'assistant', roteiroFinal]
+                                    );
+                                    
+                                    const conversationTitle = await db.get(
+                                        `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                                        [conversation_id]
+                                    );
+                                    
+                                    if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                                        const firstPhrase = message.substring(0, 50).trim();
+                                        const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                                        await db.run(
+                                            `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                            [title, conversation_id]
+                                        );
+                                    } else {
+                                        await db.run(
+                                            `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                            [conversation_id]
+                                        );
+                                    }
+                                    
+                                    res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
+                                    res.end();
+                                    return;
+                                }
+
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.choices?.[0]?.delta?.content) {
+                                        const text = parsed.choices[0].delta.content;
+                                        fullMessage += text;
+                                        res.write(`data: ${JSON.stringify({ text: text })}\n\n`);
+                                    }
+                                } catch (e) {
+                                    // Ignorar linhas inválidas
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    console.error('[OpenAI Streaming] Erro:', err);
+                    res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
+                    res.end();
+                }
+                return;
+            } else {
+                // Modo não-streaming (fallback)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+                const response = await fetch(OPENAI_API_URL, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    console.error('[OpenAI API] Erro:', result);
+                    return res.status(response.status).json({ 
+                        msg: result.error?.message || 'Erro ao processar mensagem com OpenAI.',
+                        error: result.error 
+                    });
+                }
+
+                assistantMessage = result.choices[0].message.content;
+            }
+            
+        } else if (serviceName === 'gemini') {
+            // API do Gemini usando @google/genai
+            const { GoogleGenAI } = require('@google/genai');
+            const genAI = new GoogleGenAI(apiKey);
+            
+            // Preparar prompt completo com system prompt, histórico e mensagem atual
+            let fullPrompt = '';
+            if (systemPrompt) {
+                fullPrompt += systemPrompt + '\n\n';
+            }
+            
+            // Adicionar histórico
+            messages.forEach(msg => {
+                fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
+            });
+            
+            // Adicionar mensagem atual
+            fullPrompt += `Usuário: ${message}\nAssistente:`;
+
+            const model = genAI.getGenerativeModel({ model: modelToUse || 'gemini-2.5-pro' });
+            const result = await model.generateContent(fullPrompt);
+            assistantMessage = result.response.text();
+        }
+
+        // Extrair nota e pontos fortes do JSON (se houver) - modo não-streaming
+        let nota = null;
+        let pontosFortes = [];
+        let roteiroFinal = assistantMessage;
+        
+        // Tentar encontrar JSON no final da mensagem
+        const jsonMatch = assistantMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+        if (jsonMatch) {
+            try {
+                const avaliacao = JSON.parse(jsonMatch[0]);
+                nota = avaliacao.nota;
+                                                checklist = avaliacao.checklist || null;
+                // Remover JSON do roteiro
+                roteiroFinal = assistantMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+            } catch (e) {
+                // Se não conseguir parsear, tentar extrair nota manualmente
+                const notaMatch = assistantMessage.match(/nota[:\s]*(\d+)\/10/i);
+                if (notaMatch) {
+                    nota = parseInt(notaMatch[1]);
+                    roteiroFinal = assistantMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                }
+            }
+        }
+        
+        // Salvar roteiro completo (sem a nota)
+        await db.run(
+            `INSERT INTO viral_agent_messages (conversation_id, role, content)
+             VALUES (?, ?, ?)`,
+            [conversation_id, 'assistant', roteiroFinal]
+        );
+
+        // Atualizar título da conversa com primeira frase da mensagem do usuário (se ainda for "Nova Conversa")
+        const conversationTitle = await db.get(
+            `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+            [conversation_id]
+        );
+        
+        if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+            // Pegar primeira frase da mensagem do usuário (primeiros 50 caracteres)
+            const firstPhrase = message.substring(0, 50).trim();
+            const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+            
+            await db.run(
+                `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [title, conversation_id]
+            );
+        } else {
+            // Apenas atualizar timestamp
+            await db.run(
+                `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [conversation_id]
+            );
+        }
+
+        res.status(200).json({ response: roteiroFinal, nota: nota, checklist: checklist });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/chat POST]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao processar mensagem.' });
+    }
+});
+
+// Rota para obter mensagens de uma conversa
+app.get('/api/viral-agents/:agentId/conversations/:conversationId/messages', authenticateToken, async (req, res) => {
+    const { agentId, conversationId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Verificar se a conversa pertence ao usuário e ao agente
+        const conversation = await db.get(
+            `SELECT * FROM viral_agent_conversations 
+             WHERE id = ? AND agent_id = ? AND user_id = ?`,
+            [conversationId, agentId, userId]
+        );
+
+        if (!conversation) {
+            return res.status(404).json({ msg: 'Conversa não encontrada.' });
+        }
+
+        const messages = await db.all(
+            `SELECT * FROM viral_agent_messages 
+             WHERE conversation_id = ? 
+             ORDER BY created_at ASC`,
+            [conversationId]
+        );
+
+        res.status(200).json({ messages });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/conversations/:conversationId/messages GET]:', err);
+        res.status(500).json({ msg: 'Erro ao obter mensagens.' });
+    }
+});
+
+// Rota para deletar uma conversa
+app.delete('/api/viral-agents/:agentId/conversations/:conversationId', authenticateToken, async (req, res) => {
+    const { agentId, conversationId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        const result = await db.run(
+            `DELETE FROM viral_agent_conversations 
+             WHERE id = ? AND agent_id = ? AND user_id = ?`,
+            [conversationId, agentId, userId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Conversa não encontrada.' });
+        }
+
+        res.status(200).json({ msg: 'Conversa deletada com sucesso!' });
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/conversations/:conversationId DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao deletar conversa.' });
+    }
+});
+
+// Rota para gerar documento MD de uma conversa
+app.get('/api/viral-agents/:agentId/conversations/:conversationId/markdown', authenticateToken, async (req, res) => {
+    const { agentId, conversationId } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Verificar se o agente pertence ao usuário
+        const agent = await db.get(
+            `SELECT * FROM viral_agents WHERE id = ? AND user_id = ?`,
+            [agentId, userId]
+        );
+
+        if (!agent) {
+            return res.status(404).json({ msg: 'Agente não encontrado.' });
+        }
+
+        // Verificar se a conversa pertence ao usuário e ao agente
+        const conversation = await db.get(
+            `SELECT * FROM viral_agent_conversations 
+             WHERE id = ? AND agent_id = ? AND user_id = ?`,
+            [conversationId, agentId, userId]
+        );
+
+        if (!conversation) {
+            return res.status(404).json({ msg: 'Conversa não encontrada.' });
+        }
+
+        // Buscar todas as mensagens da conversa
+        const messages = await db.all(
+            `SELECT role, content, created_at FROM viral_agent_messages 
+             WHERE conversation_id = ? 
+             ORDER BY created_at ASC`,
+            [conversationId]
+        );
+
+        // Gerar conteúdo Markdown
+        let mdContent = `# ${conversation.title || 'Conversa'}\n\n`;
+        mdContent += `**Agente:** ${agent.name}\n`;
+        mdContent += `**Data:** ${new Date(conversation.created_at).toLocaleString('pt-BR')}\n\n`;
+        mdContent += `---\n\n`;
+
+        messages.forEach(msg => {
+            const roleLabel = msg.role === 'user' ? '**Usuário:**' : '**Assistente:**';
+            const timestamp = new Date(msg.created_at).toLocaleString('pt-BR');
+            mdContent += `${roleLabel} (${timestamp})\n\n`;
+            mdContent += `${msg.content}\n\n`;
+            mdContent += `---\n\n`;
+        });
+
+        // Retornar como HTML para abrir em nova aba
+        const htmlContent = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${conversation.title || 'Conversa'} - ${agent.name}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        pre {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border: 1px solid #3a3a3a;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        code {
+            background: #2a2a2a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        h1 { color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 10px; }
+        h2 { color: #fbbf24; margin-top: 30px; }
+        hr { border: none; border-top: 1px solid #3a3a3a; margin: 20px 0; }
+        .copy-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: #f59e0b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            z-index: 1000;
+        }
+        .copy-btn:hover { background: #d97706; }
+    </style>
+</head>
+<body>
+    <button class="copy-btn" onclick="copyAll()">Copiar Tudo</button>
+    <pre id="content">${mdContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+    <script>
+        function copyAll() {
+            const content = document.getElementById('content').textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                alert('Conteúdo copiado!');
+            });
+        }
+    </script>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(htmlContent);
+
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/viral-agents/:agentId/conversations/:conversationId/markdown GET]:', err);
+        res.status(500).json({ msg: 'Erro ao gerar documento.' });
+    }
+});
+
+// ==================== FIM DAS ROTAS PARA AGENTES VIRAIS ====================
+
 // Rota para download de roteiro em formato TXT
 app.get('/api/scripts/:id/download/txt', authenticateToken, async (req, res) => {
     const userId = req.user.id;
@@ -17297,12 +18966,13 @@ app.post('/api/niche/find-subniche/laozhang', authenticateToken, async (req, res
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
+        // Se não houver modelo selecionado, usar GPT-4o como padrão
         const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
-                             'gpt-4o';
+                             (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
         const prompt = `
 Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS MILIONÁRIOS NO YOUTUBE.
@@ -17319,12 +18989,52 @@ Estou em busca de uma ideia de subnicho dentro de "${nichePrincipal}" que:
 - Permita criar conteúdo com alto CTR (acima de 25%)
 - Tenha oportunidades de criar títulos e thumbnails virais
 
-Forneça uma análise detalhada que inclua:
-- O subnicho recomendado e por que ele tem potencial para gerar milhões de views
-- Análise de concorrência e oportunidades
-- Potencial de viralização e alto CTR
-- Estratégias para criar conteúdo que viralize
-- Sugestões de títulos e thumbnails que gerem alto CTR
+IMPORTANTE: Responda APENAS com um JSON válido no seguinte formato (sem texto adicional antes ou depois):
+
+{
+  "subnicho_recomendado": "Nome do subnicho recomendado",
+  "analise_potencial": "Análise detalhada explicando por que este subnicho tem potencial para gerar milhões de views, incluindo dados de mercado, tendências e oportunidades",
+  "analise_concorrencia": "Análise da concorrência atual, mostrando por que há pouca competição e quais são as oportunidades de diferenciação",
+  "potencial_viralizacao": "Explicação detalhada do potencial de viralização, incluindo fatores que podem fazer o conteúdo viralizar e gerar milhões de views",
+  "estrategias_conteudo": [
+    "Estratégia 1 para criar conteúdo que viralize",
+    "Estratégia 2 para criar conteúdo que viralize",
+    "Estratégia 3 para criar conteúdo que viralize",
+    "Estratégia 4 para criar conteúdo que viralize"
+  ],
+  "sugestoes_titulos_thumbnails": {
+    "titulos": [
+      "Título viral 1 que gere alto CTR",
+      "Título viral 2 que gere alto CTR",
+      "Título viral 3 que gere alto CTR",
+      "Título viral 4 que gere alto CTR"
+    ],
+    "thumbnails": [
+      {
+        "imagem": "Descrição da imagem do thumbnail 1",
+        "texto": "Texto do thumbnail 1",
+        "cores": "Cores recomendadas para o thumbnail 1"
+      },
+      {
+        "imagem": "Descrição da imagem do thumbnail 2",
+        "texto": "Texto do thumbnail 2",
+        "cores": "Cores recomendadas para o thumbnail 2"
+      },
+      {
+        "imagem": "Descrição da imagem do thumbnail 3",
+        "texto": "Texto do thumbnail 3",
+        "cores": "Cores recomendadas para o thumbnail 3"
+      },
+      {
+        "imagem": "Descrição da imagem do thumbnail 4",
+        "texto": "Texto do thumbnail 4",
+        "cores": "Cores recomendadas para o thumbnail 4"
+      }
+    ]
+  }
+}
+
+Responda APENAS com o JSON, sem texto adicional antes ou depois.
 `;
 
         const response = await callLaozhangAPI(
@@ -17337,7 +19047,20 @@ Forneça uma análise detalhada que inclua:
             JSON.stringify({ endpoint: '/api/niche/find-subniche/laozhang', model: laozhangModel })
         );
 
-        const recommendation = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        // Tentar extrair JSON da resposta
+        let recommendation = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        // Tentar parsear JSON se a resposta contém JSON
+        try {
+            const jsonMatch = recommendation.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                recommendation = parsed;
+            }
+        } catch (e) {
+            console.warn('[Find Subniche] Falha ao parsear JSON, retornando texto:', e.message);
+        }
+        
         res.status(200).json({ recommendation: recommendation });
 
     } catch (err) {
@@ -17492,7 +19215,7 @@ app.post('/api/niche/analyze-competitor/laozhang', authenticateToken, async (req
     try {
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API Laozhang.ai não configurada no painel admin.' });
+            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
         }
 
         // Buscar chave do Gemini/YouTube para buscar dados do canal
@@ -17547,29 +19270,75 @@ app.post('/api/niche/analyze-competitor/laozhang', authenticateToken, async (req
         const channel = channelData.items[0];
         const competitorData = await getChannelVideosWithDetails(ytChannelId, apiKey, 'viewCount', 5);
 
-        // Criar prompt para análise
+        // Criar prompt para análise - usar GPT-4o como padrão se não houver modelo selecionado
         const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
-                             'gpt-4o';
+                             selectedModel && selectedModel.trim() ? selectedModel : 'gpt-4o';
 
         const prompt = `
-Analise este canal concorrente do YouTube e forneça insights estratégicos:
+Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS MILIONÁRIOS NO YOUTUBE.
 
-CANAL: ${channel.snippet.title}
-DESCRIÇÃO: ${channel.snippet.description || 'N/A'}
-INSCRITOS: ${channel.statistics.subscriberCount || 'N/A'}
-VÍDEOS: ${channel.statistics.videoCount || 'N/A'}
-TOTAL DE VIEWS: ${channel.statistics.viewCount || 'N/A'}
+OBJETIVO: Analisar um canal concorrente de sucesso e fornecer um plano estratégico completo para criar um canal milionário no mesmo nicho.
+
+DADOS DO CANAL ANALISADO:
+- NOME: ${channel.snippet.title}
+- DESCRIÇÃO: ${channel.snippet.description || 'N/A'}
+- INSCRITOS: ${channel.statistics.subscriberCount || 'N/A'}
+- TOTAL DE VÍDEOS: ${channel.statistics.videoCount || 'N/A'}
+- TOTAL DE VIEWS: ${channel.statistics.viewCount || 'N/A'}
 
 VÍDEOS MAIS POPULARES:
-${competitorData.map((v, i) => `${i + 1}. ${v.title} - ${v.views} views`).join('\n')}
+${competitorData.map((v, i) => `${i + 1}. "${v.title}" - ${v.views.toLocaleString('pt-BR')} visualizações`).join('\n')}
 
-Forneça uma análise detalhada incluindo:
-- Estratégias de conteúdo que funcionam
-- Padrões de títulos e thumbnails
-- Frequência de postagem
-- Nicho e subnichos abordados
-- Oportunidades de diferenciação
+IMPORTANTE: Responda APENAS com um JSON válido no seguinte formato (sem texto adicional antes ou depois):
+
+{
+  "content_strategies": {
+    "overview": "Visão geral das estratégias de conteúdo que fazem este canal ter sucesso",
+    "playlist_strategy": "Estratégia de playlists e organização de conteúdo (se aplicável)",
+    "storytelling": "Técnicas de storytelling e narrativa utilizadas",
+    "engagement_tactics": "Táticas de engajamento que geram milhões de views"
+  },
+  "title_and_thumbnail_patterns": {
+    "title_patterns": "Padrões identificados nos títulos que geram alto CTR e milhões de views",
+    "thumbnail_patterns": "Padrões visuais e elementos que aparecem nos thumbnails de sucesso"
+  },
+  "posting_frequency": {
+    "current_frequency": "Análise da frequência atual de postagem do canal",
+    "recommendation": "Recomendação de frequência ideal para maximizar views e engajamento"
+  },
+  "niche_and_subniches": {
+    "primary_niche": "Nicho principal identificado",
+    "subniches": [
+      "Subnicho 1 explorado",
+      "Subnicho 2 explorado",
+      "Subnicho 3 explorado"
+    ]
+  },
+  "differentiation_opportunities": {
+    "live_interactions": "Oportunidades de interação ao vivo que podem diferenciar seu canal",
+    "exclusive_interviews": "Oportunidades de entrevistas exclusivas ou conteúdo único",
+    "collaborations": "Estratégias de colaboração para aumentar alcance",
+    "content_gaps": "Lacunas de conteúdo identificadas que você pode explorar",
+    "unique_angles": "Ângulos únicos que você pode usar para se diferenciar"
+  },
+  "strategic_recommendations": {
+    "channel_name_suggestions": [
+      "Sugestão de nome 1",
+      "Sugestão de nome 2",
+      "Sugestão de nome 3"
+    ],
+    "first_videos_ideas": [
+      "Ideia de vídeo inicial 1",
+      "Ideia de vídeo inicial 2",
+      "Ideia de vídeo inicial 3"
+    ],
+    "growth_strategy": "Estratégia completa de crescimento para alcançar milhões de views",
+    "monetization_opportunities": "Oportunidades de monetização específicas para este nicho"
+  }
+}
+
+Responda APENAS com o JSON, sem texto adicional antes ou depois.
 `;
 
         const response = await callLaozhangAPI(
@@ -17582,8 +19351,21 @@ Forneça uma análise detalhada incluindo:
             JSON.stringify({ endpoint: '/api/niche/analyze-competitor/laozhang', model: laozhangModel })
         );
 
-        const analysis = typeof response === 'string' ? response.trim() : JSON.stringify(response);
-        res.status(200).json({ analysis: analysis });
+        // Tentar extrair JSON da resposta
+        let analysis = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        
+        // Tentar parsear JSON se a resposta contém JSON
+        try {
+            const jsonMatch = analysis.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                analysis = parsed;
+            }
+        } catch (e) {
+            console.warn('[Analyze Competitor] Falha ao parsear JSON, retornando texto:', e.message);
+        }
+        
+        res.status(200).json(analysis);
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/niche/analyze-competitor/laozhang]:', err);
@@ -18648,7 +20430,13 @@ app.post('/api/analytics/update/:trackingId', authenticateToken, async (req, res
         }
         const geminiApiKey = decrypt(geminiKeyData.api_key);
 
-        const videoDetails = await callYouTubeDataAPI(tracking.youtube_video_id, geminiApiKey);
+        let videoDetails;
+        try {
+            videoDetails = await callYouTubeDataAPI(tracking.youtube_video_id, geminiApiKey);
+        } catch (apiErr) {
+            console.error('[Analytics Update] Erro ao buscar dados do YouTube:', apiErr.message);
+            return res.status(500).json({ msg: `Erro ao buscar dados do YouTube: ${apiErr.message}` });
+        }
         
         // Calcular CTR estimado (YouTube não fornece CTR diretamente, então estimamos)
         // Usar uma fórmula mais realista baseada nas views
@@ -20149,33 +21937,19 @@ app.post('/api/youtube/suggest-best-time', authenticateToken, async (req, res) =
     }
 
     try {
-        // Tentar usar Gemini primeiro, depois Claude, depois OpenAI
-        const services = ['gemini', 'claude', 'openai'];
+        // Verificar se deve usar créditos (laozhang.ai)
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
         let bestTime = null;
         let explanation = '';
-
-        for (const service of services) {
-            try {
-                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-                if (!serviceKeyData) continue;
-
-                const decryptedKey = decrypt(serviceKeyData.api_key);
-                if (!decryptedKey) continue;
-
-                let apiCallFunction;
-                let model;
-                if (service === 'gemini') {
-                    apiCallFunction = callGeminiAPI;
-                    model = 'gemini-2.0-flash';
-                } else if (service === 'claude') {
-                    apiCallFunction = callClaudeAPI;
-                    model = 'claude-3-5-haiku-20241022';
-                } else {
-                    apiCallFunction = callOpenAIAPI;
-                    model = 'gpt-4o-mini';
-                }
-
-                const prompt = `Você é um especialista em estratégia de YouTube e análise de dados de engajamento.
+        
+        // Se deve usar créditos, usar laozhang.ai primeiro
+        if (useCredits) {
+            const laozhangKey = await getLaozhangApiKey();
+            if (laozhangKey) {
+                try {
+                    const prompt = `Você é um especialista em estratégia de YouTube e análise de dados de engajamento.
 
 Analise o nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''} e sugira o MELHOR horário para publicar vídeos neste nicho.
 
@@ -20195,27 +21969,97 @@ Responda APENAS com um JSON válido no formato:
 
 IMPORTANTE: Responda APENAS com o JSON, sem texto adicional.`;
 
-                const response = await apiCallFunction(prompt, decryptedKey, model);
-                const responseText = response.titles || response.text || '';
-                
-                // Tentar extrair JSON da resposta
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    try {
-                        const parsed = JSON.parse(jsonMatch[0]);
-                        if (parsed.bestTime) {
-                            bestTime = parsed;
-                            explanation = parsed.explanation || '';
-                            console.log(`[Agendamento Inteligente] Horário sugerido usando ${service}: ${parsed.bestTime}`);
-                            break;
+                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/suggest-best-time' }));
+                    const responseText = response.titles || response.text || '';
+                    
+                    // Tentar extrair JSON da resposta
+                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.bestTime) {
+                                bestTime = parsed;
+                                explanation = parsed.explanation || '';
+                                console.log(`[Agendamento Inteligente] Horário sugerido usando API configurada como padrão: ${parsed.bestTime}`);
+                            }
+                        } catch (e) {
+                            console.warn(`[Agendamento Inteligente] Falha ao parsear JSON:`, e.message);
                         }
-                    } catch (e) {
-                        console.warn(`[Agendamento Inteligente] Falha ao parsear JSON de ${service}:`, e.message);
                     }
+                } catch (serviceErr) {
+                    console.warn(`[Agendamento Inteligente] Falha com API configurada como padrão:`, serviceErr.message);
                 }
-            } catch (serviceErr) {
-                console.warn(`[Agendamento Inteligente] Falha com ${service}:`, serviceErr.message);
-                continue;
+            }
+        }
+        
+        // Se não usar créditos ou se laozhang falhou, usar APIs próprias
+        if (!bestTime) {
+            // Tentar usar Gemini primeiro, depois Claude, depois OpenAI
+            const services = ['gemini', 'claude', 'openai'];
+
+            for (const service of services) {
+                try {
+                    const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                    if (!serviceKeyData) continue;
+
+                    const decryptedKey = decrypt(serviceKeyData.api_key);
+                    if (!decryptedKey) continue;
+
+                    let apiCallFunction;
+                    let model;
+                    if (service === 'gemini') {
+                        apiCallFunction = callGeminiAPI;
+                        model = 'gemini-2.0-flash';
+                    } else if (service === 'claude') {
+                        apiCallFunction = callClaudeAPI;
+                        model = 'claude-3-5-haiku-20241022';
+                    } else {
+                        apiCallFunction = callOpenAIAPI;
+                        model = 'gpt-4o-mini';
+                    }
+
+                    const prompt = `Você é um especialista em estratégia de YouTube e análise de dados de engajamento.
+
+Analise o nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''} e sugira o MELHOR horário para publicar vídeos neste nicho.
+
+Considere:
+1. Horários de pico de engajamento para este nicho específico
+2. Fuso horário do público-alvo (principalmente Brasil/América Latina)
+3. Dias da semana que performam melhor
+4. Padrões de comportamento do público deste nicho
+
+Responda APENAS com um JSON válido no formato:
+{
+  "bestTime": "HH:MM" (formato 24h, ex: "18:00"),
+  "bestDays": ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] (array com os melhores dias),
+  "explanation": "Explicação detalhada do porquê este horário é ideal",
+  "alternativeTimes": ["HH:MM", "HH:MM"] (2-3 horários alternativos)
+}
+
+IMPORTANTE: Responda APENAS com o JSON, sem texto adicional.`;
+
+                    const response = await apiCallFunction(prompt, decryptedKey, model);
+                    const responseText = response.titles || response.text || '';
+                    
+                    // Tentar extrair JSON da resposta
+                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.bestTime) {
+                                bestTime = parsed;
+                                explanation = parsed.explanation || '';
+                                console.log(`[Agendamento Inteligente] Horário sugerido usando ${service}: ${parsed.bestTime}`);
+                                break;
+                            }
+                        } catch (e) {
+                            console.warn(`[Agendamento Inteligente] Falha ao parsear JSON de ${service}:`, e.message);
+                        }
+                    }
+                } catch (serviceErr) {
+                    console.warn(`[Agendamento Inteligente] Falha com ${service}:`, serviceErr.message);
+                    continue;
+                }
             }
         }
 
@@ -20248,7 +22092,7 @@ IMPORTANTE: Responda APENAS com o JSON, sem texto adicional.`;
 
 // A.3 - Auto-tags e Descrição: Preencher automaticamente tags e descrição otimizadas
 app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) => {
-    const { title, niche, subniche, videoDescription } = req.body;
+    const { title, model: requestedModel, niche, subniche, videoDescription } = req.body;
     const userId = req.user.id;
 
     if (!title) {
@@ -20256,98 +22100,415 @@ app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) =
     }
 
     try {
-        // Tentar usar Gemini primeiro, depois Claude, depois OpenAI
-        const services = ['gemini', 'claude', 'openai'];
+        // Verificar se deve usar créditos (laozhang.ai)
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        console.log(`[Generate Metadata] useCredits: ${useCredits}, requestedModel: ${requestedModel}`);
+        
         let metadata = null;
-
-        for (const service of services) {
-            try {
-                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-                if (!serviceKeyData) continue;
-
-                const decryptedKey = decrypt(serviceKeyData.api_key);
-                if (!decryptedKey) continue;
-
-                let apiCallFunction;
-                let model;
-                if (service === 'gemini') {
-                    apiCallFunction = callGeminiAPI;
-                    model = 'gemini-2.0-flash';
-                } else if (service === 'claude') {
-                    apiCallFunction = callClaudeAPI;
-                    model = 'claude-3-5-haiku-20241022';
-                } else {
-                    apiCallFunction = callOpenAIAPI;
-                    model = 'gpt-4o-mini';
+        
+        // Se deve usar créditos, usar laozhang.ai
+        if (useCredits) {
+            console.log('[Generate Metadata] Verificando chave laozhang.ai...');
+            const laozhangKey = await getLaozhangApiKey();
+            console.log('[Generate Metadata] Chave laozhang.ai encontrada:', laozhangKey ? 'Sim' : 'Não');
+            if (laozhangKey) {
+                // Determinar modelo a usar
+                let modelToUse = 'gpt-4o';
+                if (requestedModel) {
+                    if (requestedModel.includes('gpt') || requestedModel === 'gpt-4o') {
+                        modelToUse = 'gpt-4o';
+                    } else if (requestedModel.includes('claude') || requestedModel === 'claude-3-7-sonnet-20250219') {
+                        modelToUse = 'claude-3-7-sonnet-20250219';
+                    } else if (requestedModel.includes('gemini') || requestedModel === 'gemini-2.5-pro') {
+                        modelToUse = 'gemini-2.5-pro';
+                    }
                 }
-
-                const prompt = `Você é um especialista em SEO e otimização de conteúdo para YouTube.
+                
+                try {
+                    const prompt = `Você é um ESPECIALISTA EM ALGORITMO DO YOUTUBE e otimização de conteúdo, com conhecimento profundo sobre como o algoritmo do YouTube classifica, recomenda e promove vídeos.
 
 Título do vídeo: "${title}"
 ${niche ? `Nicho: "${niche}"` : ''}
 ${subniche ? `Subnicho: "${subniche}"` : ''}
 ${videoDescription ? `Descrição do conteúdo: "${videoDescription}"` : ''}
 
-Sua tarefa é gerar:
-1. Uma descrição otimizada para SEO (mínimo 200 palavras) que inclua:
-   - Hook inicial poderoso
-   - Palavras-chave principais
-   - Resumo do conteúdo
-   - Call-to-action
-   - Links relevantes (use [LINK] como placeholder)
-   - Timestamps se aplicável (use [TIMESTAMP] como placeholder)
+Sua tarefa é gerar metadata ALTAMENTE OTIMIZADA PARA O ALGORITMO DO YOUTUBE:
 
-2. Tags otimizadas (15-20 tags) que incluam:
-   - Palavras-chave principais
-   - Variações de palavras-chave
-   - Termos relacionados
-   - Termos de busca longa
+1. DESCRIÇÃO OTIMIZADA PARA O ALGORITMO DO YOUTUBE (MÁXIMO 500 CARACTERES):
+   
+   ESTRUTURA OBRIGATÓRIA (seguir EXATAMENTE nesta ordem):
+   
+   a) PRIMEIRA LINHA (Hook + Palavra-chave principal):
+      - Repetir a palavra-chave principal do título nas primeiras palavras
+      - Criar um hook que desperte curiosidade e aumente CTR
+      - Exemplo: "Descubra como [palavra-chave] mudou tudo..."
+   
+   b) SEGUNDA E TERCEIRA LINHAS (Conteúdo + Contexto):
+      - Expandir o tema usando variações da palavra-chave
+      - Adicionar contexto que o algoritmo usa para categorizar
+      - Incluir termos relacionados que o YouTube associa ao conteúdo
+   
+   c) QUARTA LINHA (Call-to-Action):
+      - CTA direto para aumentar engajamento (inscrever-se, like, comentar)
+      - Use emojis estratégicos (máximo 3-4) para aumentar CTR
+   
+   d) ÚLTIMA LINHA (Hashtags):
+      - 2-3 hashtags relevantes (sem # no início, apenas o texto)
+      - Use hashtags que o YouTube reconhece como categorias
+   
+   REGRAS PARA O ALGORITMO:
+   - Palavras-chave principais devem aparecer nas primeiras 125 caracteres (YouTube indexa isso)
+   - Use termos que o YouTube associa a vídeos virais no nicho
+   - Evite palavras genéricas, seja específico
+   - Estrutura clara ajuda o algoritmo a entender o conteúdo
+   - MÁXIMO 500 caracteres (o algoritmo prioriza descrições concisas)
+
+2. TAGS OTIMIZADAS PARA O ALGORITMO (25-35 tags):
+
+   DISTRIBUIÇÃO ESTRATÉGICA:
+   
+   a) Palavras-chave principais (8-10 tags):
+      - Extrair todas as palavras-chave importantes do título
+      - Incluir variações exatas das palavras do título
+      - Exemplo: se título tem "jantar família", incluir "jantar", "família", "jantar família"
+   
+   b) Long-tail keywords (8-10 tags):
+      - Frases de busca que pessoas realmente usam
+      - Termos de 3-5 palavras que combinam palavras-chave
+      - Exemplo: "jantar em família", "história de família", "testamento família"
+   
+   c) Termos relacionados ao nicho (5-7 tags):
+      - Termos que o YouTube associa ao conteúdo similar
+      - Palavras que aparecem em vídeos virais do mesmo tema
+      - Termos de tendência no nicho
+   
+   d) Termos em inglês estratégicos (4-6 tags):
+      - Traduções das palavras-chave principais
+      - Termos internacionais que aumentam alcance
+      - Misture português e inglês
+   
+   ESTRATÉGIA PARA O ALGORITMO:
+   - Primeiras 5 tags são as MAIS IMPORTANTES (YouTube prioriza)
+   - Use tags que aparecem em vídeos com alta performance no nicho
+   - Evite tags genéricas demais (ex: "vídeo", "youtube")
+   - Foque em tags específicas que o algoritmo usa para recomendar
+   - Total: 25-35 tags (YouTube permite até 500 caracteres em tags)
+
+REGRAS CRÍTICAS PARA O ALGORITMO:
+- Descrição: MÁXIMO 500 caracteres, palavras-chave nas primeiras 125
+- Tags: 25-35 tags, primeiras 5 são críticas
+- SEO: Otimize para busca E recomendação do algoritmo
+- Engajamento: CTAs aumentam sinais de engajamento (algoritmo prioriza)
+- Idioma: Português (Brasil) para descrição, português + inglês para tags
+- Especificidade: Seja específico, não genérico (algoritmo recompensa)
 
 Responda APENAS com um JSON válido no formato:
 {
-  "description": "Descrição completa otimizada para SEO...",
-  "tags": ["tag1", "tag2", "tag3", ...]
+  "description": "Descrição otimizada para algoritmo do YouTube (máximo 500 caracteres)...",
+  "tags": ["tag1", "tag2", "tag3", ...] (25-35 tags, primeiras 5 são as mais importantes)
 }
-IMPORTANTE: 
-- A descrição deve ser em português (Brasil)
-- As tags devem ser em português e inglês (quando relevante)
-- Foque em palavras-chave com alto volume de busca
-- Otimize para aparecer nas sugestões do YouTube
+
+IMPORTANTE: A descrição deve seguir EXATAMENTE a estrutura: Hook+Palavra-chave → Conteúdo → CTA → Hashtags
 
 Responda APENAS com o JSON, sem texto adicional.`;
 
-                const response = await apiCallFunction(prompt, decryptedKey, model);
-                const responseText = response.titles || response.text || '';
-                
-                // Tentar extrair JSON da resposta
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    try {
-                        const parsed = JSON.parse(jsonMatch[0]);
-                        if (parsed.description && parsed.tags && Array.isArray(parsed.tags)) {
-                            metadata = parsed;
-                            console.log(`[Auto-metadata] Metadata gerada usando ${service} (${parsed.tags.length} tags)`);
-                            break;
+                    console.log(`[Auto-metadata] Chamando API configurada como padrão com modelo ${modelToUse} para gerar metadata`);
+                    const response = await callLaozhangAPI(prompt, laozhangKey, modelToUse, null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/generate-metadata', model: modelToUse }));
+                    // callLaozhangAPI retorna uma string diretamente, não um objeto
+                    const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
+                    
+                    console.log(`[Auto-metadata] Resposta recebida da API configurada como padrão (${responseText.length} caracteres)`);
+                    console.log(`[Auto-metadata] Primeiros 500 caracteres da resposta:`, responseText.substring(0, 500));
+                    
+                    // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
+                    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    // Se não encontrar, tentar remover markdown code blocks
+                    if (!jsonMatch) {
+                        const cleaned = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                        jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+                    }
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.description && parsed.tags && Array.isArray(parsed.tags)) {
+                                // Garantir que a descrição não ultrapasse 500 caracteres
+                                if (parsed.description.length > 500) {
+                                    parsed.description = parsed.description.substring(0, 497) + '...';
+                                    console.log(`[Auto-metadata] Descrição truncada para 500 caracteres`);
+                                }
+                                
+                                // Limitar tags a 35 e garantir que sejam strings válidas
+                                parsed.tags = parsed.tags
+                                    .filter(tag => tag && typeof tag === 'string' && tag.trim().length > 0)
+                                    .map(tag => tag.trim())
+                                    .slice(0, 35);
+                                
+                                metadata = parsed;
+                                console.log(`[Auto-metadata] ✅ Metadata gerada usando API configurada como padrão com modelo ${modelToUse} (${parsed.tags.length} tags, descrição: ${parsed.description.length} caracteres)`);
+                            } else {
+                                console.warn(`[Auto-metadata] Resposta da API configurada como padrão não tem formato esperado`);
+                                console.warn(`[Auto-metadata] Resposta completa:`, responseText.substring(0, 1000));
+                            }
+                        } catch (e) {
+                            console.warn(`[Auto-metadata] Falha ao parsear JSON:`, e.message);
                         }
-                    } catch (e) {
-                        console.warn(`[Auto-metadata] Falha ao parsear JSON de ${service}:`, e.message);
+                    } else {
+                        console.warn(`[Auto-metadata] Nenhum JSON encontrado na resposta da API configurada como padrão`);
+                    }
+                } catch (serviceErr) {
+                    console.error(`[Auto-metadata] Erro ao usar API configurada como padrão:`, serviceErr.message);
+                    // Se a preferência é usar créditos e laozhang falhou, não tentar APIs próprias
+                    if (useCredits) {
+                        return res.status(500).json({ 
+                            msg: 'Erro ao gerar metadata usando API configurada como padrão. Verifique se a chave está configurada corretamente no painel admin.' 
+                        });
                     }
                 }
-            } catch (serviceErr) {
-                console.warn(`[Auto-metadata] Falha com ${service}:`, serviceErr.message);
-                continue;
+            } else if (useCredits) {
+                // Se preferência é usar créditos mas não tem chave
+                return res.status(400).json({ 
+                    msg: 'API configurada como padrão não está configurada. Configure a chave no painel admin ou desmarque a opção de usar créditos.' 
+                });
+            }
+        }
+        
+        // Se não usar créditos ou se laozhang falhou (e não é obrigatório), usar APIs próprias
+        if (!metadata && !useCredits) {
+            // Se o modelo foi especificado, usar APENAS ele (não tentar todos)
+            let service = null;
+            let targetModel = requestedModel || null;
+            
+            if (targetModel) {
+                // Mapear modelo para serviço - usar APENAS o serviço correspondente
+                if (targetModel.includes('gpt') || targetModel === 'gpt-4o') {
+                    service = 'openai';
+                    targetModel = 'gpt-4o';
+                } else if (targetModel.includes('claude') || targetModel === 'claude-3-7-sonnet-20250219') {
+                    service = 'claude';
+                    targetModel = 'claude-3-7-sonnet-20250219';
+                } else if (targetModel.includes('gemini') || targetModel === 'gemini-2.5-pro') {
+                    service = 'gemini';
+                    targetModel = 'gemini-2.5-pro';
+                }
+            }
+            
+            // Se não especificou modelo ou não encontrou correspondência, tentar todos (fallback)
+            const services = service ? [service] : ['gemini', 'claude', 'openai'];
+
+            for (const serviceToUse of services) {
+                try {
+                    const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, serviceToUse]);
+                    if (!serviceKeyData) {
+                        if (service) {
+                            // Se especificou um modelo mas não tem a chave, retornar erro
+                            return res.status(400).json({ 
+                                msg: `Chave de API do ${serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'claude' ? 'Claude' : 'Gemini'} não configurada. Configure a chave nas Configurações.` 
+                            });
+                        }
+                        continue;
+                    }
+
+                    const decryptedKey = decrypt(serviceKeyData.api_key);
+                    if (!decryptedKey) {
+                        if (service) {
+                            return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+                        }
+                        continue;
+                    }
+
+                    let apiCallFunction;
+                    let model;
+                    if (serviceToUse === 'gemini') {
+                        apiCallFunction = callGeminiAPI;
+                        model = targetModel && targetModel.includes('gemini') ? targetModel : 'gemini-2.5-pro';
+                    } else if (serviceToUse === 'claude') {
+                        apiCallFunction = callClaudeAPI;
+                        model = targetModel && targetModel.includes('claude') ? targetModel : 'claude-3-7-sonnet-20250219';
+                    } else {
+                        apiCallFunction = callOpenAIAPI;
+                        model = targetModel && targetModel.includes('gpt') ? targetModel : 'gpt-4o';
+                    }
+                    
+                    console.log(`[Auto-metadata] Usando ${serviceToUse} com modelo ${model}`);
+
+                    const prompt = `Você é um ESPECIALISTA EM ALGORITMO DO YOUTUBE e otimização de conteúdo, com conhecimento profundo sobre como o algoritmo do YouTube classifica, recomenda e promove vídeos.
+
+Título do vídeo: "${title}"
+${niche ? `Nicho: "${niche}"` : ''}
+${subniche ? `Subnicho: "${subniche}"` : ''}
+${videoDescription ? `Descrição do conteúdo: "${videoDescription}"` : ''}
+
+Sua tarefa é gerar metadata ALTAMENTE OTIMIZADA PARA O ALGORITMO DO YOUTUBE:
+
+1. DESCRIÇÃO OTIMIZADA PARA O ALGORITMO DO YOUTUBE (MÁXIMO 500 CARACTERES):
+   
+   ESTRUTURA OBRIGATÓRIA (seguir EXATAMENTE nesta ordem):
+   
+   a) PRIMEIRA LINHA (Hook + Palavra-chave principal):
+      - Repetir a palavra-chave principal do título nas primeiras palavras
+      - Criar um hook que desperte curiosidade e aumente CTR
+      - Exemplo: "Descubra como [palavra-chave] mudou tudo..."
+   
+   b) SEGUNDA E TERCEIRA LINHAS (Conteúdo + Contexto):
+      - Expandir o tema usando variações da palavra-chave
+      - Adicionar contexto que o algoritmo usa para categorizar
+      - Incluir termos relacionados que o YouTube associa ao conteúdo
+   
+   c) QUARTA LINHA (Call-to-Action):
+      - CTA direto para aumentar engajamento (inscrever-se, like, comentar)
+      - Use emojis estratégicos (máximo 3-4) para aumentar CTR
+   
+   d) ÚLTIMA LINHA (Hashtags):
+      - 2-3 hashtags relevantes (sem # no início, apenas o texto)
+      - Use hashtags que o YouTube reconhece como categorias
+   
+   REGRAS PARA O ALGORITMO:
+   - Palavras-chave principais devem aparecer nas primeiras 125 caracteres (YouTube indexa isso)
+   - Use termos que o YouTube associa a vídeos virais no nicho
+   - Evite palavras genéricas, seja específico
+   - Estrutura clara ajuda o algoritmo a entender o conteúdo
+   - MÁXIMO 500 caracteres (o algoritmo prioriza descrições concisas)
+
+2. TAGS OTIMIZADAS PARA O ALGORITMO (25-35 tags):
+
+   DISTRIBUIÇÃO ESTRATÉGICA:
+   
+   a) Palavras-chave principais (8-10 tags):
+      - Extrair todas as palavras-chave importantes do título
+      - Incluir variações exatas das palavras do título
+      - Exemplo: se título tem "jantar família", incluir "jantar", "família", "jantar família"
+   
+   b) Long-tail keywords (8-10 tags):
+      - Frases de busca que pessoas realmente usam
+      - Termos de 3-5 palavras que combinam palavras-chave
+      - Exemplo: "jantar em família", "história de família", "testamento família"
+   
+   c) Termos relacionados ao nicho (5-7 tags):
+      - Termos que o YouTube associa ao conteúdo similar
+      - Palavras que aparecem em vídeos virais do mesmo tema
+      - Termos de tendência no nicho
+   
+   d) Termos em inglês estratégicos (4-6 tags):
+      - Traduções das palavras-chave principais
+      - Termos internacionais que aumentam alcance
+      - Misture português e inglês
+   
+   ESTRATÉGIA PARA O ALGORITMO:
+   - Primeiras 5 tags são as MAIS IMPORTANTES (YouTube prioriza)
+   - Use tags que aparecem em vídeos com alta performance no nicho
+   - Evite tags genéricas demais (ex: "vídeo", "youtube")
+   - Foque em tags específicas que o algoritmo usa para recomendar
+   - Total: 25-35 tags (YouTube permite até 500 caracteres em tags)
+
+REGRAS CRÍTICAS PARA O ALGORITMO:
+- Descrição: MÁXIMO 500 caracteres, palavras-chave nas primeiras 125
+- Tags: 25-35 tags, primeiras 5 são críticas
+- SEO: Otimize para busca E recomendação do algoritmo
+- Engajamento: CTAs aumentam sinais de engajamento (algoritmo prioriza)
+- Idioma: Português (Brasil) para descrição, português + inglês para tags
+- Especificidade: Seja específico, não genérico (algoritmo recompensa)
+
+Responda APENAS com um JSON válido no formato:
+{
+  "description": "Descrição otimizada para algoritmo do YouTube (máximo 500 caracteres)...",
+  "tags": ["tag1", "tag2", "tag3", ...] (25-35 tags, primeiras 5 são as mais importantes)
+}
+
+IMPORTANTE: A descrição deve seguir EXATAMENTE a estrutura: Hook+Palavra-chave → Conteúdo → CTA → Hashtags
+
+Responda APENAS com o JSON, sem texto adicional.`;
+
+                    const response = await apiCallFunction(prompt, decryptedKey, model);
+                    // A resposta pode ser string direta ou objeto
+                    const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
+                    
+                    console.log(`[Auto-metadata] Resposta de ${serviceToUse} (modelo ${model}):`, responseText.substring(0, 200));
+                    console.log(`[Auto-metadata] Tamanho da resposta: ${responseText.length} caracteres`);
+                    
+                    // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
+                    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    // Se não encontrar, tentar remover markdown code blocks
+                    if (!jsonMatch) {
+                        const cleaned = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                        jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+                    }
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.description && parsed.tags && Array.isArray(parsed.tags)) {
+                                // Garantir que a descrição não ultrapasse 500 caracteres
+                                if (parsed.description.length > 500) {
+                                    parsed.description = parsed.description.substring(0, 497) + '...';
+                                    console.log(`[Auto-metadata] Descrição truncada para 500 caracteres`);
+                                }
+                                
+                                // Limitar tags a 35 e garantir que sejam strings válidas
+                                // IMPORTANTE: Ordenar tags para que as mais importantes fiquem primeiro (YouTube prioriza)
+                                parsed.tags = parsed.tags
+                                    .filter(tag => tag && typeof tag === 'string' && tag.trim().length > 0)
+                                    .map(tag => tag.trim())
+                                    .slice(0, 35);
+                                
+                                metadata = parsed;
+                                console.log(`[Auto-metadata] ✅ Metadata gerada usando ${serviceToUse} com modelo ${model} (${parsed.tags.length} tags, descrição: ${parsed.description.length} caracteres)`);
+                                console.log(`[Auto-metadata] Primeiras 5 tags (mais importantes):`, parsed.tags.slice(0, 5).join(', '));
+                                break; // Parar o loop quando encontrar sucesso
+                            }
+                        } catch (e) {
+                            console.warn(`[Auto-metadata] Falha ao parsear JSON de ${serviceToUse}:`, e.message);
+                        }
+                    }
+                } catch (serviceErr) {
+                    console.warn(`[Auto-metadata] Falha com ${serviceToUse}:`, serviceErr.message);
+                    // Se especificou um modelo e falhou, retornar erro
+                    if (service) {
+                        return res.status(500).json({ 
+                            msg: `Erro ao gerar metadata usando ${serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'claude' ? 'Claude' : 'Gemini'}. Verifique sua chave de API.` 
+                        });
+                    }
+                    continue;
+                }
             }
         }
 
         // Fallback: gerar metadata básica
         if (!metadata) {
             const keywords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            const fallbackDescription = `${title}\n\n${videoDescription || 'Conteúdo exclusivo sobre ' + (subniche || niche || 'este tema') + '. Não perca!'}\n\n🔔 Inscreva-se no canal para mais conteúdo!\n👍 Deixe seu like se gostou!\n💬 Comente o que achou!\n\n#${(subniche || niche || 'youtube').replace(/\s+/g, '')}`;
+            
+            // Gerar mais tags do fallback
+            const baseTags = keywords.slice(0, 20);
+            const nicheTags = [niche, subniche].filter(Boolean);
+            const relatedTags = niche ? [
+                `${niche} brasil`,
+                `${niche} youtube`,
+                `${niche} 2025`,
+                `vídeo ${niche}`,
+                `conteúdo ${niche}`
+            ] : [];
+            
             metadata = {
-                description: `${title}\n\n${videoDescription || 'Conteúdo exclusivo sobre ' + (subniche || niche || 'este tema') + '. Não perca!'}\n\n🔔 Inscreva-se no canal para mais conteúdo!\n👍 Deixe seu like se gostou!\n💬 Comente o que achou!\n\n#${(subniche || niche || 'youtube').replace(/\s+/g, '')}`,
-                tags: keywords.slice(0, 15).concat([niche, subniche].filter(Boolean))
+                description: fallbackDescription.length > 500 ? fallbackDescription.substring(0, 497) + '...' : fallbackDescription,
+                tags: [...baseTags, ...nicheTags, ...relatedTags].slice(0, 35)
             };
         }
 
+        // Validação final: garantir que descrição não ultrapasse 500 caracteres
+        if (metadata.description && metadata.description.length > 500) {
+            metadata.description = metadata.description.substring(0, 497) + '...';
+            console.log(`[Auto-metadata] ⚠️ Descrição final truncada para 500 caracteres`);
+        }
+        
+        // Validação final: garantir que tags sejam válidas e limitadas a 35
+        if (metadata.tags && Array.isArray(metadata.tags)) {
+            metadata.tags = metadata.tags
+                .filter(tag => tag && typeof tag === 'string' && tag.trim().length > 0)
+                .map(tag => tag.trim())
+                .slice(0, 35);
+        }
+        
         res.status(200).json({
             description: metadata.description,
             tags: metadata.tags
@@ -20419,27 +22580,48 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
         let userGeminiKeyRow = null;
 
         let laozhangApiKey = null;
-        const panelVideoApiKey = useCredits ? null : await getAdminVideoApiKey();
-        if (panelVideoApiKey) {
-            apiKey = panelVideoApiKey;
-            usingPanelVideoKey = true;
-            apiKeySource = 'panel_video';
-            console.log('[Veo] Usando chave de vídeo configurada no painel admin');
-        }
-
+        
         // Se usuário prefere usar créditos, usar Laozhang.ai (obrigatório)
         if (useCredits) {
             laozhangApiKey = await getLaozhangApiKey();
             if (laozhangApiKey) {
-                useLaozhang = true;
-                apiKeySource = 'laozhang';
-                console.log('[Veo] Usando Laozhang.ai com créditos (preferência do usuário)');
+                // Normalizar a chave
+                if (typeof laozhangApiKey === 'object' && laozhangApiKey.api_key) {
+                    laozhangApiKey = laozhangApiKey.api_key;
+                } else if (typeof laozhangApiKey === 'string') {
+                    laozhangApiKey = laozhangApiKey.trim();
+                } else {
+                    laozhangApiKey = String(laozhangApiKey).trim();
+                }
+                
+                if (laozhangApiKey && laozhangApiKey.length > 10) {
+                    useLaozhang = true;
+                    apiKeySource = 'laozhang';
+                    console.log('[Veo] ✅ Usando Laozhang.ai com créditos (preferência do usuário)');
+                } else {
+                    console.warn('[Veo] ⚠️ Chave Laozhang inválida ou muito curta');
+                    return res.status(400).json({
+                        message: 'Chave do provedor externo inválida. Configure corretamente no painel admin.',
+                        details: 'A geração via créditos depende da API configurada no painel admin. Configure a chave corretamente.'
+                    });
+                }
             } else {
-                console.warn('[Veo] Preferência por créditos, mas Laozhang.ai não está configurada');
+                console.warn('[Veo] ⚠️ Preferência por créditos, mas Laozhang.ai não está configurada');
                 return res.status(400).json({
-                    message: 'Para usar créditos, configure a chave da Laozhang.ai no painel admin.',
-                    details: 'A geração via créditos depende da API Laozhang.ai. Configure a chave ou desmarque a opção de créditos.'
+                    message: 'Para usar créditos, configure a chave do provedor externo no painel admin.',
+                    details: 'A geração via créditos depende da API configurada no painel admin. Configure a chave ou desmarque a opção de créditos.'
                 });
+            }
+        }
+        
+        // Só buscar outras APIs se não usar laozhang
+        if (!useLaozhang) {
+            const panelVideoApiKey = await getAdminVideoApiKey();
+            if (panelVideoApiKey) {
+                apiKey = panelVideoApiKey;
+                usingPanelVideoKey = true;
+                apiKeySource = 'panel_video';
+                console.log('[Veo] Usando chave de vídeo configurada no painel admin');
             }
         }
 
@@ -20516,8 +22698,8 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
             // Se preferir créditos mas não tem API, sugerir configurar Laozhang.ai ou API Gemini no admin
             if (useCredits) {
                 return res.status(400).json({ 
-                    message: 'Para usar créditos na geração de vídeo, configure uma API Gemini no painel admin ou configure Laozhang.ai.',
-                    details: 'Veo requer uma API do tipo Gemini com billing habilitado. Configure no painel admin.'
+                    message: 'Para usar créditos na geração de vídeo, configure uma API no painel admin.',
+                    details: 'Veo requer uma API configurada no painel admin. Configure no painel admin.'
                 });
             }
             
@@ -20531,7 +22713,7 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
             const laozhangKey = laozhangApiKey || await getLaozhangApiKey();
             if (!laozhangKey) {
                 return res.status(400).json({ 
-                    message: 'Laozhang.ai não configurada no painel admin. Configure a chave de API Laozhang.ai primeiro.' 
+                    message: 'Provedor externo não configurado no painel admin. Configure a chave de API primeiro.' 
                 });
             }
             
@@ -20541,10 +22723,8 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
             // Para outros formatos, usar modelos padrão: veo-3.1-fast ou veo-3.1
             let laozhangModel = model;
             
-            // Determinar se é image-to-video baseado no modo e frames disponíveis
-            // Para extend-video, vamos extrair o último frame e usar como imagem inicial
-            const isImageToVideo = (mode === 'frames-to-video' || mode === 'references-to-video' || mode === 'extend-video') && 
-                                   (startFrame || referenceImages?.length > 0 || (mode === 'extend-video' && inputVideo));
+            // Modo fixo: text-to-video (não suporta image-to-video)
+            const isImageToVideo = false; // Sempre false para text-to-video
             
             // Determinar se é paisagem (16:9)
             const isLandscape = aspectRatio === '16:9';
@@ -20560,7 +22740,7 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                 }
                 // Sora 2 suporta image-to-video nativamente, não precisa de modelo diferente
                 console.log(`[Sora 2 Laozhang] Modelo selecionado: ${laozhangModel} (${isLandscape ? 'Landscape' : 'Portrait'}, 15s)`);
-            } else if (model === 'veo-3.1-fast-generate-preview' || model.includes('veo-3.1-fast')) {
+            } else if (model === 'veo-3.1-fast' || model.includes('veo-3.1-fast')) {
                 if (isLandscape) {
                     // Para paisagem 16:9, usar modelos landscape
                     laozhangModel = isImageToVideo ? 'veo-3.1-landscape-fast-fl' : 'veo-3.1-landscape-fast';
@@ -20568,7 +22748,7 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                     // Para outros formatos, usar modelos padrão
                     laozhangModel = isImageToVideo ? 'veo-3.1-fast-fl' : 'veo-3.1-fast';
                 }
-            } else if (model === 'veo-3.1-generate-preview' || model.includes('veo-3.1-generate')) {
+            } else if (model === 'veo-3.1' || model.includes('veo-3.1')) {
                 if (isLandscape) {
                     // Para paisagem 16:9, usar modelos landscape
                     laozhangModel = isImageToVideo ? 'veo-3.1-landscape-fl' : 'veo-3.1-landscape';
@@ -20577,8 +22757,8 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                     laozhangModel = isImageToVideo ? 'veo-3.1-fl' : 'veo-3.1';
                 }
             } else {
-                // Se já for um modelo específico, usar diretamente
-                laozhangModel = model.replace('-generate-preview', '');
+                // Se já for um modelo específico (Sora 2), usar diretamente
+                laozhangModel = model;
             }
             
             const isSora2 = laozhangModel.includes('sora_video2');
@@ -20594,213 +22774,16 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
             
             const laozhangMessages = [];
             
-            // Adicionar texto do prompt
-            // Para extend-video, o prompt deve enfatizar continuar o vídeo existente
-            if (mode === 'extend-video') {
-                // Instruções muito específicas para garantir que o vídeo seja estendido, não recriado
-                // A Laozhang.ai pode não suportar extend-video diretamente, então vamos usar uma abordagem alternativa
-                let extendPrompt = `VIDEO EXTENSION REQUEST:
-
-You have been provided with a video above. Your task is to EXTEND this video, creating a seamless continuation.
-
-CRITICAL REQUIREMENTS:
-1. This is NOT a new video - it is an EXTENSION of the existing video
-2. The extended video must start EXACTLY where the provided video ends
-3. Maintain IDENTICAL scene, characters, camera angle, lighting, colors, and visual style
-4. Create a smooth, natural continuation - it should feel like ONE continuous video
-5. The transition between the original and extension must be seamless
-6. Do NOT change the scene, location, or context
-7. Do NOT introduce new characters or elements that weren't in the original
-8. The final output should be a SINGLE continuous video that combines the original 8 seconds with approximately 7 more seconds of extension, totaling around 15 seconds
-
-${prompt && prompt.trim() ? `Additional continuation direction: ${prompt.trim()}` : 'Continue the video naturally, maintaining the exact same visual style and narrative flow.'}
-
-Remember: The goal is to create ONE unified video, not two separate videos. The extension must connect seamlessly.`;
-
-                laozhangMessages.push({
-                    type: 'text',
-                    text: extendPrompt
-                });
-                console.log('[Veo Laozhang] Prompt para extend-video:', extendPrompt.substring(0, 300));
-            } else if (prompt && prompt.trim()) {
+            // Adicionar texto do prompt (modo text-to-video)
+            if (prompt && prompt.trim()) {
                 laozhangMessages.push({
                     type: 'text',
                     text: prompt.trim()
                 });
             }
             
-            // Adicionar imagens se for image-to-video (veo-3.1-fl)
-            if (mode === 'frames-to-video' && startFrame) {
-                // Converter base64 para URL ou usar diretamente
-                let imageUrl = startFrame;
-                if (startFrame.base64) {
-                    // Se for base64, usar data URL
-                    const mimeType = startFrame.mimeType || 'image/jpeg';
-                    imageUrl = `data:${mimeType};base64,${startFrame.base64}`;
-                }
-                
-                laozhangMessages.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: imageUrl
-                    }
-                });
-                
-                // Adicionar frame final se houver (para looping)
-                if (endFrame && !isLooping) {
-                    let endImageUrl = endFrame;
-                    if (endFrame.base64) {
-                        const mimeType = endFrame.mimeType || 'image/jpeg';
-                        endImageUrl = `data:${mimeType};base64,${endFrame.base64}`;
-                    }
-                    laozhangMessages.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: endImageUrl
-                        }
-                    });
-                }
-            }
-            
-            // Adicionar imagens de referência se houver
-            if (referenceImages && referenceImages.length > 0) {
-                for (const img of referenceImages) {
-                    if (img.base64) {
-                        const mimeType = img.mimeType || 'image/jpeg';
-                        const imageUrl = `data:${mimeType};base64,${img.base64}`;
-                        laozhangMessages.push({
-                            type: 'image_url',
-                            image_url: {
-                                url: imageUrl
-                            }
-                        });
-                    }
-                }
-            }
-            
-            // Adicionar vídeo de entrada se for extend-video
-            // ESTRATÉGIA: Extrair o último frame do vídeo e usar como imagem inicial para gerar a continuação
-            if (mode === 'extend-video' && inputVideo) {
-                console.log('[Veo Laozhang] Modo extend-video detectado, extraindo último frame do vídeo...');
-                
-                try {
-                    let videoUri = null;
-                    if (inputVideo.uri) {
-                        videoUri = inputVideo.uri;
-                    } else if (inputVideo.base64) {
-                        // Se for base64, não podemos extrair frame diretamente, usar o vídeo como referência
-                        const mimeType = inputVideo.mimeType || 'video/mp4';
-                        videoUri = `data:${mimeType};base64,${inputVideo.base64}`;
-                    }
-                    
-                    if (videoUri && videoUri.startsWith('http')) {
-                        // Baixar vídeo e extrair último frame usando FFmpeg
-                        const tempVideoPath = path.join(__dirname, 'temp', `extend_${Date.now()}.mp4`);
-                        const tempFramePath = path.join(__dirname, 'temp', `last_frame_${Date.now()}.jpg`);
-                        
-                        // Criar diretório temp se não existir
-                        await fse.ensureDir(path.dirname(tempVideoPath));
-                        
-                        // Baixar vídeo
-                        console.log('[Veo Laozhang] Baixando vídeo para extrair último frame...');
-                        const videoResponse = await axios({
-                            url: videoUri,
-                            method: 'GET',
-                            responseType: 'stream',
-                            timeout: 30000
-                        });
-                        
-                        const videoStream = fs.createWriteStream(tempVideoPath);
-                        await new Promise((resolve, reject) => {
-                            videoResponse.data.pipe(videoStream);
-                            videoStream.on('finish', resolve);
-                            videoStream.on('error', reject);
-                        });
-                        
-                        // Extrair último frame usando FFmpeg
-                        console.log('[Veo Laozhang] Extraindo último frame com FFmpeg...');
-                        await new Promise((resolve, reject) => {
-                            ffmpeg(tempVideoPath)
-                                .screenshots({
-                                    timestamps: ['99%'], // Pegar frame em 99% do vídeo
-                                    filename: path.basename(tempFramePath),
-                                    folder: path.dirname(tempFramePath),
-                                    size: '1280x720' // Manter resolução alta
-                                })
-                                .on('end', () => {
-                                    console.log('[Veo Laozhang] ✅ Último frame extraído com sucesso');
-                                    resolve();
-                                })
-                                .on('error', (err) => {
-                                    console.error('[Veo Laozhang] ❌ Erro ao extrair frame:', err.message);
-                                    reject(err);
-                                });
-                        });
-                        
-                        // Ler frame como base64
-                        const frameBuffer = await fs.promises.readFile(tempFramePath);
-                        const frameBase64 = frameBuffer.toString('base64');
-                        const frameDataUrl = `data:image/jpeg;base64,${frameBase64}`;
-                        
-                        // Limpar arquivos temporários
-                        try {
-                            await fs.unlink(tempVideoPath);
-                            await fs.unlink(tempFramePath);
-                        } catch (cleanupErr) {
-                            console.warn('[Veo Laozhang] Aviso ao limpar arquivos temporários:', cleanupErr.message);
-                        }
-                        
-                        // Adicionar frame como imagem inicial
-                        laozhangMessages.unshift({
-                            type: 'image_url',
-                            image_url: {
-                                url: frameDataUrl
-                            }
-                        });
-                        
-                        // Mudar modo para frames-to-video para usar o frame como início
-                        // Mas manter o prompt de extensão
-                        console.log('[Veo Laozhang] Último frame adicionado como imagem inicial para continuação');
-                    } else {
-                        // Se não for URL HTTP, usar o vídeo como referência direta
-                        console.log('[Veo Laozhang] Vídeo não é URL HTTP, usando como referência direta');
-                        laozhangMessages.unshift({
-                            type: 'video_url',
-                            video_url: {
-                                url: videoUri
-                            }
-                        });
-                    }
-                } catch (extractError) {
-                    console.error('[Veo Laozhang] Erro ao extrair último frame, usando vídeo como referência:', extractError.message);
-                    // Fallback: usar vídeo como referência
-                    if (inputVideo.uri) {
-                        laozhangMessages.unshift({
-                            type: 'video_url',
-                            video_url: {
-                                url: inputVideo.uri
-                            }
-                        });
-                    }
-                }
-                
-                // Adicionar instrução de extensão
-                const extendInstruction = `VIDEO EXTENSION: The image/video above is the LAST FRAME of an 8-second video. Generate a continuation that:
-1. Starts EXACTLY from this frame
-2. Maintains the SAME scene, characters, camera angle, lighting, and visual style
-3. Creates approximately 7 more seconds of video
-4. Results in a TOTAL video of 15 seconds (8s original + 7s extension)
-5. The continuation must be SEAMLESS and feel like ONE continuous video
-
-${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Continue naturally, maintaining the exact same visual style.'}`;
-                
-                laozhangMessages.push({
-                    type: 'text',
-                    text: extendInstruction
-                });
-                
-                console.log('[Veo Laozhang] Instrução de extensão adicionada');
-            }
+            // Modo text-to-video: não adiciona frames, referências ou vídeos de entrada
+            // (código removido - apenas text-to-video suportado)
             
             // Construir payload final no formato Chat Completions
             const laozhangPayload = {
@@ -20965,7 +22948,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                                                 return res.json({
                                                     video: { uri: videoUri },
                                                     status: 'completed',
-                                                    message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                                    message: 'Vídeo gerado com sucesso.'
                                                 });
                                             }
                                             
@@ -20991,7 +22974,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                                         return res.json({
                                             video: { uri: videoUri },
                                             status: 'completed',
-                                            message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                            message: 'Vídeo gerado com sucesso.'
                                         });
                                     }
                                 } catch (e) {
@@ -21046,7 +23029,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                                 return res.json({
                                     video: { uri: videoUri },
                                     status: 'completed',
-                                    message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                    message: 'Vídeo gerado com sucesso.'
                                 });
                             }
                             
@@ -21108,7 +23091,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                                         const responseData = {
                                             status: 'completed',
                                             videoUri: videoUri,
-                                            message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                                            message: 'Vídeo gerado com sucesso.'
                                         };
                                         console.log('[Veo Laozhang] Resposta sendo enviada:', JSON.stringify(responseData));
                                         
@@ -21196,12 +23179,12 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                         return res.json({
                             operationId: operationId,
                             status: 'processing',
-                            message: 'Geração de vídeo iniciada via Laozhang.ai. Use o operationId para verificar o status.'
+                            message: 'Geração de vídeo iniciada. Use o operationId para verificar o status.'
                         });
                     }
                     
                     // Se não tem operationId nem conteúdo, retornar erro
-                    throw new Error('Não foi possível obter operationId ou vídeo da resposta da Laozhang.ai. Conteúdo recebido: ' + (fullContent ? fullContent.substring(0, 200) : 'vazio'));
+                    throw new Error('Não foi possível obter operationId ou vídeo da resposta. Conteúdo recebido: ' + (fullContent ? fullContent.substring(0, 200) : 'vazio'));
                 } else {
                     // Resposta é JSON normal
                     laozhangResponse = await response.json();
@@ -21250,7 +23233,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                     return res.json({
                         operationId: operationId,
                         status: 'processing',
-                        message: 'Geração de vídeo iniciada via Laozhang.ai. Use o operationId para verificar o status.'
+                        message: 'Geração de vídeo iniciada. Use o operationId para verificar o status.'
                     });
                 }
                 
@@ -21261,7 +23244,7 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                     return res.json({
                         status: 'completed',
                         videoUri: videoUri,
-                        message: 'Vídeo gerado com sucesso via Laozhang.ai.'
+                        message: 'Vídeo gerado com sucesso.'
                     });
                 }
                 
@@ -21269,13 +23252,13 @@ ${prompt && prompt.trim() ? `Continuation direction: ${prompt.trim()}` : 'Contin
                 return res.json({
                     status: 'processing',
                     data: responseData,
-                    message: 'Geração de vídeo iniciada via Laozhang.ai.'
+                    message: 'Geração de vídeo iniciada.'
                 });
                 
             } catch (laozhangError) {
                 console.error('[Veo Laozhang] Erro ao chamar Laozhang.ai:', laozhangError);
                 return res.status(500).json({ 
-                    message: 'Erro ao gerar vídeo via Laozhang.ai: ' + (laozhangError.message || 'Erro desconhecido'),
+                    message: 'Erro ao gerar vídeo: ' + (laozhangError.message || 'Erro desconhecido'),
                     details: laozhangError.details || laozhangError.error || 'Erro ao processar requisição'
                 });
             }
@@ -21591,6 +23574,10 @@ Remember: The goal is to create ONE unified video, not two separate videos. The 
         const operationData = {
             userId,
             operation,
+            prompt: prompt,
+            model: model,
+            aspectRatio: aspectRatio,
+            resolution: resolution,
             useAdminApi,
             adminApi,
             createdAt: new Date(),
@@ -21984,6 +23971,53 @@ app.get('/api/video/status/:operationId', authenticateToken, async (req, res) =>
                 }
             } catch (error) {
                 console.error('[Veo Laozhang] Erro ao processar conteúdo:', error);
+            }
+        }
+        
+        // Se o vídeo foi concluído, salvar no banco de dados
+        if (operationData.status === 'completed' && operationData.videoUri) {
+            try {
+                // Verificar se já existe a tabela
+                await db.exec(`
+                    CREATE TABLE IF NOT EXISTS generated_videos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        operation_id TEXT UNIQUE NOT NULL,
+                        video_uri TEXT NOT NULL,
+                        prompt TEXT,
+                        model TEXT,
+                        aspect_ratio TEXT,
+                        resolution TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                    )
+                `);
+                
+                // Verificar se já existe
+                const existing = await db.get(
+                    'SELECT id FROM generated_videos WHERE operation_id = ?',
+                    [operationId]
+                );
+                
+                if (!existing) {
+                    // Salvar vídeo gerado
+                    await db.run(`
+                        INSERT INTO generated_videos (
+                            user_id, operation_id, video_uri, prompt, model, aspect_ratio, resolution
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        userId,
+                        operationId,
+                        operationData.videoUri,
+                        operationData.prompt || null,
+                        operationData.model || null,
+                        operationData.aspectRatio || null,
+                        operationData.resolution || null
+                    ]);
+                    console.log('[Video History] ✅ Vídeo salvo no histórico:', operationId);
+                }
+            } catch (error) {
+                console.error('[Video History] Erro ao salvar vídeo no histórico:', error);
             }
         }
         
@@ -22421,24 +24455,37 @@ app.get('/api/youtube/viral-alerts', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     try {
+        console.log(`[Viral Alerts] Buscando alertas para userId: ${userId}`);
         const alerts = await db.all(
             `SELECT * FROM viral_alerts 
-             WHERE user_id = ? AND notified = 0 
+             WHERE user_id = ? AND (notified = 0 OR notified IS NULL)
              ORDER BY detected_at DESC 
              LIMIT 50`,
             [userId]
         );
 
+        console.log(`[Viral Alerts] ${alerts?.length || 0} alertas encontrados para userId: ${userId}`);
         res.status(200).json({ alerts: alerts || [] });
     } catch (err) {
         console.error('[ERRO NA ROTA /api/youtube/viral-alerts]:', err);
-        res.status(500).json({ msg: 'Erro ao buscar alertas virais.' });
+        res.status(500).json({ msg: `Erro ao buscar alertas virais: ${err.message}` });
     }
 });
 
 // B.2 - Análise Automática de Tendências: Escanear YouTube por novos vídeos virais
 app.post('/api/youtube/scan-trends', authenticateToken, async (req, res) => {
-    const { niche, subniche, maxResults = 10 } = req.body;
+    const { 
+        niche, 
+        subniche, 
+        maxResults = 10,
+        minViews = 0,
+        minViewsPerDay = 0,
+        language = 'pt',
+        publishedAfter = 7, // dias
+        orderBy = 'viewCount', // viewCount, date, rating, relevance
+        videoDuration = 'any', // any, short, medium, long
+        videoDefinition = 'any' // any, high, standard
+    } = req.body;
     const userId = req.user.id;
 
     if (!niche) {
@@ -22446,74 +24493,176 @@ app.post('/api/youtube/scan-trends', authenticateToken, async (req, res) => {
     }
 
     try {
-        // Buscar chave do Gemini (necessária para YouTube API)
-        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
-        if (!geminiKeyData) {
-            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária para escanear tendências.' });
+        // Buscar chave do YouTube ou Gemini (necessária para YouTube API)
+        // IMPORTANTE: A chave do Gemini pode ser usada para YouTube API, mas é melhor usar uma chave específica do YouTube
+        // Tentar primeiro buscar chave do YouTube, depois Gemini como fallback
+        let youtubeApiKey = null;
+        
+        // Tentar buscar chave do YouTube especificamente
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (youtubeKeyData) {
+            youtubeApiKey = decrypt(youtubeKeyData.api_key);
+        }
+        
+        // Se não tiver chave do YouTube, tentar Gemini
+        if (!youtubeApiKey) {
+            const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            if (geminiKeyData) {
+                youtubeApiKey = decrypt(geminiKeyData.api_key);
+            }
+        }
+        
+        if (!youtubeApiKey) {
+            return res.status(400).json({ 
+                msg: 'Chave de API do YouTube ou Gemini é necessária para escanear tendências. Configure uma chave de API do YouTube Data API v3 nas Configurações.' 
+            });
         }
 
-        const geminiApiKey = decrypt(geminiKeyData.api_key);
-        if (!geminiApiKey) {
-            return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
-        }
-
+        // Mapear idioma para código do YouTube
+        const languageMap = {
+            'pt': 'pt',
+            'pt-BR': 'pt',
+            'en': 'en',
+            'es': 'es',
+            'fr': 'fr',
+            'de': 'de',
+            'it': 'it',
+            'ja': 'ja',
+            'ko': 'ko',
+            'zh': 'zh',
+            'ru': 'ru'
+        };
+        const videoLanguage = languageMap[language] || 'pt';
+        
+        // Mapear duração do vídeo
+        const durationMap = {
+            'short': 'short', // menos de 4 minutos
+            'medium': 'medium', // 4-20 minutos
+            'long': 'long' // mais de 20 minutos
+        };
+        const videoDurationParam = durationMap[videoDuration] || 'any';
+        
+        // Mapear ordenação
+        const orderMap = {
+            'viewCount': 'viewCount',
+            'date': 'date',
+            'rating': 'rating',
+            'relevance': 'relevance'
+        };
+        const orderParam = orderMap[orderBy] || 'viewCount';
+        
+        // Calcular data de publicação
+        const publishedAfterDate = new Date(Date.now() - publishedAfter * 24 * 60 * 60 * 1000).toISOString();
+        
         // Buscar vídeos virais recentes usando YouTube Data API
         const searchQuery = `${niche} ${subniche || ''}`.trim();
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&order=viewCount&maxResults=${maxResults}&publishedAfter=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}&key=${geminiApiKey}`;
         
+        // Construir URL com parâmetros
+        let searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&order=${orderParam}&maxResults=${Math.min(maxResults, 50)}&publishedAfter=${publishedAfterDate}&relevanceLanguage=${videoLanguage}&key=${youtubeApiKey}`;
+        
+        // Adicionar filtro de duração se especificado
+        if (videoDurationParam !== 'any') {
+            searchUrl += `&videoDuration=${videoDurationParam}`;
+        }
+        
+        // Adicionar filtro de definição se especificado
+        if (videoDefinition !== 'any') {
+            searchUrl += `&videoDefinition=${videoDefinition}`;
+        }
+        
+        console.log(`[Scan Trends] Buscando tendências para: "${searchQuery}"`);
+        console.log(`[Scan Trends] Filtros: minViews=${minViews}, minViewsPerDay=${minViewsPerDay}, language=${videoLanguage}, publishedAfter=${publishedAfter} dias, orderBy=${orderParam}, duration=${videoDurationParam}`);
         const searchResponse = await fetch(searchUrl);
+        const searchData = await searchResponse.json();
+        
         if (!searchResponse.ok) {
-            throw new Error('Falha ao buscar vídeos do YouTube.');
+            console.error('[Scan Trends] Erro da API do YouTube:', JSON.stringify(searchData, null, 2));
+            let errorMsg = 'Falha ao buscar vídeos do YouTube.';
+            
+            if (searchData.error) {
+                if (searchData.error.message && searchData.error.message.includes('API key not valid')) {
+                    errorMsg = 'A chave de API do YouTube não é válida. Verifique se a chave está correta e se a API do YouTube Data API v3 está habilitada no Google Cloud Console.';
+                } else {
+                    errorMsg = searchData.error.message || errorMsg;
+                }
+            }
+            
+            return res.status(400).json({ msg: errorMsg, trends: [] });
+        }
+        
+        if (!searchData.items || searchData.items.length === 0) {
+            return res.status(200).json({ trends: [], count: 0, msg: 'Nenhum vídeo encontrado para este nicho.' });
         }
 
-        const searchData = await searchResponse.json();
-        const videoIds = searchData.items.map(item => item.id.videoId).join(',');
+        const videoIds = searchData.items.map(item => item.id.videoId).filter(Boolean).join(',');
         
         if (!videoIds) {
-            return res.status(200).json({ trends: [], msg: 'Nenhum vídeo encontrado.' });
+            return res.status(200).json({ trends: [], count: 0, msg: 'Nenhum vídeo válido encontrado.' });
         }
 
         // Buscar detalhes dos vídeos
-        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${geminiApiKey}`;
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${youtubeApiKey}`;
         const detailsResponse = await fetch(detailsUrl);
         const detailsData = await detailsResponse.json();
+        
+        if (!detailsResponse.ok) {
+            console.error('[Scan Trends] Erro ao buscar detalhes:', detailsData);
+            const errorMsg = detailsData.error?.message || 'Falha ao buscar detalhes dos vídeos.';
+            return res.status(400).json({ msg: errorMsg, trends: [] });
+        }
 
         const trends = [];
+        const allVideos = [];
+        
         for (const video of detailsData.items || []) {
             const views = parseInt(video.statistics.viewCount || 0);
             const publishedAt = new Date(video.snippet.publishedAt);
             const daysSince = Math.round((new Date() - publishedAt) / (1000 * 60 * 60 * 24));
             const viewsPerDay = daysSince > 0 ? views / daysSince : views;
 
-            // Verificar se é viral
-            if (isViralVideo(views, daysSince, viewsPerDay)) {
-                const videoData = {
-                    videoId: video.id,
-                    title: video.snippet.title,
-                    url: `https://www.youtube.com/watch?v=${video.id}`,
-                    channelId: video.snippet.channelId,
-                    channelName: video.snippet.channelTitle,
-                    views: views,
-                    viewsPerDay: Math.round(viewsPerDay),
-                    daysSince: daysSince,
-                    thumbnailUrl: video.snippet.thumbnails.high?.url || video.snippet.thumbnails.default?.url
-                };
+            const videoData = {
+                videoId: video.id,
+                title: video.snippet.title,
+                url: `https://www.youtube.com/watch?v=${video.id}`,
+                channelId: video.snippet.channelId,
+                channelName: video.snippet.channelTitle,
+                views: views,
+                viewsPerDay: Math.round(viewsPerDay),
+                daysSince: daysSince,
+                thumbnailUrl: video.snippet.thumbnails.high?.url || video.snippet.thumbnails.default?.url,
+                isViral: isViralVideo(views, daysSince, viewsPerDay)
+            };
 
-                // Salvar na tabela de tendências
-                await db.run(
-                    `INSERT INTO trend_analysis (user_id, niche, subniche, video_id, video_title, video_url, channel_id, channel_name, views, views_per_day)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [userId, niche, subniche || null, video.id, video.snippet.title, videoData.url, video.snippet.channelId, video.snippet.channelTitle, views, viewsPerDay]
-                );
+            allVideos.push(videoData);
+
+            // Verificar se é viral
+            if (videoData.isViral) {
+                // Salvar na tabela de tendências (ou atualizar se já existir)
+                try {
+                    await db.run(
+                        `INSERT OR REPLACE INTO trend_analysis (user_id, niche, subniche, video_id, video_title, video_url, channel_id, channel_name, views, views_per_day, analyzed, detected_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+                        [userId, niche, subniche || null, video.id, video.snippet.title, videoData.url, video.snippet.channelId, video.snippet.channelTitle, views, viewsPerDay]
+                    );
+                } catch (dbErr) {
+                    console.error('[Scan Trends] Erro ao salvar tendência:', dbErr.message);
+                }
 
                 trends.push(videoData);
             }
         }
 
+        console.log(`[Scan Trends] Total de vídeos encontrados: ${allVideos.length}, Vídeos virais: ${trends.length}`);
+        
+        // Se não encontrou vídeos virais, retornar os top vídeos encontrados mesmo assim
+        const finalTrends = trends.length > 0 ? trends : allVideos.slice(0, Math.min(5, allVideos.length));
+        
         res.status(200).json({ 
-            trends: trends,
-            count: trends.length,
-            msg: `${trends.length} vídeo(s) viral(is) encontrado(s) no nicho ${niche}.`
+            trends: finalTrends,
+            count: finalTrends.length,
+            msg: finalTrends.length > 0 
+                ? `${finalTrends.length} vídeo(s) ${trends.length > 0 ? 'viral(is)' : 'relevante(s)'} encontrado(s) no nicho ${niche}.`
+                : `Nenhum vídeo encontrado para o nicho ${niche}.`
         });
 
     } catch (err) {
@@ -22631,55 +24780,105 @@ app.post('/api/youtube/generate-suggestions', authenticateToken, async (req, res
     }
 
     try {
-        // Buscar tendências recentes do usuário
+        console.log(`[Generate Suggestions] Iniciando para nicho: ${niche}, subniche: ${subniche}`);
+        
+        // Buscar tendências recentes do usuário (não analisadas ainda)
         const recentTrends = await db.all(
             `SELECT * FROM trend_analysis 
-             WHERE user_id = ? AND niche = ? AND analyzed = 0 
+             WHERE user_id = ? AND niche = ? AND (analyzed = 0 OR analyzed IS NULL)
              ORDER BY detected_at DESC LIMIT 5`,
             [userId, niche]
         );
+        
+        console.log(`[Generate Suggestions] Tendências encontradas para nicho "${niche}": ${recentTrends.length}`);
 
+        // Se não houver tendências salvas, buscar tendências em tempo real
+        let trendsToUse = recentTrends;
         if (recentTrends.length === 0) {
-            return res.status(200).json({ 
-                suggestions: [],
-                msg: 'Nenhuma tendência recente encontrada. Execute uma análise de tendências primeiro.'
-            });
+            console.log(`[Generate Suggestions] Nenhuma tendência salva encontrada. Buscando tendências em tempo real...`);
+            
+            try {
+                // Buscar chave do YouTube ou Gemini
+                let youtubeApiKey = null;
+                const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+                if (youtubeKeyData) {
+                    youtubeApiKey = decrypt(youtubeKeyData.api_key);
+                }
+                if (!youtubeApiKey) {
+                    const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+                    if (geminiKeyData) {
+                        youtubeApiKey = decrypt(geminiKeyData.api_key);
+                    }
+                }
+                
+                if (youtubeApiKey) {
+                    // Buscar vídeos recentes do nicho
+                    const searchQuery = `${niche} ${subniche || ''}`.trim();
+                    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&order=viewCount&maxResults=5&publishedAfter=${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}&relevanceLanguage=pt&key=${youtubeApiKey}`;
+                    
+                    const searchResponse = await fetch(searchUrl);
+                    if (searchResponse.ok) {
+                        const searchData = await searchResponse.json();
+                        if (searchData.items && searchData.items.length > 0) {
+                            const videoIds = searchData.items.map(item => item.id.videoId).filter(Boolean).join(',');
+                            if (videoIds) {
+                                const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoIds}&key=${youtubeApiKey}`;
+                                const detailsResponse = await fetch(detailsUrl);
+                                if (detailsResponse.ok) {
+                                    const detailsData = await detailsResponse.json();
+                                    // Criar objetos de tendência temporários
+                                    trendsToUse = (detailsData.items || []).map(video => ({
+                                        video_title: video.snippet.title,
+                                        views: parseInt(video.statistics.viewCount || 0),
+                                        views_per_day: Math.round((parseInt(video.statistics.viewCount || 0)) / Math.max(1, Math.round((new Date() - new Date(video.snippet.publishedAt)) / (1000 * 60 * 60 * 24)))),
+                                        video_url: `https://www.youtube.com/watch?v=${video.id}`,
+                                        channel_name: video.snippet.channelTitle
+                                    }));
+                                    console.log(`[Generate Suggestions] ${trendsToUse.length} tendências encontradas em tempo real`);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (trendsErr) {
+                console.warn(`[Generate Suggestions] Erro ao buscar tendências em tempo real:`, trendsErr.message);
+            }
         }
 
-        // Tentar usar IA para gerar sugestões baseadas nas tendências
-        const services = ['gemini', 'claude', 'openai'];
+        // Se ainda não houver tendências, usar o nicho diretamente
+        if (trendsToUse.length === 0) {
+            console.log(`[Generate Suggestions] Nenhuma tendência disponível. Gerando sugestões baseadas apenas no nicho "${niche}"`);
+        }
+
+        // Verificar se deve usar créditos (laozhang.ai)
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        console.log(`[Generate Suggestions] useCredits: ${useCredits}`);
+        
         let suggestions = [];
+        
+        // Se deve usar créditos, usar laozhang.ai primeiro
+        if (useCredits) {
+            console.log('[Generate Suggestions] Verificando chave laozhang.ai...');
+            const laozhangKey = await getLaozhangApiKey();
+            console.log('[Generate Suggestions] Chave laozhang.ai encontrada:', laozhangKey ? 'Sim' : 'Não');
+            if (laozhangKey) {
+                try {
+                    let trendsSummary = '';
+                    if (trendsToUse.length > 0) {
+                        trendsSummary = trendsToUse.map(t => `- "${t.video_title}" (${t.views} views${t.views_per_day ? ` em ${t.views_per_day} views/dia` : ''})`).join('\n');
+                    }
 
-        for (const service of services) {
-            try {
-                const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-                if (!serviceKeyData) continue;
+                    const prompt = `Você é um ESPECIALISTA EM CRIAÇÃO DE CONTEÚDO VIRAL PARA YOUTUBE com conhecimento profundo sobre tendências, algoritmos e o que faz um vídeo viralizar.
 
-                const decryptedKey = decrypt(serviceKeyData.api_key);
-                if (!decryptedKey) continue;
-
-                let apiCallFunction;
-                let model;
-                if (service === 'gemini') {
-                    apiCallFunction = callGeminiAPI;
-                    model = 'gemini-2.0-flash';
-                } else if (service === 'claude') {
-                    apiCallFunction = callClaudeAPI;
-                    model = 'claude-3-5-haiku-20241022';
-                } else {
-                    apiCallFunction = callOpenAIAPI;
-                    model = 'gpt-4o-mini';
-                }
-
-                const trendsSummary = recentTrends.map(t => `- "${t.video_title}" (${t.views} views em ${t.views_per_day} views/dia)`).join('\n');
-
-                const prompt = `Você é um especialista em criação de conteúdo viral para YouTube.
-
-Analise as seguintes tendências virais no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}:
+${trendsToUse.length > 0 ? `Analise as seguintes tendências virais no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}:
 
 ${trendsSummary}
 
-Com base nessas tendências virais, sugira 5 NOVOS vídeos que o criador poderia fazer para aproveitar essas tendências e potencialmente viralizar também.
+Com base nessas tendências virais, sugira 5 NOVOS vídeos que o criador poderia fazer para aproveitar essas tendências e potencialmente viralizar também.` : `O criador está interessado no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}.
+
+Com base nas tendências atuais deste nicho no YouTube, sugira 5 NOVOS vídeos com alto potencial viral que o criador poderia fazer.`}
 
 Para cada sugestão, forneça:
 1. Um título viral e chamativo
@@ -22707,45 +24906,207 @@ IMPORTANTE:
 
 Responda APENAS com o JSON, sem texto adicional.`;
 
-                const response = await apiCallFunction(prompt, decryptedKey, model);
-                const responseText = response.titles || response.text || '';
-                
-                // Tentar extrair JSON da resposta
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    try {
-                        const parsed = JSON.parse(jsonMatch[0]);
-                        if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
-                            // Salvar sugestões no banco
-                            for (const suggestion of parsed.suggestions) {
-                                await db.run(
-                                    `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority)
-                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                                    [userId, 'trend_based', suggestion.title, suggestion.description, niche, subniche || null, suggestion.reason, suggestion.priority || 5]
-                                );
+                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/generate-suggestions' }));
+                    // callLaozhangAPI retorna uma string diretamente, não um objeto
+                    const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
+                    
+                    console.log(`[Sugestões IA] Resposta recebida (${responseText.length} caracteres)`);
+                    console.log(`[Sugestões IA] Primeiros 500 caracteres:`, responseText.substring(0, 500));
+                    
+                    // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
+                    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    // Se não encontrar, tentar remover markdown code blocks
+                    if (!jsonMatch) {
+                        const cleaned = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                        jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+                    }
+                    
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
+                                // Salvar sugestões no banco
+                                for (const suggestion of parsed.suggestions) {
+                                    try {
+                                        await db.run(
+                                            `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority, viewed, created_at)
+                                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+                                            [userId, 'trend_based', suggestion.title || 'Sugestão sem título', suggestion.description || 'Sem descrição', niche, subniche || null, suggestion.reason || 'Baseado em tendências virais', suggestion.priority || 5]
+                                        );
+                                        console.log(`[Sugestões IA] Sugestão salva: "${suggestion.title || 'Sem título'}"`);
+                                    } catch (dbErr) {
+                                        console.error(`[Sugestões IA] Erro ao salvar sugestão:`, dbErr.message);
+                                    }
+                                }
+                                suggestions = parsed.suggestions;
+                                console.log(`[Sugestões IA] ✅ ${suggestions.length} sugestões geradas usando API configurada como padrão`);
+                            } else {
+                                console.warn(`[Sugestões IA] Resposta não tem formato esperado (sem array 'suggestions')`);
+                                console.warn(`[Sugestões IA] Estrutura recebida:`, Object.keys(parsed));
                             }
-                            suggestions = parsed.suggestions;
-                            console.log(`[Sugestões IA] ${suggestions.length} sugestões geradas usando ${service}`);
-                            break;
+                        } catch (e) {
+                            console.warn(`[Sugestões IA] Falha ao parsear JSON:`, e.message);
+                            console.warn(`[Sugestões IA] JSON encontrado:`, jsonMatch[0].substring(0, 500));
                         }
-                    } catch (e) {
-                        console.warn(`[Sugestões IA] Falha ao parsear JSON de ${service}:`, e.message);
+                    } else {
+                        console.warn(`[Sugestões IA] Nenhum JSON encontrado na resposta`);
+                        console.warn(`[Sugestões IA] Resposta completa:`, responseText.substring(0, 1000));
+                    }
+                } catch (serviceErr) {
+                    console.error(`[Sugestões IA] Erro ao usar API configurada como padrão:`, serviceErr.message);
+                    // Se a preferência é usar créditos e laozhang falhou, não tentar APIs próprias
+                    if (useCredits) {
+                        return res.status(500).json({ 
+                            suggestions: [],
+                            count: 0,
+                            msg: 'Erro ao gerar sugestões usando API configurada como padrão. Verifique se a chave está configurada corretamente no painel admin.' 
+                        });
                     }
                 }
-            } catch (serviceErr) {
-                console.warn(`[Sugestões IA] Falha com ${service}:`, serviceErr.message);
-                continue;
+            } else if (useCredits) {
+                // Se preferência é usar créditos mas não tem chave
+                return res.status(400).json({ 
+                    suggestions: [],
+                    count: 0,
+                    msg: 'API configurada como padrão não está configurada. Configure a chave no painel admin ou desmarque a opção de usar créditos.' 
+                });
+            }
+        }
+        
+        // Se não usar créditos ou se laozhang falhou (e não é obrigatório), usar APIs próprias
+        if (suggestions.length === 0 && !useCredits) {
+            // Tentar usar IA para gerar sugestões baseadas nas tendências
+            const services = ['gemini', 'claude', 'openai'];
+
+            for (const service of services) {
+                try {
+                    const serviceKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                    if (!serviceKeyData) continue;
+
+                    const decryptedKey = decrypt(serviceKeyData.api_key);
+                    if (!decryptedKey) continue;
+
+                    let apiCallFunction;
+                    let model;
+                    if (service === 'gemini') {
+                        apiCallFunction = callGeminiAPI;
+                        model = 'gemini-2.0-flash';
+                    } else if (service === 'claude') {
+                        apiCallFunction = callClaudeAPI;
+                        model = 'claude-3-5-haiku-20241022';
+                    } else {
+                        apiCallFunction = callOpenAIAPI;
+                        model = 'gpt-4o'; // Usar GPT-4o como padrão
+                    }
+
+                    const trendsSummary = trendsToUse.length > 0 
+                        ? trendsToUse.map(t => `- "${t.video_title}" (${t.views} views${t.views_per_day ? ` em ${t.views_per_day} views/dia` : ''})`).join('\n')
+                        : '';
+
+                    const prompt = trendsToUse.length > 0 
+                        ? `Você é um ESPECIALISTA EM CRIAÇÃO DE CONTEÚDO VIRAL PARA YOUTUBE com conhecimento profundo sobre tendências, algoritmos e o que faz um vídeo viralizar.
+
+Analise as seguintes tendências virais no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}:
+
+${trendsSummary}
+
+Com base nessas tendências virais, sugira 5 NOVOS vídeos que o criador poderia fazer para aproveitar essas tendências e potencialmente viralizar também.`
+                        : `Você é um ESPECIALISTA EM CRIAÇÃO DE CONTEÚDO VIRAL PARA YOUTUBE com conhecimento profundo sobre tendências, algoritmos e o que faz um vídeo viralizar.
+
+O criador está interessado no nicho "${niche}"${subniche ? ` e subnicho "${subniche}"` : ''}.
+
+Com base nas tendências atuais deste nicho no YouTube, sugira 5 NOVOS vídeos com alto potencial viral que o criador poderia fazer.
+
+Para cada sugestão, forneça:
+1. Um título viral e chamativo
+2. Uma breve descrição do conceito do vídeo
+3. O motivo pelo qual esta ideia tem potencial de viralizar
+
+Responda APENAS com um JSON válido no formato:
+{
+  "suggestions": [
+    {
+      "title": "Título viral sugerido",
+      "description": "Descrição do conceito do vídeo",
+      "reason": "Por que esta ideia tem potencial de viralizar",
+      "priority": 8 (1-10, sendo 10 o maior potencial)
+    },
+    ...
+  ]
+}
+
+IMPORTANTE: 
+- Os títulos devem ser em português (Brasil)
+- Foque em ideias que aproveitem os padrões das tendências analisadas
+- Seja específico e criativo
+- Priorize ideias com alto potencial de engajamento
+
+Responda APENAS com o JSON, sem texto adicional.`;
+
+                    const response = await apiCallFunction(prompt, decryptedKey, model);
+                    // A resposta pode ser string direta ou objeto
+                    const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
+                    
+                    console.log(`[Sugestões IA] Resposta de ${service} (${responseText.length} caracteres)`);
+                    
+                    // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
+                    let jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    // Se não encontrar, tentar remover markdown code blocks
+                    if (!jsonMatch) {
+                        const cleaned = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                        jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+                    }
+                    
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
+                                // Salvar sugestões no banco
+                                for (const suggestion of parsed.suggestions) {
+                                    try {
+                                        await db.run(
+                                            `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority, viewed, created_at)
+                                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+                                            [userId, 'trend_based', suggestion.title || 'Sugestão sem título', suggestion.description || 'Sem descrição', niche, subniche || null, suggestion.reason || 'Baseado em tendências virais', suggestion.priority || 5]
+                                        );
+                                        console.log(`[Sugestões IA] Sugestão salva: "${suggestion.title || 'Sem título'}"`);
+                                    } catch (dbErr) {
+                                        console.error(`[Sugestões IA] Erro ao salvar sugestão:`, dbErr.message);
+                                    }
+                                }
+                                suggestions = parsed.suggestions;
+                                console.log(`[Sugestões IA] ✅ ${suggestions.length} sugestões geradas e salvas usando ${service}`);
+                                break;
+                            } else {
+                                console.warn(`[Sugestões IA] Resposta de ${service} não tem formato esperado (sem array 'suggestions')`);
+                            }
+                        } catch (e) {
+                            console.warn(`[Sugestões IA] Falha ao parsear JSON de ${service}:`, e.message);
+                            console.warn(`[Sugestões IA] JSON encontrado:`, jsonMatch[0].substring(0, 500));
+                        }
+                    } else {
+                        console.warn(`[Sugestões IA] Nenhum JSON encontrado na resposta de ${service}`);
+                    }
+                } catch (serviceErr) {
+                    console.warn(`[Sugestões IA] Falha com ${service}:`, serviceErr.message);
+                    continue;
+                }
             }
         }
 
         // Fallback: gerar sugestões básicas baseadas nos títulos das tendências
-        if (suggestions.length === 0) {
+        if (suggestions.length === 0 && recentTrends.length > 0) {
+            console.log(`[Sugestões IA] Gerando sugestões básicas baseadas em ${recentTrends.length} tendências`);
             for (const trend of recentTrends.slice(0, 3)) {
-                await db.run(
-                    `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [userId, 'trend_based', `Versão adaptada: ${trend.video_title}`, `Crie uma versão adaptada deste vídeo viral para seu canal`, niche, subniche || null, `Baseado no vídeo viral "${trend.video_title}" com ${trend.views} views`, 7]
-                );
+                try {
+                    await db.run(
+                        `INSERT INTO ai_suggestions (user_id, suggestion_type, title, description, niche, subniche, reason, priority, viewed, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+                        [userId, 'trend_based', `Versão adaptada: ${trend.video_title}`, `Crie uma versão adaptada deste vídeo viral para seu canal`, niche, subniche || null, `Baseado no vídeo viral "${trend.video_title}" com ${trend.views} views`, 7]
+                    );
+                } catch (dbErr) {
+                    console.error(`[Sugestões IA] Erro ao salvar sugestão básica:`, dbErr.message);
+                }
             }
             suggestions = recentTrends.slice(0, 3).map(t => ({
                 title: `Versão adaptada: ${t.video_title}`,
@@ -22753,6 +25114,7 @@ Responda APENAS com o JSON, sem texto adicional.`;
                 reason: `Baseado no vídeo viral com ${t.views} views`,
                 priority: 7
             }));
+            console.log(`[Sugestões IA] ✅ ${suggestions.length} sugestões básicas geradas`);
         }
 
         res.status(200).json({ 
@@ -23174,6 +25536,90 @@ async function translateText(text, fromLang = 'auto', toLang = 'pt') {
     return text; // Retorna texto original se todas as traduções falharem
 }
 
+// Variável para armazenar os intervalos de notificações
+const notificationLoops = {
+    purchase: null,
+    user: null
+};
+
+// Função para iniciar um loop de notificações
+async function startNotificationLoop(loopType, intervalSeconds) {
+    // Parar loop existente se houver
+    if (notificationLoops[loopType]) {
+        clearInterval(notificationLoops[loopType]);
+        notificationLoops[loopType] = null;
+    }
+    
+    console.log(`[NOTIFICATIONS] Iniciando loop ${loopType} com intervalo de ${intervalSeconds} segundos`);
+    
+    // Executar imediatamente na primeira vez
+    await processNotificationLoop(loopType);
+    
+    // Configurar intervalo
+    notificationLoops[loopType] = setInterval(async () => {
+        await processNotificationLoop(loopType);
+    }, intervalSeconds * 1000);
+}
+
+// Função para processar um loop de notificações
+async function processNotificationLoop(loopType) {
+    try {
+        // Verificar se o loop ainda está ativo
+        const loopStatus = await db.get('SELECT is_active FROM active_loops WHERE loop_type = ?', [loopType]);
+        if (!loopStatus || loopStatus.is_active !== 1) {
+            console.log(`[NOTIFICATIONS] Loop ${loopType} não está mais ativo, parando...`);
+            if (notificationLoops[loopType]) {
+                clearInterval(notificationLoops[loopType]);
+                notificationLoops[loopType] = null;
+            }
+            return;
+        }
+        
+        // Obter configurações
+        const configs = await db.all('SELECT key, value FROM notification_config');
+        const config = {};
+        configs.forEach(c => { config[c.key] = c.value; });
+        
+        const enabled = config[`${loopType}_enabled`] === 'true';
+        if (!enabled) {
+            return; // Loop desabilitado
+        }
+        
+        const interval = parseInt(config[`${loopType}_interval`]) || 5;
+        const message = config[`${loopType}_message`] || '';
+        
+        // Buscar usuários fictícios ativos do tipo correto
+        const fakeUsers = await db.all(
+            'SELECT * FROM fake_users WHERE type = ? AND is_active = 1 ORDER BY RANDOM() LIMIT 1',
+            [loopType]
+        );
+        
+        if (fakeUsers.length === 0) {
+            console.log(`[NOTIFICATIONS] Nenhum usuário fictício ${loopType} disponível`);
+            return;
+        }
+        
+        const fakeUser = fakeUsers[0];
+        
+        // Criar mensagem personalizada
+        let notificationMessage = message;
+        notificationMessage = notificationMessage.replace(/{name}/g, fakeUser.name);
+        if (loopType === 'purchase' && fakeUser.plan_name) {
+            notificationMessage = notificationMessage.replace(/{plan}/g, fakeUser.plan_name);
+        }
+        
+        // Criar notificação global (user_id = null para todos verem)
+        await db.run(
+            'INSERT INTO notifications (user_id, title, message, type, is_read, created_at) VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)',
+            [null, loopType === 'purchase' ? 'Nova Compra' : 'Novo Usuário', notificationMessage, loopType]
+        );
+        
+        console.log(`[NOTIFICATIONS] Notificação ${loopType} criada: ${notificationMessage}`);
+    } catch (error) {
+        console.error(`[NOTIFICATIONS] Erro ao processar loop ${loopType}:`, error);
+    }
+}
+
 // Função para restaurar loops ativos ao iniciar o servidor
 async function restoreActiveLoops() {
     try {
@@ -23203,14 +25649,15 @@ async function restoreActiveLoops() {
         
         console.log(`[NOTIFICATIONS] Restaurando ${activeLoops.length} loop(s) ativo(s)...`);
         
-        // Nota: Os loops serão executados no servidor através de um processo em background
-        // Por enquanto, apenas logamos que eles devem estar ativos
-        // A implementação completa requereria um sistema de workers/processos em background
+        // Iniciar loops ativos
         for (const loop of activeLoops) {
-            console.log(`[NOTIFICATIONS] Loop ${loop.loop_type} está ativo (intervalo: ${loop.interval_seconds}s)`);
+            if (loop.is_active === 1) {
+                console.log(`[NOTIFICATIONS] Iniciando loop ${loop.loop_type} (intervalo: ${loop.interval_seconds}s)`);
+                startNotificationLoop(loop.loop_type, loop.interval_seconds);
+            }
         }
         
-        console.log('[NOTIFICATIONS] Loops ativos serão mantidos. Use o painel admin para gerenciá-los.');
+        console.log('[NOTIFICATIONS] Loops ativos restaurados e em execução.');
     } catch (error) {
         console.error('[NOTIFICATIONS] Erro ao restaurar loops:', error);
     }

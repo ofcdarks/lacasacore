@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentes Virais - La Casa Dark Core</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonte Premium: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <!-- Ícones (Lucide Icons) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: #0f0f0f;
+            color: #e5e5e5;
+        }
+        
+        .brand-title {
+            font-weight: 500;
+            color: #6b7280;
+        }
+        .brand-title-core {
+            font-weight: 800;
+            color: #f59e0b;
+            letter-spacing: 0.05em;
+        }
+
+        /* Cards */
+        .agent-card {
+            background: linear-gradient(135deg, rgba(30, 30, 30, 0.95) 0%, rgba(20, 20, 20, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .agent-card:hover {
+            border-color: rgba(245, 158, 11, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(245, 158, 11, 0.2);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(15, 15, 15, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        /* Inputs */
+        .input-field {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(30, 30, 30, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        
+        .input-field:focus {
+            outline: none;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+        }
+
+        .textarea-field {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(30, 30, 30, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+            min-height: 120px;
+            resize: vertical;
+            font-family: inherit;
+        }
+        
+        .textarea-field:focus {
+            outline: none;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+        }
+
+        /* Botões */
+        .btn-primary {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Chat */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+            background: rgba(20, 20, 20, 0.8);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        
+        .message.user {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            align-self: flex-end;
+        }
+        
+        .message.assistant {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            align-self: flex-start;
+        }
+        
+        .chat-input-container {
+            padding: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Sidebar */
+        .sidebar-section {
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .sidebar-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #f59e0b;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(20, 20, 20, 0.5);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(245, 158, 11, 0.5);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(245, 158, 11, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <!-- Script de Proteção de Rota -->
+    <script>
+        const token = localStorage.getItem('core_token');
+        if (!token || token === 'undefined') {
+            localStorage.removeItem('core_token');
+            window.location.href = 'la-casa-dark-core-auth.html';
+        }
+    </script>
+
+    <!-- Header -->
+    <header class="bg-gray-900 border-b border-gray-800 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <a href="dashboard.html" class="text-gray-400 hover:text-white transition">
+                    <i data-lucide="arrow-left"></i>
+                </a>
+                <h1 class="text-2xl font-bold">
+                    <span class="brand-title">Agentes</span>
+                    <span class="brand-title-core">Virais</span>
+                </h1>
+            </div>
+            <button onclick="openCreateAgentModal()" class="btn-primary flex items-center gap-2">
+                <i data-lucide="plus"></i>
+                Novo Agente
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- View: Lista de Agentes -->
+        <div id="view-list" class="view active">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="agents-list">
+                <!-- Agentes serão carregados aqui -->
+            </div>
+        </div>
+
+        <!-- View: Detalhes do Agente -->
+        <div id="view-agent" class="view" style="display: none;">
+            <div class="flex gap-6">
+                <!-- Conteúdo Principal -->
+                <div class="flex-1">
+                    <!-- Header do Agente -->
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex items-center gap-4">
+                            <button onclick="showListView()" class="text-gray-400 hover:text-white transition">
+                                <i data-lucide="arrow-left"></i>
+                            </button>
+                            <div>
+                                <h2 id="agent-name-header" class="text-2xl font-bold"></h2>
+                                <p id="agent-description-header" class="text-gray-400 text-sm"></p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="toggleFavorite()" id="favorite-btn" class="p-2 rounded-lg hover:bg-gray-800 transition">
+                                <i data-lucide="star"></i>
+                            </button>
+                            <button onclick="openEditAgentModal()" class="p-2 rounded-lg hover:bg-gray-800 transition">
+                                <i data-lucide="settings"></i>
+                            </button>
+                            <button onclick="deleteAgent()" class="p-2 rounded-lg hover:bg-red-900 transition text-red-400">
+                                <i data-lucide="trash-2"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Abas -->
+                    <div class="flex gap-2 mb-6 border-b border-gray-800">
+                        <button onclick="showChatTab()" id="tab-chat" class="px-4 py-2 font-semibold border-b-2 border-amber-500 text-amber-500">
+                            Chat
+                        </button>
+                        <button onclick="showConversationsTab()" id="tab-conversations" class="px-4 py-2 font-semibold border-b-2 border-transparent text-gray-400 hover:text-white">
+                            Conversas
+                        </button>
+                    </div>
+
+                    <!-- Tab: Chat -->
+                    <div id="tab-content-chat" class="tab-content">
+                        <div class="chat-container">
+                            <div class="chat-messages" id="chat-messages">
+                                <!-- Mensagens serão carregadas aqui -->
+                            </div>
+                            <div class="chat-input-container">
+                                <input 
+                                    type="text" 
+                                    id="chat-input" 
+                                    placeholder="Digite sua mensagem..."
+                                    class="input-field flex-1"
+                                    onkeypress="if(event.key === 'Enter') sendMessage()"
+                                >
+                                <button onclick="sendMessage()" class="btn-primary">
+                                    <i data-lucide="send"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Conversas -->
+                    <div id="tab-content-conversations" class="tab-content" style="display: none;">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold">Conversas Anteriores</h3>
+                            <button onclick="createNewConversation()" class="btn-secondary text-sm">
+                                <i data-lucide="plus"></i>
+                                Nova Conversa
+                            </button>
+                        </div>
+                        <div id="conversations-list" class="space-y-2">
+                            <!-- Conversas serão carregadas aqui -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="w-80">
+                    <!-- Memória -->
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-title">
+                            <span>Memória</span>
+                            <button onclick="editMemory()" class="text-gray-400 hover:text-white">
+                                <i data-lucide="pencil"></i>
+                            </button>
+                        </div>
+                        <p id="agent-memory" class="text-sm text-gray-300 whitespace-pre-wrap"></p>
+                        <p class="text-xs text-gray-500 mt-2" id="memory-updated"></p>
+                    </div>
+
+                    <!-- Instruções -->
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-title">
+                            <span>Instruções</span>
+                            <button onclick="editInstructions()" class="text-gray-400 hover:text-white">
+                                <i data-lucide="pencil"></i>
+                            </button>
+                        </div>
+                        <p id="agent-instructions" class="text-sm text-gray-300 whitespace-pre-wrap"></p>
+                    </div>
+
+                    <!-- Arquivos -->
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-title">
+                            <span>Arquivos</span>
+                            <button onclick="addFile()" class="text-gray-400 hover:text-white">
+                                <i data-lucide="plus"></i>
+                            </button>
+                        </div>
+                        <div id="agent-files" class="space-y-2">
+                            <!-- Arquivos serão carregados aqui -->
+                        </div>
+                        <div class="mt-2 text-xs text-gray-500">
+                            <div class="w-full bg-gray-700 rounded-full h-2">
+                                <div id="storage-bar" class="bg-amber-500 h-2 rounded-full" style="width: 1%"></div>
+                            </div>
+                            <p class="mt-1" id="storage-text">1% da capacidade do projeto utilizada</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Criar/Editar Agente -->
+    <div id="modal-agent" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="p-6 border-b border-gray-800 flex items-center justify-between">
+                <h3 id="modal-agent-title" class="text-xl font-bold">Novo Agente</h3>
+                <button onclick="closeAgentModal()" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-2">Nome do Agente</label>
+                    <input type="text" id="modal-agent-name" class="input-field" placeholder="Ex: Agente de Histórias Emocionantes">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-2">Descrição</label>
+                    <input type="text" id="modal-agent-description" class="input-field" placeholder="Ex: Roteiro viral para canal de histórias">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-2">Memória</label>
+                    <textarea id="modal-agent-memory" class="textarea-field" placeholder="Informações que o agente deve lembrar..."></textarea>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold mb-2">Instruções</label>
+                    <textarea id="modal-agent-instructions" class="textarea-field" placeholder="Instruções para o agente..."></textarea>
+                </div>
+                <div class="flex gap-3 justify-end">
+                    <button onclick="closeAgentModal()" class="btn-secondary">Cancelar</button>
+                    <button onclick="saveAgent()" class="btn-primary">Salvar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Editar Memória/Instruções -->
+    <div id="modal-edit-field" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="p-6 border-b border-gray-800 flex items-center justify-between">
+                <h3 id="modal-edit-title" class="text-xl font-bold"></h3>
+                <button onclick="closeEditFieldModal()" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="p-6">
+                <textarea id="modal-edit-content" class="textarea-field" style="min-height: 300px;"></textarea>
+                <div class="flex gap-3 justify-end mt-4">
+                    <button onclick="closeEditFieldModal()" class="btn-secondary">Cancelar</button>
+                    <button onclick="saveField()" class="btn-primary">Salvar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Adicionar Arquivo -->
+    <div id="modal-file" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="p-6 border-b border-gray-800 flex items-center justify-between">
+                <h3 class="text-xl font-bold">Adicionar Arquivo</h3>
+                <button onclick="closeFileModal()" class="text-gray-400 hover:text-white">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-2">Nome do Arquivo</label>
+                    <input type="text" id="modal-file-name" class="input-field" placeholder="Ex: exemplo.txt">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold mb-2">Conteúdo</label>
+                    <textarea id="modal-file-content" class="textarea-field" style="min-height: 300px;" placeholder="Cole ou digite o conteúdo do arquivo..."></textarea>
+                </div>
+                <div class="flex gap-3 justify-end">
+                    <button onclick="closeFileModal()" class="btn-secondary">Cancelar</button>
+                    <button onclick="saveFile()" class="btn-primary">Adicionar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Estado global
+        let currentAgent = null;
+        let currentConversation = null;
+        let editingField = null;
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            loadAgents();
+        });
+
+        // Carregar agentes
+        async function loadAgents() {
+            try {
+                const token = localStorage.getItem('core_token');
+                if (!token) {
+                    window.location.href = 'la-casa-dark-core-auth.html';
+                    return;
+                }
+
+                const response = await fetch('/api/viral-agents', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        window.location.href = 'la-casa-dark-core-auth.html';
+                        return;
+                    }
+                    throw new Error('Erro ao carregar agentes');
+                }
+
+                const data = await response.json();
+                renderAgents(data.agents);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao carregar agentes: ' + error.message);
+            }
+        }
+
+        // Renderizar agentes
+        function renderAgents(agents) {
+            const container = document.getElementById('agents-list');
+            if (agents.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-12">
+                        <p class="text-gray-400 mb-4">Nenhum agente criado ainda</p>
+                        <button onclick="openCreateAgentModal()" class="btn-primary">Criar Primeiro Agente</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = agents.map(agent => `
+                <div class="agent-card p-6" onclick="openAgent(${agent.id})">
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-bold mb-1">${escapeHtml(agent.name)}</h3>
+                            ${agent.description ? `<p class="text-sm text-gray-400">${escapeHtml(agent.description)}</p>` : ''}
+                        </div>
+                        ${agent.is_favorite ? '<i data-lucide="star" class="text-amber-500 fill-amber-500"></i>' : ''}
+                    </div>
+                    <div class="flex items-center gap-4 text-sm text-gray-500">
+                        <span><i data-lucide="file-text"></i> ${agent.file_count || 0} arquivos</span>
+                        <span><i data-lucide="message-square"></i> ${agent.conversation_count || 0} conversas</span>
+                    </div>
+                    <div class="mt-4 text-xs text-gray-500">
+                        ${formatDate(agent.updated_at)}
+                    </div>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+        }
+
+        // Abrir agente
+        async function openAgent(agentId) {
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${agentId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) throw new Error('Erro ao carregar agente');
+
+                const data = await response.json();
+                currentAgent = data.agent;
+                
+                showAgentView();
+                loadAgentData();
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao carregar agente');
+            }
+        }
+
+        // Carregar dados do agente
+        function loadAgentData() {
+            if (!currentAgent) return;
+
+            document.getElementById('agent-name-header').textContent = currentAgent.name;
+            document.getElementById('agent-description-header').textContent = currentAgent.description || '';
+            document.getElementById('agent-memory').textContent = currentAgent.memory || 'Nenhuma memória definida';
+            document.getElementById('agent-instructions').textContent = currentAgent.instructions || 'Nenhuma instrução definida';
+            
+            // Favorito
+            const favoriteBtn = document.getElementById('favorite-btn');
+            const icon = favoriteBtn.querySelector('i');
+            if (currentAgent.is_favorite) {
+                icon.classList.add('text-amber-500', 'fill-amber-500');
+            } else {
+                icon.classList.remove('text-amber-500', 'fill-amber-500');
+            }
+
+            // Arquivos
+            renderFiles(currentAgent.files || []);
+            
+            // Conversas
+            renderConversations(currentAgent.conversations || []);
+
+            // Criar nova conversa se não houver
+            if (!currentConversation && (!currentAgent.conversations || currentAgent.conversations.length === 0)) {
+                createNewConversation();
+            } else if (currentAgent.conversations && currentAgent.conversations.length > 0) {
+                currentConversation = currentAgent.conversations[0].id;
+                loadMessages(currentConversation);
+            }
+        }
+
+        // Renderizar arquivos
+        function renderFiles(files) {
+            const container = document.getElementById('agent-files');
+            if (files.length === 0) {
+                container.innerHTML = '<p class="text-sm text-gray-500">Nenhum arquivo</p>';
+                return;
+            }
+
+            container.innerHTML = files.map(file => `
+                <div class="flex items-center justify-between p-2 bg-gray-800 rounded-lg">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium">${escapeHtml(file.file_name)}</p>
+                        <p class="text-xs text-gray-500">${file.file_size || 0} bytes</p>
+                    </div>
+                    <button onclick="deleteFile(${file.id})" class="text-red-400 hover:text-red-300">
+                        <i data-lucide="trash-2"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            lucide.createIcons();
+        }
+
+        // Renderizar conversas
+        function renderConversations(conversations) {
+            const container = document.getElementById('conversations-list');
+            if (conversations.length === 0) {
+                container.innerHTML = '<p class="text-sm text-gray-500">Nenhuma conversa</p>';
+                return;
+            }
+
+            container.innerHTML = conversations.map(conv => `
+                <div class="p-3 bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-700 transition ${currentConversation === conv.id ? 'border border-amber-500' : ''}" 
+                     onclick="loadConversation(${conv.id})">
+                    <p class="text-sm font-medium">${escapeHtml(conv.title || 'Nova Conversa')}</p>
+                    <p class="text-xs text-gray-500 mt-1">${formatDate(conv.updated_at)}</p>
+                </div>
+            `).join('');
+        }
+
+        // Views
+        function showListView() {
+            document.getElementById('view-list').style.display = 'block';
+            document.getElementById('view-agent').style.display = 'none';
+            currentAgent = null;
+            currentConversation = null;
+        }
+
+        function showAgentView() {
+            document.getElementById('view-list').style.display = 'none';
+            document.getElementById('view-agent').style.display = 'block';
+        }
+
+        // Tabs
+        function showChatTab() {
+            document.getElementById('tab-content-chat').style.display = 'block';
+            document.getElementById('tab-content-conversations').style.display = 'none';
+            document.getElementById('tab-chat').classList.add('border-amber-500', 'text-amber-500');
+            document.getElementById('tab-chat').classList.remove('border-transparent', 'text-gray-400');
+            document.getElementById('tab-conversations').classList.remove('border-amber-500', 'text-amber-500');
+            document.getElementById('tab-conversations').classList.add('border-transparent', 'text-gray-400');
+        }
+
+        function showConversationsTab() {
+            document.getElementById('tab-content-chat').style.display = 'none';
+            document.getElementById('tab-content-conversations').style.display = 'block';
+            document.getElementById('tab-conversations').classList.add('border-amber-500', 'text-amber-500');
+            document.getElementById('tab-conversations').classList.remove('border-transparent', 'text-gray-400');
+            document.getElementById('tab-chat').classList.remove('border-amber-500', 'text-amber-500');
+            document.getElementById('tab-chat').classList.add('border-transparent', 'text-gray-400');
+        }
+
+        // Modais
+        function openCreateAgentModal() {
+            document.getElementById('modal-agent-title').textContent = 'Novo Agente';
+            document.getElementById('modal-agent-name').value = '';
+            document.getElementById('modal-agent-description').value = '';
+            document.getElementById('modal-agent-memory').value = '';
+            document.getElementById('modal-agent-instructions').value = '';
+            currentAgent = null;
+            document.getElementById('modal-agent').style.display = 'flex';
+            lucide.createIcons();
+        }
+
+        function openEditAgentModal() {
+            if (!currentAgent) return;
+            document.getElementById('modal-agent-title').textContent = 'Editar Agente';
+            document.getElementById('modal-agent-name').value = currentAgent.name;
+            document.getElementById('modal-agent-description').value = currentAgent.description || '';
+            document.getElementById('modal-agent-memory').value = currentAgent.memory || '';
+            document.getElementById('modal-agent-instructions').value = currentAgent.instructions || '';
+            document.getElementById('modal-agent').style.display = 'flex';
+            lucide.createIcons();
+        }
+
+        function closeAgentModal() {
+            document.getElementById('modal-agent').style.display = 'none';
+        }
+
+        // Salvar agente
+        async function saveAgent() {
+            const name = document.getElementById('modal-agent-name').value.trim();
+            if (!name) {
+                alert('Nome do agente é obrigatório');
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const url = currentAgent 
+                    ? `/api/viral-agents/${currentAgent.id}`
+                    : '/api/viral-agents';
+                
+                const method = currentAgent ? 'PUT' : 'POST';
+                const body = {
+                    name,
+                    description: document.getElementById('modal-agent-description').value.trim(),
+                    memory: document.getElementById('modal-agent-memory').value.trim(),
+                    instructions: document.getElementById('modal-agent-instructions').value.trim()
+                };
+
+                const response = await fetch(url, {
+                    method,
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.msg || 'Erro ao salvar agente');
+                }
+
+                closeAgentModal();
+                if (currentAgent) {
+                    await openAgent(currentAgent.id);
+                } else {
+                    loadAgents();
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao salvar agente: ' + error.message);
+            }
+        }
+
+        // Deletar agente
+        async function deleteAgent() {
+            if (!currentAgent) return;
+            if (!confirm('Tem certeza que deseja deletar este agente?')) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) throw new Error('Erro ao deletar agente');
+
+                showListView();
+                loadAgents();
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao deletar agente');
+            }
+        }
+
+        // Toggle favorito
+        async function toggleFavorite() {
+            if (!currentAgent) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        is_favorite: !currentAgent.is_favorite
+                    })
+                });
+
+                if (!response.ok) throw new Error('Erro ao atualizar favorito');
+
+                await openAgent(currentAgent.id);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao atualizar favorito');
+            }
+        }
+
+        // Editar memória/instruções
+        function editMemory() {
+            editingField = 'memory';
+            document.getElementById('modal-edit-title').textContent = 'Editar Memória';
+            document.getElementById('modal-edit-content').value = currentAgent.memory || '';
+            document.getElementById('modal-edit-field').style.display = 'flex';
+            lucide.createIcons();
+        }
+
+        function editInstructions() {
+            editingField = 'instructions';
+            document.getElementById('modal-edit-title').textContent = 'Editar Instruções';
+            document.getElementById('modal-edit-content').value = currentAgent.instructions || '';
+            document.getElementById('modal-edit-field').style.display = 'flex';
+            lucide.createIcons();
+        }
+
+        function closeEditFieldModal() {
+            document.getElementById('modal-edit-field').style.display = 'none';
+            editingField = null;
+        }
+
+        async function saveField() {
+            if (!currentAgent || !editingField) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        [editingField]: document.getElementById('modal-edit-content').value.trim()
+                    })
+                });
+
+                if (!response.ok) throw new Error('Erro ao salvar');
+
+                closeEditFieldModal();
+                await openAgent(currentAgent.id);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao salvar');
+            }
+        }
+
+        // Arquivos
+        function addFile() {
+            document.getElementById('modal-file-name').value = '';
+            document.getElementById('modal-file-content').value = '';
+            document.getElementById('modal-file').style.display = 'flex';
+            lucide.createIcons();
+        }
+
+        function closeFileModal() {
+            document.getElementById('modal-file').style.display = 'none';
+        }
+
+        async function saveFile() {
+            if (!currentAgent) return;
+
+            const fileName = document.getElementById('modal-file-name').value.trim();
+            const fileContent = document.getElementById('modal-file-content').value.trim();
+
+            if (!fileName || !fileContent) {
+                alert('Nome e conteúdo do arquivo são obrigatórios');
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}/files`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_name: fileName,
+                        file_content: fileContent,
+                        file_type: 'text/plain',
+                        file_size: fileContent.length
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.msg || 'Erro ao adicionar arquivo');
+                }
+
+                closeFileModal();
+                await openAgent(currentAgent.id);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao adicionar arquivo: ' + error.message);
+            }
+        }
+
+        async function deleteFile(fileId) {
+            if (!confirm('Tem certeza que deseja deletar este arquivo?')) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}/files/${fileId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) throw new Error('Erro ao deletar arquivo');
+
+                await openAgent(currentAgent.id);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao deletar arquivo');
+            }
+        }
+
+        // Conversas
+        async function createNewConversation() {
+            if (!currentAgent) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}/conversations`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        title: 'Nova Conversa'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.msg || 'Erro ao criar conversa');
+                }
+
+                const data = await response.json();
+                currentConversation = data.conversation.id;
+                await openAgent(currentAgent.id);
+                await loadMessages(currentConversation);
+                showChatTab();
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao criar conversa: ' + error.message);
+            }
+        }
+
+        async function loadConversation(conversationId) {
+            currentConversation = conversationId;
+            await loadMessages(conversationId);
+            showChatTab();
+        }
+
+        async function loadMessages(conversationId) {
+            if (!currentAgent || !conversationId) return;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}/conversations/${conversationId}/messages`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) throw new Error('Erro ao carregar mensagens');
+
+                const data = await response.json();
+                renderMessages(data.messages);
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro ao carregar mensagens');
+            }
+        }
+
+        function renderMessages(messages) {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = messages.map(msg => `
+                <div class="message ${msg.role}">
+                    <p class="text-sm whitespace-pre-wrap">${escapeHtml(msg.content)}</p>
+                </div>
+            `).join('');
+
+            container.scrollTop = container.scrollHeight;
+            lucide.createIcons();
+        }
+
+        async function sendMessage() {
+            if (!currentAgent || !currentConversation) {
+                await createNewConversation();
+                if (!currentConversation) return;
+            }
+
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Adicionar mensagem do usuário na UI
+            const container = document.getElementById('chat-messages');
+            container.innerHTML += `
+                <div class="message user">
+                    <p class="text-sm whitespace-pre-wrap">${escapeHtml(message)}</p>
+                </div>
+            `;
+            container.scrollTop = container.scrollHeight;
+
+            input.value = '';
+            input.disabled = true;
+
+            // Mostrar loading
+            container.innerHTML += `
+                <div class="message assistant">
+                    <p class="text-sm text-gray-400">Pensando...</p>
+                </div>
+            `;
+            container.scrollTop = container.scrollHeight;
+
+            try {
+                const token = localStorage.getItem('core_token');
+                const response = await fetch(`/api/viral-agents/${currentAgent.id}/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        conversation_id: currentConversation,
+                        message: message,
+                        model: 'claude-3-5-sonnet-20241022'
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.msg || 'Erro ao enviar mensagem');
+                }
+
+                const data = await response.json();
+
+                // Remover loading e adicionar resposta
+                container.innerHTML = container.innerHTML.replace(
+                    /<div class="message assistant">[\s\S]*?Pensando\.\.\.[\s\S]*?<\/div>/,
+                    `<div class="message assistant">
+                        <p class="text-sm whitespace-pre-wrap">${escapeHtml(data.response)}</p>
+                    </div>`
+                );
+                container.scrollTop = container.scrollHeight;
+
+                // Recarregar conversas para atualizar timestamp
+                await openAgent(currentAgent.id);
+            } catch (error) {
+                console.error('Erro:', error);
+                container.innerHTML = container.innerHTML.replace(
+                    /<div class="message assistant">[\s\S]*?Pensando\.\.\.[\s\S]*?<\/div>/,
+                    `<div class="message assistant">
+                        <p class="text-sm text-red-400">Erro: ${escapeHtml(error.message)}</p>
+                    </div>`
+                );
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        }
+
+        // Utilitários
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            
+            if (days === 0) return 'Hoje';
+            if (days === 1) return 'Ontem';
+            if (days < 7) return `Há ${days} dias`;
+            if (days < 30) return `Há ${Math.floor(days / 7)} semanas`;
+            return date.toLocaleDateString('pt-BR');
+        }
+    </script>
+</body>
+</html>
+
