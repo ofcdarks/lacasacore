@@ -616,7 +616,7 @@
                     </div>
                     <p class="text-lg font-bold text-yellow-400" id="sidebar-user-credits-balance">0.00</p>
                     <div class="mt-2 space-y-2">
-                        <a href="/plans.html" id="sidebar-buy-credits-btn" class="block w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
+                        <a href="javascript:void(0)" id="sidebar-buy-credits-btn" class="block w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                             <i data-lucide="zap" class="w-3 h-3 inline-block mr-1"></i>
                             Comprar Créditos
                         </a>
@@ -729,7 +729,7 @@
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Créditos Disponíveis</h3>
                         <p class="text-3xl font-bold text-white" id="stat-credits-balance">0.00</p>
                         <div class="mt-3 space-y-2">
-                            <a href="/plans.html" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
+                            <a href="javascript:void(0)" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                                 <i data-lucide="zap" class="w-4 h-4 inline-block mr-1"></i>
                                 Comprar Créditos
                             </a>
@@ -3705,6 +3705,108 @@ Equipe La Casa Dark Core</textarea>
                                         Salvar Template
                                     </button>
                                 </div>
+                            </div>
+                            
+                            <!-- Template: Senha Provisória -->
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-white">Senha Provisória</h3>
+                                    <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-700 text-white">Ativo</span>
+                                </div>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Assunto do Email</label>
+                                        <input type="text" id="email-template-password_reset-subject" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200" placeholder="Sua senha provisória" value="Sua senha provisória - La Casa Dark Core">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">Corpo do Email (HTML)</label>
+                                        <textarea id="email-template-password_reset-body" rows="8" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 font-mono text-sm" placeholder="<html>...">Olá {{nome}},
+
+Uma senha provisória foi gerada para sua conta.
+
+Senha provisória: {{senha_provisoria}}
+
+Por favor, altere esta senha após fazer login pela primeira vez.
+
+Acesse sua conta: {{link_acesso}}
+
+Equipe La Casa Dark Core</textarea>
+                                        <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{senha_provisoria}}, {{link_acesso}}</p>
+                                    </div>
+                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('password_reset')">
+                                        Salvar Template
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Templates de Assinatura por Plano -->
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-white">Emails de Assinatura por Plano</h3>
+                                    <span class="px-3 py-1 text-xs font-semibold rounded-full bg-blue-700 text-white">Opcional</span>
+                                </div>
+                                <p class="text-sm text-gray-400 mb-4">Configure templates personalizados para cada plano. Se não configurar, será usado o template genérico de "Confirmação de Pagamento".</p>
+                                
+                                <div class="space-y-4">
+                                    <!-- START CREATOR Mensal -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">START CREATOR (Mensal)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-start-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-start-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- TURBO MAKER Mensal -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">TURBO MAKER (Mensal)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-turbo-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-turbo-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- MASTER PRO Mensal -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">MASTER PRO (Mensal)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-master-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-master-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- START CREATOR Anual -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">START CREATOR (Anual)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-start-annual-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-start-annual-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- TURBO MAKER Anual -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">TURBO MAKER (Anual)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-turbo-annual-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-turbo-annual-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- MASTER PRO Anual -->
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3">
+                                        <h4 class="text-sm font-semibold text-white mb-2">MASTER PRO (Anual)</h4>
+                                        <div class="space-y-2">
+                                            <input type="text" id="email-template-subscription_plan-master-annual-subject" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm" placeholder="Assunto (opcional)">
+                                            <textarea id="email-template-subscription_plan-master-annual-body" rows="4" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-200 text-sm font-mono" placeholder="Corpo HTML (opcional)"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition mt-4" onclick="saveAllSubscriptionTemplates()">
+                                    Salvar Todos os Templates de Assinatura
+                                </button>
+                                <p class="text-xs text-gray-400 mt-2">Variáveis disponíveis: {{nome}}, {{email}}, {{plano}}, {{valor}}, {{data_pagamento}}, {{proxima_cobranca}}, {{creditos}}</p>
                             </div>
                         </div>
                     </div>
@@ -8755,6 +8857,64 @@ Equipe La Casa Dark Core</textarea>
             });
 
             // Salvar templates de email
+            // Função para salvar todos os templates de assinatura
+            window.saveAllSubscriptionTemplates = async function() {
+                const subscriptionPlans = [
+                    'plan-start',
+                    'plan-turbo',
+                    'plan-master',
+                    'plan-start-annual',
+                    'plan-turbo-annual',
+                    'plan-master-annual'
+                ];
+                
+                let saved = 0;
+                let errors = 0;
+                
+                for (const planKey of subscriptionPlans) {
+                    const templateType = `subscription_${planKey}`;
+                    const subjectInput = document.getElementById(`email-template-${templateType}-subject`);
+                    const bodyInput = document.getElementById(`email-template-${templateType}-body`);
+                    
+                    if (subjectInput && bodyInput && (subjectInput.value.trim() || bodyInput.value.trim())) {
+                        try {
+                            const subject = subjectInput.value.trim() || `Assinatura ${planKey} confirmada`;
+                            const body = bodyInput.value.trim() || '';
+                            
+                            const response = await fetch('/api/admin/email-templates', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}`
+                                },
+                                body: JSON.stringify({
+                                    template_type: templateType,
+                                    subject: subject,
+                                    body: body
+                                })
+                            });
+                            
+                            if (response.ok) {
+                                saved++;
+                            } else {
+                                errors++;
+                            }
+                        } catch (error) {
+                            console.error(`Erro ao salvar template ${templateType}:`, error);
+                            errors++;
+                        }
+                    }
+                }
+                
+                if (saved > 0) {
+                    alert(`✅ ${saved} template(s) de assinatura salvos com sucesso!${errors > 0 ? `\n⚠️ ${errors} erro(s) ao salvar.` : ''}`);
+                } else if (errors > 0) {
+                    alert(`❌ Erro ao salvar templates. Verifique o console.`);
+                } else {
+                    alert('ℹ️ Nenhum template preenchido para salvar.');
+                }
+            };
+            
             window.saveEmailTemplate = async function(templateType) {
                 const subjectEl = document.getElementById(`email-template-${templateType}-subject`);
                 const bodyEl = document.getElementById(`email-template-${templateType}-body`);
@@ -14136,7 +14296,11 @@ Equipe La Casa Dark Core</textarea>
             if (sidebarBuyCreditsBtn) {
                 sidebarBuyCreditsBtn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    window.location.href = '/plans.html';
+                    e.stopPropagation();
+                    
+                    // Simplesmente redirecionar - a página de planos fará a verificação se necessário
+                    console.log('Redirecionando para página de planos...');
+                    window.location.href = '/plans.html#pacotes';
                 });
             }
             
@@ -14144,7 +14308,11 @@ Equipe La Casa Dark Core</textarea>
             if (mainBuyCreditsBtn) {
                 mainBuyCreditsBtn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    window.location.href = '/plans.html';
+                    e.stopPropagation();
+                    
+                    // Simplesmente redirecionar - a página de planos fará a verificação se necessário
+                    console.log('Redirecionando para página de planos...');
+                    window.location.href = '/plans.html#pacotes';
                 });
             }
             

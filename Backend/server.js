@@ -29,6 +29,8 @@ const ScriptOptimizer = require('./scriptOptimizer.js');
 const AIScriptValidator = require('./aiScriptValidator.js');
 const ViralFormulaReplicator = require('./viralFormulaReplicator.js');
 const { GoogleGenAI } = require('@google/genai');
+const Stripe = require('stripe');
+const nodemailer = require('nodemailer');
 const LAOZHANG_CHAT_ENDPOINT = process.env.LAOZHANG_CHAT_ENDPOINT || 'https://api.laozhang.ai/v1/chat/completions';
 
 const PROVIDER_NAME_PATTERNS = [
@@ -4944,6 +4946,23 @@ app.post('/api/auth/register', async (req, res) => {
             console.error('⚠️ Erro ao inicializar créditos para novo usuário:', creditError);
         }
 
+        // Enviar email de boas-vindas
+        try {
+            const protocol = req.protocol;
+            const host = req.get('host');
+            const loginUrl = `${protocol}://${host}/la-casa-dark-core-auth.html`;
+            
+            await sendTemplateEmail('register', email, {
+                nome: name,
+                email: email,
+                creditos_iniciais: bonusAmount || 0,
+                link_acesso: loginUrl
+            });
+        } catch (emailError) {
+            console.error('[EMAIL] Erro ao enviar email de boas-vindas:', emailError.message);
+            // Não falhar o registro se o email falhar
+        }
+
         res.status(201).json({ msg: 'Utilizador registado com sucesso! A aguardar aprovação.', userId: userId });
 
     } catch (err) {
@@ -6749,6 +6768,146 @@ app.post('/api/admin/smtp-config', authenticateToken, isAdmin, async (req, res) 
     }
 });
 
+// ============================================
+// SISTEMA DE ENVIO DE EMAILS
+// ============================================
+
+// Função para obter configuração SMTP
+async function getSMTPConfig() {
+    try {
+        const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'smtp_%'");
+        const config = {};
+        rows.forEach(row => {
+            try {
+                const key = row.key.replace('smtp_', '');
+                config[key] = JSON.parse(row.value);
+            } catch (e) {
+                config[row.key.replace('smtp_', '')] = row.value;
+            }
+        });
+        return config;
+    } catch (error) {
+        console.error('[EMAIL] Erro ao buscar configuração SMTP:', error.message);
+        return null;
+    }
+}
+
+// Função para criar transporter do nodemailer
+async function createEmailTransporter() {
+    const smtpConfig = await getSMTPConfig();
+    
+    if (!smtpConfig || !smtpConfig.host || !smtpConfig.email || !smtpConfig.password) {
+        console.warn('[EMAIL] SMTP não configurado. Emails não serão enviados.');
+        return null;
+    }
+    
+    try {
+        const transporter = nodemailer.createTransport({
+            host: smtpConfig.host,
+            port: parseInt(smtpConfig.port) || 587,
+            secure: smtpConfig.secure === true || smtpConfig.secure === 'true',
+            auth: {
+                user: smtpConfig.email,
+                pass: smtpConfig.password
+            }
+        });
+        
+        // Verificar conexão
+        await transporter.verify();
+        console.log('[EMAIL] SMTP configurado e verificado com sucesso');
+        return transporter;
+    } catch (error) {
+        console.error('[EMAIL] Erro ao criar transporter:', error.message);
+        return null;
+    }
+}
+
+// Função para obter template de email
+async function getEmailTemplate(templateType) {
+    try {
+        const subjectRow = await db.get("SELECT value FROM app_settings WHERE key = ?", [`email_template_${templateType}_subject`]);
+        const bodyRow = await db.get("SELECT value FROM app_settings WHERE key = ?", [`email_template_${templateType}_body`]);
+        
+        if (!subjectRow || !bodyRow) {
+            return null;
+        }
+        
+        let subject, body;
+        try {
+            subject = JSON.parse(subjectRow.value);
+            body = JSON.parse(bodyRow.value);
+        } catch {
+            subject = subjectRow.value;
+            body = bodyRow.value;
+        }
+        
+        return { subject, body };
+    } catch (error) {
+        console.error(`[EMAIL] Erro ao buscar template ${templateType}:`, error.message);
+        return null;
+    }
+}
+
+// Função para substituir variáveis no template
+function replaceTemplateVariables(template, variables) {
+    if (!template) return '';
+    
+    let result = template;
+    for (const [key, value] of Object.entries(variables)) {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        result = result.replace(regex, value || '');
+    }
+    return result;
+}
+
+// Função para enviar email
+async function sendEmail(to, subject, htmlBody, textBody = null) {
+    try {
+        const transporter = await createEmailTransporter();
+        if (!transporter) {
+            console.warn('[EMAIL] Transporter não disponível, email não enviado');
+            return { success: false, message: 'SMTP não configurado' };
+        }
+        
+        const smtpConfig = await getSMTPConfig();
+        const fromEmail = smtpConfig.email || 'noreply@lacasadarkcore.com';
+        
+        const mailOptions = {
+            from: `"La Casa Dark Core" <${fromEmail}>`,
+            to: to,
+            subject: subject,
+            html: htmlBody,
+            text: textBody || htmlBody.replace(/<[^>]*>/g, '') // Remover HTML se não houver texto
+        };
+        
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[EMAIL] Email enviado com sucesso para ${to}:`, info.messageId);
+        return { success: true, messageId: info.messageId };
+    } catch (error) {
+        console.error('[EMAIL] Erro ao enviar email:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+// Função para enviar email usando template
+async function sendTemplateEmail(templateType, to, variables = {}) {
+    try {
+        const template = await getEmailTemplate(templateType);
+        if (!template) {
+            console.warn(`[EMAIL] Template ${templateType} não encontrado`);
+            return { success: false, message: 'Template não encontrado' };
+        }
+        
+        const subject = replaceTemplateVariables(template.subject, variables);
+        const body = replaceTemplateVariables(template.body, variables);
+        
+        return await sendEmail(to, subject, body);
+    } catch (error) {
+        console.error(`[EMAIL] Erro ao enviar email com template ${templateType}:`, error.message);
+        return { success: false, error: error.message };
+    }
+}
+
 // GET /api/admin/pixel-config - Obter configurações de Pixel/Ads
 app.get('/api/admin/pixel-config', authenticateToken, isAdmin, async (req, res) => {
     try {
@@ -7367,6 +7526,433 @@ app.post('/api/admin/stripe-config', authenticateToken, isAdmin, async (req, res
     } catch (err) {
         console.error("Erro ao salvar configurações do Stripe:", err.message);
         res.status(500).json({ message: "Erro ao salvar configurações do Stripe." });
+    }
+});
+
+// Função auxiliar para obter instância do Stripe
+async function getStripeInstance() {
+    try {
+        const secretKeyRow = await db.get("SELECT value FROM app_settings WHERE key = 'stripe_secret_key'");
+        if (!secretKeyRow || !secretKeyRow.value) {
+            throw new Error('Chave secreta do Stripe não configurada');
+        }
+        const secretKey = JSON.parse(secretKeyRow.value);
+        if (!secretKey || secretKey.trim() === '') {
+            throw new Error('Chave secreta do Stripe inválida');
+        }
+        return new Stripe(secretKey);
+    } catch (error) {
+        console.error('[STRIPE] Erro ao criar instância:', error.message);
+        throw error;
+    }
+}
+
+// GET /api/stripe/plans - Obter IDs dos planos do Stripe
+app.get('/api/stripe/plans', authenticateToken, async (req, res) => {
+    try {
+        const planKeys = [
+            'plan-free',
+            'plan-start',
+            'plan-turbo',
+            'plan-master',
+            'plan-start-annual',
+            'plan-turbo-annual',
+            'plan-master-annual',
+            'package-1000',
+            'package-2500',
+            'package-5000',
+            'package-10000',
+            'package-20000'
+        ];
+        
+        const plans = {};
+        for (const key of planKeys) {
+            const row = await db.get("SELECT value FROM app_settings WHERE key = ?", [`stripe_${key}`]);
+            if (row && row.value) {
+                try {
+                    plans[key] = JSON.parse(row.value);
+                } catch {
+                    plans[key] = row.value;
+                }
+            }
+        }
+        
+        res.json({ success: true, plans });
+    } catch (error) {
+        console.error('[STRIPE] Erro ao buscar planos:', error.message);
+        res.status(500).json({ success: false, message: 'Erro ao buscar planos do Stripe' });
+    }
+});
+
+// POST /api/stripe/create-checkout - Criar sessão de checkout
+app.post('/api/stripe/create-checkout', authenticateToken, async (req, res) => {
+    try {
+        const { planKey, planType } = req.body; // planType: 'subscription' ou 'one-time'
+        
+        if (!planKey) {
+            return res.status(400).json({ success: false, message: 'ID do plano é obrigatório' });
+        }
+        
+        // Buscar o Price ID do Stripe
+        const row = await db.get("SELECT value FROM app_settings WHERE key = ?", [`stripe_${planKey}`]);
+        if (!row || !row.value) {
+            return res.status(404).json({ success: false, message: 'Plano não encontrado ou não configurado no Stripe' });
+        }
+        
+        let priceId;
+        try {
+            priceId = JSON.parse(row.value);
+        } catch {
+            priceId = row.value;
+        }
+        
+        if (!priceId || priceId.trim() === '') {
+            return res.status(404).json({ success: false, message: 'Price ID do Stripe não configurado para este plano' });
+        }
+        
+        // Validar se é um Price ID válido (deve começar com 'price_')
+        if (!priceId.startsWith('price_')) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `ID inválido para o plano ${planKey}. Você configurou "${priceId}", mas precisa usar um Price ID (que começa com "price_"). Product IDs (que começam com "prod_") não funcionam.`,
+                error: 'Invalid Price ID format',
+                hint: 'No Stripe, você precisa usar o Price ID (price_...), não o Product ID (prod_...). Acesse o produto no Stripe e copie o Price ID correto.'
+            });
+        }
+        
+        // Obter dados do usuário
+        const userId = req.user.id;
+        const userData = await db.get("SELECT email FROM users WHERE id = ?", [userId]);
+        if (!userData) {
+            return res.status(404).json({ success: false, message: 'Usuário não encontrado' });
+        }
+        
+        // Mapear planKey para nome do plano (ANTES de criar URLs)
+        const planNames = {
+            'plan-free': 'FREE',
+            'plan-start': 'START CREATOR',
+            'plan-turbo': 'TURBO MAKER',
+            'plan-master': 'MASTER PRO',
+            'plan-start-annual': 'START CREATOR Anual',
+            'plan-turbo-annual': 'TURBO MAKER Anual',
+            'plan-master-annual': 'MASTER PRO Anual',
+            'package-1000': 'Pacote 1.000 Créditos',
+            'package-2500': 'Pacote 2.500 Créditos',
+            'package-5000': 'Pacote 5.000 Créditos',
+            'package-10000': 'Pacote 10.000 Créditos',
+            'package-20000': 'Pacote 20.000 Créditos'
+        };
+        
+        const planName = planNames[planKey] || planKey;
+        
+        // Obter instância do Stripe
+        let stripe;
+        try {
+            stripe = await getStripeInstance();
+        } catch (error) {
+            console.error('[STRIPE] Erro ao obter instância do Stripe:', error.message);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Stripe não está configurado. Configure as chaves do Stripe no painel administrativo.',
+                error: error.message
+            });
+        }
+        
+        // Configurar URLs de sucesso e cancelamento
+        const protocol = req.protocol;
+        const host = req.get('host');
+        // URL de sucesso vai para página de agradecimento com informações do plano
+        const successUrl = `${protocol}://${host}/thank-you.html?session_id={CHECKOUT_SESSION_ID}&planKey=${encodeURIComponent(planKey)}&planName=${encodeURIComponent(planName)}&success=true`;
+        const cancelUrl = `${protocol}://${host}/plans.html?canceled=true`;
+        
+        console.log(`[STRIPE] Criando checkout para plano: ${planKey}, tipo: ${planType || 'subscription'}, priceId: ${priceId}`);
+        
+        // Criar sessão de checkout
+        const sessionParams = {
+            payment_method_types: ['card'],
+            customer_email: userData.email,
+            metadata: {
+                userId: userId.toString(),
+                planKey: planKey,
+                planType: planType || 'subscription'
+            },
+            success_url: successUrl,
+            cancel_url: cancelUrl
+        };
+        
+        // Se for assinatura recorrente
+        if (planType === 'subscription' || !planType) {
+            sessionParams.mode = 'subscription';
+            sessionParams.line_items = [{
+                price: priceId,
+                quantity: 1
+            }];
+        } else {
+            // Se for pagamento único (pacotes avulsos)
+            sessionParams.mode = 'payment';
+            sessionParams.line_items = [{
+                price: priceId,
+                quantity: 1
+            }];
+        }
+        
+        let session;
+        try {
+            session = await stripe.checkout.sessions.create(sessionParams);
+            console.log(`[STRIPE] Sessão criada com sucesso: ${session.id}`);
+        } catch (stripeError) {
+            console.error('[STRIPE] Erro ao criar sessão no Stripe:', stripeError.message);
+            console.error('[STRIPE] Detalhes do erro:', stripeError);
+            return res.status(500).json({ 
+                success: false, 
+                message: `Erro ao criar sessão no Stripe: ${stripeError.message}`,
+                error: stripeError.message,
+                details: stripeError.type || 'unknown'
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            sessionId: session.id,
+            url: session.url
+        });
+    } catch (error) {
+        console.error('[STRIPE] Erro geral ao criar checkout:', error.message);
+        console.error('[STRIPE] Stack trace:', error.stack);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Erro ao criar sessão de checkout',
+            error: error.message
+        });
+    }
+});
+
+// POST /api/stripe/webhook - Webhook do Stripe (não requer autenticação)
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    
+    try {
+        // Obter webhook secret
+        const webhookSecretRow = await db.get("SELECT value FROM app_settings WHERE key = 'stripe_webhook_secret'");
+        if (!webhookSecretRow || !webhookSecretRow.value) {
+            console.error('[STRIPE WEBHOOK] Webhook secret não configurado');
+            return res.status(400).send('Webhook secret não configurado');
+        }
+        
+        let webhookSecret;
+        try {
+            webhookSecret = JSON.parse(webhookSecretRow.value);
+        } catch {
+            webhookSecret = webhookSecretRow.value;
+        }
+        
+        // Obter instância do Stripe
+        const stripe = await getStripeInstance();
+        
+        // Verificar assinatura do webhook
+        const event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+        
+        // Processar eventos
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            const userId = session.metadata?.userId;
+            const planKey = session.metadata?.planKey;
+            
+            if (userId && planKey) {
+                // Obter dados do usuário
+                const userData = await db.get("SELECT name, email, credits FROM users WHERE id = ?", [userId]);
+                if (!userData) {
+                    console.error(`[STRIPE WEBHOOK] Usuário ${userId} não encontrado`);
+                    return res.json({ received: true });
+                }
+                
+                // Mapear planKey para nome do plano no sistema
+                const planMapping = {
+                    'plan-free': 'plan-free',
+                    'plan-start': 'plan-start',
+                    'plan-turbo': 'plan-turbo',
+                    'plan-master': 'plan-master',
+                    'plan-start-annual': 'plan-start-annual',
+                    'plan-turbo-annual': 'plan-turbo-annual',
+                    'plan-master-annual': 'plan-master-annual',
+                    'package-1000': 'plan-start', // Pacotes podem adicionar créditos
+                    'package-2500': 'plan-turbo',
+                    'package-5000': 'plan-master',
+                    'package-10000': 'plan-master',
+                    'package-20000': 'plan-master'
+                };
+                
+                const systemPlan = planMapping[planKey] || planKey;
+                
+                // Nomes dos planos para email
+                const planNames = {
+                    'plan-start': 'START CREATOR',
+                    'plan-turbo': 'TURBO MAKER',
+                    'plan-master': 'MASTER PRO',
+                    'plan-start-annual': 'START CREATOR Anual',
+                    'plan-turbo-annual': 'TURBO MAKER Anual',
+                    'plan-master-annual': 'MASTER PRO Anual',
+                    'package-1000': 'Pacote 1.000 Créditos',
+                    'package-2500': 'Pacote 2.500 Créditos',
+                    'package-5000': 'Pacote 5.000 Créditos',
+                    'package-10000': 'Pacote 10.000 Créditos',
+                    'package-20000': 'Pacote 20.000 Créditos'
+                };
+                
+                const planName = planNames[planKey] || planKey;
+                const amount = session.amount_total ? (session.amount_total / 100).toFixed(2) : '0.00';
+                const currency = session.currency?.toUpperCase() || 'BRL';
+                const paymentDate = new Date().toLocaleDateString('pt-BR');
+                
+                // Atualizar plano do usuário
+                if (session.mode === 'subscription') {
+                    // Assinatura recorrente
+                    await db.run(
+                        "UPDATE users SET subscription_plan = ?, plan = ? WHERE id = ?",
+                        [systemPlan, systemPlan, userId]
+                    );
+                    
+                    // Recarregar créditos baseado no plano
+                    const planCreditsRow = await db.get(
+                        "SELECT monthly_credits FROM plan_credits WHERE plan_name = ?",
+                        [systemPlan]
+                    );
+                    
+                    if (planCreditsRow) {
+                        await db.run(
+                            "UPDATE users SET credits = ? WHERE id = ?",
+                            [planCreditsRow.monthly_credits, userId]
+                        );
+                    }
+                    
+                    // Calcular próxima cobrança (30 dias para mensal, 365 para anual)
+                    const nextBillingDate = new Date();
+                    if (planKey.includes('annual')) {
+                        nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+                    } else {
+                        nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+                    }
+                    const nextBilling = nextBillingDate.toLocaleDateString('pt-BR');
+                    
+                    // Enviar email de assinatura (usar template específico do plano ou genérico)
+                    try {
+                        const templateType = `subscription_${planKey}`;
+                        const template = await getEmailTemplate(templateType);
+                        
+                        if (template) {
+                            // Template específico do plano existe
+                            await sendTemplateEmail(templateType, userData.email, {
+                                nome: userData.name,
+                                email: userData.email,
+                                plano: planName,
+                                valor: `R$ ${amount}`,
+                                data_pagamento: paymentDate,
+                                proxima_cobranca: nextBilling,
+                                creditos: planCreditsRow?.monthly_credits || 0
+                            });
+                        } else {
+                            // Usar template genérico de pagamento
+                            await sendTemplateEmail('payment', userData.email, {
+                                nome: userData.name,
+                                email: userData.email,
+                                plano: planName,
+                                valor: `R$ ${amount}`,
+                                data_pagamento: paymentDate,
+                                proxima_cobranca: nextBilling
+                            });
+                        }
+                    } catch (emailError) {
+                        console.error('[EMAIL] Erro ao enviar email de assinatura:', emailError.message);
+                    }
+                } else {
+                    // Pagamento único - adicionar créditos
+                    const creditAmounts = {
+                        'package-1000': 1000,
+                        'package-2500': 2500,
+                        'package-5000': 5000,
+                        'package-10000': 10000,
+                        'package-20000': 20000
+                    };
+                    
+                    const creditsToAdd = creditAmounts[planKey] || 0;
+                    if (creditsToAdd > 0) {
+                        await db.run(
+                            "UPDATE users SET credits = credits + ? WHERE id = ?",
+                            [creditsToAdd, userId]
+                        );
+                        
+                        // Obter saldo atualizado
+                        const updatedUser = await db.get("SELECT credits FROM users WHERE id = ?", [userId]);
+                        
+                        // Enviar email de pacote comprado
+                        try {
+                            await sendTemplateEmail('package', userData.email, {
+                                nome: userData.name,
+                                email: userData.email,
+                                pacote: planName,
+                                creditos: creditsToAdd,
+                                valor: `R$ ${amount}`,
+                                data_compra: paymentDate,
+                                saldo_atual: updatedUser?.credits || 0
+                            });
+                        } catch (emailError) {
+                            console.error('[EMAIL] Erro ao enviar email de pacote:', emailError.message);
+                        }
+                    }
+                }
+                
+                console.log(`[STRIPE WEBHOOK] Usuário ${userId} atualizado para plano ${systemPlan}`);
+            }
+        } else if (event.type === 'customer.subscription.deleted') {
+            // Assinatura cancelada
+            const subscription = event.data.object;
+            const customerId = subscription.customer;
+            
+            // Buscar usuário pelo customer_id ou metadata
+            try {
+                // Tentar encontrar usuário pela subscription
+                const userData = await db.get(
+                    "SELECT id, name, email, subscription_plan FROM users WHERE id IN (SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?)",
+                    [subscription.id]
+                );
+                
+                if (userData) {
+                    // Enviar email de cancelamento
+                    const cancelDate = new Date().toLocaleDateString('pt-BR');
+                    const endDate = new Date();
+                    endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
+                    const endAccessDate = endDate.toLocaleDateString('pt-BR');
+                    
+                    const planNames = {
+                        'plan-start': 'START CREATOR',
+                        'plan-turbo': 'TURBO MAKER',
+                        'plan-master': 'MASTER PRO',
+                        'plan-start-annual': 'START CREATOR Anual',
+                        'plan-turbo-annual': 'TURBO MAKER Anual',
+                        'plan-master-annual': 'MASTER PRO Anual'
+                    };
+                    
+                    const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
+                    
+                    await sendTemplateEmail('cancel', userData.email, {
+                        nome: userData.name,
+                        email: userData.email,
+                        plano: planName,
+                        data_cancelamento: cancelDate,
+                        data_fim_acesso: endAccessDate
+                    });
+                }
+            } catch (emailError) {
+                console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+            }
+            
+            console.log(`[STRIPE WEBHOOK] Assinatura ${subscription.id} cancelada`);
+        }
+        
+        res.json({ received: true });
+    } catch (err) {
+        console.error('[STRIPE WEBHOOK] Erro:', err.message);
+        res.status(400).send(`Webhook Error: ${err.message}`);
     }
 });
 
@@ -19453,10 +20039,34 @@ app.put('/api/admin/users/:id/password', authenticateToken, isAdmin, async (req,
         return res.status(400).json({ msg: 'A senha deve ter pelo menos 6 caracteres.' });
     }
     try {
+        // Obter dados do usuário antes de atualizar
+        const userData = await db.get('SELECT name, email FROM users WHERE id = ?', [id]);
+        if (!userData) {
+            return res.status(404).json({ msg: 'Usuário não encontrado.' });
+        }
+        
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(password, salt);
         await db.run('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash, id]);
-        res.status(200).json({ msg: 'Senha atualizada com sucesso.' });
+        
+        // Enviar email de senha provisória
+        try {
+            const protocol = req.protocol;
+            const host = req.get('host');
+            const loginUrl = `${protocol}://${host}/la-casa-dark-core-auth.html`;
+            
+            await sendTemplateEmail('password_reset', userData.email, {
+                nome: userData.name,
+                email: userData.email,
+                senha_provisoria: password,
+                link_acesso: loginUrl
+            });
+        } catch (emailError) {
+            console.error('[EMAIL] Erro ao enviar email de senha provisória:', emailError.message);
+            // Não falhar a operação se o email falhar
+        }
+        
+        res.status(200).json({ msg: 'Senha atualizada com sucesso e email enviado.' });
     } catch (err) {
         res.status(500).json({ msg: 'Erro ao atualizar a senha.' });
     }

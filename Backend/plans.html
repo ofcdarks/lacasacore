@@ -765,6 +765,158 @@
             padding: 4px 0;
         }
         
+        /* Modal customizado */
+        .custom-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .custom-modal-overlay.show {
+            display: flex;
+            opacity: 1;
+        }
+        
+        .custom-modal {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(15, 15, 15, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 16px;
+            padding: 0;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(245, 158, 11, 0.2);
+            transform: scale(0.9) translateY(20px);
+            transition: transform 0.3s ease;
+            position: relative;
+        }
+        
+        .custom-modal-overlay.show .custom-modal {
+            transform: scale(1) translateY(0);
+        }
+        
+        .custom-modal-header {
+            padding: 24px 24px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .custom-modal-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .custom-modal-icon.info {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+        
+        .custom-modal-icon.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+        
+        .custom-modal-icon.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+        
+        .custom-modal-icon.warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+        
+        .custom-modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            flex: 1;
+        }
+        
+        .custom-modal-close {
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .custom-modal-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+        
+        .custom-modal-body {
+            padding: 24px;
+            color: rgba(255, 255, 255, 0.9);
+            line-height: 1.6;
+            white-space: pre-line;
+        }
+        
+        .custom-modal-footer {
+            padding: 16px 24px 24px;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .custom-modal-btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .custom-modal-btn-primary {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #000000;
+        }
+        
+        .custom-modal-btn-primary:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+        }
+        
+        .custom-modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .custom-modal-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
         /* Tabela comparativa */
         .comparison-table {
             overflow-x: auto;
@@ -1470,7 +1622,471 @@
         </div>
     </footer>
     
+    <!-- Modal Customizado -->
+    <div id="custom-modal-overlay" class="custom-modal-overlay">
+        <div class="custom-modal">
+            <div class="custom-modal-header">
+                <div id="custom-modal-icon" class="custom-modal-icon info">
+                    <i data-lucide="info" class="w-6 h-6"></i>
+                </div>
+                <h3 id="custom-modal-title" class="custom-modal-title">Informação</h3>
+                <button id="custom-modal-close" class="custom-modal-close" aria-label="Fechar">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="custom-modal-body" class="custom-modal-body">
+                Mensagem do modal
+            </div>
+            <div class="custom-modal-footer">
+                <button id="custom-modal-btn-secondary" class="custom-modal-btn custom-modal-btn-secondary" style="display: none;">Cancelar</button>
+                <button id="custom-modal-btn-primary" class="custom-modal-btn custom-modal-btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
+        // Sistema de Modal Customizado
+        const modal = {
+            overlay: null,
+            icon: null,
+            title: null,
+            body: null,
+            btnPrimary: null,
+            btnSecondary: null,
+            closeBtn: null,
+            
+            init() {
+                this.overlay = document.getElementById('custom-modal-overlay');
+                this.icon = document.getElementById('custom-modal-icon');
+                this.title = document.getElementById('custom-modal-title');
+                this.body = document.getElementById('custom-modal-body');
+                this.btnPrimary = document.getElementById('custom-modal-btn-primary');
+                this.btnSecondary = document.getElementById('custom-modal-btn-secondary');
+                this.closeBtn = document.getElementById('custom-modal-close');
+                
+                // Event listeners
+                this.closeBtn.addEventListener('click', () => this.hide());
+                this.btnPrimary.addEventListener('click', () => {
+                    if (this.onConfirm) {
+                        this.onConfirm();
+                    }
+                    this.hide();
+                });
+                this.btnSecondary.addEventListener('click', () => {
+                    if (this.onCancel) {
+                        this.onCancel();
+                    }
+                    this.hide();
+                });
+                
+                // Fechar ao clicar no overlay
+                this.overlay.addEventListener('click', (e) => {
+                    if (e.target === this.overlay) {
+                        this.hide();
+                    }
+                });
+                
+                // Fechar com ESC
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && this.overlay.classList.contains('show')) {
+                        this.hide();
+                    }
+                });
+            },
+            
+            show(options = {}) {
+                const {
+                    title = 'Informação',
+                    message = '',
+                    type = 'info', // info, error, success, warning
+                    showCancel = false,
+                    confirmText = 'OK',
+                    cancelText = 'Cancelar',
+                    onConfirm = null,
+                    onCancel = null
+                } = options;
+                
+                // Configurar tipo
+                this.icon.className = `custom-modal-icon ${type}`;
+                const icons = {
+                    info: 'info',
+                    error: 'x-circle',
+                    success: 'check-circle',
+                    warning: 'alert-triangle'
+                };
+                this.icon.innerHTML = `<i data-lucide="${icons[type] || 'info'}" class="w-6 h-6"></i>`;
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+                
+                // Configurar conteúdo
+                this.title.textContent = title;
+                this.body.textContent = message;
+                this.btnPrimary.textContent = confirmText;
+                this.btnSecondary.textContent = cancelText;
+                this.btnSecondary.style.display = showCancel ? 'block' : 'none';
+                
+                // Callbacks
+                this.onConfirm = onConfirm;
+                this.onCancel = onCancel;
+                
+                // Mostrar modal
+                this.overlay.classList.add('show');
+                document.body.style.overflow = 'hidden';
+            },
+            
+            hide() {
+                this.overlay.classList.remove('show');
+                document.body.style.overflow = '';
+                this.onConfirm = null;
+                this.onCancel = null;
+            },
+            
+            // Métodos de conveniência
+            info(message, title = 'Informação') {
+                this.show({ type: 'info', message, title });
+            },
+            
+            error(message, title = 'Erro') {
+                this.show({ type: 'error', message, title });
+            },
+            
+            success(message, title = 'Sucesso') {
+                this.show({ type: 'success', message, title });
+            },
+            
+            warning(message, title = 'Atenção') {
+                this.show({ type: 'warning', message, title });
+            },
+            
+            confirm(message, title = 'Confirmar', onConfirm = null, onCancel = null) {
+                this.show({
+                    type: 'warning',
+                    message,
+                    title,
+                    showCancel: true,
+                    confirmText: 'Confirmar',
+                    cancelText: 'Cancelar',
+                    onConfirm,
+                    onCancel
+                });
+            }
+        };
+        
+        // Substituir alert() padrão
+        window.alert = function(message) {
+            modal.info(message, 'Atenção');
+        };
+        
+        // Inicializar modal quando DOM estiver pronto
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => modal.init());
+        } else {
+            modal.init();
+        }
+        
+        // Re-inicializar ícones quando modal mostrar
+        const originalShow = modal.show;
+        modal.show = function(options) {
+            originalShow.call(this, options);
+            setTimeout(() => {
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }, 100);
+        };
+    </script>
+    
+    <script>
+        // Variável global para token
+        let token = null;
+        
+        // Função para obter token do localStorage
+        function getToken() {
+            try {
+                // Sempre buscar do localStorage diretamente (não usar cache)
+                // O token é armazenado como 'core_token' no sistema
+                const storedToken = localStorage.getItem('core_token');
+                if (storedToken && storedToken.trim() !== '') {
+                    token = storedToken; // Atualizar variável global
+                    return token;
+                }
+                // Se não encontrou, limpar variável global
+                token = null;
+                return null;
+            } catch (error) {
+                console.error('Erro ao acessar localStorage:', error);
+                token = null;
+                return null;
+            }
+        }
+
+        // Mapeamento de planos para planKeys
+        const planMapping = {
+            'FREE': { key: 'plan-free', type: 'subscription' },
+            'START CREATOR': { key: 'plan-start', type: 'subscription' },
+            'TURBO MAKER': { key: 'plan-turbo', type: 'subscription' },
+            'MASTER PRO': { key: 'plan-master', type: 'subscription' },
+            'START CREATOR Anual': { key: 'plan-start-annual', type: 'subscription' },
+            'TURBO MAKER Anual': { key: 'plan-turbo-annual', type: 'subscription' },
+            'MASTER PRO Anual': { key: 'plan-master-annual', type: 'subscription' },
+            '1.000 CRÉDITOS': { key: 'package-1000', type: 'one-time' },
+            '2.500 CRÉDITOS': { key: 'package-2500', type: 'one-time' },
+            '5.000 CRÉDITOS': { key: 'package-5000', type: 'one-time' },
+            '10.000 CRÉDITOS': { key: 'package-10000', type: 'one-time' },
+            '20.000 CRÉDITOS': { key: 'package-20000', type: 'one-time' }
+        };
+
+        // Armazenar planos disponíveis
+        let availablePlans = {};
+
+        // Carregar planos do Stripe
+        async function loadStripePlans() {
+            // Obter token atualizado
+            token = getToken();
+            
+            if (!token) {
+                console.warn('Token não disponível para carregar planos');
+                // Não redirecionar aqui - deixar o usuário ver a página
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/stripe/plans', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        // Token inválido ou expirado - apenas logar, não redirecionar
+                        console.warn('Token inválido ou expirado. Usuário precisará fazer login ao tentar comprar.');
+                        localStorage.removeItem('core_token');
+                        // Não redirecionar automaticamente - apenas quando tentar fazer checkout
+                        return;
+                    }
+                    console.warn('Não foi possível carregar planos do Stripe');
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.success) {
+                    availablePlans = data.plans;
+                }
+            } catch (error) {
+                console.error('Erro ao carregar planos:', error);
+            }
+        }
+
+        // Função para lidar com checkout
+        async function handleCheckout(planName, planKey, planType) {
+            // Tentar obter token várias vezes antes de desistir
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts) {
+                token = getToken();
+                if (token && token.trim() !== '') {
+                    break;
+                }
+                attempts++;
+                if (attempts < maxAttempts) {
+                    // Aguardar um pouco e tentar novamente
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+            
+            // Se ainda não houver token após tentativas
+            if (!token || token.trim() === '') {
+                console.error('Token não encontrado após várias tentativas');
+                console.log('localStorage completo:', { ...localStorage });
+                console.log('Tentando verificar se há token com outro método...');
+                
+                // Última tentativa - verificar diretamente com o nome correto
+                const directToken = localStorage.getItem('core_token');
+                if (!directToken || directToken.trim() === '') {
+                    modal.error('Sua sessão expirou. Por favor, faça login novamente.', 'Sessão Expirada');
+                    setTimeout(() => {
+                        window.location.href = '/la-casa-dark-core-auth.html';
+                    }, 2000);
+                    return;
+                } else {
+                    token = directToken;
+                    console.log('Token encontrado na última tentativa!');
+                }
+            } else {
+                console.log('Token encontrado, prosseguindo com checkout...');
+            }
+
+            try {
+                // Verificar se o plano está configurado
+                if (!availablePlans[planKey]) {
+                    modal.warning('Este plano ainda não está configurado no sistema. Entre em contato com o suporte.', 'Plano Não Configurado');
+                    return;
+                }
+
+                // Desabilitar botão durante o processo
+                const button = event.target;
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Processando...';
+
+                const response = await fetch('/api/stripe/create-checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        planKey: planKey,
+                        planType: planType
+                    })
+                });
+
+                if (response.status === 401) {
+                    // Token inválido
+                    localStorage.removeItem('core_token');
+                    modal.error('Sua sessão expirou. Por favor, faça login novamente.', 'Sessão Expirada');
+                    setTimeout(() => {
+                        window.location.href = '/la-casa-dark-core-auth.html';
+                    }, 2000);
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.success && data.url) {
+                    // Abrir checkout do Stripe em nova aba
+                    console.log('Abrindo checkout do Stripe em nova aba:', data.url);
+                    const checkoutWindow = window.open(data.url, '_blank', 'noopener,noreferrer');
+                    
+                    // Verificar se a nova aba foi bloqueada
+                    if (!checkoutWindow || checkoutWindow.closed || typeof checkoutWindow.closed === 'undefined') {
+                        modal.warning('Por favor, permita pop-ups para este site e tente novamente.', 'Popup Bloqueado');
+                    } else {
+                        // Fechar a nova aba automaticamente quando o checkout for concluído
+                        // Isso será feito via listener de mensagem ou verificação periódica
+                        modal.info('Checkout aberto em nova aba. Você pode continuar navegando aqui enquanto finaliza o pagamento.', 'Checkout Aberto');
+                    }
+                } else {
+                    // Mostrar mensagem de erro mais detalhada
+                    let errorMessage = data.message || 'Erro ao criar sessão de checkout. Tente novamente.';
+                    
+                    if (data.hint) {
+                        errorMessage += '\n\n💡 Dica: ' + data.hint;
+                    }
+                    
+                    if (data.error) {
+                        errorMessage += '\n\nDetalhes técnicos: ' + data.error;
+                    }
+                    
+                    if (data.message && (data.message.includes('não está configurado') || data.message.includes('Price ID'))) {
+                        errorMessage += '\n\nPor favor, configure corretamente no painel administrativo.';
+                    }
+                    
+                    modal.error(errorMessage, 'Erro no Checkout');
+                    console.error('Erro ao criar checkout:', data);
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            } catch (error) {
+                console.error('Erro no checkout:', error);
+                modal.error('Erro ao processar checkout. Tente novamente.', 'Erro');
+                const button = event.target;
+                button.disabled = false;
+            }
+        }
+
+        // Função para configurar botões
+        function setupButtons() {
+            // Botões de planos mensais
+            document.querySelectorAll('#mensais .btn-netflix, #mensais .btn-netflix-secondary').forEach(button => {
+                const card = button.closest('.plan-card-netflix');
+                if (card) {
+                    const planTitle = card.querySelector('h3')?.textContent.trim();
+                    if (planTitle && planMapping[planTitle]) {
+                        const { key, type } = planMapping[planTitle];
+                        button.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            if (planTitle === 'FREE') {
+                                modal.warning('O plano FREE já está ativo. Faça upgrade para um plano pago.', 'Plano Gratuito');
+                                return;
+                            }
+                            handleCheckout(planTitle, key, type);
+                        });
+                    }
+                }
+            });
+
+            // Botões de planos anuais
+            document.querySelectorAll('#anuais .btn-netflix').forEach(button => {
+                const card = button.closest('.plan-card-netflix');
+                if (card) {
+                    const planTitle = card.querySelector('h3')?.textContent.trim();
+                    if (planTitle) {
+                        // Para planos anuais, adicionar " Anual" ao mapeamento
+                        const planKey = planTitle === 'START CREATOR' ? 'plan-start-annual' :
+                                       planTitle === 'TURBO MAKER' ? 'plan-turbo-annual' :
+                                       planTitle === 'MASTER PRO' ? 'plan-master-annual' : null;
+                        
+                        if (planKey) {
+                            button.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                handleCheckout(planTitle + ' Anual', planKey, 'subscription');
+                            });
+                        }
+                    }
+                }
+            });
+
+            // Botões de pacotes avulsos
+            document.querySelectorAll('#pacotes .btn-netflix-secondary').forEach(button => {
+                const card = button.closest('.plan-card-netflix');
+                if (card) {
+                    const planTitle = card.querySelector('h3')?.textContent.trim();
+                    if (planTitle && planMapping[planTitle]) {
+                        const { key, type } = planMapping[planTitle];
+                        button.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            handleCheckout(planTitle, key, type);
+                        });
+                    }
+                }
+            });
+        }
+
+        // Verificar URL de retorno do Stripe
+        function checkStripeReturn() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionId = urlParams.get('session_id');
+            const success = urlParams.get('success');
+            const canceled = urlParams.get('canceled');
+
+            if (success === 'true' && sessionId) {
+                modal.success('Pagamento processado com sucesso! Seu plano será ativado em breve.', 'Pagamento Confirmado');
+                // Limpar parâmetros da URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            } else if (canceled === 'true') {
+                modal.warning('Pagamento cancelado. Você pode tentar novamente quando desejar.', 'Pagamento Cancelado');
+                // Limpar parâmetros da URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        // Inicializar
+        async function init() {
+            // Tentar obter token, mas não bloquear se não houver
+            token = getToken();
+            
+            // Carregar planos se houver token (não bloquear se não houver)
+            await loadStripePlans();
+            setupButtons();
+            checkStripeReturn();
+            
+            // NÃO verificar autenticação automaticamente - apenas quando necessário (checkout)
+        }
+
         // Inicializar ícones
         function initIcons() {
             if (typeof lucide !== 'undefined') {
@@ -1479,9 +2095,13 @@
         }
         
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initIcons);
+            document.addEventListener('DOMContentLoaded', () => {
+                initIcons();
+                init();
+            });
         } else {
             initIcons();
+            init();
         }
         
         setTimeout(initIcons, 100);
@@ -1513,7 +2133,7 @@
         window.addEventListener('scroll', updateActiveNav);
         updateActiveNav();
         
-        // Smooth scroll
+        // Smooth scroll para links internos
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -1528,6 +2148,31 @@
                 }
             });
         });
+
+        // Scroll para seção específica se houver hash na URL
+        function scrollToSection() {
+            const hash = window.location.hash;
+            if (hash) {
+                setTimeout(() => {
+                    const target = document.querySelector(hash);
+                    if (target) {
+                        const offset = 140;
+                        const targetPosition = target.getBoundingClientRect().top + window.pageYOffset - offset;
+                        window.scrollTo({
+                            top: targetPosition,
+                            behavior: 'smooth'
+                        });
+                        // Atualizar navegação ativa
+                        updateActiveNav();
+                    }
+                }, 300); // Aguardar um pouco para garantir que a página carregou
+            }
+        }
+
+        // Executar scroll ao carregar página
+        window.addEventListener('load', scrollToSection);
+        // Executar também se hash mudar
+        window.addEventListener('hashchange', scrollToSection);
     </script>
 </body>
 </html>
