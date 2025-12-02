@@ -49,7 +49,7 @@ const sanitizeUserFacingText = (text, fallback = 'Operação') => {
     for (const { pattern, replacement } of PROVIDER_NAME_PATTERNS) {
         sanitized = sanitized.replace(pattern, replacement);
     }
-    sanitized = sanitized.replace(/\s{2,}/g, ' ').trim();
+    sanitized = sanitized.replace(/\s{2,}/g, ' ').trim();''
     return sanitized || fallback;
 };
 
@@ -2178,9 +2178,26 @@ const getLaozhangApiKey = async () => {
         const setting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_api_key'");
         if (setting && setting.value) {
             try {
-                return JSON.parse(setting.value);
+                const parsed = JSON.parse(setting.value);
+                // Se for objeto, extrair api_key se existir, senão retornar o objeto
+                if (typeof parsed === 'object' && parsed !== null) {
+                    if (parsed.api_key) {
+                        return parsed.api_key;
+                    } else if (parsed.key) {
+                        return parsed.key;
+                    } else {
+                        // Se for objeto sem api_key, tentar converter para string
+                        return JSON.stringify(parsed);
+                    }
+                }
+                return parsed;
             } catch (e) {
-                return setting.value; // Se não for JSON, retornar como string
+                // Se não for JSON, retornar como string
+                const value = String(setting.value).trim();
+                if (value && value.length > 10) {
+                    return value;
+                }
+                return null;
             }
         }
         return null;
@@ -18505,7 +18522,19 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         systemPrompt += `8. LOOPS ABERTOS: Loops abertos sendo fechados no momento certo.\n`;
         systemPrompt += `9. VARIAÇÃO EMOCIONAL: A emoção varia ao longo do roteiro.\n`;
         systemPrompt += `10. FINAL SATISFATÓRIO: Todas as promessas cumpridas, final memorável.\n`;
-        systemPrompt += `Avalie cada critério como true/false e calcule a nota baseada na quantidade de critérios atendidos.\n`;
+        systemPrompt += `Avalie cada critério como true/false e calcule a nota baseada na quantidade de critérios atendidos.\n\n`;
+        
+        // INSTRUÇÃO CRÍTICA: Gerar roteiro completo
+        systemPrompt += `# 🎬 INSTRUÇÃO FINAL - CRÍTICA\n\n`;
+        systemPrompt += `VOCÊ DEVE:\n`;
+        systemPrompt += `1. Seguir RIGOROSAMENTE as INSTRUÇÕES e MEMÓRIA configuradas acima\n`;
+        systemPrompt += `2. Gerar um ROTEIRO COMPLETO baseado na mensagem do usuário\n`;
+        systemPrompt += `3. O roteiro deve ser detalhado, completo e seguir o formato especificado nas instruções\n`;
+        systemPrompt += `4. NÃO pare no meio do roteiro - complete TODA a história\n`;
+        systemPrompt += `5. Use a memória para personalizar o roteiro ao contexto do usuário\n`;
+        systemPrompt += `6. Após o roteiro completo, adicione a avaliação JSON no final\n\n`;
+        systemPrompt += `IMPORTANTE: Se as instruções pedirem um formato específico de roteiro, use EXATAMENTE esse formato.\n`;
+        systemPrompt += `Se a memória descrever o propósito do agente, mantenha esse propósito ao gerar o roteiro.\n\n`;
 
         // Verificar preferência do usuário: usar créditos (laozhang.ai) ou APIs próprias
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
@@ -18516,17 +18545,19 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         let useLaozhang = false;
         let laozhangApiKey = null;
         
+        // REGRA CRÍTICA: Se preferência marcada, SEMPRE usar Laozhang (créditos)
         if (useCredits) {
             // Buscar chave da laozhang.ai usando a função existente
             const laozhangKey = await getLaozhangApiKey();
             console.log('[Viral Agents] Chave Laozhang encontrada:', laozhangKey ? 'Sim' : 'Não', typeof laozhangKey);
             
             if (laozhangKey) {
-                // Normalizar a chave (pode vir como objeto ou string)
-                if (typeof laozhangKey === 'object' && laozhangKey.api_key) {
-                    laozhangApiKey = laozhangKey.api_key;
-                } else if (typeof laozhangKey === 'string') {
+                // Normalizar a chave (já vem normalizada da função, mas garantir)
+                if (typeof laozhangKey === 'string') {
                     laozhangApiKey = laozhangKey.trim();
+                } else if (typeof laozhangKey === 'object' && laozhangKey !== null) {
+                    // Se ainda for objeto, extrair api_key
+                    laozhangApiKey = (laozhangKey.api_key || laozhangKey.key || JSON.stringify(laozhangKey)).trim();
                 } else {
                     laozhangApiKey = String(laozhangKey).trim();
                 }
@@ -18537,13 +18568,31 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     useLaozhang = true;
                     console.log('[Viral Agents] ✅ Usando Laozhang.ai (preferência: usar créditos) com modelo:', modelToUse);
                 } else {
-                    console.warn('[Viral Agents] ⚠️ Chave Laozhang inválida ou muito curta');
+                    console.error('[Viral Agents] ❌ Chave Laozhang inválida ou muito curta. Tamanho:', laozhangApiKey?.length || 0);
+                    return res.status(500).json({ 
+                        msg: 'Chave da API Laozhang.ai não configurada ou inválida. Configure no painel admin.' 
+                    });
                 }
             } else {
-                console.warn('[Viral Agents] ⚠️ Chave Laozhang não encontrada, mesmo com preferência marcada');
+                console.error('[Viral Agents] ❌ Chave Laozhang não encontrada, mesmo com preferência marcada');
+                return res.status(500).json({ 
+                    msg: 'Chave da API Laozhang.ai não configurada. Configure no painel admin ou desmarque a preferência de usar créditos.' 
+                });
             }
         } else {
-            console.log('[Viral Agents] Preferência não marcada, usando APIs próprias');
+            console.log('[Viral Agents] Preferência não marcada, verificando se deve usar créditos por falta de API própria...');
+            // Mesmo sem preferência marcada, verificar se deve usar créditos (sem API própria)
+            const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
+            if (creditsCheck.shouldUse && !creditsCheck.hasOwnApi) {
+                console.log('[Viral Agents] ✅ Usando créditos (sem API própria configurada)');
+                const laozhangKey = await getLaozhangApiKey();
+                if (laozhangKey) {
+                    laozhangApiKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : String(laozhangKey).trim();
+                    if (laozhangApiKey && laozhangApiKey.length > 10) {
+                        useLaozhang = true;
+                    }
+                }
+            }
         }
         
         // Se não usar laozhang, determinar qual serviço usar baseado no modelo
@@ -18610,6 +18659,14 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             fullPrompt += `=== MENSAGEM ATUAL DO USUÁRIO ===\n\n`;
             fullPrompt += `Usuário: ${message}\n\n`;
             fullPrompt += `=== SUA RESPOSTA (SEGUINDO AS CONFIGURAÇÕES ACIMA) ===\n\n`;
+            fullPrompt += `INSTRUÇÕES PARA SUA RESPOSTA:\n`;
+            fullPrompt += `1. Siga RIGOROSAMENTE as CONFIGURAÇÕES DO AGENTE acima (memória e instruções)\n`;
+            fullPrompt += `2. Gere um ROTEIRO COMPLETO baseado na mensagem do usuário\n`;
+            fullPrompt += `3. O roteiro deve ser detalhado e seguir o formato especificado nas instruções\n`;
+            fullPrompt += `4. NÃO pare no meio - complete TODA a história/roteiro\n`;
+            fullPrompt += `5. Use a memória para personalizar o roteiro ao contexto\n`;
+            fullPrompt += `6. Após o roteiro completo, adicione a avaliação JSON no final\n\n`;
+            fullPrompt += `Agora gere sua resposta seguindo essas instruções:\n\n`;
             fullPrompt += `Assistente:`;
             
             console.log('[Viral Agents] 📋 FullPrompt construído, tamanho:', fullPrompt.length);
