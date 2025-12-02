@@ -1600,27 +1600,29 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
         console.error('[AI Provider] ❌ Erro ao verificar configuração padrão Laozhang.ai:', err.message);
     }
 
-    // SEGUNDO: Verificar se o usuário prefere usar créditos (laozhang.ai)
+    // SEGUNDO: Verificar se deve usar créditos (laozhang.ai)
+    // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
     try {
-        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
-        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
         
-        if (useCredits) {
-            // Se o usuário prefere usar créditos, usar laozhang.ai
+        if (creditsCheck.shouldUse) {
+            // Se deve usar créditos, usar laozhang.ai
             const laozhangKey = await getLaozhangApiKey();
             if (laozhangKey) {
-                console.log('[AI Provider] Usando Laozhang.ai (preferência: usar créditos)');
+                console.log(`[AI Provider] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
                 return {
                     service: 'laozhang',
                     apiKey: laozhangKey,
                     model: defaultModels.laozhang
                 };
             } else {
-                console.warn('[AI Provider] Laozhang.ai não configurada, usando APIs próprias do usuário');
+                console.warn('[AI Provider] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
             }
+        } else {
+            console.log(`[AI Provider] ✅ Usando API própria (${creditsCheck.reason})`);
         }
     } catch (err) {
-        console.warn('[AI Provider] Erro ao verificar preferência de créditos:', err.message);
+        console.warn('[AI Provider] Erro ao verificar uso de créditos:', err.message);
     }
 
     // TERCEIRO: Se não usar laozhang.ai, usar APIs próprias do usuário
@@ -2214,6 +2216,71 @@ const getLaozhangApiProviderId = async () => {
         return null;
     }
 };
+
+/**
+ * Determina se deve usar créditos (laozhang.ai) ou API própria
+ * REGRA: Usa créditos se:
+ * 1. Usuário marcou preferência para usar créditos, OU
+ * 2. Usuário NÃO tem API própria configurada
+ * 
+ * @param {number} userId - ID do usuário
+ * @param {string[]} services - Lista de serviços para verificar (ex: ['claude', 'openai', 'gemini'])
+ * @returns {Promise<{shouldUse: boolean, reason: string, hasOwnApi: boolean, hasPreference: boolean}>}
+ */
+async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini']) {
+    try {
+        // Verificar preferência do usuário
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const hasPreference = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Verificar se usuário tem API própria configurada
+        let hasOwnApi = false;
+        for (const service of services) {
+            try {
+                const keyData = await db.get(
+                    'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                    [userId, service]
+                );
+                if (keyData && keyData.api_key) {
+                    const decryptedKey = decrypt(keyData.api_key);
+                    if (decryptedKey && decryptedKey.trim().length > 0) {
+                        hasOwnApi = true;
+                        break;
+                    }
+                }
+            } catch (err) {
+                // Ignorar erros individuais
+            }
+        }
+        
+        // REGRA: Usa créditos se tem preferência OU não tem API própria
+        const shouldUse = hasPreference || !hasOwnApi;
+        
+        const reason = hasPreference 
+            ? 'Preferência do usuário marcada para usar créditos'
+            : !hasOwnApi 
+                ? 'Usuário não tem API própria configurada'
+                : 'Usuário tem API própria e não marcou preferência';
+        
+        console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: ${shouldUse}, reason: ${reason}, hasOwnApi: ${hasOwnApi}, hasPreference: ${hasPreference}`);
+        
+        return {
+            shouldUse,
+            reason,
+            hasOwnApi,
+            hasPreference
+        };
+    } catch (error) {
+        console.error('[shouldUseCredits] Erro:', error);
+        // Em caso de erro, por padrão usar créditos (mais seguro)
+        return {
+            shouldUse: true,
+            reason: 'Erro ao verificar configurações, usando créditos por padrão',
+            hasOwnApi: false,
+            hasPreference: false
+        };
+    }
+}
 
 /**
  * Verifica e debita créditos do usuário
@@ -12449,7 +12516,8 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
     }
 
     try {
-        // Buscar chave de API do modelo selecionado
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
         let service = 'gemini';
         if (model.includes('claude') || model.includes('sonnet')) {
             service = 'claude';
@@ -12457,14 +12525,32 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
             service = 'openai';
         }
 
-        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-        if (!keyData) {
-            return res.status(400).json({ msg: `Chave de API do ${service} não configurada. Configure nas Configurações.` });
-        }
+        const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
+        let decryptedKey = null;
+        let useLaozhang = false;
+        let laozhangApiKey = null;
 
-        const decryptedKey = decrypt(keyData.api_key);
-        if (!decryptedKey) {
-            return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+        if (creditsCheck.shouldUse) {
+            // Usar créditos (laozhang.ai)
+            console.log(`[Scene Prompts] ✅ Usando créditos (${creditsCheck.reason})`);
+            laozhangApiKey = await getLaozhangApiKey();
+            if (laozhangApiKey) {
+                useLaozhang = true;
+            } else {
+                return res.status(500).json({ msg: 'Sistema de créditos não configurado. Entre em contato com o suporte.' });
+            }
+        } else {
+            // Usar API própria
+            console.log(`[Scene Prompts] ✅ Usando API própria (${creditsCheck.reason})`);
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (!keyData) {
+                return res.status(400).json({ msg: `Chave de API do ${service} não configurada. Configure nas Configurações.` });
+            }
+
+            decryptedKey = decrypt(keyData.api_key);
+            if (!decryptedKey) {
+                return res.status(500).json({ msg: 'Falha ao desencriptar a chave de API.' });
+            }
         }
 
         // Calcular número estimado de cenas baseado no modo
@@ -12558,12 +12644,21 @@ IMPORTANTE:
 - Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.`;
 
         let apiCallFunction;
-        if (service === 'gemini') apiCallFunction = callGeminiAPI;
-        else if (service === 'claude') apiCallFunction = callClaudeAPI;
-        else apiCallFunction = callOpenAIAPI;
+        let response;
+        
+        if (useLaozhang && laozhangApiKey) {
+            // Usar créditos (laozhang.ai)
+            console.log(`[Scene Prompts] Gerando prompts com laozhang.ai (créditos) - modelo: ${model}...`);
+            response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, 'api_call', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
+        } else {
+            // Usar API própria
+            if (service === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (service === 'claude') apiCallFunction = callClaudeAPI;
+            else apiCallFunction = callOpenAIAPI;
 
-        console.log(`[Scene Prompts] Gerando prompts com ${service} (modelo: ${model})...`);
-        const response = await apiCallFunction(prompt, decryptedKey, model);
+            console.log(`[Scene Prompts] Gerando prompts com ${service} (API própria) - modelo: ${model}...`);
+            response = await apiCallFunction(prompt, decryptedKey, model);
+        }
 
         // Parsear resposta
         let scenesData;
@@ -18346,19 +18441,26 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             [agentId]
         );
 
-        // Preparar contexto para o Claude
+        // Preparar contexto para o Claude (CRÍTICO: sempre incluir memória e instruções)
         let systemPrompt = '';
-        if (agent.instructions) {
+        if (agent.instructions && agent.instructions.trim()) {
             systemPrompt += `# Instruções\n${agent.instructions}\n\n`;
+            console.log('[Viral Agents] ✅ Instruções incluídas, tamanho:', agent.instructions.length);
+        } else {
+            console.warn('[Viral Agents] ⚠️ Instruções vazias ou não definidas');
         }
-        if (agent.memory) {
+        if (agent.memory && agent.memory.trim()) {
             systemPrompt += `# Memória\n${agent.memory}\n\n`;
+            console.log('[Viral Agents] ✅ Memória incluída, tamanho:', agent.memory.length);
+        } else {
+            console.warn('[Viral Agents] ⚠️ Memória vazia ou não definida');
         }
         if (agentFiles.length > 0) {
             systemPrompt += `# Arquivos Disponíveis\n`;
             agentFiles.forEach(file => {
                 systemPrompt += `\n## ${file.file_name}\n${file.file_content}\n`;
             });
+            console.log('[Viral Agents] ✅ Arquivos incluídos:', agentFiles.length);
         }
         
         // Adicionar instrução para gerar avaliação separadamente (não no roteiro)
@@ -18455,12 +18557,11 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         });
 
         let assistantMessage = '';
-
-        // Se usar laozhang.ai, chamar API laozhang
+        
+        // Preparar prompt completo para laozhang (usado tanto em streaming quanto não-streaming)
+        let fullPrompt = '';
         if (useLaozhang && laozhangApiKey) {
-            console.log('[Viral Agents] 🚀 Iniciando chamada Laozhang.ai com modelo:', modelToUse, 'Stream:', stream);
-            // Preparar prompt completo para laozhang
-            let fullPrompt = systemPrompt;
+            fullPrompt = systemPrompt || '';
             if (fullPrompt) {
                 fullPrompt += '\n\n';
             }
@@ -18472,6 +18573,11 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             
             // Adicionar mensagem atual
             fullPrompt += `Usuário: ${message}\nAssistente:`;
+        }
+
+        // Se usar laozhang.ai, chamar API laozhang
+        if (useLaozhang && laozhangApiKey) {
+            console.log('[Viral Agents] 🚀 Iniciando chamada Laozhang.ai com modelo:', modelToUse, 'Stream:', stream);
             
             if (stream) {
                 // Streaming com laozhang (usar endpoint direto com streaming)
@@ -18484,9 +18590,11 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     const laozhangModel = modelToUse || 'gpt-4o';
                     console.log('[Viral Agents] 📝 Modelo Laozhang:', laozhangModel);
                     
-                    // Preparar mensagens para cálculo de tokens
+                    // Preparar mensagens para cálculo de tokens (CRÍTICO: sempre incluir systemPrompt com memória e instruções)
+                    const systemContent = systemPrompt && systemPrompt.trim() ? systemPrompt : 'Você é um assistente útil.';
+                    console.log('[Viral Agents] 📋 System content incluído no streaming, tamanho:', systemContent.length);
                     const allMessages = [
-                        { role: 'system', content: systemPrompt || 'Você é um assistente útil.' },
+                        { role: 'system', content: systemContent },
                         ...messages,
                         { role: 'user', content: message }
                     ];
@@ -18665,8 +18773,25 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     const laozhangModel = modelToUse || 'gpt-4o';
                     console.log('[Viral Agents] 📝 Modo não-streaming Laozhang com modelo:', laozhangModel);
                     console.log('[Viral Agents] 📤 Chamando callLaozhangAPI...');
+                    console.log('[Viral Agents] 📋 FullPrompt tamanho:', fullPrompt?.length || 0, 'SystemPrompt incluído:', systemPrompt ? 'Sim' : 'Não');
+                    
+                    // Garantir que fullPrompt está construído corretamente
+                    if (!fullPrompt || fullPrompt.trim().length === 0) {
+                        console.warn('[Viral Agents] ⚠️ FullPrompt vazio, reconstruindo...');
+                        fullPrompt = systemPrompt || '';
+                        if (fullPrompt) {
+                            fullPrompt += '\n\n';
+                        }
+                        messages.forEach(msg => {
+                            fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
+                        });
+                        fullPrompt += `Usuário: ${message}\nAssistente:`;
+                    }
+                    
                     // Adicionar marcador para callLaozhangAPI detectar como roteiro
                     const promptWithMarker = fullPrompt + '\n\nIMPORTANTE: Gere o roteiro completo em TEXTO SIMPLES, sem usar JSON ou formatações especiais.';
+                    console.log('[Viral Agents] 📝 Prompt final tamanho:', promptWithMarker.length);
+                    console.log('[Viral Agents] 💰 Chamando callLaozhangAPI com userId:', userId ? 'Sim' : 'Não');
                     assistantMessage = await callLaozhangAPI(promptWithMarker, laozhangApiKey, laozhangModel, null, userId, 'viral_agent_chat', JSON.stringify({ agent_id: agentId, conversation_id: conversation_id, model: laozhangModel }));
                     console.log('[Viral Agents] ✅ Resposta recebida, tamanho:', assistantMessage?.length || 0);
                     
@@ -18759,16 +18884,22 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                 }
             }
             
+            // Preparar mensagens com system prompt
+            const claudeMessages = [...messages];
+            
             const payload = {
                 model: modelName,
                 max_tokens: 8192, // Aumentado para garantir roteiro completo
-                messages: messages,
+                messages: claudeMessages,
                 stream: stream // Habilitar streaming
             };
             
-            // Adicionar system prompt se houver
-            if (systemPrompt) {
+            // Adicionar system prompt se houver (CRÍTICO: sempre incluir memória e instruções)
+            if (systemPrompt && systemPrompt.trim()) {
                 payload.system = systemPrompt;
+                console.log('[Viral Agents] ✅ System prompt incluído (memória + instruções), tamanho:', systemPrompt.length);
+            } else {
+                console.warn('[Viral Agents] ⚠️ System prompt vazio ou não definido');
             }
 
             if (stream) {
@@ -22710,16 +22841,16 @@ app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) =
     }
 
     try {
-        // Verificar se deve usar créditos (laozhang.ai)
-        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
-        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+        const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
         
-        console.log(`[Generate Metadata] useCredits: ${useCredits}, requestedModel: ${requestedModel}`);
+        console.log(`[Generate Metadata] shouldUseCredits: ${creditsCheck.shouldUse}, reason: ${creditsCheck.reason}, requestedModel: ${requestedModel}`);
         
         let metadata = null;
         
         // Se deve usar créditos, usar laozhang.ai
-        if (useCredits) {
+        if (creditsCheck.shouldUse) {
             console.log('[Generate Metadata] Verificando chave laozhang.ai...');
             const laozhangKey = await getLaozhangApiKey();
             console.log('[Generate Metadata] Chave laozhang.ai encontrada:', laozhangKey ? 'Sim' : 'Não');
@@ -22869,23 +23000,23 @@ Responda APENAS com o JSON, sem texto adicional.`;
                     }
                 } catch (serviceErr) {
                     console.error(`[Auto-metadata] Erro ao usar API configurada como padrão:`, serviceErr.message);
-                    // Se a preferência é usar créditos e laozhang falhou, não tentar APIs próprias
-                    if (useCredits) {
+                    // Se deve usar créditos e laozhang falhou, não tentar APIs próprias
+                    if (creditsCheck.shouldUse) {
                         return res.status(500).json({ 
-                            msg: 'Erro ao gerar metadata usando API configurada como padrão. Verifique se a chave está configurada corretamente no painel admin.' 
+                            msg: 'Erro ao gerar metadata usando sistema de créditos. Verifique se a chave está configurada corretamente no painel admin.' 
                         });
                     }
                 }
-            } else if (useCredits) {
-                // Se preferência é usar créditos mas não tem chave
+            } else if (creditsCheck.shouldUse) {
+                // Se deve usar créditos mas não tem chave
                 return res.status(400).json({ 
-                    msg: 'API configurada como padrão não está configurada. Configure a chave no painel admin ou desmarque a opção de usar créditos.' 
+                    msg: 'Sistema de créditos não está configurado. Configure a chave no painel admin ou configure uma API própria nas Configurações.' 
                 });
             }
         }
         
         // Se não usar créditos ou se laozhang falhou (e não é obrigatório), usar APIs próprias
-        if (!metadata && !useCredits) {
+        if (!metadata && !creditsCheck.shouldUse) {
             // Se o modelo foi especificado, usar APENAS ele (não tentar todos)
             let service = null;
             let targetModel = requestedModel || null;
@@ -25460,16 +25591,16 @@ app.post('/api/youtube/generate-suggestions', authenticateToken, async (req, res
             console.log(`[Generate Suggestions] Nenhuma tendência disponível. Gerando sugestões baseadas apenas no nicho "${niche}"`);
         }
 
-        // Verificar se deve usar créditos (laozhang.ai)
-        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
-        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+        const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
         
-        console.log(`[Generate Suggestions] useCredits: ${useCredits}`);
+        console.log(`[Generate Suggestions] shouldUseCredits: ${creditsCheck.shouldUse}, reason: ${creditsCheck.reason}`);
         
         let suggestions = [];
         
         // Se deve usar créditos, usar laozhang.ai primeiro
-        if (useCredits) {
+        if (creditsCheck.shouldUse) {
             console.log('[Generate Suggestions] Verificando chave laozhang.ai...');
             const laozhangKey = await getLaozhangApiKey();
             console.log('[Generate Suggestions] Chave laozhang.ai encontrada:', laozhangKey ? 'Sim' : 'Não');
@@ -25564,17 +25695,17 @@ Responda APENAS com o JSON, sem texto adicional.`;
                     }
                 } catch (serviceErr) {
                     console.error(`[Sugestões IA] Erro ao usar API configurada como padrão:`, serviceErr.message);
-                    // Se a preferência é usar créditos e laozhang falhou, não tentar APIs próprias
-                    if (useCredits) {
+                    // Se deve usar créditos e laozhang falhou, não tentar APIs próprias
+                    if (creditsCheck.shouldUse) {
                         return res.status(500).json({ 
                             suggestions: [],
                             count: 0,
-                            msg: 'Erro ao gerar sugestões usando API configurada como padrão. Verifique se a chave está configurada corretamente no painel admin.' 
+                            msg: 'Erro ao gerar sugestões usando sistema de créditos. Verifique se a chave está configurada corretamente no painel admin.' 
                         });
                     }
                 }
-            } else if (useCredits) {
-                // Se preferência é usar créditos mas não tem chave
+            } else if (creditsCheck.shouldUse) {
+                // Se deve usar créditos mas não tem chave
                 return res.status(400).json({ 
                     suggestions: [],
                     count: 0,
@@ -25584,7 +25715,7 @@ Responda APENAS com o JSON, sem texto adicional.`;
         }
         
         // Se não usar créditos ou se laozhang falhou (e não é obrigatório), usar APIs próprias
-        if (suggestions.length === 0 && !useCredits) {
+        if (suggestions.length === 0 && !creditsCheck.shouldUse) {
             // Tentar usar IA para gerar sugestões baseadas nas tendências
             const services = ['gemini', 'claude', 'openai'];
 
