@@ -1007,12 +1007,16 @@
             input.disabled = true;
 
             // Mostrar loading
+            const loadingId = 'loading-' + Date.now();
             container.innerHTML += `
-                <div class="message assistant">
+                <div id="${loadingId}" class="message assistant">
                     <p class="text-sm text-gray-400">Pensando...</p>
                 </div>
             `;
             container.scrollTop = container.scrollHeight;
+
+            let fullMessage = '';
+            let assistantMessageId = 'assistant-' + Date.now();
 
             try {
                 const token = localStorage.getItem('core_token');
@@ -1025,39 +1029,183 @@
                     body: JSON.stringify({
                         conversation_id: currentConversation,
                         message: message,
-                        model: 'claude-3-5-sonnet-20241022'
+                        model: 'claude-3-5-sonnet-20241022',
+                        stream: true
                     })
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
+                    const error = await response.json().catch(() => ({ msg: 'Erro ao enviar mensagem' }));
                     throw new Error(error.msg || 'Erro ao enviar mensagem');
                 }
 
-                const data = await response.json();
-
-                // Remover loading e adicionar resposta
-                container.innerHTML = container.innerHTML.replace(
-                    /<div class="message assistant">[\s\S]*?Pensando\.\.\.[\s\S]*?<\/div>/,
-                    `<div class="message assistant">
-                        <p class="text-sm whitespace-pre-wrap">${escapeHtml(data.response)}</p>
-                    </div>`
-                );
-                container.scrollTop = container.scrollHeight;
-
-                // Recarregar conversas para atualizar timestamp
-                await openAgent(currentAgent.id);
+                // Verificar se é streaming (text/event-stream) ou JSON
+                const contentType = response.headers.get('content-type') || '';
+                
+                if (contentType.includes('text/event-stream')) {
+                    // Processar streaming SSE
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    
+                    // Remover loading e criar div para mensagem do assistente
+                    document.getElementById(loadingId).outerHTML = `
+                        <div id="${assistantMessageId}" class="message assistant">
+                            <p class="text-sm whitespace-pre-wrap"></p>
+                        </div>
+                    `;
+                    
+                    const assistantElement = document.getElementById(assistantMessageId).querySelector('p');
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n');
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6).trim();
+                                if (!data || data === '[DONE]') continue;
+                                
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    
+                                    if (parsed.done) {
+                                        // Stream finalizado
+                                        fullMessage = assistantElement.textContent;
+                                        
+                                        // Salvar mensagem final no banco (já foi salvo no servidor, mas garantir)
+                                        // Mostrar popup de finalização
+                                        showCompletionPopup(fullMessage, parsed.nota, parsed.checklist);
+                                        
+                                        // Recarregar conversas para atualizar timestamp
+                                        await openAgent(currentAgent.id);
+                                        
+                                        input.disabled = false;
+                                        input.focus();
+                                        return;
+                                    } else if (parsed.text) {
+                                        // Adicionar texto ao stream
+                                        fullMessage += parsed.text;
+                                        assistantElement.textContent = fullMessage;
+                                        container.scrollTop = container.scrollHeight;
+                                    } else if (parsed.error) {
+                                        throw new Error(parsed.error);
+                                    }
+                                } catch (e) {
+                                    if (e.message) throw e;
+                                    // Ignorar erros de parsing de linhas inválidas
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Se chegou aqui sem receber done, considerar completo
+                    fullMessage = assistantElement.textContent;
+                    if (fullMessage.trim()) {
+                        // Aguardar um pouco para garantir que o servidor salvou
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        showCompletionPopup(fullMessage, null, null);
+                        await openAgent(currentAgent.id);
+                    } else {
+                        // Se não houver mensagem, mostrar erro
+                        assistantElement.textContent = 'Erro: Nenhuma resposta recebida do servidor.';
+                        assistantElement.classList.add('text-red-400');
+                    }
+                } else {
+                    // Resposta JSON (modo não-streaming)
+                    const data = await response.json();
+                    
+                    // Remover loading e adicionar resposta
+                    document.getElementById(loadingId).outerHTML = `
+                        <div class="message assistant">
+                            <p class="text-sm whitespace-pre-wrap">${escapeHtml(data.response || '')}</p>
+                        </div>
+                    `;
+                    container.scrollTop = container.scrollHeight;
+                    
+                    // Mostrar popup se tiver nota
+                    if (data.nota !== undefined) {
+                        showCompletionPopup(data.response || '', data.nota, data.checklist);
+                    }
+                    
+                    // Recarregar conversas para atualizar timestamp
+                    await openAgent(currentAgent.id);
+                }
             } catch (error) {
                 console.error('Erro:', error);
-                container.innerHTML = container.innerHTML.replace(
-                    /<div class="message assistant">[\s\S]*?Pensando\.\.\.[\s\S]*?<\/div>/,
-                    `<div class="message assistant">
+                document.getElementById(loadingId).outerHTML = `
+                    <div class="message assistant">
                         <p class="text-sm text-red-400">Erro: ${escapeHtml(error.message)}</p>
-                    </div>`
-                );
+                    </div>
+                `;
             } finally {
                 input.disabled = false;
                 input.focus();
+            }
+        }
+        
+        function showCompletionPopup(roteiro, nota, checklist) {
+            // Criar popup de finalização
+            const popup = document.createElement('div');
+            popup.className = 'modal-overlay';
+            popup.id = 'completion-popup';
+            popup.innerHTML = `
+                <div class="modal-content p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-amber-500">✅ Roteiro Finalizado!</h3>
+                        <button onclick="document.getElementById('completion-popup').remove()" class="text-gray-400 hover:text-white">
+                            <i data-lucide="x"></i>
+                        </button>
+                    </div>
+                    ${nota ? `<div class="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                        <p class="text-sm text-amber-500 font-semibold">Nota: ${nota}/10</p>
+                    </div>` : ''}
+                    <div class="mb-4 flex gap-3">
+                        <button onclick="copyRoteiro()" class="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
+                            <i data-lucide="copy"></i>
+                            Copiar Roteiro
+                        </button>
+                        <button onclick="downloadRoteiro()" class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
+                            <i data-lucide="download"></i>
+                            Baixar Roteiro
+                        </button>
+                    </div>
+                    <div class="max-h-96 overflow-y-auto p-4 bg-gray-900 rounded-lg">
+                        <pre class="text-sm whitespace-pre-wrap text-gray-300">${escapeHtml(roteiro)}</pre>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(popup);
+            lucide.createIcons();
+            
+            // Armazenar roteiro globalmente para copiar/baixar
+            window.currentRoteiro = roteiro;
+        }
+        
+        function copyRoteiro() {
+            if (window.currentRoteiro) {
+                navigator.clipboard.writeText(window.currentRoteiro).then(() => {
+                    alert('Roteiro copiado para a área de transferência!');
+                }).catch(err => {
+                    console.error('Erro ao copiar:', err);
+                    alert('Erro ao copiar roteiro');
+                });
+            }
+        }
+        
+        function downloadRoteiro() {
+            if (window.currentRoteiro) {
+                const blob = new Blob([window.currentRoteiro], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `roteiro-${Date.now()}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
         }
 

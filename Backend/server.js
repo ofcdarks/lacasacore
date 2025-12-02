@@ -18683,87 +18683,142 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let fullMessage = '';
+                    let streamEnded = false;
                     
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        
-                        const chunk = decoder.decode(value);
-                        const lines = chunk.split('\n');
-                        
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                const data = line.slice(6);
-                                if (data === '[DONE]') {
-                                    clearTimeout(timeoutId);
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) {
+                                streamEnded = true;
+                                break;
+                            }
+                            
+                            const chunk = decoder.decode(value, { stream: true });
+                            const lines = chunk.split('\n');
+                            
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    const data = line.slice(6).trim();
+                                    if (!data || data === '[DONE]') {
+                                        streamEnded = true;
+                                        break;
+                                    }
                                     
-                                    // Extrair nota e checklist
-                                    let nota = null;
-                                    let checklist = null;
-                                    let roteiroFinal = fullMessage;
-                                    
-                                    const jsonMatch = fullMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-                                    if (jsonMatch) {
-                                        try {
-                                            const avaliacao = JSON.parse(jsonMatch[0]);
-                                            nota = avaliacao.nota;
-                                            checklist = avaliacao.checklist || null;
-                                            roteiroFinal = fullMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-                                        } catch (e) {
-                                            const notaMatch = fullMessage.match(/nota[:\s]*(\d+)\/10/i);
-                                            if (notaMatch) {
-                                                nota = parseInt(notaMatch[1]);
-                                                roteiroFinal = fullMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
-                                            }
+                                    try {
+                                        const parsed = JSON.parse(data);
+                                        if (parsed.choices?.[0]?.delta?.content) {
+                                            const text = parsed.choices[0].delta.content;
+                                            fullMessage += text;
+                                            res.write(`data: ${JSON.stringify({ text: text })}\n\n`);
+                                        } else if (parsed.choices?.[0]?.message?.content) {
+                                            // Algumas APIs retornam conteúdo completo
+                                            fullMessage += parsed.choices[0].message.content;
+                                            res.write(`data: ${JSON.stringify({ text: parsed.choices[0].message.content })}\n\n`);
                                         }
+                                    } catch (e) {
+                                        // Ignorar erros de parsing de linhas inválidas
+                                        console.warn('[Viral Agents] Erro ao parsear linha:', e.message);
                                     }
-                                    
-                                    await db.run(
-                                        `INSERT INTO viral_agent_messages (conversation_id, role, content)
-                                         VALUES (?, ?, ?)`,
-                                        [conversation_id, 'assistant', roteiroFinal]
-                                    );
-                                    
-                                    const conversationTitle = await db.get(
-                                        `SELECT title FROM viral_agent_conversations WHERE id = ?`,
-                                        [conversation_id]
-                                    );
-                                    
-                                    if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
-                                        const firstPhrase = message.substring(0, 50).trim();
-                                        const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
-                                        await db.run(
-                                            `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                                            [title, conversation_id]
-                                        );
-                                    } else {
-                                        await db.run(
-                                            `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-                                            [conversation_id]
-                                        );
-                                    }
-                                    
-                                    res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
-                                    res.end();
-                                    return;
-                                }
-                                
-                                try {
-                                    const parsed = JSON.parse(data);
-                                    if (parsed.choices?.[0]?.delta?.content) {
-                                        const text = parsed.choices[0].delta.content;
-                                        fullMessage += text;
-                                        res.write(`data: ${JSON.stringify({ text: text })}\n\n`);
-                                    }
-                                } catch (e) {
-                                    // Ignorar linhas inválidas
                                 }
                             }
+                            
+                            if (streamEnded) break;
                         }
+                    } catch (streamError) {
+                        console.error('[Viral Agents] Erro durante leitura do stream:', streamError);
+                        // Continuar para finalizar mesmo com erro
                     }
+                    
+                    // Garantir que sempre finalize o stream e salve a mensagem
+                    clearTimeout(timeoutId);
+                    
+                    try {
+                        // Extrair nota e checklist
+                        let nota = null;
+                        let checklist = null;
+                        let roteiroFinal = fullMessage.trim();
+                        
+                        if (roteiroFinal) {
+                            const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                            if (jsonMatch) {
+                                try {
+                                    const avaliacao = JSON.parse(jsonMatch[0]);
+                                    nota = avaliacao.nota;
+                                    checklist = avaliacao.checklist || null;
+                                    roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                } catch (e) {
+                                    const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
+                                    if (notaMatch) {
+                                        nota = parseInt(notaMatch[1]);
+                                        roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                    }
+                                }
+                            }
+                            
+                            // Salvar mensagem no banco (CRÍTICO: sempre salvar)
+                            await db.run(
+                                `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                 VALUES (?, ?, ?)`,
+                                [conversation_id, 'assistant', roteiroFinal]
+                            );
+                            console.log('[Viral Agents] ✅ Mensagem salva no banco, tamanho:', roteiroFinal.length);
+                            
+                            // Atualizar título da conversa
+                            const conversationTitle = await db.get(
+                                `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                                [conversation_id]
+                            );
+                            
+                            if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                                const firstPhrase = message.substring(0, 50).trim();
+                                const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                                await db.run(
+                                    `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                    [title, conversation_id]
+                                );
+                            } else {
+                                await db.run(
+                                    `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                    [conversation_id]
+                                );
+                            }
+                            
+                            // Enviar evento de finalização (CRÍTICO: sempre enviar)
+                            res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
+                            console.log('[Viral Agents] ✅ Evento done:true enviado');
+                        } else {
+                            // Se não houver mensagem, ainda assim enviar done
+                            console.warn('[Viral Agents] ⚠️ Mensagem vazia, enviando done mesmo assim');
+                            res.write(`data: ${JSON.stringify({ done: true, nota: null, checklist: null })}\n\n`);
+                        }
+                    } catch (saveError) {
+                        console.error('[Viral Agents] ❌ Erro ao salvar mensagem:', saveError);
+                        // Mesmo com erro ao salvar, enviar done para o frontend
+                        res.write(`data: ${JSON.stringify({ done: true, error: 'Erro ao salvar mensagem', nota: null, checklist: null })}\n\n`);
+                    }
+                    
+                    // Sempre finalizar a resposta
+                    res.end();
+                    console.log('[Viral Agents] ✅ Stream finalizado');
+                    return;
                 } catch (err) {
                     console.error('[Laozhang Streaming] Erro:', err);
-                    res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
+                    clearTimeout(timeoutId);
+                    try {
+                        // Tentar salvar mensagem parcial se houver
+                        if (fullMessage && fullMessage.trim()) {
+                            await db.run(
+                                `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                 VALUES (?, ?, ?)`,
+                                [conversation_id, 'assistant', fullMessage.trim()]
+                            );
+                        }
+                        // Sempre enviar evento de erro ou finalização
+                        res.write(`data: ${JSON.stringify({ done: true, error: err.message || 'Erro no streaming', nota: null, checklist: null })}\n\n`);
+                    } catch (finalError) {
+                        console.error('[Viral Agents] Erro ao finalizar stream:', finalError);
+                        res.write(`data: ${JSON.stringify({ done: true, error: 'Erro crítico no streaming' })}\n\n`);
+                    }
                     res.end();
                 }
                 return;
@@ -19015,11 +19070,80 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                                 }
                             }
                         }
+                        
+                        // Se o loop terminou sem receber [DONE], finalizar manualmente
+                        if (fullMessage.trim()) {
+                            clearTimeout(timeoutId);
+                            
+                            // Extrair nota e checklist
+                            let nota = null;
+                            let checklist = null;
+                            let roteiroFinal = fullMessage.trim();
+                            
+                            const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                            if (jsonMatch) {
+                                try {
+                                    const avaliacao = JSON.parse(jsonMatch[0]);
+                                    nota = avaliacao.nota;
+                                    checklist = avaliacao.checklist || null;
+                                    roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                } catch (e) {
+                                    const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
+                                    if (notaMatch) {
+                                        nota = parseInt(notaMatch[1]);
+                                        roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                    }
+                                }
+                            }
+                            
+                            // Salvar mensagem
+                            await db.run(
+                                `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                 VALUES (?, ?, ?)`,
+                                [conversation_id, 'assistant', roteiroFinal]
+                            );
+                            
+                            // Atualizar conversa
+                            const conversationTitle = await db.get(
+                                `SELECT title FROM viral_agent_conversations WHERE id = ?`,
+                                [conversation_id]
+                            );
+                            
+                            if (conversationTitle && (conversationTitle.title === 'Nova Conversa' || !conversationTitle.title)) {
+                                const firstPhrase = message.substring(0, 50).trim();
+                                const title = firstPhrase.length < message.length ? firstPhrase + '...' : firstPhrase;
+                                await db.run(
+                                    `UPDATE viral_agent_conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                    [title, conversation_id]
+                                );
+                            } else {
+                                await db.run(
+                                    `UPDATE viral_agent_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                    [conversation_id]
+                                );
+                            }
+                            
+                            res.write(`data: ${JSON.stringify({ done: true, nota: nota, checklist: checklist })}\n\n`);
+                            res.end();
+                            return;
+                        }
                     }
                 } catch (err) {
                     clearTimeout(timeoutId);
                     console.error('[Claude Streaming] Erro:', err);
-                    res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
+                    try {
+                        // Tentar salvar mensagem parcial
+                        if (fullMessage && fullMessage.trim()) {
+                            await db.run(
+                                `INSERT INTO viral_agent_messages (conversation_id, role, content)
+                                 VALUES (?, ?, ?)`,
+                                [conversation_id, 'assistant', fullMessage.trim()]
+                            );
+                        }
+                        res.write(`data: ${JSON.stringify({ done: true, error: err.message || 'Erro no streaming', nota: null, checklist: null })}\n\n`);
+                    } catch (finalError) {
+                        res.write(`data: ${JSON.stringify({ done: true, error: 'Erro crítico no streaming' })}\n\n`);
+                    }
                     res.end();
                 }
                 return;
