@@ -18442,29 +18442,57 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         );
 
         // Preparar contexto para o Claude (CRÍTICO: sempre incluir memória e instruções)
+        // FORMATO RIGOROSO: Priorizar instruções e memória de forma clara e enfática
         let systemPrompt = '';
-        if (agent.instructions && agent.instructions.trim()) {
-            systemPrompt += `# Instruções\n${agent.instructions}\n\n`;
-            console.log('[Viral Agents] ✅ Instruções incluídas, tamanho:', agent.instructions.length);
-        } else {
-            console.warn('[Viral Agents] ⚠️ Instruções vazias ou não definidas');
-        }
+        
+        // INÍCIO: Instrução crítica para seguir as configurações
+        systemPrompt += `# ⚠️ INSTRUÇÕES CRÍTICAS - SIGA RIGOROSAMENTE\n\n`;
+        systemPrompt += `Você é um agente especializado que DEVE seguir EXATAMENTE as instruções e memória configuradas abaixo.\n`;
+        systemPrompt += `NÃO invente ou ignore essas configurações. Elas definem seu comportamento e conhecimento.\n\n`;
+        
+        // MEMÓRIA PRIMEIRO (contexto sobre o usuário/agente)
         if (agent.memory && agent.memory.trim()) {
-            systemPrompt += `# Memória\n${agent.memory}\n\n`;
+            systemPrompt += `# 📝 MEMÓRIA DO AGENTE (CONTEXTO OBRIGATÓRIO)\n`;
+            systemPrompt += `A seguir está a memória configurada para este agente. Use essas informações para personalizar suas respostas:\n\n`;
+            systemPrompt += `${agent.memory}\n\n`;
+            systemPrompt += `---\n\n`;
             console.log('[Viral Agents] ✅ Memória incluída, tamanho:', agent.memory.length);
         } else {
             console.warn('[Viral Agents] ⚠️ Memória vazia ou não definida');
         }
+        
+        // INSTRUÇÕES (comportamento e formato)
+        if (agent.instructions && agent.instructions.trim()) {
+            systemPrompt += `# 🎯 INSTRUÇÕES DO AGENTE (SEGUIR OBRIGATORIAMENTE)\n`;
+            systemPrompt += `As instruções abaixo definem COMO você deve se comportar e QUAIS regras seguir:\n\n`;
+            systemPrompt += `${agent.instructions}\n\n`;
+            systemPrompt += `---\n\n`;
+            console.log('[Viral Agents] ✅ Instruções incluídas, tamanho:', agent.instructions.length);
+        } else {
+            console.warn('[Viral Agents] ⚠️ Instruções vazias ou não definidas');
+        }
+        
+        // ARQUIVOS (referências adicionais)
         if (agentFiles.length > 0) {
-            systemPrompt += `# Arquivos Disponíveis\n`;
+            systemPrompt += `# 📎 ARQUIVOS DISPONÍVEIS (REFERÊNCIA)\n`;
+            systemPrompt += `Use os arquivos abaixo como referência adicional quando relevante:\n\n`;
             agentFiles.forEach(file => {
-                systemPrompt += `\n## ${file.file_name}\n${file.file_content}\n`;
+                systemPrompt += `## ${file.file_name}\n${file.file_content}\n\n`;
             });
+            systemPrompt += `---\n\n`;
             console.log('[Viral Agents] ✅ Arquivos incluídos:', agentFiles.length);
         }
         
+        // RELEMBRAR: Seguir as configurações
+        systemPrompt += `# ⚠️ LEMBRETE FINAL\n`;
+        systemPrompt += `- Use a MEMÓRIA para personalizar suas respostas ao contexto do usuário\n`;
+        systemPrompt += `- Siga as INSTRUÇÕES rigorosamente para manter consistência\n`;
+        systemPrompt += `- Se as instruções pedirem um formato específico, use EXATAMENTE esse formato\n`;
+        systemPrompt += `- Se a memória descrever o propósito do agente, mantenha esse propósito em todas as respostas\n\n`;
+        
         // Adicionar instrução para gerar avaliação separadamente (não no roteiro)
-        systemPrompt += `\n# IMPORTANTE: Após finalizar o roteiro completo, gere uma avaliação separada no formato JSON:\n`;
+        systemPrompt += `# 📊 AVALIAÇÃO DO ROTEIRO\n`;
+        systemPrompt += `Após finalizar o roteiro completo, gere uma avaliação separada no formato JSON:\n`;
         systemPrompt += `{"nota": X, "checklist": {"gancho_inicial": true/false, "estrutura_narrativa": true/false, "engajamento_emocional": true/false, "densidade_valor": true/false, "tecnicas_retencao": true/false, "linguagem_tom": true/false, "elementos_estruturais": true/false, "loops_abertos": true/false, "variacao_emocional": true/false, "final_satisfatorio": true/false}}\n`;
         systemPrompt += `Onde X é uma nota de 1 a 10 baseada nos critérios:\n`;
         systemPrompt += `1. GANCHO INICIAL (0-30 segundos): Abertura magnética que cria "lacuna de curiosidade". Promessa clara do valor do vídeo.\n`;
@@ -18559,20 +18587,33 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         let assistantMessage = '';
         
         // Preparar prompt completo para laozhang (usado tanto em streaming quanto não-streaming)
+        // IMPORTANTE: Incluir systemPrompt de forma enfática no início
         let fullPrompt = '';
         if (useLaozhang && laozhangApiKey) {
-            fullPrompt = systemPrompt || '';
-            if (fullPrompt) {
-                fullPrompt += '\n\n';
+            // Começar com systemPrompt (memória + instruções) de forma muito clara
+            if (systemPrompt && systemPrompt.trim()) {
+                fullPrompt = `=== CONFIGURAÇÕES DO AGENTE (SEGUIR RIGOROSAMENTE) ===\n\n${systemPrompt}\n\n=== FIM DAS CONFIGURAÇÕES ===\n\n`;
+            } else {
+                fullPrompt = 'Você é um assistente útil.\n\n';
             }
             
-            // Adicionar histórico
-            messages.forEach(msg => {
-                fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
-            });
+            // Adicionar histórico de conversa
+            if (messages.length > 0) {
+                fullPrompt += `=== HISTÓRICO DA CONVERSA ===\n\n`;
+                messages.forEach(msg => {
+                    fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
+                });
+                fullPrompt += `=== FIM DO HISTÓRICO ===\n\n`;
+            }
             
-            // Adicionar mensagem atual
-            fullPrompt += `Usuário: ${message}\nAssistente:`;
+            // Adicionar mensagem atual com instrução clara
+            fullPrompt += `=== MENSAGEM ATUAL DO USUÁRIO ===\n\n`;
+            fullPrompt += `Usuário: ${message}\n\n`;
+            fullPrompt += `=== SUA RESPOSTA (SEGUINDO AS CONFIGURAÇÕES ACIMA) ===\n\n`;
+            fullPrompt += `Assistente:`;
+            
+            console.log('[Viral Agents] 📋 FullPrompt construído, tamanho:', fullPrompt.length);
+            console.log('[Viral Agents] 📋 Primeiros 500 chars do fullPrompt:', fullPrompt.substring(0, 500));
         }
 
         // Se usar laozhang.ai, chamar API laozhang
@@ -18830,17 +18871,30 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     console.log('[Viral Agents] 📤 Chamando callLaozhangAPI...');
                     console.log('[Viral Agents] 📋 FullPrompt tamanho:', fullPrompt?.length || 0, 'SystemPrompt incluído:', systemPrompt ? 'Sim' : 'Não');
                     
-                    // Garantir que fullPrompt está construído corretamente
+                    // Garantir que fullPrompt está construído corretamente com systemPrompt enfático
                     if (!fullPrompt || fullPrompt.trim().length === 0) {
-                        console.warn('[Viral Agents] ⚠️ FullPrompt vazio, reconstruindo...');
-                        fullPrompt = systemPrompt || '';
-                        if (fullPrompt) {
-                            fullPrompt += '\n\n';
+                        console.warn('[Viral Agents] ⚠️ FullPrompt vazio, reconstruindo com systemPrompt...');
+                        // Reconstruir com formatação enfática
+                        if (systemPrompt && systemPrompt.trim()) {
+                            fullPrompt = `=== CONFIGURAÇÕES DO AGENTE (SEGUIR RIGOROSAMENTE) ===\n\n${systemPrompt}\n\n=== FIM DAS CONFIGURAÇÕES ===\n\n`;
+                        } else {
+                            fullPrompt = 'Você é um assistente útil.\n\n';
                         }
-                        messages.forEach(msg => {
-                            fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
-                        });
-                        fullPrompt += `Usuário: ${message}\nAssistente:`;
+                        
+                        // Adicionar histórico
+                        if (messages.length > 0) {
+                            fullPrompt += `=== HISTÓRICO DA CONVERSA ===\n\n`;
+                            messages.forEach(msg => {
+                                fullPrompt += `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}\n\n`;
+                            });
+                            fullPrompt += `=== FIM DO HISTÓRICO ===\n\n`;
+                        }
+                        
+                        // Adicionar mensagem atual
+                        fullPrompt += `=== MENSAGEM ATUAL DO USUÁRIO ===\n\n`;
+                        fullPrompt += `Usuário: ${message}\n\n`;
+                        fullPrompt += `=== SUA RESPOSTA (SEGUINDO AS CONFIGURAÇÕES ACIMA) ===\n\n`;
+                        fullPrompt += `Assistente:`;
                     }
                     
                     // Adicionar marcador para callLaozhangAPI detectar como roteiro
@@ -18950,11 +19004,13 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             };
             
             // Adicionar system prompt se houver (CRÍTICO: sempre incluir memória e instruções)
+            // Claude usa o campo 'system' que tem alta prioridade e deve seguir rigorosamente
             if (systemPrompt && systemPrompt.trim()) {
                 payload.system = systemPrompt;
-                console.log('[Viral Agents] ✅ System prompt incluído (memória + instruções), tamanho:', systemPrompt.length);
+                console.log('[Viral Agents] ✅ System prompt incluído no payload Claude (memória + instruções), tamanho:', systemPrompt.length);
+                console.log('[Viral Agents] 📋 Primeiros 500 chars do system prompt:', systemPrompt.substring(0, 500));
             } else {
-                console.warn('[Viral Agents] ⚠️ System prompt vazio ou não definido');
+                console.warn('[Viral Agents] ⚠️ System prompt vazio ou não definido - Claude pode não seguir instruções!');
             }
 
             if (stream) {
