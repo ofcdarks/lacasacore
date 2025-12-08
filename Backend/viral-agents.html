@@ -744,25 +744,71 @@
         // Deletar agente
         async function deleteAgent() {
             if (!currentAgent) return;
-            if (!confirm('Tem certeza que deseja deletar este agente?')) return;
+            
+            const agentName = currentAgent.name || 'este agente';
+            
+            // Criar modal de confirmação moderno
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.id = 'delete-confirm-modal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 500px;">
+                    <div class="p-6 border-b border-gray-800 flex items-center justify-between">
+                        <h3 class="text-xl font-bold text-red-400">⚠️ Confirmar Exclusão</h3>
+                        <button onclick="document.getElementById('delete-confirm-modal').remove()" class="text-gray-400 hover:text-white">
+                            <i data-lucide="x"></i>
+                        </button>
+                    </div>
+                    <div class="p-6">
+                        <p class="text-gray-300 mb-4">
+                            Tem certeza que deseja deletar o agente <strong class="text-white">"${escapeHtml(agentName)}"</strong>?
+                        </p>
+                        <div class="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-red-300">
+                                ⚠️ <strong>Esta ação não pode ser desfeita!</strong>
+                            </p>
+                            <ul class="text-xs text-red-200 mt-2 list-disc list-inside space-y-1">
+                                <li>Todas as conversas serão perdidas</li>
+                                <li>Todos os arquivos serão deletados</li>
+                                <li>O agente será removido permanentemente</li>
+                            </ul>
+                        </div>
+                        <div class="flex gap-3 justify-end">
+                            <button onclick="document.getElementById('delete-confirm-modal').remove()" class="btn-secondary">
+                                Cancelar
+                            </button>
+                            <button onclick="confirmDeleteAgent()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold">
+                                Sim, Deletar Agente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            lucide.createIcons();
+            
+            // Armazenar função de confirmação
+            window.confirmDeleteAgent = async function() {
+                document.getElementById('delete-confirm-modal').remove();
 
-            try {
-                const token = localStorage.getItem('core_token');
-                const response = await fetch(`/api/viral-agents/${currentAgent.id}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`/api/viral-agents/${currentAgent.id}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
 
-                if (!response.ok) throw new Error('Erro ao deletar agente');
+                    if (!response.ok) throw new Error('Erro ao deletar agente');
 
-                showListView();
-                loadAgents();
-            } catch (error) {
-                console.error('Erro:', error);
-                alert('Erro ao deletar agente');
-            }
+                    showListView();
+                    loadAgents();
+                } catch (error) {
+                    console.error('Erro:', error);
+                    alert('Erro ao deletar agente: ' + error.message);
+                }
+            };
         }
 
         // Toggle favorito

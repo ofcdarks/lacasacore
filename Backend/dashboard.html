@@ -3844,9 +3844,15 @@ Equipe La Casa Dark Core</textarea>
                                     <span class="text-sm font-medium text-gray-300">Usar TLS/SSL</span>
                                 </label>
                             </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <button id="save-smtp-config" class="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
                                 Salvar Configuração SMTP
                             </button>
+                                <button id="test-smtp-config" class="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2">
+                                    <i data-lucide="send" class="w-4 h-4"></i>
+                                    Enviar Email de Teste
+                                </button>
+                            </div>
                             <div class="mt-4 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
                                 <p class="text-sm text-blue-300">
                                     <strong>💡 Dica:</strong> Configure o SMTP para enviar emails automáticos. Para Gmail, use uma senha de app. Para outros provedores, consulte a documentação.
@@ -5906,6 +5912,11 @@ Equipe La Casa Dark Core</textarea>
                                 loadAdminNotifications();
                             } else if (targetTab === 'plan-permissions') {
                                 loadAdminPlanPermissions();
+                            } else if (targetTab === 'config') {
+                                // Carregar configurações SMTP quando a aba de configurações for aberta
+                                if (typeof loadSMTPConfig === 'function') {
+                                    loadSMTPConfig();
+                                }
                             }
                         }
                     });
@@ -8953,6 +8964,32 @@ Equipe La Casa Dark Core</textarea>
                 }
             };
 
+            // Carregar configurações SMTP
+            async function loadSMTPConfig() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/smtp-config`, {
+                        headers: {
+                            'Authorization': `Bearer ${userToken}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const config = await response.json();
+                        console.log('[SMTP] Configurações carregadas:', config);
+                        
+                        if (config.host) document.getElementById('smtp-host').value = config.host;
+                        if (config.port) document.getElementById('smtp-port').value = config.port;
+                        if (config.email) document.getElementById('smtp-email').value = config.email;
+                        if (config.password) document.getElementById('smtp-password').value = config.password;
+                        if (config.secure !== undefined) document.getElementById('smtp-secure').checked = config.secure;
+                    } else {
+                        console.error('[SMTP] Erro ao carregar configurações:', response.status);
+                    }
+                } catch (err) {
+                    console.error('[SMTP] Erro ao carregar configurações:', err);
+                }
+            }
+
             // Salvar configuração SMTP
             document.getElementById('save-smtp-config')?.addEventListener('click', async () => {
                 const host = document.getElementById('smtp-host')?.value.trim();
@@ -8961,30 +8998,101 @@ Equipe La Casa Dark Core</textarea>
                 const password = document.getElementById('smtp-password')?.value.trim();
                 const secure = document.getElementById('smtp-secure')?.checked;
                 
-                if (!host || !email || !password) {
-                    showMessage('admin-error-message', 'Preencha todos os campos do SMTP', true);
+                if (!host || !email) {
+                    showMessage('admin-error-message', 'Preencha pelo menos o servidor SMTP e o email', true);
                     return;
                 }
 
+                // Se a senha estiver vazia, não enviar (manter a atual)
+                const dataToSend = { host, port, email, secure };
+                if (password) {
+                    dataToSend.password = password;
+                }
+
                 try {
+                    const button = document.getElementById('save-smtp-config');
+                    const originalText = button.textContent;
+                    button.disabled = true;
+                    button.textContent = 'Salvando...';
+
                     const response = await fetch(`${API_BASE}/api/admin/smtp-config`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}`
                         },
-                        body: JSON.stringify({ host, port, email, password, secure })
+                        body: JSON.stringify(dataToSend)
                     });
 
+                    const result = await response.json();
+
                     if (response.ok) {
-                        showMessage('admin-success-message', 'Configuração SMTP salva com sucesso!');
+                        showMessage('admin-success-message', result.message || 'Configuração SMTP salva com sucesso!');
+                        // Recarregar configurações para garantir sincronização
+                        setTimeout(() => loadSMTPConfig(), 500);
                     } else {
-                        throw new Error('Erro ao salvar configuração SMTP');
+                        throw new Error(result.message || 'Erro ao salvar configuração SMTP');
                     }
                 } catch (err) {
-                    showMessage('admin-error-message', err.message, true);
+                    console.error('[SMTP] Erro ao salvar:', err);
+                    showMessage('admin-error-message', err.message || 'Erro ao salvar configuração SMTP', true);
+                } finally {
+                    const button = document.getElementById('save-smtp-config');
+                    if (button) {
+                        button.disabled = false;
+                        button.textContent = 'Salvar Configuração SMTP';
+                    }
                 }
             });
+            
+            // Testar configuração SMTP
+            document.getElementById('test-smtp-config')?.addEventListener('click', async () => {
+                const email = document.getElementById('smtp-email')?.value.trim();
+                
+                if (!email) {
+                    showMessage('admin-error-message', 'Configure o email de envio antes de testar', true);
+                    return;
+                }
+
+                try {
+                    const button = document.getElementById('test-smtp-config');
+                    const originalText = button.innerHTML;
+                    button.disabled = true;
+                    button.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Enviando teste...';
+
+                    const response = await fetch(`${API_BASE}/api/admin/smtp-config/test`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ testEmail: email })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        showMessage('admin-success-message', result.message || 'Email de teste enviado com sucesso! Verifique sua caixa de entrada.', false);
+                    } else {
+                        throw new Error(result.message || 'Erro ao enviar email de teste');
+                    }
+                } catch (err) {
+                    console.error('[SMTP Test] Erro:', err);
+                    showMessage('admin-error-message', err.message || 'Erro ao enviar email de teste. Verifique as configurações SMTP.', true);
+                } finally {
+                    const button = document.getElementById('test-smtp-config');
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Enviar Email de Teste';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                }
+            });
+            
+            // Carregar configurações SMTP quando a aba de configurações for aberta
+            if (document.getElementById('smtp-host')) {
+                loadSMTPConfig();
+            }
 
             // ========== ABA DE ASSINATURAS ==========
             let mrrChart = null;
@@ -20788,15 +20896,15 @@ Equipe La Casa Dark Core</textarea>
                 switch (provider) {
                     case 'voice_premium':
                     case 'genaipro':
-                        return 'Voz Premium / GenAIPro';
+                        return 'Voz Premium';
                     case 'openai':
-                        return 'OpenAI';
+                        return 'La Casa Dark Core IA';
                     case 'gemini':
-                        return 'Gemini';
+                        return 'La Casa Dark Core IA';
                     case 'laozhang':
                         return 'DarkVoz';
                     default:
-                        return 'provedor selecionado';
+                        return 'La Casa Dark Core';
                 }
             }
             

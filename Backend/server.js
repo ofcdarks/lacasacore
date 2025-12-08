@@ -87,6 +87,20 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 
+// Middleware de log para requisições (depois do express.json para ter acesso ao body)
+app.use((req, res, next) => {
+    if (req.path.includes('/forgot-password') || req.path.includes('/auth')) {
+        console.log(`[HTTP] ${req.method} ${req.path} - ${new Date().toISOString()}`);
+        if (req.body && Object.keys(req.body).length > 0) {
+            const bodyCopy = { ...req.body };
+            // Ocultar senhas nos logs
+            if (bodyCopy.password) bodyCopy.password = '***';
+            console.log(`[HTTP] Body recebido:`, bodyCopy);
+        }
+    }
+    next();
+});
+
 // Aumentar timeout para requisições longas (transcrição pode demorar)
 app.use((req, res, next) => {
     // Timeout de 15 minutos para requisições de transcrição
@@ -558,7 +572,7 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
             const result = await response.json();
 
             if (!response.ok) {
-                console.error('Erro da API Gemini:', result);
+                console.error('[La Casa Dark Core] Erro da API:', result);
                 
                 // Tratar erro de autenticação
                 if (response.status === 400 && result.error?.message.includes('API key not valid')) {
@@ -569,7 +583,7 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
                 if (response.status === 429 || (result.error?.message && result.error.message.includes('Resource exhausted'))) {
                     if (attempt < maxRetries) {
                         const delay = baseDelay * Math.pow(2, attempt); // Backoff exponencial: 2s, 4s, 8s
-                        console.warn(`[Gemini API] Limite de requisições atingido (429). Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms antes de tentar novamente...`);
+                        console.warn(`[La Casa Dark Core] Limite de requisições atingido (429). Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms antes de tentar novamente...`);
                         await new Promise(resolve => setTimeout(resolve, delay));
                         continue; // Tentar novamente
                     } else {
@@ -588,29 +602,29 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
                 
                 // Se for pedido de roteiro, retornar texto direto
                 if (isScriptRequest) {
-                    console.log('[Gemini API] Retornando texto puro de script');
+                    console.log('[La Casa Dark Core] Retornando texto puro de script');
                     return content; // Retorna string diretamente
                 } else {
                     // Para JSON, manter comportamento antigo
                     return { titles: content, model: model };
                 }
             } else {
-                console.error('Resposta inesperada da API Gemini:', result);
-                throw new Error('A resposta da IA (Gemini) foi bloqueada ou retornou vazia.');
+                console.error('[La Casa Dark Core] Resposta inesperada da API:', result);
+                throw new Error('A resposta da IA foi bloqueada ou retornou vazia.');
             }
         } catch (error) {
             // Se for erro de rate limit e ainda temos tentativas, continuar o loop
             if (error.message.includes('Resource exhausted') || error.message.includes('Limite de requisições')) {
                 if (attempt < maxRetries) {
                     const delay = baseDelay * Math.pow(2, attempt);
-                    console.warn(`[Gemini API] Erro detectado. Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms...`);
+                    console.warn(`[La Casa Dark Core] Erro detectado. Tentativa ${attempt + 1}/${maxRetries + 1}. Aguardando ${delay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
             }
             
             // Se não for erro de rate limit ou se esgotaram as tentativas, lançar erro
-            console.error('Falha ao chamar a API do Gemini:', error);
+            console.error('[La Casa Dark Core] Falha ao chamar a API:', error);
             throw error;
         }
     }
@@ -671,7 +685,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
         const result = await response.json();
 
         if (!response.ok) {
-            console.error('Erro da API OpenAI:', result);
+            console.error('[La Casa Dark Core] Erro da API:', result);
             if (result.error?.code === 'invalid_api_key') {
                  throw new Error(`A sua Chave de API do OpenAI é inválida.`);
             }
@@ -682,7 +696,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
             
             // Se for pedido de roteiro, retornar texto direto sem envolver em "titles"
             if (isScriptRequest) {
-                console.log('[OpenAI API] Retornando texto puro de script');
+                console.log('[La Casa Dark Core] Retornando texto puro de script');
                 return content; // Retorna string diretamente
             } else {
                 // Para JSON, manter comportamento antigo
@@ -692,7 +706,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
             throw new Error('A resposta da IA (OpenAI) retornou vazia.');
         }
     } catch (error) {
-        console.error('Falha ao chamar a API do OpenAI:', error);
+        console.error('[La Casa Dark Core] Falha ao chamar a API:', error);
         throw error;
     }
 }
@@ -2881,9 +2895,10 @@ const generateOpenAiTtsAudio = async ({ apiKey, textInput, voiceName }) => {
 
 // Função para gerar áudio usando Voz Premium API (GenAIPro)
 // Sistema assíncrono: cria task e consulta status
+// Documentação: https://genaipro.vn/docs-api
 const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) => {
-    const MAX_WAIT_TIME = 120000; // 2 minutos máximo
-    const POLL_INTERVAL = 2000; // Verificar a cada 2 segundos
+    const MAX_WAIT_TIME = 300000; // 5 minutos máximo (algumas tasks podem demorar)
+    const POLL_INTERVAL = 3000; // Verificar a cada 3 segundos (reduzir carga na API)
     
     // API Voz Premium (GenAIPro) conforme documentação
     // Base URL: https://genaipro.vn/api/v1
@@ -2894,157 +2909,388 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
         throw new Error('Texto de entrada está vazio');
     }
     
+    // Validar voice_id - se não foi fornecido, usar um padrão
+    if (!voiceName || voiceName.trim() === '' || voiceName === 'default') {
+        console.warn('[La Casa Dark Core] Voice ID não fornecido ou inválido, tentando buscar vozes disponíveis...');
+        // Tentar buscar uma voz padrão
+        try {
+            const voicesResponse = await axios.get(`${API_BASE}/max/voices`, {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                params: {
+                    page: 1,
+                    page_size: 1,
+                    language: 'Portuguese'
+                },
+                timeout: 10000
+            });
+            
+            if (voicesResponse?.data?.voice_list && voicesResponse.data.voice_list.length > 0) {
+                voiceName = voicesResponse.data.voice_list[0].voice_id;
+                console.log(`[La Casa Dark Core] Usando voz padrão: ${voiceName}`);
+            } else {
+                throw new Error('Nenhuma voz disponível encontrada');
+            }
+        } catch (voiceError) {
+            console.error('[La Casa Dark Core] Erro ao buscar voz padrão:', voiceError.message);
+            throw new Error('Voice ID é obrigatório. Configure uma voz premium no painel.');
+        }
+    }
+    
     try {
-        // Passo 1: Criar task usando Max (melhor para português)
-        // Endpoint: POST /max/tasks
-        console.log(`[GenAIPro] Criando task TTS com voz: ${voiceName}`);
+        // Detectar tipo de voz: Labs (alfanumérica) ou Max (numérica)
+        const isLabsVoice = voiceName && !/^\d+$/.test(voiceName);
+        const voiceType = isLabsVoice ? 'Labs' : 'Max';
+        
+        console.log(`[La Casa Dark Core] Criando task TTS com voz: ${voiceName} (tipo: ${voiceType})`);
+        console.log(`[La Casa Dark Core] Texto (primeiros 100 chars): ${cleanText.substring(0, 100)}...`);
         
         let taskResponse;
+        let audioResult = null;
+        
+        // Headers de autenticação conforme documentação GenAIPro
+        const authHeaders = {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        };
+        
+        // =========================================================
+        // Se for voz LABS, usar endpoint Labs PRIMEIRO
+        // =========================================================
+        if (isLabsVoice) {
+            console.log('[La Casa Dark Core] Voz Labs detectada, tentando POST /labs/task...');
+            try {
+                const labsTaskResponse = await axios.post(
+                    `${API_BASE}/labs/task`,
+                    {
+                        input: cleanText,  // Labs usa "input" não "text"
+                        voice_id: voiceName,
+                        model_id: 'eleven_multilingual_v2',
+                        speed: 1.0  // Speed deve estar entre 0.7 e 1.2 (conforme API)
+                    },
+                    {
+                        headers: authHeaders,
+                        timeout: 30000,
+                        validateStatus: (status) => true
+                    }
+                );
+                
+                console.log('[La Casa Dark Core] Resposta /labs/task status:', labsTaskResponse.status);
+                console.log('[La Casa Dark Core] Resposta /labs/task data:', JSON.stringify(labsTaskResponse.data).substring(0, 500));
+                
+                // Verificar se está em manutenção
+                if (labsTaskResponse.status === 503) {
+                    const responseText = typeof labsTaskResponse.data === 'string' ? labsTaskResponse.data : '';
+                    if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì') || responseText.includes('<!DOCTYPE')) {
+                        console.log('[La Casa Dark Core] ⚠️ API Labs está em manutenção');
+                        throw new Error('O serviço de voz está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
+                    }
+                }
+                
+                // Tratar erro 400 (Bad Request)
+                if (labsTaskResponse.status === 400) {
+                    const errorData = labsTaskResponse.data;
+                    const errorMsg = errorData?.error || errorData?.message || 'Parâmetros inválidos';
+                    console.log('[La Casa Dark Core] Labs retornou 400:', errorData);
+                    throw new Error(`Erro ao gerar áudio: ${errorMsg}`);
+                }
+                
+                if (labsTaskResponse.status === 200 || labsTaskResponse.status === 201) {
+                    const data = labsTaskResponse.data;
+                    
+                    console.log('[La Casa Dark Core] Resposta Labs completa:', JSON.stringify(data).substring(0, 500));
+                    
+                    // Verificar se já tem resultado direto (múltiplos formatos possíveis)
+                    const audioUrl = data.result || data.audio_url || data.url || data.output_url || data.file_url;
+                    const status = (data.status || '').toLowerCase();
+                    const successStatuses = ['completed', 'done', 'success', 'finished'];
+                    
+                    if (audioUrl) {
+                        console.log('[La Casa Dark Core] ✅ Task Labs já tem áudio disponível:', audioUrl);
+                        
+                        // Se for URL relativa, adicionar base URL
+                        let fullAudioUrl = audioUrl;
+                        if (audioUrl.startsWith('/')) {
+                            fullAudioUrl = `https://genaipro.vn${audioUrl}`;
+                        } else if (!audioUrl.startsWith('http')) {
+                            fullAudioUrl = `${API_BASE.replace('/api/v1', '')}${audioUrl}`;
+                        }
+                        
+                        const audioDownload = await axios.get(fullAudioUrl, {
+                            responseType: 'arraybuffer',
+                            timeout: 60000
+                        });
+                        return {
+                            audioBase64: Buffer.from(audioDownload.data).toString('base64'),
+                            usage: null,
+                            format: 'mp3'
+                        };
+                    }
+                    
+                    // Se retornou task_id, fazer polling
+                    if (data.task_id || data.id) {
+                        const taskId = data.task_id || data.id;
+                        console.log('[La Casa Dark Core] Labs Task criada:', taskId, '- Aguardando...');
+                        
+                        const startTime = Date.now();
+                        let pollCount = 0;
+                        let lastStatus = null;
+                        let statusChangeCount = 0;
+                        
+                        while (Date.now() - startTime < MAX_WAIT_TIME) {
+                            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+                            pollCount++;
+                            
+                            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                            
+                            // Log apenas a cada 3 polls para não poluir muito
+                            if (pollCount % 3 === 1 || elapsed > 30) {
+                                console.log(`[La Casa Dark Core] Polling Labs #${pollCount} (${elapsed}s decorridos)...`);
+                            }
+                            
+                            try {
+                                const statusResponse = await axios.get(
+                                    `${API_BASE}/labs/task/${taskId}`,
+                                    { headers: authHeaders, timeout: 10000 }
+                                );
+                                
+                                if (statusResponse.data) {
+                                    const taskData = statusResponse.data;
+                                    const status = (taskData.status || taskData.state || '').toLowerCase();
+                                    
+                                    // Verificar se há erro mesmo quando status é processing
+                                    if (taskData.error && typeof taskData.error === 'string' && taskData.error.length > 0) {
+                                        console.error('[La Casa Dark Core] ❌ Erro na task Labs:', taskData.error);
+                                        throw new Error(taskData.error);
+                                    }
+                                    
+                                    // Detectar se status mudou
+                                    if (lastStatus !== status) {
+                                        lastStatus = status;
+                                        statusChangeCount++;
+                                        console.log(`[La Casa Dark Core] Status mudou para: "${status}" (mudança #${statusChangeCount})`);
+                                    }
+                                    
+                                    // Log detalhado conforme documentação
+                                    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                                    if (pollCount % 5 === 0 || elapsedSeconds > 30) {
+                                        // Log a cada 5 polls ou se demorar mais de 30s
+                                        console.log(`[La Casa Dark Core] Labs Task ${taskId}:`, {
+                                            status: status,
+                                            hasResult: !!taskData.result,
+                                            result: taskData.result ? taskData.result.substring(0, 100) : 'não disponível',
+                                            created_at: taskData.created_at,
+                                            elapsed: `${elapsedSeconds}s`,
+                                            polls: pollCount
+                                        });
+                                        
+                                        // Se demorar mais de 60s em processing, avisar
+                                        if (status === 'processing' && elapsedSeconds > 60) {
+                                            console.warn(`[La Casa Dark Core] ⚠️ Task em processing há ${elapsedSeconds}s. Pode estar demorando mais que o normal.`);
+                                        }
+                                    }
+                                    
+                                    // Conforme documentação: quando status é "completed", o campo "result" contém a URL
+                                    if (status === 'completed') {
+                                        const audioUrl = taskData.result;
+                                        
+                                        if (audioUrl && typeof audioUrl === 'string' && audioUrl.length > 0) {
+                                            console.log('[La Casa Dark Core] ✅ Labs Task completa! Baixando áudio de:', audioUrl);
+                                            
+                                            // A URL já deve ser absoluta conforme documentação (https://files.genaipro.vn/...)
+                                            // Mas vamos garantir que seja válida
+                                            let fullAudioUrl = audioUrl.trim();
+                                            if (!fullAudioUrl.startsWith('http')) {
+                                                fullAudioUrl = `https://${fullAudioUrl}`;
+                                            }
+                                            
+                                            try {
+                                                const audioDownload = await axios.get(fullAudioUrl, {
+                                                    responseType: 'arraybuffer',
+                                                    timeout: 60000,
+                                                    validateStatus: (status) => status === 200
+                                                });
+                                                
+                                                console.log('[La Casa Dark Core] ✅ Áudio baixado com sucesso (tamanho:', audioDownload.data.length, 'bytes)');
+                                                
+                                                return {
+                                                    audioBase64: Buffer.from(audioDownload.data).toString('base64'),
+                                                    usage: null,
+                                                    format: 'mp3'
+                                                };
+                                            } catch (downloadError) {
+                                                console.error('[La Casa Dark Core] ❌ Erro ao baixar áudio:', downloadError.message);
+                                                // Se falhar o download, pode ser que a URL ainda não esteja acessível
+                                                // Continuar polling por mais um pouco
+                                                console.log('[La Casa Dark Core] Continuando polling (URL pode não estar pronta ainda)...');
+                                            }
+                                        } else {
+                                            // Status é completed mas não tem result ainda - pode ser que precise aguardar mais
+                                            console.log('[La Casa Dark Core] ⏳ Status completed mas sem result ainda, aguardando...');
+                                        }
+                                    } else if (status === 'failed' || status === 'error' || status === 'failure') {
+                                        const errorMsg = taskData.error || taskData.message || 'Task Labs falhou';
+                                        console.error('[La Casa Dark Core] ❌ Task Labs falhou:', errorMsg);
+                                        throw new Error(errorMsg);
+                                    } else if (status === 'processing' || status === 'pending' || status === 'queued') {
+                                        // Ainda processando, continuar aguardando
+                                        // Não logar para não poluir (já temos log no início do loop)
+                                    } else {
+                                        // Status desconhecido
+                                        console.log(`[La Casa Dark Core] ⚠️ Status desconhecido: "${status}", continuando polling...`);
+                                    }
+                                }
+                            } catch (pollError) {
+                                // Se for erro de rede/timeout, continuar tentando
+                                if (pollError.code === 'ECONNABORTED' || pollError.code === 'ETIMEDOUT') {
+                                    console.log('[La Casa Dark Core] Timeout no polling, continuando...');
+                                } else if (pollError.message && !pollError.message.includes('Task Labs falhou')) {
+                                    console.log('[La Casa Dark Core] Erro no polling Labs:', pollError.message);
+                                } else {
+                                    // Se for erro de task falhada, propagar
+                                    throw pollError;
+                                }
+                            }
+                        }
+                        
+                        // Timeout - task não completou no tempo esperado
+                        const totalSeconds = Math.floor((Date.now() - startTime) / 1000);
+                        console.error(`[La Casa Dark Core] ❌ Timeout após ${totalSeconds}s (${pollCount} tentativas). Task pode ainda estar processando.`);
+                        throw new Error(`A geração de áudio está demorando mais que o esperado (${totalSeconds}s). A task pode ainda estar processando. Tente novamente em alguns instantes.`);
+                    }
+                }
+            } catch (labsError) {
+                console.log('[La Casa Dark Core] Erro Labs:', labsError.message);
+                throw labsError;
+            }
+        }
+        
+        // =========================================================
+        // MÉTODO MAX: POST /max/tasks (para vozes Max/numéricas)
+        // =========================================================
+        console.log('[La Casa Dark Core] Tentando POST /max/tasks...');
         try {
-            taskResponse = await axios.post(
+            const maxTaskResponse = await axios.post(
                 `${API_BASE}/max/tasks`,
                 {
                     text: cleanText,
                     voice_id: voiceName,
-                    model_id: 'speech-2.5-hd-preview', // Modelo padrão
+                    model_id: 'speech-2.5-hd-preview',
                     speed: 1.0,
-                    language: 'Portuguese'
+                    pitch: 0,
+                    volume: 1.0,
+                    language: 'Auto'
                 },
                 {
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
+                    headers: authHeaders,
                     timeout: 30000,
-                    validateStatus: (status) => status < 500 // Não lançar erro para 4xx, mas sim para 5xx
+                    validateStatus: (status) => true // Aceitar qualquer status para tratar manualmente
                 }
             );
-        } catch (axiosError) {
-            // Tratar erros específicos da API
-            if (axiosError.response) {
-                const status = axiosError.response.status;
-                const responseData = axiosError.response.data;
-                
-                console.log(`[GenAIPro] Erro na criação da task - Status: ${status}, Data:`, responseData);
-                
-                // Verificar se é erro de autenticação
-                if (status === 401 || status === 403) {
-                    throw new Error('Chave de API inválida ou expirada. Verifique suas configurações.');
+            
+            // Verificar se está em manutenção (503)
+            if (maxTaskResponse.status === 503) {
+                const responseText = typeof maxTaskResponse.data === 'string' ? maxTaskResponse.data : '';
+                if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì')) {
+                    console.log('[La Casa Dark Core] ⚠️ API Max está em manutenção');
+                    throw new Error('O serviço de Voz Premium está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
                 }
-                
-                // Verificar se é página de manutenção (503) - APENAS SE REALMENTE FOR HTML
-                if (status === 503 && typeof responseData === 'string' && responseData.includes('<!DOCTYPE') && responseData.includes('Đang Bảo Trì')) {
-                    throw new Error('A API Voz Premium está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
-                }
-                
-                // Outros erros - tentar extrair mensagem da API
-                let errorMessage = 'Erro ao criar tarefa de TTS';
-                
-                if (typeof responseData === 'object') {
-                    errorMessage = responseData.error?.message || responseData.message || responseData.error || `Erro ${status} ao gerar áudio`;
-                } else if (typeof responseData === 'string' && responseData.length < 500) {
-                    // Se for uma string curta, pode ser uma mensagem de erro JSON
-                    try {
-                        const parsed = JSON.parse(responseData);
-                        errorMessage = parsed.error?.message || parsed.message || parsed.error || errorMessage;
-                    } catch {
-                        errorMessage = responseData;
-                    }
-                }
-                
-                throw new Error(errorMessage);
             }
             
-            // Erro de rede ou timeout
-            if (axiosError.code === 'ECONNABORTED' || axiosError.message.includes('timeout')) {
-                throw new Error('Timeout ao conectar com a API Voz Premium. Tente novamente.');
-            }
+            console.log('[La Casa Dark Core] Resposta /max/tasks status:', maxTaskResponse.status);
+            console.log('[La Casa Dark Core] Resposta /max/tasks data:', JSON.stringify(maxTaskResponse.data).substring(0, 500));
             
-            // Re-lançar outros erros
-            throw axiosError;
-        }
-        
-        if (!taskResponse || !taskResponse.data || !taskResponse.data.id) {
-            throw new Error('Falha ao criar task TTS');
-        }
-        
-        const taskId = taskResponse.data.id;
-        console.log(`[GenAIPro] Task criada: ${taskId}`);
-        
-        // Passo 2: Aguardar conclusão da task (polling)
-        const startTime = Date.now();
-        let taskStatus = null;
-        let audioUrl = null;
-        
-        while (Date.now() - startTime < MAX_WAIT_TIME) {
-            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
-            
-            try {
-                const statusResponse = await axios.get(
-                    `${API_BASE}/max/tasks/${taskId}`,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        timeout: 10000
-                    }
-                );
+            if (maxTaskResponse.status === 200 || maxTaskResponse.status === 201) {
+                const data = maxTaskResponse.data;
                 
-                if (statusResponse && statusResponse.data) {
-                    taskStatus = statusResponse.data.status;
-                    const percentage = statusResponse.data.process_percentage || 0;
+                // Se já tem resultado direto
+                if (data.result && data.status === 'completed') {
+                    console.log('[La Casa Dark Core] ✅ Task já completa, baixando áudio...');
+                    const audioDownload = await axios.get(data.result, {
+                        responseType: 'arraybuffer',
+                        timeout: 60000
+                    });
+                    return {
+                        audioBase64: Buffer.from(audioDownload.data).toString('base64'),
+                        usage: null,
+                        format: 'mp3'
+                    };
+                }
+                
+                // Se retornou task_id, fazer polling
+                if (data.id) {
+                    const taskId = data.id;
+                    console.log('[La Casa Dark Core] Task criada:', taskId, '- Aguardando processamento...');
                     
-                    console.log(`[GenAIPro] Task ${taskId}: ${taskStatus} (${percentage}%)`);
-                    
-                    if (taskStatus === 'completed') {
-                        audioUrl = statusResponse.data.result;
-                        if (audioUrl) {
-                            console.log(`[GenAIPro] Áudio pronto: ${audioUrl}`);
-                            break;
+                    const startTime = Date.now();
+                    while (Date.now() - startTime < MAX_WAIT_TIME) {
+                        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+                        
+                        try {
+                            const statusResponse = await axios.get(
+                                `${API_BASE}/max/tasks/${taskId}`,
+                                { headers: authHeaders, timeout: 10000 }
+                            );
+                            
+                            if (statusResponse.data) {
+                                const taskData = statusResponse.data;
+                                const status = taskData.status;
+                                const percentage = taskData.process_percentage || 0;
+                                
+                                console.log(`[La Casa Dark Core] Task ${taskId}: ${status} (${percentage}%)`);
+                                
+                                if (status === 'completed') {
+                                    if (taskData.result) {
+                                        console.log('[La Casa Dark Core] ✅ Áudio pronto:', taskData.result);
+                                        const audioDownload = await axios.get(taskData.result, {
+                                            responseType: 'arraybuffer',
+                                            timeout: 60000
+                                        });
+                                        return {
+                                            audioBase64: Buffer.from(audioDownload.data).toString('base64'),
+                                            usage: null,
+                                            format: 'mp3'
+                                        };
+                                    }
+                                } else if (status === 'failed' || status === 'error') {
+                                    throw new Error(taskData.error || 'Task falhou');
+                                }
+                                // processing, pending - continuar polling
+                            }
+                        } catch (pollError) {
+                            console.log('[La Casa Dark Core] Erro no polling:', pollError.message);
                         }
-                    } else if (taskStatus === 'failed' || taskStatus === 'error') {
-                        throw new Error(statusResponse.data.error || 'Task falhou');
                     }
+                    throw new Error('Timeout aguardando conclusão da task');
                 }
-            } catch (statusError) {
-                console.error('[GenAIPro] Erro ao verificar status:', statusError.message);
-                // Continuar tentando
+            }
+        } catch (maxTaskError) {
+            console.log('[La Casa Dark Core] Erro /max/tasks:', maxTaskError.message);
+            
+            // Se for erro de manutenção, propagar diretamente
+            if (maxTaskError.message && maxTaskError.message.includes('manutenção')) {
+                throw maxTaskError;
+            }
+            
+            if (maxTaskError.response) {
+                console.log('[La Casa Dark Core] Status:', maxTaskError.response.status);
+                console.log('[La Casa Dark Core] Data:', JSON.stringify(maxTaskError.response.data).substring(0, 300));
             }
         }
         
-        if (!audioUrl) {
-            throw new Error('Timeout aguardando conclusão da task');
-        }
+        // Se chegou aqui (vozes Max que falharam), nenhum método funcionou
+        console.error('[La Casa Dark Core] Nenhum método de TTS funcionou');
+        throw new Error('O serviço de Voz Premium está temporariamente indisponível. Por favor, tente novamente em alguns minutos ou selecione uma voz online.');
         
-        // Passo 3: Baixar o áudio
-        console.log(`[GenAIPro] Baixando áudio de: ${audioUrl}`);
-        const audioResponse = await axios.get(audioUrl, {
-            responseType: 'arraybuffer',
-            timeout: 60000
-        });
-        
-        if (!audioResponse || !audioResponse.data) {
-            throw new Error('Falha ao baixar áudio');
-        }
-        
-        const audioBuffer = Buffer.from(audioResponse.data);
-        const audioBase64 = audioBuffer.toString('base64');
-        
-        console.log(`[GenAIPro] TTS gerado com sucesso. Tamanho: ${audioBuffer.length} bytes`);
-        
-        return {
-            audioBase64: audioBase64,
-            usage: null,
-            format: 'mp3'
-        };
     } catch (error) {
-        console.error('[GenAIPro] Erro ao gerar TTS:', error.message);
+        console.error('[La Casa Dark Core] Erro ao gerar TTS:', error.message);
         
         // Não verificar mais status 503 aqui, deixar a mensagem de erro original passar
         if (error.response) {
-            console.error('[GenAIPro] Status:', error.response.status);
-            console.error('[GenAIPro] Data:', JSON.stringify(error.response.data).substring(0, 500));
+            console.error('[La Casa Dark Core] Status:', error.response.status);
+            console.error('[La Casa Dark Core] Data:', JSON.stringify(error.response.data).substring(0, 500));
         }
         
         // Se o erro já tem uma mensagem amigável do catch anterior, manter
@@ -3155,7 +3401,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
     }
     
     try {
-        console.log('[Gemini TTS] Gerando áudio usando Google Cloud Text-to-Speech API');
+        console.log('[La Casa Dark Core TTS] Gerando áudio usando Text-to-Speech');
         
         // Usar Google Cloud Text-to-Speech API
         // Endpoint: https://texttospeech.googleapis.com/v1/text:synthesize
@@ -3190,7 +3436,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             // O audioContent já vem em base64
             const audioBase64 = response.data.audioContent;
             
-            console.log('[Gemini TTS] Áudio gerado com sucesso');
+            console.log('[La Casa Dark Core TTS] Áudio gerado com sucesso');
             return {
                 audioBase64: audioBase64,
                 mimeType: 'audio/mp3'
@@ -3199,14 +3445,14 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             throw new Error('Resposta da API não contém áudio');
         }
     } catch (error) {
-        console.error('[Gemini TTS] Erro ao gerar áudio:', error.message);
+        console.error('[La Casa Dark Core TTS] Erro ao gerar áudio:', error.message);
         
         if (error.response) {
             const status = error.response.status;
             const errorData = error.response.data;
             
-            console.error('[Gemini TTS] Status:', status);
-            console.error('[Gemini TTS] Error Data:', JSON.stringify(errorData).substring(0, 500));
+            console.error('[La Casa Dark Core TTS] Status:', status);
+            console.error('[La Casa Dark Core TTS] Error Data:', JSON.stringify(errorData).substring(0, 500));
             
             if (status === 401 || status === 403) {
                 throw new Error('Chave de API do Google inválida ou expirada. Verifique suas configurações. A chave precisa ter a API Text-to-Speech habilitada.');
@@ -3269,6 +3515,18 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 last_login_at DATETIME,
                 plan TEXT DEFAULT 'plan-free',
                 subscription_plan TEXT DEFAULT 'plan-free'
+            );
+        `);
+        
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                used BOOLEAN NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             );
         `);
         
@@ -5032,9 +5290,17 @@ app.post('/api/auth/register', async (req, res) => {
 
         // Enviar email de boas-vindas
         try {
-            const protocol = req.protocol;
-            const host = req.get('host');
-            const loginUrl = `${protocol}://${host}/la-casa-dark-core-auth.html`;
+            // Priorizar variável de ambiente, depois header, depois req.get('host')
+            const baseUrl = process.env.BASE_URL || process.env.APP_URL || process.env.PUBLIC_URL;
+            let loginUrl;
+            
+            if (baseUrl) {
+                loginUrl = `${baseUrl.replace(/\/$/, '')}/la-casa-dark-core-auth.html`;
+            } else {
+                const protocol = req.protocol || (req.get('x-forwarded-proto') || 'http');
+                const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5001';
+                loginUrl = `${protocol}://${host}/la-casa-dark-core-auth.html`;
+            }
             
             await sendTemplateEmail('register', email, {
                 nome: name,
@@ -5123,6 +5389,128 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('Erro ao buscar dados do utilizador (/me):', err);
         res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
+// Rota para solicitar reset de senha
+app.post('/api/auth/forgot-password', async (req, res) => {
+    console.log('[AUTH] ========== SOLICITAÇÃO DE RESET DE SENHA ==========');
+    console.log('[AUTH] Recebida requisição POST /api/auth/forgot-password');
+    console.log('[AUTH] Body recebido:', JSON.stringify(req.body));
+    
+    const { email } = req.body;
+
+    if (!email) {
+        console.log('[AUTH] ❌ Email não fornecido');
+        return res.status(400).json({ msg: 'Por favor, forneça um email.' });
+    }
+
+    console.log(`[AUTH] 📧 Processando reset de senha para: ${email}`);
+
+    try {
+        // Verificar se o usuário existe
+        console.log('[AUTH] 🔍 Buscando usuário no banco de dados...');
+        const user = await db.get('SELECT id, name, email FROM users WHERE email = ?', [email]);
+        
+        // Sempre retornar sucesso (por segurança, não revelar se o email existe ou não)
+        const successMessage = 'Se este email estiver cadastrado, um link de reset será enviado!';
+        
+        if (user) {
+            console.log(`[AUTH] ✅ Usuário encontrado: ${user.name} (ID: ${user.id})`);
+            
+            // Gerar token de reset (válido por 1 hora)
+            console.log('[AUTH] 🔑 Gerando token de reset...');
+            const resetToken = jwt.sign(
+                { userId: user.id, type: 'password_reset' },
+                JWT_SECRET,
+                { expiresIn: '1h' }
+            );
+            console.log('[AUTH] ✅ Token gerado com sucesso');
+            
+            // Salvar token no banco de dados
+            console.log('[AUTH] 💾 Salvando token no banco de dados...');
+            await db.run(
+                'INSERT OR REPLACE INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, datetime("now", "+1 hour"))',
+                [user.id, resetToken]
+            );
+            console.log('[AUTH] ✅ Token salvo no banco de dados');
+            
+            // Construir URL de reset
+            // Priorizar variável de ambiente, depois header X-Forwarded-Host, depois req.get('host')
+            const baseUrl = process.env.BASE_URL || process.env.APP_URL || process.env.PUBLIC_URL;
+            let resetUrl;
+            
+            if (baseUrl) {
+                // Usar URL base configurada
+                resetUrl = `${baseUrl.replace(/\/$/, '')}/la-casa-dark-core-auth.html?reset_token=${resetToken}`;
+                console.log(`[AUTH] 🔗 Usando URL base configurada: ${baseUrl}`);
+            } else {
+                // Tentar detectar automaticamente
+                const protocol = req.protocol || (req.get('x-forwarded-proto') || 'http');
+                let host = req.get('x-forwarded-host') || req.get('host');
+                
+                // Se não tiver host, tentar usar o hostname da requisição
+                if (!host) {
+                    host = req.hostname || 'localhost:5001';
+                    // Adicionar porta se não estiver no hostname
+                    if (!host.includes(':') && req.socket && req.socket.localPort) {
+                        host = `${host}:${req.socket.localPort}`;
+                    } else if (!host.includes(':')) {
+                        host = `${host}:5001`;
+                    }
+                }
+                
+                resetUrl = `${protocol}://${host}/la-casa-dark-core-auth.html?reset_token=${resetToken}`;
+            }
+            
+            console.log(`[AUTH] 🔗 URL de reset gerada: ${resetUrl}`);
+            console.log(`[AUTH] 📍 Servidor rodando na porta: ${PORT}`);
+            console.log(`[AUTH] 🌐 Host detectado: ${req.get('host') || 'N/A'}`);
+            console.log(`[AUTH] 🔒 Protocolo: ${req.protocol || 'http'}`);
+            
+            // Enviar email de reset
+            console.log('[AUTH] 📨 Tentando enviar email de reset...');
+            try {
+                const emailResult = await sendTemplateEmail('password_reset', user.email, {
+                    nome: user.name,
+                    email: user.email,
+                    senha_provisoria: null, // Não usamos senha provisória aqui
+                    link_acesso: resetUrl
+                });
+                
+                if (emailResult.success) {
+                    console.log(`[AUTH] ✅ Email de reset de senha enviado com sucesso para: ${user.email}`);
+                    console.log(`[AUTH] 📧 Message ID: ${emailResult.messageId || 'N/A'}`);
+                    if (emailResult.accepted && emailResult.accepted.length > 0) {
+                        console.log(`[AUTH] ✅ Email aceito para entrega: ${emailResult.accepted.join(', ')}`);
+                    }
+                    if (emailResult.rejected && emailResult.rejected.length > 0) {
+                        console.error(`[AUTH] ❌ Email rejeitado: ${emailResult.rejected.join(', ')}`);
+                    }
+                    console.log(`[AUTH] 💡 Dica: Verifique a pasta de SPAM/Lixo Eletrônico se o email não chegar em alguns minutos.`);
+                } else {
+                    console.error(`[AUTH] ⚠️ Falha ao enviar email: ${emailResult.message || emailResult.error}`);
+                }
+            } catch (emailError) {
+                console.error('[AUTH] ❌ Erro ao enviar email de reset:', emailError.message);
+                console.error('[AUTH] Stack trace:', emailError.stack);
+                // Continuar mesmo se o email falhar
+            }
+        } else {
+            console.log(`[AUTH] ⚠️ Usuário não encontrado para o email: ${email}`);
+            console.log('[AUTH] ℹ️ Retornando mensagem genérica por segurança');
+        }
+        
+        // Sempre retornar a mesma mensagem (por segurança)
+        console.log('[AUTH] ✅ Retornando resposta de sucesso');
+        console.log('[AUTH] ============================================');
+        res.json({ msg: successMessage });
+        
+    } catch (err) {
+        console.error('[AUTH] ❌ Erro ao processar solicitação de reset de senha:', err);
+        console.error('[AUTH] Stack trace:', err.stack);
+        // Retornar sucesso mesmo em caso de erro (por segurança)
+        res.json({ msg: 'Se este email estiver cadastrado, um link de reset será enviado!' });
     }
 });
 
@@ -6810,17 +7198,51 @@ app.get('/api/admin/smtp-config', authenticateToken, isAdmin, async (req, res) =
         const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'smtp_%'");
         const config = {};
         rows.forEach(row => {
-            try {
                 const key = row.key.replace('smtp_', '');
-                config[key] = JSON.parse(row.value);
-            } catch (e) {
-                config[row.key.replace('smtp_', '')] = row.value;
+            // Valores já são strings simples, não precisam de JSON.parse
+            let value = row.value;
+            
+            // Remover aspas duplas se existirem (corrigir dados antigos salvos incorretamente)
+            if (typeof value === 'string') {
+                value = value.replace(/^["']|["']$/g, '').trim();
             }
+            
+            // Se for senha, descriptografar
+            if (key === 'password') {
+                try {
+                    // Verificar se está no formato criptografado (IV:encrypted)
+                    if (value && value.includes(':') && !value.startsWith('"')) {
+                        value = decrypt(value);
+                        if (!value) {
+                            // Se decrypt retornar null, usar o valor original (senha antiga não criptografada)
+                            value = row.value.replace(/^["']|["']$/g, '').trim();
+                        }
+                    }
+                    // Se não tiver ':', é senha antiga não criptografada, manter como está
+            } catch (e) {
+                    // Se falhar ao descriptografar, usar o valor original (senha antiga não criptografada)
+                    console.warn('[SMTP Config] Senha não está criptografada ou erro ao descriptografar, usando valor original');
+                    value = row.value.replace(/^["']|["']$/g, '').trim();
+                }
+            }
+            
+            // Converter secure para boolean
+            if (key === 'secure') {
+                value = value === 'true' || value === true;
+            }
+            
+            // Converter port para número
+            if (key === 'port') {
+                value = parseInt(value) || 587;
+            }
+            
+            config[key] = value;
         });
+        console.log('[SMTP Config] Configurações carregadas:', Object.keys(config));
         res.json(config);
     } catch (err) {
-        console.error("Erro ao buscar configurações SMTP:", err.message);
-        res.status(500).json({ message: "Erro ao buscar configurações SMTP." });
+        console.error("[SMTP Config] Erro ao buscar configurações SMTP:", err.message);
+        res.status(500).json({ message: "Erro ao buscar configurações SMTP: " + err.message });
     }
 });
 
@@ -6829,26 +7251,169 @@ app.post('/api/admin/smtp-config', authenticateToken, isAdmin, async (req, res) 
     try {
         const { host, port, email, password, secure } = req.body;
         
-        if (host !== undefined) {
-            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_host', JSON.stringify(host)]);
+        console.log('[SMTP Config] Salvando configurações:', { host, port, email, hasPassword: !!password, secure });
+        
+        // Remover aspas duplas dos valores antes de salvar
+        const cleanHost = host ? String(host).replace(/^["']|["']$/g, '').trim() : null;
+        const cleanEmail = email ? String(email).replace(/^["']|["']$/g, '').trim() : null;
+        
+        if (cleanHost && cleanHost !== '') {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_host', cleanHost]);
+            console.log('[SMTP Config] Host salvo:', cleanHost);
         }
-        if (port !== undefined) {
-            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_port', JSON.stringify(port)]);
+        if (port !== undefined && port !== null) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_port', String(port)]);
+            console.log('[SMTP Config] Porta salva:', port);
         }
-        if (email !== undefined) {
-            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_email', JSON.stringify(email)]);
+        if (cleanEmail && cleanEmail !== '') {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_email', cleanEmail]);
+            console.log('[SMTP Config] Email salvo:', cleanEmail);
         }
-        if (password !== undefined) {
-            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_password', JSON.stringify(password)]);
+        if (password !== undefined && password !== null && password !== '') {
+            // Criptografar a senha antes de salvar
+            const encryptedPassword = encrypt(password);
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_password', encryptedPassword]);
+            console.log('[SMTP Config] Senha salva (criptografada)');
         }
-        if (secure !== undefined) {
-            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_secure', JSON.stringify(secure)]);
+        if (secure !== undefined && secure !== null) {
+            await db.run("REPLACE INTO app_settings (key, value) VALUES (?, ?)", ['smtp_secure', String(secure)]);
+            console.log('[SMTP Config] Secure salvo:', secure);
         }
         
         res.json({ message: 'Configurações SMTP salvas com sucesso.' });
     } catch (err) {
-        console.error("Erro ao salvar configurações SMTP:", err.message);
-        res.status(500).json({ message: "Erro ao salvar configurações SMTP." });
+        console.error("[SMTP Config] Erro ao salvar configurações SMTP:", err.message);
+        res.status(500).json({ message: "Erro ao salvar configurações SMTP: " + err.message });
+    }
+});
+
+// POST /api/admin/smtp-config/test - Testar configuração SMTP enviando email de teste
+app.post('/api/admin/smtp-config/test', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { testEmail } = req.body;
+        
+        if (!testEmail) {
+            return res.status(400).json({ message: 'Email de teste não fornecido.' });
+        }
+
+        console.log('[SMTP Test] Iniciando teste de configuração SMTP...');
+        console.log('[SMTP Test] Email de destino:', testEmail);
+
+        // Obter configuração SMTP atual
+        const smtpConfig = await getSMTPConfig();
+        
+        if (!smtpConfig || !smtpConfig.host || !smtpConfig.email || !smtpConfig.password) {
+            return res.status(400).json({ 
+                message: 'Configuração SMTP incompleta. Configure o servidor, email e senha antes de testar.' 
+            });
+        }
+
+        // Limpar host e email de possíveis aspas (corrigir dados antigos)
+        const cleanHost = smtpConfig.host ? String(smtpConfig.host).replace(/^["']|["']$/g, '').trim() : null;
+        const cleanEmail = smtpConfig.email ? String(smtpConfig.email).replace(/^["']|["']$/g, '').trim() : null;
+        
+        console.log('[SMTP Test] Configuração SMTP encontrada:', {
+            host: cleanHost,
+            port: smtpConfig.port,
+            email: cleanEmail,
+            hasPassword: !!smtpConfig.password,
+            secure: smtpConfig.secure
+        });
+        
+        if (!cleanHost) {
+            return res.status(400).json({ 
+                message: 'Host SMTP inválido. Verifique as configurações.' 
+            });
+        }
+
+        // Criar transporter com valores limpos
+        const transporter = nodemailer.createTransport({
+            host: cleanHost,
+            port: parseInt(smtpConfig.port) || 587,
+            secure: smtpConfig.secure === true || smtpConfig.secure === 'true',
+            // Aceitar certificados autoassinados (comum em servidores SMTP privados)
+            tls: {
+                rejectUnauthorized: false,
+                ciphers: 'SSLv3'
+            },
+            auth: {
+                user: cleanEmail,
+                pass: smtpConfig.password
+            },
+            // Timeout aumentado para conexões mais lentas
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000
+        });
+
+        console.log('[SMTP Test] Verificando conexão SMTP...');
+        
+        // Verificar conexão
+        await transporter.verify();
+        console.log('[SMTP Test] ✅ Conexão SMTP verificada com sucesso');
+
+        // Enviar email de teste
+        const testSubject = 'Teste de Configuração SMTP - La Casa Dark Core';
+        const testBody = `
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+                        <h2 style="color: #f59e0b;">✅ Teste de Configuração SMTP</h2>
+                        <p>Este é um email de teste para validar as configurações SMTP do La Casa Dark Core.</p>
+                        <p><strong>Se você recebeu este email, significa que suas configurações SMTP estão funcionando corretamente!</strong></p>
+                        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+                        <p style="color: #666; font-size: 12px;">
+                            <strong>Detalhes da configuração:</strong><br>
+                            Servidor: ${cleanHost}<br>
+                            Porta: ${smtpConfig.port}<br>
+                            Email de envio: ${cleanEmail}<br>
+                            TLS/SSL: ${smtpConfig.secure ? 'Sim' : 'Não'}<br>
+                            Data/Hora: ${new Date().toLocaleString('pt-BR')}
+                        </p>
+                    </div>
+                </body>
+            </html>
+        `;
+
+        console.log('[SMTP Test] Enviando email de teste...');
+        
+        const mailOptions = {
+            from: `"La Casa Dark Core" <${cleanEmail}>`,
+            to: testEmail,
+            subject: testSubject,
+            html: testBody,
+            text: 'Este é um email de teste para validar as configurações SMTP do La Casa Dark Core. Se você recebeu este email, significa que suas configurações SMTP estão funcionando corretamente!'
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        
+        console.log('[SMTP Test] ✅ Email de teste enviado com sucesso!');
+        console.log('[SMTP Test] Message ID:', info.messageId);
+
+        res.json({ 
+            message: `Email de teste enviado com sucesso para ${testEmail}! Verifique sua caixa de entrada.`,
+            messageId: info.messageId
+        });
+
+    } catch (err) {
+        console.error('[SMTP Test] ❌ Erro ao testar configuração SMTP:', err.message);
+        console.error('[SMTP Test] Stack trace:', err.stack);
+        
+        let errorMessage = 'Erro ao enviar email de teste.';
+        
+        if (err.code === 'EAUTH') {
+            errorMessage = 'Erro de autenticação. Verifique o email e senha do SMTP.';
+        } else if (err.code === 'ECONNECTION' || err.code === 'ETIMEDOUT' || err.message.includes('Connection closed')) {
+            errorMessage = 'Erro de conexão. Verifique o servidor SMTP, porta e se o TLS/SSL está configurado corretamente. Alguns servidores requerem STARTTLS na porta 587.';
+        } else if (err.code === 'EENVELOPE') {
+            errorMessage = 'Erro no endereço de email. Verifique o email de destino.';
+        } else if (err.message.includes('self-signed certificate') || err.message.includes('certificate')) {
+            errorMessage = 'Erro de certificado SSL. O servidor SMTP está usando um certificado autoassinado. Tente desmarcar "Usar TLS/SSL" ou verifique as configurações do servidor.';
+        } else if (err.message) {
+            errorMessage = `Erro: ${err.message}`;
+        }
+        
+        res.status(500).json({ message: errorMessage });
     }
 });
 
@@ -6862,12 +7427,39 @@ async function getSMTPConfig() {
         const rows = await db.all("SELECT key, value FROM app_settings WHERE key LIKE 'smtp_%'");
         const config = {};
         rows.forEach(row => {
-            try {
                 const key = row.key.replace('smtp_', '');
-                config[key] = JSON.parse(row.value);
+            let value = row.value;
+            
+            // Se for senha, descriptografar
+            if (key === 'password') {
+                try {
+                    // Verificar se está no formato criptografado (IV:encrypted)
+                    if (value && value.includes(':')) {
+                        value = decrypt(value);
+                        if (!value) {
+                            // Se decrypt retornar null, usar o valor original (senha antiga não criptografada)
+                            value = row.value;
+                        }
+                    }
+                    // Se não tiver ':', é senha antiga não criptografada, manter como está
             } catch (e) {
-                config[row.key.replace('smtp_', '')] = row.value;
+                    // Se falhar ao descriptografar, usar o valor original (senha antiga não criptografada)
+                    console.warn('[EMAIL] Senha SMTP não está criptografada ou erro ao descriptografar, usando valor original');
+                    value = row.value;
             }
+            }
+            
+            // Converter secure para boolean
+            if (key === 'secure') {
+                value = value === 'true' || value === true;
+            }
+            
+            // Converter port para número
+            if (key === 'port') {
+                value = parseInt(value) || 587;
+            }
+            
+            config[key] = value;
         });
         return config;
     } catch (error) {
@@ -6886,14 +7478,27 @@ async function createEmailTransporter() {
     }
     
     try {
+        // Limpar host e email de possíveis aspas
+        const cleanHost = smtpConfig.host ? String(smtpConfig.host).replace(/^["']|["']$/g, '').trim() : null;
+        const cleanEmail = smtpConfig.email ? String(smtpConfig.email).replace(/^["']|["']$/g, '').trim() : null;
+        
         const transporter = nodemailer.createTransport({
-            host: smtpConfig.host,
+            host: cleanHost,
             port: parseInt(smtpConfig.port) || 587,
             secure: smtpConfig.secure === true || smtpConfig.secure === 'true',
+            // Aceitar certificados autoassinados (comum em servidores SMTP privados)
+            tls: {
+                rejectUnauthorized: false,
+                ciphers: 'SSLv3'
+            },
             auth: {
-                user: smtpConfig.email,
+                user: cleanEmail,
                 pass: smtpConfig.password
-            }
+            },
+            // Timeout aumentado para conexões mais lentas
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000
         });
         
         // Verificar conexão
@@ -6906,13 +7511,61 @@ async function createEmailTransporter() {
     }
 }
 
+// Templates padrão para fallback
+const defaultEmailTemplates = {
+    password_reset: {
+        subject: 'Reset de Senha - La Casa Dark Core',
+        body: `
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background-color: #f9f9f9; border-radius: 8px; padding: 30px; border: 1px solid #ddd;">
+                        <h2 style="color: #f59e0b; margin-top: 0;">🔐 Reset de Senha</h2>
+                        <p>Olá <strong>{{nome}}</strong>,</p>
+                        <p>Você solicitou a redefinição de senha para sua conta no La Casa Dark Core.</p>
+                        <p>Clique no link abaixo para redefinir sua senha:</p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="{{link_acesso}}" style="background-color: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Redefinir Senha</a>
+                        </div>
+                        <p style="color: #666; font-size: 12px;">Ou copie e cole este link no seu navegador:</p>
+                        <p style="color: #666; font-size: 12px; word-break: break-all;">{{link_acesso}}</p>
+                        <p style="color: #999; font-size: 11px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 20px;">
+                            Este link expira em 1 hora. Se você não solicitou esta redefinição, ignore este email.
+                        </p>
+                        <p style="color: #999; font-size: 11px;">
+                            Equipe La Casa Dark Core
+                        </p>
+                    </div>
+                </body>
+            </html>
+        `
+    },
+    register: {
+        subject: 'Bem-vindo à La Casa Dark Core!',
+        body: `
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <p>Olá {{nome}},</p>
+                    <p>Bem-vindo à La Casa Dark Core! Sua conta foi criada com sucesso.</p>
+                    <p>Créditos iniciais: {{creditos_iniciais}}</p>
+                    <p><a href="{{link_acesso}}">Acessar minha conta</a></p>
+                </body>
+            </html>
+        `
+    }
+};
+
 // Função para obter template de email
 async function getEmailTemplate(templateType) {
     try {
         const subjectRow = await db.get("SELECT value FROM app_settings WHERE key = ?", [`email_template_${templateType}_subject`]);
         const bodyRow = await db.get("SELECT value FROM app_settings WHERE key = ?", [`email_template_${templateType}_body`]);
         
+        // Se não encontrar no banco, usar template padrão
         if (!subjectRow || !bodyRow) {
+            if (defaultEmailTemplates[templateType]) {
+                console.log(`[EMAIL] Usando template padrão para ${templateType}`);
+                return defaultEmailTemplates[templateType];
+            }
             return null;
         }
         
@@ -6928,6 +7581,11 @@ async function getEmailTemplate(templateType) {
         return { subject, body };
     } catch (error) {
         console.error(`[EMAIL] Erro ao buscar template ${templateType}:`, error.message);
+        // Tentar usar template padrão em caso de erro
+        if (defaultEmailTemplates[templateType]) {
+            console.log(`[EMAIL] Usando template padrão para ${templateType} devido a erro`);
+            return defaultEmailTemplates[templateType];
+        }
         return null;
     }
 }
@@ -6954,21 +7612,56 @@ async function sendEmail(to, subject, htmlBody, textBody = null) {
         }
         
         const smtpConfig = await getSMTPConfig();
-        const fromEmail = smtpConfig.email || 'noreply@lacasadarkcore.com';
+        // Limpar email de possíveis aspas
+        const fromEmail = smtpConfig && smtpConfig.email ? String(smtpConfig.email).replace(/^["']|["']$/g, '').trim() : 'noreply@lacasadarkcore.com';
         
         const mailOptions = {
             from: `"La Casa Dark Core" <${fromEmail}>`,
             to: to,
             subject: subject,
             html: htmlBody,
-            text: textBody || htmlBody.replace(/<[^>]*>/g, '') // Remover HTML se não houver texto
+            text: textBody || htmlBody.replace(/<[^>]*>/g, ''), // Remover HTML se não houver texto
+            // Adicionar headers para melhorar a entrega
+            headers: {
+                'X-Priority': '1',
+                'X-MSMail-Priority': 'High',
+                'Importance': 'high',
+                'List-Unsubscribe': `<mailto:${fromEmail}?subject=unsubscribe>`,
+                'X-Mailer': 'La Casa Dark Core'
+            },
+            // Adicionar informações de reply-to
+            replyTo: fromEmail
         };
         
+        console.log(`[EMAIL] Enviando email para: ${to}`);
+        console.log(`[EMAIL] De: ${mailOptions.from}`);
+        console.log(`[EMAIL] Assunto: ${mailOptions.subject}`);
+        
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[EMAIL] Email enviado com sucesso para ${to}:`, info.messageId);
-        return { success: true, messageId: info.messageId };
+        
+        console.log(`[EMAIL] ✅ Email aceito pelo servidor SMTP`);
+        console.log(`[EMAIL] Message ID: ${info.messageId}`);
+        console.log(`[EMAIL] Response: ${info.response || 'N/A'}`);
+        console.log(`[EMAIL] Envelope:`, JSON.stringify(info.envelope || {}));
+        
+        // Verificar se o servidor SMTP realmente aceitou o email
+        if (info.accepted && info.accepted.length > 0) {
+            console.log(`[EMAIL] ✅ Email aceito para entrega: ${info.accepted.join(', ')}`);
+        }
+        if (info.rejected && info.rejected.length > 0) {
+            console.error(`[EMAIL] ❌ Email rejeitado: ${info.rejected.join(', ')}`);
+        }
+        if (info.pending && info.pending.length > 0) {
+            console.warn(`[EMAIL] ⚠️ Email pendente: ${info.pending.join(', ')}`);
+        }
+        
+        return { success: true, messageId: info.messageId, response: info.response, accepted: info.accepted, rejected: info.rejected };
     } catch (error) {
-        console.error('[EMAIL] Erro ao enviar email:', error.message);
+        console.error('[EMAIL] ❌ Erro ao enviar email:', error.message);
+        console.error('[EMAIL] Stack trace:', error.stack);
+        if (error.response) {
+            console.error('[EMAIL] Response do servidor:', error.response);
+        }
         return { success: false, error: error.message };
     }
 }
@@ -6985,9 +7678,28 @@ async function sendTemplateEmail(templateType, to, variables = {}) {
         const subject = replaceTemplateVariables(template.subject, variables);
         const body = replaceTemplateVariables(template.body, variables);
         
-        return await sendEmail(to, subject, body);
+        console.log(`[EMAIL] Preparando email ${templateType} para: ${to}`);
+        console.log(`[EMAIL] Assunto: ${subject.substring(0, 50)}...`);
+        
+        const result = await sendEmail(to, subject, body);
+        
+        // Log adicional sobre o resultado
+        if (result.success) {
+            console.log(`[EMAIL] ✅ Email ${templateType} processado com sucesso`);
+            if (result.accepted && result.accepted.length > 0) {
+                console.log(`[EMAIL] 📬 Destinatários aceitos: ${result.accepted.join(', ')}`);
+            }
+            if (result.rejected && result.rejected.length > 0) {
+                console.error(`[EMAIL] ❌ Destinatários rejeitados: ${result.rejected.join(', ')}`);
+            }
+        } else {
+            console.error(`[EMAIL] ❌ Falha ao enviar email ${templateType}: ${result.error || result.message}`);
+        }
+        
+        return result;
     } catch (error) {
         console.error(`[EMAIL] Erro ao enviar email com template ${templateType}:`, error.message);
+        console.error(`[EMAIL] Stack trace:`, error.stack);
         return { success: false, error: error.message };
     }
 }
@@ -8209,13 +8921,13 @@ app.post('/api/admin/voice-premium/check-balance', authenticateToken, isAdmin, a
             });
             
             if (response && response.data) {
-                console.log('[GenAIPro] Resposta do endpoint /me:', JSON.stringify(response.data).substring(0, 300));
+                console.log('[La Casa Dark Core] Resposta do endpoint /me:', JSON.stringify(response.data).substring(0, 300));
                 
                 // Conforme documentação: { "balance": 1000, ... }
                 const balance = response.data.balance;
                 
                 if (balance !== null && balance !== undefined) {
-                    console.log(`[GenAIPro] Saldo encontrado: ${balance}`);
+                    console.log(`[La Casa Dark Core] Saldo encontrado: ${balance}`);
                     res.json({ 
                         success: true, 
                         balance: parseFloat(balance),
@@ -8233,10 +8945,10 @@ app.post('/api/admin/voice-premium/check-balance', authenticateToken, isAdmin, a
             });
             
         } catch (apiError) {
-            console.error('[GenAIPro] Erro ao verificar saldo:', apiError.message);
+            console.error('[La Casa Dark Core] Erro ao verificar saldo:', apiError.message);
             if (apiError.response) {
-                console.error('[GenAIPro] Status:', apiError.response.status);
-                console.error('[GenAIPro] Data:', apiError.response.data);
+                console.error('[La Casa Dark Core] Status:', apiError.response.status);
+                console.error('[La Casa Dark Core] Data:', apiError.response.data);
                 
                 // Se for erro 401, a chave é inválida
                 if (apiError.response.status === 401) {
@@ -8370,7 +9082,7 @@ app.post('/api/admin/laozhang/verify', authenticateToken, isAdmin, async (req, r
                 }
                 
             } catch (apiError) {
-                console.error(`[Laozhang.ai] Erro ao verificar endpoint ${endpoint}:`, apiError.message);
+                console.error(`[La Casa Dark Core] Erro ao verificar endpoint ${endpoint}:`, apiError.message);
                 lastError = apiError;
                 
                 // Se for erro 401/403, a chave é inválida
@@ -8413,23 +9125,371 @@ app.get('/api/tts/voices', authenticateToken, async (req, res) => {
     try {
         const { provider = 'laozhang' } = req.query;
         
+        console.log(`[TTS Voices] Requisição recebida - Provider: "${provider}"`);
+        
+        // Se provider for voice_premium ou genaipro, SEMPRE buscar vozes premium
+        if (provider === 'voice_premium' || provider === 'genaipro') {
+            console.log('[TTS Voices] Buscando vozes premium...');
+            // Buscar API key do Voz Premium do usuário ou admin
+            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'genaipro']);
+            
+            let apiKey = null;
+            if (userApiKey) {
+                // Descriptografar a chave
+                apiKey = decrypt(userApiKey.api_key);
+                if (!apiKey) {
+                    console.error('[La Casa Dark Core] Erro ao descriptografar chave do usuário');
+                }
+            }
+            
+            // Se não tem chave do usuário ou falhou ao descriptografar, tentar usar API do admin
+            if (!apiKey) {
+                // Buscar especificamente a API Voz Premium do admin (não a API padrão genérica)
+                const adminVoicePremiumApi = await db.get(`
+                    SELECT * FROM api_providers 
+                    WHERE (provider = 'genaipro' OR provider = 'voice_premium')
+                    AND is_active = 1
+                    LIMIT 1
+                `);
+                
+                console.log('[La Casa Dark Core] Buscando API Voz Premium do admin:', adminVoicePremiumApi ? 'Encontrada' : 'Não encontrada');
+                
+                if (adminVoicePremiumApi && adminVoicePremiumApi.api_key) {
+                    // Tentar descriptografar a chave do admin
+                    // Se a chave contém ':' provavelmente está criptografada
+                    if (adminVoicePremiumApi.api_key.includes(':')) {
+                        try {
+                            apiKey = decrypt(adminVoicePremiumApi.api_key);
+                        } catch (decryptError) {
+                            console.warn('[La Casa Dark Core] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
+                            // Se falhar, tentar usar diretamente (pode não estar criptografada)
+                            apiKey = adminVoicePremiumApi.api_key;
+                        }
+                    } else {
+                        // Chave não parece estar criptografada, usar diretamente
+                        apiKey = adminVoicePremiumApi.api_key;
+                    }
+                    console.log('[La Casa Dark Core] Usando API Voz Premium do admin');
+                }
+            }
+            
+            if (!apiKey) {
+                console.error('[La Casa Dark Core] Nenhuma chave de API Voz Premium encontrada (nem do usuário nem do admin)');
+                return res.status(400).json({ message: 'Chave de API Voz Premium não configurada. Configure no painel admin ou nas suas configurações.' });
+            }
+            
+            console.log('[La Casa Dark Core] Buscando vozes com chave de API disponível');
+            
+            // Buscar vozes de AMBOS os endpoints (Max e Labs) e indicar status
+            // Base URL: https://genaipro.vn/api/v1
+            try {
+                let allVoices = [];
+                let maxStatus = 'online'; // Status do serviço Max
+                let labsStatus = 'online'; // Status do serviço Labs
+                
+                // ============================================
+                // BUSCAR VOZES LABS (ElevenLabs) - Geralmente mais estáveis
+                // ============================================
+                console.log('[La Casa Dark Core] Buscando vozes Labs...');
+                
+                // Primeiro, verificar se o serviço de TTS Labs está disponível
+                try {
+                    console.log('[La Casa Dark Core] Verificando status do serviço Labs TTS...');
+                    const labsTtsCheck = await axios.post('https://genaipro.vn/api/v1/labs/task', 
+                        { input: 'test', voice_id: 'test' },
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            timeout: 10000,
+                            validateStatus: (status) => true
+                        }
+                    );
+                    
+                    // Se retornar 503 ou HTML de manutenção, marcar como em manutenção
+                    if (labsTtsCheck.status === 503) {
+                        labsStatus = 'maintenance';
+                        console.log('[La Casa Dark Core] ⚠️ Serviço Labs TTS em manutenção (503)');
+                    } else if (typeof labsTtsCheck.data === 'string' && 
+                              (labsTtsCheck.data.includes('Maintenance') || labsTtsCheck.data.includes('Bảo Trì') || labsTtsCheck.data.includes('<!DOCTYPE'))) {
+                        labsStatus = 'maintenance';
+                        console.log('[La Casa Dark Core] ⚠️ Serviço Labs TTS em manutenção (HTML)');
+                    } else {
+                        console.log('[La Casa Dark Core] ✅ Serviço Labs TTS disponível (status:', labsTtsCheck.status, ')');
+                    }
+                } catch (labsCheckError) {
+                    console.log('[La Casa Dark Core] Erro ao verificar status Labs:', labsCheckError.message);
+                }
+                
+                try {
+                    // Buscar TODAS as vozes Labs (sem filtro de idioma restritivo)
+                    const labsResponse = await axios.get('https://genaipro.vn/api/v1/labs/voices', {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        params: {
+                            page: 1,
+                            page_size: 100
+                            // Removido filtro de idioma para buscar todas as vozes
+                        },
+                        timeout: 15000,
+                        validateStatus: (status) => true
+                    });
+                    
+                    console.log('[La Casa Dark Core] Labs voices response status:', labsResponse.status);
+                    if (labsResponse.data) {
+                        console.log('[La Casa Dark Core] Labs voices data keys:', Object.keys(labsResponse.data));
+                    }
+                    
+                    // Verificar se está em manutenção
+                    if (labsResponse.status === 503) {
+                        const responseText = typeof labsResponse.data === 'string' ? labsResponse.data : '';
+                        if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì')) {
+                            labsStatus = 'maintenance';
+                            console.log('[La Casa Dark Core] ⚠️ Serviço Labs em manutenção');
+                        }
+                    } else if (labsResponse.status === 200 && labsResponse.data) {
+                        console.log('[La Casa Dark Core] Labs data sample:', JSON.stringify(labsResponse.data).substring(0, 500));
+                        
+                        // Tentar diferentes formatos de resposta
+                        let voiceList = [];
+                        if (labsResponse.data.voices) {
+                            voiceList = labsResponse.data.voices;
+                            console.log('[La Casa Dark Core] Labs usando campo "voices"');
+                        } else if (labsResponse.data.voice_list) {
+                            voiceList = labsResponse.data.voice_list;
+                            console.log('[La Casa Dark Core] Labs usando campo "voice_list"');
+                        } else if (labsResponse.data.data) {
+                            voiceList = labsResponse.data.data;
+                            console.log('[La Casa Dark Core] Labs usando campo "data"');
+                        } else if (Array.isArray(labsResponse.data)) {
+                            voiceList = labsResponse.data;
+                            console.log('[La Casa Dark Core] Labs resposta é array direto');
+                        }
+                        
+                        if (Array.isArray(voiceList) && voiceList.length > 0) {
+                            console.log(`[La Casa Dark Core] Labs: ${voiceList.length} vozes encontradas`);
+                            
+                            const labsVoices = voiceList.map(voice => {
+                                let friendlyName = voice.name || 'Voz Labs';
+                                
+                                if (voice.labels) {
+                                    const gender = voice.labels.gender || '';
+                                    const description = voice.labels.description || '';
+                                    
+                                    if (gender) {
+                                        const genderPt = gender === 'male' ? 'Masculina' : gender === 'female' ? 'Feminina' : '';
+                                        if (genderPt) {
+                                            friendlyName = `Voz ${genderPt}`;
+                                            if (description) {
+                                                friendlyName += ` - ${description}`;
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                return {
+                                    id: voice.voice_id || voice.id || voice.name,
+                                    name: voice.voice_id || voice.id || voice.name,
+                                    label: `✅ ${friendlyName}`, // Indicar que está online
+                                    language: voice.labels?.accent || 'pt-BR',
+                                    gender: voice.labels?.gender || null,
+                                    description: voice.labels?.description || null,
+                                    category: voice.category,
+                                    original_name: voice.name,
+                                    api_type: 'labs',
+                                    status: 'online'
+                                };
+                            });
+                            
+                            allVoices.push(...labsVoices);
+                        }
+                    }
+                } catch (labsError) {
+                    console.log('[La Casa Dark Core] Erro ao buscar vozes Labs:', labsError.message);
+                    labsStatus = 'error';
+                }
+                
+                // ============================================
+                // BUSCAR VOZES MAX - Melhor para português
+                // ============================================
+                console.log('[La Casa Dark Core] Buscando vozes Max...');
+                
+                // Primeiro, verificar se o serviço de TTS Max está disponível
+                try {
+                    console.log('[La Casa Dark Core] Verificando status do serviço Max TTS...');
+                    const maxTtsCheck = await axios.post('https://genaipro.vn/api/v1/max/tasks', 
+                        { text: 'test', voice_id: 'test' },
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            timeout: 10000,
+                            validateStatus: (status) => true
+                        }
+                    );
+                    
+                    // Se retornar 503 ou HTML de manutenção, marcar como em manutenção
+                    if (maxTtsCheck.status === 503) {
+                        maxStatus = 'maintenance';
+                        console.log('[La Casa Dark Core] ⚠️ Serviço Max TTS em manutenção (503)');
+                    } else if (typeof maxTtsCheck.data === 'string' && 
+                              (maxTtsCheck.data.includes('Maintenance') || maxTtsCheck.data.includes('Bảo Trì') || maxTtsCheck.data.includes('<!DOCTYPE'))) {
+                        maxStatus = 'maintenance';
+                        console.log('[La Casa Dark Core] ⚠️ Serviço Max TTS em manutenção (HTML)');
+                    } else {
+                        console.log('[La Casa Dark Core] ✅ Serviço Max TTS disponível');
+                    }
+                } catch (maxCheckError) {
+                    console.log('[La Casa Dark Core] Erro ao verificar status Max:', maxCheckError.message);
+                }
+                
+                try {
+                    const maxResponse = await axios.get('https://genaipro.vn/api/v1/max/voices', {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        params: {
+                            page: 1,
+                            page_size: 100,
+                            language: 'Portuguese'
+                        },
+                        timeout: 15000,
+                        validateStatus: (status) => true
+                    });
+                    
+                    // Verificar se está em manutenção
+                    if (maxResponse.status === 503) {
+                        const responseText = typeof maxResponse.data === 'string' ? maxResponse.data : '';
+                        if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì')) {
+                            maxStatus = 'maintenance';
+                            console.log('[La Casa Dark Core] ⚠️ Serviço Max em manutenção');
+                        }
+                    } else if (maxResponse.status === 200 && maxResponse.data) {
+                        const voiceList = maxResponse.data.voice_list || maxResponse.data.voices || maxResponse.data.data || [];
+                        
+                        if (Array.isArray(voiceList) && voiceList.length > 0) {
+                            console.log(`[La Casa Dark Core] Max: ${voiceList.length} vozes encontradas`);
+                            
+                            const maxVoices = voiceList.map(voice => {
+                                let friendlyName = voice.voice_name || voice.name || 'Voz Max';
+                                
+                                const tagList = voice.tag_list || voice.tags || [];
+                                const gender = tagList.find(tag => tag === 'Male' || tag === 'Female') || '';
+                                const age = tagList.find(tag => ['Youth', 'Young Adult', 'Adult', 'Middle Aged', 'Senior'].includes(tag)) || '';
+                                
+                                if (gender && age) {
+                                    const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
+                                    const agePt = age === 'Youth' ? 'Jovem' : 
+                                                 age === 'Young Adult' ? 'Jovem Adulta' :
+                                                 age === 'Adult' ? 'Adulto' :
+                                                 age === 'Middle Aged' ? 'Meia Idade' : 'Sênior';
+                                    friendlyName = `Voz ${genderPt} ${agePt}`;
+                                } else if (gender) {
+                                    const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
+                                    friendlyName = `Voz ${genderPt}`;
+                                }
+                                
+                                // Indicador de status no label
+                                const statusIndicator = maxStatus === 'maintenance' ? '🔧 ' : '✅ ';
+                                const statusSuffix = maxStatus === 'maintenance' ? ' (Manutenção)' : '';
+                                
+                                return {
+                                    id: voice.voice_id || voice.id || voice.voice_name || voice.name,
+                                    name: voice.voice_id || voice.id || voice.voice_name || voice.name,
+                                    label: `${statusIndicator}${friendlyName}${statusSuffix}`,
+                                    language: 'Portuguese',
+                                    gender: gender || null,
+                                    description: voice.description || null,
+                                    tags: tagList,
+                                    original_name: voice.voice_name || voice.name,
+                                    api_type: 'max',
+                                    status: maxStatus
+                                };
+                            });
+                            
+                            allVoices.push(...maxVoices);
+                        }
+                    }
+                } catch (maxError) {
+                    console.log('[La Casa Dark Core] Erro ao buscar vozes Max:', maxError.message);
+                    maxStatus = 'error';
+                }
+                
+                // Ordenar vozes: online primeiro, depois manutenção
+                allVoices.sort((a, b) => {
+                    if (a.status === 'online' && b.status !== 'online') return -1;
+                    if (a.status !== 'online' && b.status === 'online') return 1;
+                    return 0;
+                });
+                
+                if (allVoices.length > 0) {
+                    const onlineCount = allVoices.filter(v => v.status === 'online').length;
+                    const maintenanceCount = allVoices.filter(v => v.status === 'maintenance').length;
+                    
+                    console.log(`[La Casa Dark Core] ✅ Total: ${allVoices.length} vozes (${onlineCount} online, ${maintenanceCount} em manutenção)`);
+                    
+                    return res.json({ 
+                        data: allVoices,
+                        provider: 'voice_premium',
+                        message: `${allVoices.length} vozes disponíveis (${onlineCount} online${maintenanceCount > 0 ? `, ${maintenanceCount} em manutenção` : ''})`,
+                        status: {
+                            labs: labsStatus,
+                            max: maxStatus
+                        }
+                    });
+                } else {
+                    console.warn('[La Casa Dark Core] ⚠️ Nenhuma voz encontrada');
+                    return res.status(404).json({ 
+                        message: 'Nenhuma voz encontrada. Verifique se sua chave de API tem acesso às vozes premium.',
+                        data: [],
+                        status: {
+                            labs: labsStatus,
+                            max: maxStatus
+                        }
+                    });
+                }
+            } catch (apiError) {
+                console.error('[La Casa Dark Core] Erro ao buscar vozes:', apiError.message);
+                if (apiError.response) {
+                    console.error('[La Casa Dark Core] Status:', apiError.response.status);
+                    console.error('[La Casa Dark Core] Data:', JSON.stringify(apiError.response.data).substring(0, 500));
+                    
+                    if (apiError.response.status === 401 || apiError.response.status === 403) {
+                        return res.status(401).json({ 
+                            message: 'Chave de API inválida ou expirada. Verifique suas configurações.',
+                            data: []
+                        });
+                    }
+                }
+                return res.status(500).json({ 
+                    message: `Erro ao buscar vozes: ${apiError.message}`,
+                    data: []
+                });
+            }
+        }
+        
         // Verificar preferência do usuário
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
         const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
         
-        // Se provider for laozhang ou se useCredits estiver marcado, retornar vozes da laozhang.ai
+        // Se provider for laozhang ou se useCredits estiver marcado, retornar vozes DarkVoz
         if (provider === 'laozhang' || useCredits) {
-            console.log('[TTS Voices] Retornando vozes da laozhang.ai');
+            console.log('[TTS Voices] Retornando vozes DarkVoz');
             
-            // Verificar se tem chave da laozhang.ai
+            // Verificar se tem chave de API configurada
             const laozhangKey = await getLaozhangApiKey();
             if (!laozhangKey) {
                 return res.status(400).json({ 
-                    message: 'Chave de API da laozhang.ai não configurada. Configure no painel admin.' 
+                    message: 'Chave de API DarkVoz não configurada. Configure no painel admin.' 
                 });
             }
             
-            // Retornar todas as vozes disponíveis da laozhang.ai conforme documentação
+            // Retornar todas as vozes disponíveis do DarkVoz
             const laozhangVoices = [
                 {
                     id: 'alloy',
@@ -8489,7 +9549,7 @@ app.get('/api/tts/voices', authenticateToken, async (req, res) => {
             
             return res.status(200).json({ 
                 data: laozhangVoices,
-                provider: 'laozhang',
+                provider: 'darkvoz',
                 message: `${laozhangVoices.length} vozes disponíveis`
             });
         }
@@ -8501,219 +9561,7 @@ app.get('/api/tts/voices', authenticateToken, async (req, res) => {
             console.log('[TTS Generate] ✅ Usando chave de voz configurada no painel admin (Google Cloud/Gemini)');
         }
         
-        if (provider === 'voice_premium' || provider === 'genaipro') {
-            // Buscar API key do Voz Premium do usuário ou admin
-            const userApiKey = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [req.user.id, 'genaipro']);
-            
-            let apiKey = null;
-            if (userApiKey) {
-                // Descriptografar a chave
-                apiKey = decrypt(userApiKey.api_key);
-                if (!apiKey) {
-                    console.error('[GenAIPro] Erro ao descriptografar chave do usuário');
-                }
-            }
-            
-            // Se não tem chave do usuário ou falhou ao descriptografar, tentar usar API do admin
-            if (!apiKey) {
-                const adminApi = await getDefaultAdminApi();
-                if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
-                    // Tentar descriptografar a chave do admin
-                    // Se a chave contém ':' provavelmente está criptografada
-                    if (adminApi.api_key && adminApi.api_key.includes(':')) {
-                        try {
-                            apiKey = decrypt(adminApi.api_key);
-                        } catch (decryptError) {
-                            console.warn('[GenAIPro] Erro ao descriptografar chave do admin, tentando usar diretamente:', decryptError.message);
-                            // Se falhar, tentar usar diretamente (pode não estar criptografada)
-                            apiKey = adminApi.api_key;
-                        }
-                    } else {
-                        // Chave não parece estar criptografada, usar diretamente
-                        apiKey = adminApi.api_key;
-                    }
-                    console.log('[GenAIPro] Usando API do admin');
-                }
-            }
-            
-            if (!apiKey) {
-                console.error('[GenAIPro] Nenhuma chave de API encontrada (nem do usuário nem do admin)');
-                return res.status(400).json({ message: 'Chave de API Voz Premium não configurada. Configure no painel admin ou nas suas configurações.' });
-            }
-            
-            console.log('[GenAIPro] Buscando vozes com chave de API disponível');
-            
-            // Buscar vozes da API Voz Premium conforme documentação GenAIPro
-            // Base URL: https://genaipro.vn/api/v1
-            // Endpoints disponíveis: /labs/voices (ElevenLabs) ou /max/voices (Max)
-            try {
-                // Tentar primeiro /max/voices (recomendado para português)
-                let response = null;
-                let voices = [];
-                
-                try {
-                    // Endpoint Max Voices - melhor para português
-                    response = await axios.get('https://genaipro.vn/api/v1/max/voices', {
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        params: {
-                            page: 1,
-                            page_size: 100,
-                            language: 'Portuguese'
-                        },
-                        timeout: 15000
-                    });
-                    
-                    console.log('[GenAIPro] Resposta do endpoint /max/voices:', response?.status, response?.data ? 'Dados recebidos' : 'Sem dados');
-                    
-                    if (response && response.data && response.data.voice_list) {
-                        console.log(`[GenAIPro] Total de vozes recebidas: ${response.data.voice_list.length}`);
-                        voices = response.data.voice_list.map(voice => {
-                            // Criar nome amigável baseado no voice_name e tags
-                            let friendlyName = voice.voice_name || 'Voz';
-                            
-                            // Extrair informações das tags
-                            const gender = voice.tag_list?.find(tag => tag === 'Male' || tag === 'Female') || '';
-                            const language = voice.tag_list?.find(tag => tag.includes('Portuguese') || tag.includes('English')) || '';
-                            const age = voice.tag_list?.find(tag => ['Youth', 'Young Adult', 'Adult', 'Middle Aged', 'Senior'].includes(tag)) || '';
-                            
-                            // Criar nome amigável
-                            if (gender && age) {
-                                const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
-                                const agePt = age === 'Youth' ? 'Jovem' : 
-                                             age === 'Young Adult' ? 'Jovem Adulta' :
-                                             age === 'Adult' ? 'Adulto' :
-                                             age === 'Middle Aged' ? 'Meia Idade' : 'Sênior';
-                                friendlyName = `Voz ${genderPt} ${agePt}`;
-                            } else if (gender) {
-                                const genderPt = gender === 'Male' ? 'Masculina' : 'Feminina';
-                                friendlyName = `Voz ${genderPt}`;
-                            }
-                            
-                            // Se o nome original for mais descritivo, usar ele
-                            if (voice.voice_name && voice.voice_name.length > 0) {
-                                const nameLower = voice.voice_name.toLowerCase();
-                                // Mapear nomes comuns para nomes amigáveis
-                                if (nameLower.includes('trust') || nameLower.includes('confiança')) {
-                                    friendlyName = gender === 'Male' ? 'Voz Masculina Confiável' : 'Voz Feminina Confiável';
-                                } else if (nameLower.includes('warm') || nameLower.includes('calor')) {
-                                    friendlyName = gender === 'Male' ? 'Voz Masculina Acolhedora' : 'Voz Feminina Acolhedora';
-                                } else if (nameLower.includes('energetic') || nameLower.includes('energética')) {
-                                    friendlyName = gender === 'Male' ? 'Voz Masculina Energética' : 'Voz Feminina Energética';
-                                } else if (nameLower.includes('calm') || nameLower.includes('calma')) {
-                                    friendlyName = gender === 'Male' ? 'Voz Masculina Calma' : 'Voz Feminina Calma';
-                                } else if (nameLower.includes('professional') || nameLower.includes('profissional')) {
-                                    friendlyName = gender === 'Male' ? 'Voz Masculina Profissional' : 'Voz Feminina Profissional';
-                                } else if (voice.voice_name.length < 30 && !friendlyName.includes(voice.voice_name)) {
-                                    // Usar o nome original se for curto e descritivo
-                                    friendlyName = voice.voice_name;
-                                }
-                            }
-                            
-                            // Adicionar descrição curta se disponível
-                            if (voice.description && voice.description.length < 40 && !friendlyName.includes(voice.description)) {
-                                friendlyName += ` - ${voice.description}`;
-                            }
-                            
-                            return {
-                                id: voice.voice_id, // ID para uso na API
-                                name: voice.voice_id, // ID para uso na API (compatibilidade)
-                                label: friendlyName, // Nome amigável para exibição
-                                language: language || 'Portuguese',
-                                gender: gender || null,
-                                description: voice.description || null,
-                                tags: voice.tag_list || [],
-                                original_name: voice.voice_name
-                            };
-                        });
-                        console.log(`[GenAIPro] ${voices.length} vozes Max encontradas`);
-                    }
-                } catch (maxError) {
-                    console.log('[GenAIPro] Erro ao buscar vozes Max, tentando Labs:', maxError.message);
-                    
-                    // Fallback: tentar /labs/voices (ElevenLabs)
-                    try {
-                        response = await axios.get('https://genaipro.vn/api/v1/labs/voices', {
-                            headers: {
-                                'Authorization': `Bearer ${apiKey}`,
-                                'Content-Type': 'application/json'
-                            },
-                            params: {
-                                page: 0,
-                                page_size: 100,
-                                language: 'pt'
-                            },
-                            timeout: 15000
-                        });
-                        
-                        console.log('[GenAIPro] Resposta do endpoint /labs/voices:', response?.status, response?.data ? 'Dados recebidos' : 'Sem dados');
-                        
-                        if (response && response.data && response.data.voices) {
-                            console.log(`[GenAIPro] Total de vozes Labs recebidas: ${response.data.voices.length}`);
-                            voices = response.data.voices.map(voice => {
-                                // Criar nome amigável
-                                let friendlyName = voice.name || 'Voz';
-                                
-                                if (voice.labels) {
-                                    const gender = voice.labels.gender || '';
-                                    const description = voice.labels.description || '';
-                                    
-                                    if (gender) {
-                                        const genderPt = gender === 'male' ? 'Masculina' : gender === 'female' ? 'Feminina' : '';
-                                        if (genderPt) {
-                                            friendlyName = `Voz ${genderPt}`;
-                                            if (description) {
-                                                friendlyName += ` - ${description}`;
-                                            }
-                                        }
-                                    } else if (description) {
-                                        friendlyName = `${voice.name} - ${description}`;
-                                    }
-                                }
-                                
-                                return {
-                                    id: voice.voice_id, // ID para uso na API
-                                    name: voice.voice_id, // ID para uso na API (compatibilidade)
-                                    label: friendlyName, // Nome amigável para exibição
-                                    language: voice.labels?.accent || 'pt-BR',
-                                    gender: voice.labels?.gender || null,
-                                    description: voice.labels?.description || null,
-                                    category: voice.category,
-                                    original_name: voice.name
-                                };
-                            });
-                            console.log(`[GenAIPro] ${voices.length} vozes Labs encontradas`);
-                        }
-                    } catch (labsError) {
-                        console.error('[GenAIPro] Erro ao buscar vozes Labs:', labsError.message);
-                        throw labsError;
-                    }
-                }
-                
-                if (voices.length > 0) {
-                    console.log(`[GenAIPro] Retornando ${voices.length} vozes`);
-                    res.json({ data: voices });
-                } else {
-                    throw new Error('Nenhuma voz encontrada');
-                }
-            } catch (apiError) {
-                console.error('Erro ao buscar vozes Voz Premium:', apiError);
-                if (apiError.response) {
-                    console.error('Status:', apiError.response.status);
-                    console.error('Data:', apiError.response.data);
-                }
-                // Retornar lista padrão de vozes se a API falhar
-                res.json({ 
-                    data: [
-                        { id: 'default', name: 'Voz Padrão', label: 'Voz Padrão', language: 'pt-BR' },
-                        { id: 'female-1', name: 'Voz Feminina 1', label: 'Voz Feminina 1', language: 'pt-BR' },
-                        { id: 'male-1', name: 'Voz Masculina 1', label: 'Voz Masculina 1', language: 'pt-BR' }
-                    ]
-                });
-            }
-        } else if (provider === 'gemini') {
+        if (provider === 'gemini') {
             // Vozes Gemini (hardcoded conforme voices.js)
             const geminiVoices = [
                 { name: "Zephyr", label: "Brisa - Voz Brilhante", lang: "pt-BR" },
@@ -8787,21 +9635,24 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [req.user.id]);
         const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
         
-        // Se useCredits estiver marcado, usar laozhang.ai
-        if (useCredits) {
-            console.log(`[TTS Preview] useCredits marcado, usando laozhang.ai`);
+        // IMPORTANTE: Se o provider é voice_premium/genaipro, SEMPRE usar a API GenAIPro, não laozhang
+        // A lógica useCredits só se aplica a outros providers
+        
+        // Se useCredits estiver marcado E o provider NÃO é voice_premium, usar laozhang.ai
+        if (useCredits && provider !== 'voice_premium' && provider !== 'genaipro') {
+            console.log(`[TTS Preview] useCredits marcado (provider: ${provider}), usando DarkVoz`);
             const laozhangKey = await getLaozhangApiKey();
             let normalizedKey = typeof laozhangKey === 'string' ? laozhangKey.trim() : null;
             if (!normalizedKey && laozhangKey && typeof laozhangKey === 'object' && laozhangKey.api_key) {
                 normalizedKey = String(laozhangKey.api_key).trim();
             }
             if (!normalizedKey || normalizedKey.length < 10) {
-                return res.status(400).json({ message: 'Chave da laozhang.ai não configurada. Configure no painel admin.' });
+                return res.status(400).json({ message: 'Chave do DarkVoz não configurada. Configure no painel admin.' });
             }
             apiKey = normalizedKey;
             useAdminApi = true;
             actualProvider = 'laozhang';
-            console.log('[TTS Preview] ✅ Usando API laozhang.ai (useCredits marcado)');
+            console.log('[TTS Preview] ✅ Usando API DarkVoz (useCredits marcado)');
         } else if (provider === 'laozhang') {
             console.log(`[TTS Preview] Provider: laozhang, Voice: ${previewVoice}`);
             const laozhangKey = await getLaozhangApiKey();
@@ -8912,12 +9763,19 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
             }
             
             if (useCredits) {
-                // Usuário prefere usar créditos mesmo tendo API própria
-                adminApi = await getDefaultAdminApi();
-                console.log('[TTS Preview] Usuário prefere créditos. Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
-                if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                // Usuário prefere usar créditos - buscar especificamente a API Voz Premium do admin
+                // NÃO usar getDefaultAdminApi() pois pode retornar outra API
+                adminApi = await db.get(`
+                    SELECT * FROM api_providers 
+                    WHERE (provider = 'genaipro' OR provider = 'voice_premium')
+                    AND is_active = 1
+                    LIMIT 1
+                `);
+                console.log('[TTS Preview] Buscando API Voz Premium do admin:', adminApi ? 'Encontrada' : 'Não encontrada');
+                
+                if (adminApi && adminApi.api_key) {
                     // Tentar descriptografar a chave do admin
-                    if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                    if (adminApi.api_key.includes(':')) {
                         try {
                             apiKey = decrypt(adminApi.api_key);
                         } catch (decryptError) {
@@ -8928,7 +9786,8 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                         apiKey = adminApi.api_key;
                     }
                     useAdminApi = true;
-                    console.log('[TTS Preview] Usando API do admin com créditos (preferência do usuário)');
+                    actualProvider = 'voice_premium'; // Garantir que o provider seja correto
+                    console.log('[TTS Preview] ✅ Usando API Voz Premium do admin');
                 } else {
                     // Fallback: usar API própria se disponível
                     if (userApiKey && userApiKey.api_key) {
@@ -8953,10 +9812,11 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                             return res.status(400).json({ message: 'A chave da API Voz Premium configurada está vazia ou inválida. Verifique suas configurações.' });
                         }
                         
+                        actualProvider = 'voice_premium'; // Garantir provider correto
                         console.log('[TTS Preview] ✅ Fallback: usando API própria (admin API não disponível)');
                     } else {
-                        console.error('[TTS Preview] ❌ API própria não encontrada e admin API não disponível');
-                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium ou use créditos.' });
+                        console.error('[TTS Preview] ❌ API própria não encontrada e admin API Voz Premium não disponível');
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium no painel admin ou nas suas configurações.' });
                     }
                 }
             } else {
@@ -8993,13 +9853,19 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                 
                 // Se não conseguiu usar API própria, tentar admin como fallback
                 if (!apiKey) {
-                    console.log('[TTS Preview] Tentando usar API do admin como fallback...');
-                    // Usar API do admin com créditos
-                    adminApi = await getDefaultAdminApi();
-                    console.log('[TTS Preview] Admin API encontrada:', adminApi ? `${adminApi.provider} - ${adminApi.name}` : 'Nenhuma');
-                    if (adminApi && (adminApi.provider === 'genaipro' || adminApi.provider === 'voice_premium')) {
+                    console.log('[TTS Preview] Tentando usar API Voz Premium do admin como fallback...');
+                    // Buscar especificamente a API Voz Premium do admin
+                    adminApi = await db.get(`
+                        SELECT * FROM api_providers 
+                        WHERE (provider = 'genaipro' OR provider = 'voice_premium')
+                        AND is_active = 1
+                        LIMIT 1
+                    `);
+                    console.log('[TTS Preview] Admin API Voz Premium encontrada:', adminApi ? 'Sim' : 'Não');
+                    
+                    if (adminApi && adminApi.api_key) {
                         // Tentar descriptografar a chave do admin
-                        if (adminApi.api_key && adminApi.api_key.includes(':')) {
+                        if (adminApi.api_key.includes(':')) {
                             try {
                                 apiKey = decrypt(adminApi.api_key);
                                 console.log('[TTS Preview] Chave do admin descriptografada (tamanho:', apiKey ? apiKey.length : 0, 'caracteres)');
@@ -9018,16 +9884,19 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                             apiKey = null;
                         } else {
                             useAdminApi = true;
-                            console.log('[TTS Preview] ✅ Usando API do admin com créditos (fallback - API própria não disponível)');
+                            actualProvider = 'voice_premium'; // Garantir provider correto
+                            console.log('[TTS Preview] ✅ Usando API Voz Premium do admin (fallback)');
                         }
                     } else {
-                        console.warn('[TTS Preview] ⚠️ Admin API não encontrada ou não é genaipro/voice_premium');
+                        console.warn('[TTS Preview] ⚠️ Admin API Voz Premium não encontrada');
                     }
                     
                     if (!apiKey) {
-                        console.error('[TTS Preview] ❌ Nenhuma API disponível (própria ou admin)');
-                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium válida ou use créditos. A chave configurada pode estar vazia ou inválida.' });
+                        console.error('[TTS Preview] ❌ Nenhuma API Voz Premium disponível');
+                        return res.status(400).json({ message: 'Configure uma chave da API Voz Premium no painel admin ou nas suas configurações.' });
                     }
+                } else {
+                    actualProvider = 'voice_premium'; // Garantir provider correto quando usando API do usuário
                 }
             }
         } else if (provider === 'openai') {
@@ -18530,11 +19399,15 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         systemPrompt += `1. Seguir RIGOROSAMENTE as INSTRUÇÕES e MEMÓRIA configuradas acima\n`;
         systemPrompt += `2. Gerar um ROTEIRO COMPLETO baseado na mensagem do usuário\n`;
         systemPrompt += `3. O roteiro deve ser detalhado, completo e seguir o formato especificado nas instruções\n`;
-        systemPrompt += `4. NÃO pare no meio do roteiro - complete TODA a história\n`;
-        systemPrompt += `5. Use a memória para personalizar o roteiro ao contexto do usuário\n`;
-        systemPrompt += `6. Após o roteiro completo, adicione a avaliação JSON no final\n\n`;
+        systemPrompt += `4. NÃO pare no meio do roteiro - complete TODA a história até o final\n`;
+        systemPrompt += `5. NÃO corte o roteiro - continue até concluir completamente a narrativa\n`;
+        systemPrompt += `6. Use a memória para personalizar o roteiro ao contexto do usuário\n`;
+        systemPrompt += `7. Após o roteiro completo, adicione a avaliação JSON no final\n`;
+        systemPrompt += `8. Se o roteiro for longo, continue escrevendo até o final - NÃO pare antes de concluir\n\n`;
         systemPrompt += `IMPORTANTE: Se as instruções pedirem um formato específico de roteiro, use EXATAMENTE esse formato.\n`;
-        systemPrompt += `Se a memória descrever o propósito do agente, mantenha esse propósito ao gerar o roteiro.\n\n`;
+        systemPrompt += `Se a memória descrever o propósito do agente, mantenha esse propósito ao gerar o roteiro.\n`;
+        systemPrompt += `CRÍTICO: Você tem até 16384 tokens disponíveis. Use TODOS se necessário para completar o roteiro.\n`;
+        systemPrompt += `NÃO pare no meio - continue até o final completo do roteiro.\n\n`;
 
         // Verificar preferência do usuário: usar créditos (laozhang.ai) ou APIs próprias
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
@@ -18663,9 +19536,11 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             fullPrompt += `1. Siga RIGOROSAMENTE as CONFIGURAÇÕES DO AGENTE acima (memória e instruções)\n`;
             fullPrompt += `2. Gere um ROTEIRO COMPLETO baseado na mensagem do usuário\n`;
             fullPrompt += `3. O roteiro deve ser detalhado e seguir o formato especificado nas instruções\n`;
-            fullPrompt += `4. NÃO pare no meio - complete TODA a história/roteiro\n`;
-            fullPrompt += `5. Use a memória para personalizar o roteiro ao contexto\n`;
-            fullPrompt += `6. Após o roteiro completo, adicione a avaliação JSON no final\n\n`;
+            fullPrompt += `4. NÃO pare no meio - complete TODA a história/roteiro até o final\n`;
+            fullPrompt += `5. NÃO corte o roteiro - continue escrevendo até concluir completamente\n`;
+            fullPrompt += `6. Use a memória para personalizar o roteiro ao contexto\n`;
+            fullPrompt += `7. Após o roteiro completo, adicione a avaliação JSON no final\n`;
+            fullPrompt += `8. Você tem até 16384 tokens disponíveis - use TODOS se necessário para completar o roteiro\n\n`;
             fullPrompt += `Agora gere sua resposta seguindo essas instruções:\n\n`;
             fullPrompt += `Assistente:`;
             
@@ -18700,9 +19575,9 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     // Calcular tokens aproximados (input + output estimado)
                     const promptText = allMessages.map(m => m.content).join('\n');
                     const promptTokens = Math.ceil(promptText.length / 4);
-                    // Estimativa para roteiros: baseado no max_tokens configurado (8192)
+                    // Estimativa para roteiros: baseado no max_tokens configurado (16384)
                     // Usar 80% do max_tokens como estimativa conservadora
-                    const estimatedOutputTokens = Math.ceil(8192 * 0.8);
+                    const estimatedOutputTokens = Math.ceil(16384 * 0.8);
                     const totalTokens = promptTokens + estimatedOutputTokens;
                     
                     console.log('[Viral Agents] 💰 Calculando créditos:', {
@@ -18742,7 +19617,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                         model: laozhangModel,
                         messages: allMessages,
                         temperature: 0.7,
-                        max_tokens: 8192,
+                        max_tokens: 16384, // Aumentado para permitir roteiros mais longos
                         stream: true
                     };
                     
@@ -18900,7 +19775,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     console.log('[Viral Agents] ✅ Stream finalizado');
                     return;
                 } catch (err) {
-                    console.error('[Laozhang Streaming] Erro:', err);
+                    console.error('[La Casa Dark Core Streaming] Erro:', err);
                     clearTimeout(timeoutId);
                     try {
                         // Tentar salvar mensagem parcial se houver
@@ -19010,7 +19885,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     
                     return res.status(200).json({ response: roteiroFinal, nota: nota, checklist: checklist });
                 } catch (err) {
-                    console.error('[Laozhang API] Erro:', err);
+                    console.error('[La Casa Dark Core API] Erro:', err);
                     return res.status(500).json({ msg: err.message || 'Erro ao processar mensagem.' });
                 }
             }
@@ -19055,7 +19930,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             
             const payload = {
                 model: modelName,
-                max_tokens: 8192, // Aumentado para garantir roteiro completo
+                max_tokens: 16384, // Aumentado para permitir roteiros mais longos e completos
                 messages: claudeMessages,
                 stream: stream // Habilitar streaming
             };
@@ -19306,7 +20181,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             const payload = {
                 model: modelToUse || 'gpt-4o',
                 messages: openaiMessages,
-                max_tokens: 8192, // Aumentado para garantir roteiro completo
+                max_tokens: 16384, // Aumentado para permitir roteiros mais longos e completos
                 temperature: 0.7,
                 stream: stream
             };
@@ -19425,7 +20300,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     }
                 } catch (err) {
                     clearTimeout(timeoutId);
-                    console.error('[OpenAI Streaming] Erro:', err);
+                    console.error('[La Casa Dark Core Streaming] Erro:', err);
                     res.write(`data: ${JSON.stringify({ error: err.message || 'Erro no streaming' })}\n\n`);
                     res.end();
                 }
@@ -19449,7 +20324,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                 const result = await response.json();
 
                 if (!response.ok) {
-                    console.error('[OpenAI API] Erro:', result);
+                    console.error('[La Casa Dark Core API] Erro:', result);
                     return res.status(response.status).json({ 
                         msg: result.error?.message || 'Erro ao processar mensagem com OpenAI.',
                         error: result.error 
@@ -20907,47 +21782,91 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
             return res.status(404).json({ msg: 'Canal não encontrado.' });
         }
 
-        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
-        if (!geminiKeyData) {
-            return res.status(400).json({ msg: 'Chave de API do Gemini é necessária para esta função.' });
+        // Buscar chave do YouTube primeiro, se não encontrar, usar Gemini como fallback
+        let youtubeApiKey = null;
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (youtubeKeyData && youtubeKeyData.api_key) {
+            youtubeApiKey = decrypt(youtubeKeyData.api_key);
+            if (!youtubeApiKey && youtubeKeyData.api_key && !youtubeKeyData.api_key.includes(':')) {
+                youtubeApiKey = youtubeKeyData.api_key;
+            }
         }
-        const geminiApiKey = decrypt(geminiKeyData.api_key);
-        if (!geminiApiKey) {
-            return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
+        
+        // Se não encontrou chave do YouTube, tentar usar Gemini como fallback
+        if (!youtubeApiKey) {
+        const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
+            if (geminiKeyData && geminiKeyData.api_key) {
+                youtubeApiKey = decrypt(geminiKeyData.api_key);
+                if (!youtubeApiKey && geminiKeyData.api_key && !geminiKeyData.api_key.includes(':')) {
+                    youtubeApiKey = geminiKeyData.api_key;
+                }
+            }
+        }
+        
+        if (!youtubeApiKey) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube ou Gemini é necessária para esta função. Configure uma delas nas configurações.' });
         }
 
         // Extrair ID do canal da URL (suporta múltiplos formatos)
         let ytChannelId = null;
-        let channelUrl = channel.channel_url;
+        let channelUrl = channel.channel_url.trim();
+        
+        console.log(`[Canais Monitorados] Tentando extrair ID do canal da URL: ${channelUrl}`);
         
         // Se for URL de vídeo, extrair o canal do vídeo
-        const videoMatch = channelUrl.match(/youtube\.com\/watch\?v=([\w-]+)/);
+        // Suporta múltiplos formatos: youtube.com/watch?v=, youtu.be/, youtube.com/embed/, etc.
+        const videoMatch = channelUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
         if (videoMatch) {
             try {
                 const videoId = videoMatch[1];
-                const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${geminiApiKey}`;
+                console.log(`[Canais Monitorados] URL de vídeo detectada, ID do vídeo: ${videoId}`);
+                const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${youtubeApiKey}`;
                 const videoResponse = await fetch(videoUrl);
                 const videoData = await videoResponse.json();
-                if (videoResponse.ok && videoData.items && videoData.items.length > 0) {
+                
+                if (!videoResponse.ok) {
+                    console.error(`[Canais Monitorados] Erro na API do YouTube ao buscar vídeo: ${videoResponse.status}`, videoData);
+                } else if (videoData.items && videoData.items.length > 0) {
                     ytChannelId = videoData.items[0].snippet.channelId;
                     console.log(`[Canais Monitorados] Canal ID extraído do vídeo: ${ytChannelId}`);
+                } else {
+                    console.warn(`[Canais Monitorados] Vídeo não encontrado na API do YouTube: ${videoId}`);
                 }
             } catch (videoErr) {
                 console.error('[Canais Monitorados] Erro ao extrair canal do vídeo:', videoErr);
             }
+        } else {
+            console.log(`[Canais Monitorados] URL não é de vídeo, tentando formatos de canal...`);
         }
         
         // Se não encontrou via vídeo, tentar formatos de canal
         if (!ytChannelId) {
-            const match = channelUrl.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+)|c\/([\w-]+)|user\/([\w-]+)|(?:embed\/)?([\w-]{24}))/);
+            // Regex melhorada para capturar mais formatos, incluindo URLs truncadas
+            // Suporta: @handle, /channel/ID, /c/ID, /user/ID, ou ID direto (UC...)
+            let match = channelUrl.match(/youtube\.com\/(?:@([\w.-]+)|channel\/([\w-]+)|c\/([\w-]+)|user\/([\w-]+)|(?:embed\/)?([\w-]{24}))/);
+            
+            // Se não encontrou, tentar formatos alternativos
+            if (!match) {
+                // Tentar capturar handle mesmo em URLs truncadas ou sem domínio completo
+                match = channelUrl.match(/@([\w.-]+)/);
+                if (match) {
+                    match = [null, match[1], null, null, null, null];
+                }
+                // Tentar capturar ID de canal direto (UC...)
+                else if (channelUrl.match(/^UC[\w-]{22}$/)) {
+                    match = [null, null, channelUrl, null, null, null];
+                }
+            }
+            
             if (match) {
                 const handle = match[1];
                 const legacyId = match[2] || match[3] || match[4] || match[5];
 
                 if (handle) {
                     try {
+                        console.log(`[Canais Monitorados] Tentando buscar canal por handle: @${handle}`);
                         // Tentar buscar via channels.list primeiro (mais preciso)
-                        const channelsApiUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(handle)}&key=${geminiApiKey}`;
+                        const channelsApiUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(handle)}&key=${youtubeApiKey}`;
                         const channelsResponse = await fetch(channelsApiUrl);
                         const channelsData = await channelsResponse.json();
                         
@@ -20956,13 +21875,16 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
                             console.log(`[Canais Monitorados] Canal ID encontrado via channels.list: ${ytChannelId}`);
                         } else {
                             // Fallback: usar search
-                            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${geminiApiKey}`;
+                            console.log(`[Canais Monitorados] Tentando buscar via search como fallback`);
+                            const searchApiUrl = `https://www.googleapis.com/youtube/v3/search?part=id,snippet&q=${encodeURIComponent('@' + handle)}&type=channel&maxResults=1&key=${youtubeApiKey}`;
                             const searchResponse = await fetch(searchApiUrl);
                             const searchData = await searchResponse.json();
 
                             if (searchResponse.ok && searchData.items && searchData.items.length > 0) {
                                 ytChannelId = searchData.items[0].id.channelId;
                                 console.log(`[Canais Monitorados] Canal ID encontrado via search: ${ytChannelId}`);
+                            } else {
+                                console.warn(`[Canais Monitorados] Nenhum canal encontrado para handle: @${handle}`);
                             }
                         }
                     } catch (searchErr) {
@@ -20970,22 +21892,28 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
                     }
                 } else if (legacyId) {
                     // Tentar validar se é um ID de canal válido
-                    if (legacyId.length >= 24) {
+                    console.log(`[Canais Monitorados] Tentando validar ID de canal: ${legacyId}`);
+                    // IDs de canal do YouTube começam com UC e têm 24 caracteres
+                    if (legacyId.length >= 24 || legacyId.startsWith('UC')) {
                         // Verificar se é um ID válido fazendo uma busca
                         try {
-                            const validateUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&id=${legacyId}&key=${geminiApiKey}`;
+                            const validateUrl = `https://www.googleapis.com/youtube/v3/channels?part=id&id=${legacyId}&key=${youtubeApiKey}`;
                             const validateResponse = await fetch(validateUrl);
                             const validateData = await validateResponse.json();
                             
                             if (validateResponse.ok && validateData.items && validateData.items.length > 0) {
                                 ytChannelId = legacyId;
                                 console.log(`[Canais Monitorados] ID de canal validado: ${ytChannelId}`);
+                            } else {
+                                console.warn(`[Canais Monitorados] ID de canal não é válido: ${legacyId}`);
                             }
                         } catch (validateErr) {
                             console.error(`[Canais Monitorados] Erro ao validar ID:`, validateErr);
                         }
                     }
                 }
+            } else {
+                console.warn(`[Canais Monitorados] Não foi possível fazer match da URL: ${channelUrl}`);
             }
         }
 
@@ -21000,11 +21928,11 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
         
         try {
             const results = await Promise.allSettled([
-                getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'date', 5).catch(err => {
+                getChannelVideosWithDetails(ytChannelId, youtubeApiKey, 'date', 5).catch(err => {
                     console.error('[Canais Monitorados] Erro ao buscar vídeos recentes:', err);
                     return [];
                 }),
-                getChannelVideosWithDetails(ytChannelId, geminiApiKey, 'viewCount', 5).catch(err => {
+                getChannelVideosWithDetails(ytChannelId, youtubeApiKey, 'viewCount', 5).catch(err => {
                     console.error('[Canais Monitorados] Erro ao buscar vídeos populares:', err);
                     return [];
                 }),
@@ -21029,7 +21957,7 @@ app.get('/api/channels/monitor/:channelId/check', authenticateToken, async (req,
                 if (!idsToFetch) {
                     console.warn('[Canais Monitorados] Nenhum ID válido para vídeos fixados');
                 } else {
-                    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${geminiApiKey}`;
+                    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${youtubeApiKey}`;
                     const detailsResponse = await fetch(detailsUrl);
                     
                     if (!detailsResponse.ok) {
@@ -21095,10 +22023,30 @@ app.get('/api/channels/:channelId/pinned', authenticateToken, async (req, res) =
     const { channelId } = req.params;
     const userId = req.user.id;
     try {
+        // Buscar chave do YouTube primeiro, se não encontrar, usar Gemini como fallback
+        let youtubeApiKey = null;
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (youtubeKeyData && youtubeKeyData.api_key) {
+            youtubeApiKey = decrypt(youtubeKeyData.api_key);
+            if (!youtubeApiKey && youtubeKeyData.api_key && !youtubeKeyData.api_key.includes(':')) {
+                youtubeApiKey = youtubeKeyData.api_key;
+            }
+        }
+        
+        // Se não encontrou chave do YouTube, tentar usar Gemini como fallback
+        if (!youtubeApiKey) {
         const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
-        if (!geminiKeyData) return res.status(400).json({ msg: 'Chave de API do Gemini é necessária.' });
-        const geminiApiKey = decrypt(geminiKeyData.api_key);
-        if (!geminiApiKey) return res.status(500).json({ msg: 'Falha ao desencriptar a chave do Gemini.' });
+            if (geminiKeyData && geminiKeyData.api_key) {
+                youtubeApiKey = decrypt(geminiKeyData.api_key);
+                if (!youtubeApiKey && geminiKeyData.api_key && !geminiKeyData.api_key.includes(':')) {
+                    youtubeApiKey = geminiKeyData.api_key;
+                }
+            }
+        }
+        
+        if (!youtubeApiKey) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube ou Gemini é necessária. Configure uma delas nas configurações.' });
+        }
 
         const pinnedVideoIds = await db.all('SELECT id, youtube_video_id FROM pinned_videos WHERE user_id = ? AND monitored_channel_id = ? ORDER BY pinned_at DESC', [userId, channelId]);
         
@@ -21107,7 +22055,7 @@ app.get('/api/channels/:channelId/pinned', authenticateToken, async (req, res) =
         }
 
         const idsToFetch = pinnedVideoIds.map(p => p.youtube_video_id).join(',');
-        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${geminiApiKey}`;
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${idsToFetch}&key=${youtubeApiKey}`;
         const detailsResponse = await fetch(detailsUrl);
         const detailsData = await detailsResponse.json();
         

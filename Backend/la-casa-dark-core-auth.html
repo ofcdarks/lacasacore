@@ -35,8 +35,81 @@
         }
 
         /* Ocultar formulários por padrão */
-        #register-form, #forgot-form {
+        #register-form {
             display: none;
+        }
+        
+        /* Modal de Reset de Senha */
+        #forgot-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        #forgot-modal.show {
+            display: flex;
+        }
+        
+        #forgot-modal-content {
+            background: #111827;
+            border: 1px solid #374151;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 440px;
+            padding: 2rem;
+            animation: slideUp 0.3s ease-out;
+            position: relative;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .modal-close-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(55, 65, 81, 0.5);
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        
+        .modal-close-btn:hover {
+            background: rgba(55, 65, 81, 0.8);
+            color: #ffffff;
+            transform: rotate(90deg);
         }
 
         /* Mensagem de erro customizada */
@@ -153,29 +226,55 @@
                 </p>
             </div>
 
-            <!-- Formulário de Resetar Senha (Oculto) -->
-            <div id="forgot-form">
-                <h2 class="text-2xl font-bold text-center text-white mb-6">Resetar sua senha</h2>
+            <!-- Modal de Resetar Senha -->
+            <div id="forgot-modal" class="forgot-modal">
+                <div id="forgot-modal-content" class="forgot-modal-content">
+                    <button id="forgot-modal-close" class="modal-close-btn" onclick="closeForgotModal()">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                    
+                    <div class="text-center mb-6">
+                        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/10 mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7M3 22v-6h6M21 12a9 9 0 0 1-15 6.7"></path>
+                            </svg>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white mb-2">Resetar sua senha</h2>
+                        <p class="text-sm text-gray-400">Digite seu email e enviaremos um link para você resetar sua senha.</p>
+                    </div>
                 
                 <!-- Mensagem de Erro (Reset) -->
-                <div id="forgot-error" class="error-message"></div>
+                    <div id="forgot-error" class="error-message mb-4"></div>
+                    
+                    <!-- Mensagem de Sucesso (Reset) -->
+                    <div id="forgot-success" class="success-message mb-4" style="display: none;"></div>
 
-                <form onsubmit="handleForgot(event)">
-                    <p class="text-sm mb-4">Digite seu email e enviaremos um link para você resetar sua senha.</p>
+                    <form onsubmit="handleForgot(event)" id="forgot-form">
                     <div class="mb-6">
-                        <label for="forgot-email" class="block text-sm font-medium mb-2">Email</label>
+                            <label for="forgot-email" class="block text-sm font-medium mb-2 text-gray-300">Email</label>
                         <input type="email" id="forgot-email" name="email" required
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                   class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+                                   placeholder="seu@email.com">
                     </div>
                     <button type="submit" id="forgot-button"
-                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
-                        Enviar link de reset
+                                class="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black font-bold py-3 px-4 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                            <span id="forgot-button-text">Enviar link de reset</span>
+                            <span id="forgot-button-spinner" class="hidden inline-block ml-2">
+                                <svg class="animate-spin h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </span>
                     </button>
                 </form>
-                <p class="text-center text-sm mt-6">
+                    <p class="text-center text-sm mt-6 text-gray-400">
                     Lembrou a senha?
-                    <a href="#" id="login-link-from-forgot" class="font-medium text-amber-500 hover:text-amber-400">Faça login</a>
+                        <a href="#" id="login-link-from-forgot" class="font-medium text-amber-500 hover:text-amber-400 transition-colors">Faça login</a>
                 </p>
+                </div>
             </div>
         </div>
     </div>
@@ -192,7 +291,7 @@
         // Seletores dos Formulários
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
-        const forgotForm = document.getElementById('forgot-form');
+        const forgotModal = document.getElementById('forgot-modal');
 
         // Seletores dos Links
         const registerLink = document.getElementById('register-link');
@@ -204,9 +303,42 @@
         function showForm(formToShow) {
             loginForm.style.display = 'none';
             registerForm.style.display = 'none';
-            forgotForm.style.display = 'none';
             formToShow.style.display = 'block';
         }
+        
+        // Função para abrir o modal de reset de senha
+        function openForgotModal() {
+            forgotModal.classList.add('show');
+            document.body.style.overflow = 'hidden'; // Previne scroll do body
+            // Limpar campos e mensagens
+            document.getElementById('forgot-email').value = '';
+            document.getElementById('forgot-error').style.display = 'none';
+            document.getElementById('forgot-success').style.display = 'none';
+            // Focar no campo de email
+            setTimeout(() => {
+                document.getElementById('forgot-email').focus();
+            }, 100);
+        }
+        
+        // Função para fechar o modal de reset de senha
+        function closeForgotModal() {
+            forgotModal.classList.remove('show');
+            document.body.style.overflow = ''; // Restaura scroll do body
+        }
+        
+        // Fechar modal ao clicar no overlay
+        forgotModal.addEventListener('click', (e) => {
+            if (e.target === forgotModal) {
+                closeForgotModal();
+            }
+        });
+        
+        // Fechar modal com ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && forgotModal.classList.contains('show')) {
+                closeForgotModal();
+            }
+        });
 
         // Navegação entre formulários
         registerLink.addEventListener('click', (e) => {
@@ -215,7 +347,7 @@
         });
         forgotLink.addEventListener('click', (e) => {
             e.preventDefault();
-            showForm(forgotForm);
+            openForgotModal();
         });
         loginLinkFromRegister.addEventListener('click', (e) => {
             e.preventDefault();
@@ -223,7 +355,7 @@
         });
         loginLinkFromForgot.addEventListener('click', (e) => {
             e.preventDefault();
-            showForm(loginForm);
+            closeForgotModal();
         });
 
         // Função genérica para mostrar erros
@@ -403,32 +535,56 @@
             const form = event.target;
             const email = form.email.value;
             const button = document.getElementById('forgot-button');
+            const buttonText = document.getElementById('forgot-button-text');
+            const buttonSpinner = document.getElementById('forgot-button-spinner');
             const errorBox = document.getElementById('forgot-error');
+            const successBox = document.getElementById('forgot-success');
 
             // Desabilitar botão e mostrar loading
             button.disabled = true;
-            button.innerText = 'Enviando...';
+            buttonText.textContent = 'Enviando...';
+            buttonSpinner.classList.remove('hidden');
             errorBox.style.display = 'none';
+            successBox.style.display = 'none';
             
-            // Simulação (ainda não implementado no backend)
-            console.log('Simulando envio de reset para:', email);
-            
-            // Simular uma chamada de API
-            setTimeout(() => {
-                // Aqui podemos mostrar um erro se o backend falhar
-                // showErrorMessage('forgot-error', 'Serviço de email indisponível.');
+            try {
+                const response = await fetch(`${API_BASE_URL}/forgot-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
 
-                // Ou mostrar sucesso
-                alert('Se este email estiver cadastrado, um link de reset será enviado!');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.msg || 'Erro ao enviar email de reset.');
+                }
+                
+                // SUCESSO!
+                console.log('Email de reset enviado!', data);
+                
+                // Mostrar mensagem de sucesso
+                successBox.innerText = data.msg || 'Se este email estiver cadastrado, um link de reset será enviado!';
+                successBox.style.display = 'block';
+            
+                // Esconder formulário após sucesso
+                form.style.display = 'none';
+                
+                // Fechar modal após 3 segundos
+            setTimeout(() => {
+                    closeForgotModal();
+                    form.style.display = 'block';
+                }, 3000);
+
+            } catch (error) {
+                console.error('Erro ao enviar reset:', error.message);
+                showErrorMessage('forgot-error', error.message);
                 
                 // Reabilitar o botão
                 button.disabled = false;
-                button.innerText = 'Enviar link de reset';
-                showForm(loginForm); // Envia de volta pro login
-            }, 1500);
-            
-            // TODO: Implementar a chamada fetch para o endpoint /api/auth/forgot-password
-            // quando ele estiver pronto no backend.
+                buttonText.textContent = 'Enviar link de reset';
+                buttonSpinner.classList.add('hidden');
+            }
         }
 
     </script>
