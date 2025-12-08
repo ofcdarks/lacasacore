@@ -218,44 +218,76 @@
         .custom-modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px) saturate(180%);
             z-index: 9999;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
-            animation: fadeIn 0.2s ease-out;
+            animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         
         .custom-modal {
-            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(15, 15, 15, 0.98) 100%);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(245, 158, 11, 0.2);
-            max-width: 500px;
+            background: linear-gradient(135deg, rgba(17, 17, 17, 0.98) 0%, rgba(10, 10, 10, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 16px;
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.95),
+                0 0 0 1px rgba(245, 158, 11, 0.1),
+                0 0 60px rgba(245, 158, 11, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            max-width: 520px;
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
-            animation: scaleIn 0.3s ease-out;
+            animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
+            transform-origin: center center;
+        }
+        
+        @keyframes fadeInModal {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        @keyframes modalSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
         }
         
         .custom-modal-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 24px 28px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            background: linear-gradient(180deg, rgba(245, 158, 11, 0.05) 0%, transparent 100%);
         }
         
         .custom-modal-title {
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 700;
             color: #ffffff;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            letter-spacing: -0.02em;
+        }
+        
+        .custom-modal-title i {
+            color: #f59e0b;
+            filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));
         }
         
         .custom-modal-close {
@@ -274,14 +306,15 @@
         }
         
         .custom-modal-body {
-            padding: 24px;
+            padding: 28px;
         }
         
         .custom-modal-message {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 15px;
-            line-height: 1.6;
-            margin-bottom: 20px;
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 15.5px;
+            line-height: 1.7;
+            margin-bottom: 24px;
+            letter-spacing: -0.01em;
         }
         
         .custom-modal-input {
@@ -303,43 +336,72 @@
         }
         
         .custom-modal-footer {
-            padding: 20px 24px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 24px 28px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
             display: flex;
             gap: 12px;
             justify-content: flex-end;
+            background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 100%);
         }
         
         .custom-modal-btn {
-            padding: 10px 24px;
-            border-radius: 8px;
+            padding: 12px 28px;
+            border-radius: 10px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 14.5px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             border: none;
+            letter-spacing: 0.01em;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .custom-modal-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        
+        .custom-modal-btn:hover::before {
+            width: 300px;
+            height: 300px;
         }
         
         .custom-modal-btn-primary {
-            background: linear-gradient(135deg, #f59e0b, #d97706);
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
             color: #000000;
+            box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
         }
         
         .custom-modal-btn-primary:hover {
-            background: linear-gradient(135deg, #d97706, #b45309);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+        }
+        
+        .custom-modal-btn-primary:active {
+            transform: translateY(0);
         }
         
         .custom-modal-btn-secondary {
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
         }
         
         .custom-modal-btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
         }
         
         /* Notificações */
@@ -1910,31 +1972,31 @@
                 <div id="imagens-lote-error-message" class="error-message mb-6"></div>
 
                 <!-- Modal de Confirmação de Geração -->
-                <div id="batch-confirm-generation-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-[10001] hidden flex items-center justify-center p-4">
-                    <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border border-blue-500/50 rounded-2xl p-8 max-w-md w-full shadow-2xl transform transition-all">
+                <div id="batch-confirm-generation-modal" class="fixed inset-0 bg-black/85 backdrop-blur-[8px] saturate-180 z-[10001] hidden flex items-center justify-center p-4" style="animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+                    <div class="bg-gradient-to-br from-[#111111] via-[#0a0a0a] to-[#111111] border border-amber-500/40 rounded-2xl p-8 max-w-md w-full shadow-[0_25px_50px_-12px_rgba(0,0,0,0.95),0_0_0_1px_rgba(245,158,11,0.1),0_0_60px_rgba(245,158,11,0.15),inset_0_1px_0_rgba(255,255,255,0.05)] transform transition-all" style="animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);">
                         <div class="text-center mb-6">
-                            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500/30 to-blue-600/20 rounded-full mb-4 ring-4 ring-blue-500/20">
-                                <i data-lucide="alert-triangle" class="w-8 h-8 text-blue-400"></i>
+                            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20" style="box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);">
+                                <i data-lucide="alert-triangle" class="w-8 h-8 text-amber-400" style="filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));"></i>
                             </div>
-                            <h3 class="text-2xl font-bold text-white mb-2">Confirmar Geração de Imagens</h3>
-                            <p class="text-gray-300 text-sm" id="batch-confirm-modal-message">Você está prestes a gerar imagens.</p>
+                            <h3 class="text-2xl font-bold text-white mb-2" style="letter-spacing: -0.02em;">Confirmar Geração de Imagens</h3>
+                            <p class="text-gray-300 text-sm leading-relaxed" id="batch-confirm-modal-message" style="letter-spacing: -0.01em;">Você está prestes a gerar imagens.</p>
                         </div>
                         
-                        <div class="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4 mb-6">
-                            <div class="flex items-center gap-3">
-                                <i data-lucide="info" class="w-5 h-5 text-blue-400 flex-shrink-0"></i>
-                                <div class="text-sm text-gray-300">
-                                    <p class="font-semibold text-blue-300 mb-1" id="batch-confirm-modal-count">0 imagens</p>
-                                    <p class="text-gray-400">Este processo pode levar alguns minutos. As imagens serão geradas automaticamente em paralelo.</p>
+                        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5 mb-6 backdrop-blur-sm" style="box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);">
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" style="filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.3));"></i>
+                                <div class="text-sm text-gray-200">
+                                    <p class="font-semibold text-amber-300 mb-2" id="batch-confirm-modal-count" style="letter-spacing: 0.01em;">0 imagens</p>
+                                    <p class="text-gray-300/90 leading-relaxed">Este processo pode levar alguns minutos. As imagens serão geradas automaticamente em paralelo.</p>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="flex gap-3">
-                            <button id="batch-confirm-modal-cancel" class="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition duration-200">
+                        <div class="flex gap-3" style="background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 100%); padding-top: 8px; margin-top: -8px;">
+                            <button id="batch-confirm-modal-cancel" class="flex-1 px-6 py-3 bg-white/8 hover:bg-white/12 text-white/90 font-semibold rounded-lg transition-all duration-250 border border-white/15 hover:border-white/25 hover:-translate-y-0.5" style="letter-spacing: 0.01em;">
                                 Cancelar
                             </button>
-                            <button id="batch-confirm-modal-confirm" class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition duration-200 shadow-lg shadow-blue-500/30">
+                            <button id="batch-confirm-modal-confirm" class="flex-1 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold rounded-lg transition-all duration-250 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:-translate-y-0.5" style="letter-spacing: 0.01em;">
                                 Confirmar e Gerar
                             </button>
                         </div>
@@ -2602,31 +2664,31 @@
                 </div>
 
                 <!-- Modal de Confirmação de Geração -->
-                <div id="confirm-generation-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-[10001] hidden flex items-center justify-center p-4">
-                    <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border border-amber-500/50 rounded-2xl p-8 max-w-md w-full shadow-2xl transform transition-all">
+                <div id="confirm-generation-modal" class="fixed inset-0 bg-black/85 backdrop-blur-[8px] saturate-180 z-[10001] hidden flex items-center justify-center p-4" style="animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+                    <div class="bg-gradient-to-br from-[#111111] via-[#0a0a0a] to-[#111111] border border-amber-500/40 rounded-2xl p-8 max-w-md w-full shadow-[0_25px_50px_-12px_rgba(0,0,0,0.95),0_0_0_1px_rgba(245,158,11,0.1),0_0_60px_rgba(245,158,11,0.15),inset_0_1px_0_rgba(255,255,255,0.05)] transform transition-all" style="animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);">
                         <div class="text-center mb-6">
-                            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20">
-                                <i data-lucide="alert-triangle" class="w-8 h-8 text-amber-400"></i>
+                            <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20" style="box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);">
+                                <i data-lucide="alert-triangle" class="w-8 h-8 text-amber-400" style="filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));"></i>
                             </div>
-                            <h3 class="text-2xl font-bold text-white mb-2">Confirmar Geração de Imagens</h3>
-                            <p class="text-gray-300 text-sm" id="confirm-modal-message">Você está prestes a gerar imagens.</p>
+                            <h3 class="text-2xl font-bold text-white mb-2" style="letter-spacing: -0.02em;">Confirmar Geração de Imagens</h3>
+                            <p class="text-gray-300 text-sm leading-relaxed" id="confirm-modal-message" style="letter-spacing: -0.01em;">Você está prestes a gerar imagens.</p>
                         </div>
                         
-                        <div class="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4 mb-6">
-                            <div class="flex items-center gap-3">
-                                <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0"></i>
-                                <div class="text-sm text-gray-300">
-                                    <p class="font-semibold text-amber-300 mb-1" id="confirm-modal-count">0 imagens</p>
-                                    <p class="text-gray-400">Este processo pode levar alguns minutos. As imagens serão geradas automaticamente em paralelo.</p>
+                        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5 mb-6 backdrop-blur-sm" style="box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);">
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="info" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" style="filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.3));"></i>
+                                <div class="text-sm text-gray-200">
+                                    <p class="font-semibold text-amber-300 mb-2" id="confirm-modal-count" style="letter-spacing: 0.01em;">0 imagens</p>
+                                    <p class="text-gray-300/90 leading-relaxed">Este processo pode levar alguns minutos. As imagens serão geradas automaticamente em paralelo.</p>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="flex gap-3">
-                            <button id="confirm-modal-cancel" class="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition duration-200">
+                        <div class="flex gap-3" style="background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.2) 100%); padding-top: 8px; margin-top: -8px;">
+                            <button id="confirm-modal-cancel" class="flex-1 px-6 py-3 bg-white/8 hover:bg-white/12 text-white/90 font-semibold rounded-lg transition-all duration-250 border border-white/15 hover:border-white/25 hover:-translate-y-0.5" style="letter-spacing: 0.01em;">
                                 Cancelar
                             </button>
-                            <button id="confirm-modal-confirm" class="flex-1 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200 shadow-lg shadow-amber-500/30">
+                            <button id="confirm-modal-confirm" class="flex-1 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold rounded-lg transition-all duration-250 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:-translate-y-0.5" style="letter-spacing: 0.01em;">
                                 Confirmar e Gerar
                             </button>
                         </div>
@@ -2917,19 +2979,39 @@
                         <h2 class="text-xl font-semibold text-white">Chaves de API de Texto (Obrigatório)</h2>
                         <p class="text-sm text-gray-400 -mt-4">As suas chaves são salvas de forma segura e encriptada.</p>
 
+                        <!-- Mensagem de bloqueio para planos não Master/Anuais -->
+                        <div id="api-keys-premium-message" class="hidden bg-amber-900/20 border border-amber-700/50 rounded-lg p-4 mb-4">
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="lock" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"></i>
+                                <div class="flex-1">
+                                    <p class="text-amber-300 font-semibold mb-2">🔒 Chaves de API Próprias - Recurso Premium</p>
+                                    <p class="text-gray-300 text-sm mb-3">
+                                        Para usar suas próprias chaves de API (Claude, Gemini, OpenAI), você precisa ter o plano <strong class="text-amber-400">MASTER</strong> ou qualquer plano <strong class="text-amber-400">ANUAL</strong>.
+                                    </p>
+                                    <button onclick="window.location.href='/plans.html#pacotes'" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold rounded-lg transition-all duration-250 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:-translate-y-0.5">
+                                        <i data-lucide="arrow-up" class="w-4 h-4 inline mr-2"></i>
+                                        Fazer Upgrade Agora
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div>
                             <label for="key-claude" class="block text-sm font-medium mb-2">Claude AI API Key (Preferencial)</label>
-                            <input type="password" id="key-claude" placeholder="Cole a sua chave (sk-ant-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                            <input type="password" id="key-claude" placeholder="Cole a sua chave (sk-ant-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <p id="key-claude-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
                             <label for="key-gemini" class="block text-sm font-medium mb-2">Gemini API Key</label>
-                            <input type="password" id="key-gemini" placeholder="Cole a sua chave (AI...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                            <input type="password" id="key-gemini" placeholder="Cole a sua chave (AI...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <p id="key-gemini-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
                             <label for="key-openai" class="block text-sm font-medium mb-2">OpenAI (GPT) API Key</label>
-                            <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                            <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <p id="key-openai-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
@@ -3600,9 +3682,14 @@ Qualquer dúvida, estamos à disposição!
 Equipe La Casa Dark Core</textarea>
                                         <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{creditos_iniciais}}, {{link_acesso}}</p>
                                     </div>
-                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('register')">
-                                        Salvar Template
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('register')">
+                                            Salvar Template
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('register')" title="Enviar email de teste">
+                                            <i data-lucide="mail" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -3632,9 +3719,14 @@ Esperamos vê-lo novamente em breve!
 Equipe La Casa Dark Core</textarea>
                                         <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{plano}}, {{data_cancelamento}}, {{data_fim_acesso}}</p>
                                     </div>
-                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('cancel')">
-                                        Salvar Template
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('cancel')">
+                                            Salvar Template
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('cancel')" title="Enviar email de teste">
+                                            <i data-lucide="mail" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -3666,9 +3758,14 @@ Obrigado por confiar em nós!
 Equipe La Casa Dark Core</textarea>
                                         <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{plano}}, {{valor}}, {{data_pagamento}}, {{proxima_cobranca}}</p>
                                     </div>
-                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('payment')">
-                                        Salvar Template
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('payment')">
+                                            Salvar Template
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('payment')" title="Enviar email de teste">
+                                            <i data-lucide="mail" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -3701,9 +3798,14 @@ Aproveite seus créditos!
 Equipe La Casa Dark Core</textarea>
                                         <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{pacote}}, {{creditos}}, {{valor}}, {{data_compra}}, {{saldo_atual}}</p>
                                     </div>
-                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('package')">
-                                        Salvar Template
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('package')">
+                                            Salvar Template
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('package')" title="Enviar email de teste">
+                                            <i data-lucide="mail" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -3733,9 +3835,14 @@ Acesse sua conta: {{link_acesso}}
 Equipe La Casa Dark Core</textarea>
                                         <p class="text-xs text-gray-400 mt-1">Variáveis disponíveis: {{nome}}, {{email}}, {{senha_provisoria}}, {{link_acesso}}</p>
                                     </div>
-                                    <button class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('password_reset')">
-                                        Salvar Template
-                                    </button>
+                                    <div class="flex gap-2">
+                                        <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('password_reset')">
+                                            Salvar Template
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('password_reset')" title="Enviar email de teste">
+                                            <i data-lucide="mail" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -4973,22 +5080,43 @@ Equipe La Casa Dark Core</textarea>
             // Função global para formatar nome do modelo sem mostrar fornecedor
             window.formatModelNameForDisplay = function(model) {
                 if (!model) return 'N/A';
+                
+                // CRÍTICO: Remover qualquer referência a fornecedores de API
+                // NUNCA exibir "Laozhang.ai", "OpenAI", "Claude", "Gemini" como fornecedores
+                
+                // Primeiro, remover referências diretas a fornecedores
+                let cleanModel = String(model)
+                    .replace(/laozhang\.ai/gi, '')
+                    .replace(/laozhang/gi, '')
+                    .replace(/openai/gi, '')
+                    .replace(/anthropic/gi, '')
+                    .replace(/google/gi, '')
+                    .trim();
+                
                 // Remover prefixos de fornecedores
-                if (model.includes('laozhang-gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
-                if (model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return '3.7 Sonnet';
-                if (model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Sonnet 4';
-                if (model.includes('claude-opus-4') || model.includes('opus-4')) return 'Opus 4';
-                if (model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return '3.5 Haiku';
-                if (model.includes('claude-3-opus') || model.includes('opus-3')) return '3 Opus';
-                if (model.includes('gemini-2.5-pro') || model.includes('2.5-pro')) return '2.5 Pro';
-                if (model.includes('gemini-2.5-flash') || model.includes('2.5-flash')) return '2.5 Flash';
-                if (model.includes('gemini-2.0-flash') || model.includes('2.0-flash')) return '2.0 Flash';
-                if (model.includes('gpt-4o')) return 'GPT-4o';
-                if (model.includes('gpt-4o-mini')) return 'GPT-4o Mini';
-                if (model.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
-                // Remover prefixos de fornecedores
-                let cleanModel = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
-                return cleanModel.replace(/^(claude|gemini|gpt|laozhang)-/i, '');
+                cleanModel = cleanModel.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
+                cleanModel = cleanModel.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
+                
+                // Mapear para nomes amigáveis (apenas modelos)
+                if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
+                if (cleanModel.includes('gpt-4o-mini') || model.includes('gpt-4o-mini')) return 'GPT-4o Mini';
+                if (cleanModel.includes('gpt-4-turbo') || model.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
+                if (cleanModel.includes('claude-3-7-sonnet') || model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+                if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Claude Sonnet 4';
+                if (cleanModel.includes('claude-opus-4') || model.includes('claude-opus-4') || model.includes('opus-4')) return 'Claude Opus 4';
+                if (cleanModel.includes('claude-3-5-haiku') || model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return 'Claude 3.5 Haiku';
+                if (cleanModel.includes('claude-3-opus') || model.includes('claude-3-opus') || model.includes('opus-3')) return 'Claude 3 Opus';
+                if (cleanModel.includes('gemini-2.5-pro') || model.includes('gemini-2.5-pro') || model.includes('2.5-pro')) return 'Gemini 2.5 Pro';
+                if (cleanModel.includes('gemini-2.5-flash') || model.includes('gemini-2.5-flash') || model.includes('2.5-flash')) return 'Gemini 2.5 Flash';
+                if (cleanModel.includes('gemini-2.0-flash') || model.includes('gemini-2.0-flash') || model.includes('2.0-flash')) return 'Gemini 2.0 Flash';
+                
+                // Se ainda tiver referências a fornecedores, remover
+                cleanModel = cleanModel.replace(/laozhang|openai|anthropic|google/gi, '').trim();
+                
+                // Se ficou vazio ou só tem hífens, retornar padrão
+                if (!cleanModel || cleanModel === '-' || cleanModel.length < 2) return 'GPT-4o';
+                
+                return cleanModel;
             };
 
             // --- FUNÇÕES GLOBAIS DE MENSAGEM (Genéricas) ---
@@ -5728,7 +5856,78 @@ Equipe La Casa Dark Core</textarea>
                         }
                     }
                     const userData = await response.json();
-                    console.log('Dados do usuário carregados:', { name: userData.name, isAdmin: userData.isAdmin });
+                    console.log('Dados do usuário carregados:', { name: userData.name, isAdmin: userData.isAdmin, plan: userData.plan });
+                    
+                    // Verificar se usuário tem plano Master ou Anual para liberar APIs próprias
+                    const userPlan = userData.plan || userData.subscription_plan || 'plan-free';
+                    const hasPremiumPlan = userPlan === 'plan-master' || 
+                                          userPlan === 'plan-master-annual' || 
+                                          userPlan === 'plan-start-annual' || 
+                                          userPlan === 'plan-turbo-annual' ||
+                                          (userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1'); // Admins sempre têm acesso
+                    
+                    console.log('[API Keys] Verificação de plano:', { userPlan, hasPremiumPlan, isAdmin: userData.isAdmin });
+                    
+                    // Bloquear/desbloquear campos de API
+                    // Aguardar um pouco para garantir que os elementos existam
+                    setTimeout(() => {
+                        const apiKeysPremiumMessage = document.getElementById('api-keys-premium-message');
+                        const claudeInput = document.getElementById('key-claude');
+                        const geminiInput = document.getElementById('key-gemini');
+                        const openaiInput = document.getElementById('key-openai');
+                        const claudeLocked = document.getElementById('key-claude-locked');
+                        const geminiLocked = document.getElementById('key-gemini-locked');
+                        const openaiLocked = document.getElementById('key-openai-locked');
+                        
+                        console.log('[API Keys] Elementos encontrados:', {
+                            apiKeysPremiumMessage: !!apiKeysPremiumMessage,
+                            claudeInput: !!claudeInput,
+                            geminiInput: !!geminiInput,
+                            openaiInput: !!openaiInput
+                        });
+                        
+                            if (!hasPremiumPlan) {
+                                // Bloquear campos
+                                if (claudeInput) {
+                                    claudeInput.disabled = true;
+                                    claudeInput.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (geminiInput) {
+                                    geminiInput.disabled = true;
+                                    geminiInput.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (openaiInput) {
+                                    openaiInput.disabled = true;
+                                    openaiInput.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (apiKeysPremiumMessage) apiKeysPremiumMessage.classList.remove('hidden');
+                                if (claudeLocked) claudeLocked.classList.remove('hidden');
+                                if (geminiLocked) geminiLocked.classList.remove('hidden');
+                                if (openaiLocked) openaiLocked.classList.remove('hidden');
+                                // Inicializar ícones do Lucide
+                                if (typeof lucide !== 'undefined') {
+                                    setTimeout(() => lucide.createIcons(), 100);
+                                }
+                            } else {
+                                // Desbloquear campos
+                                if (claudeInput) {
+                                    claudeInput.disabled = false;
+                                    claudeInput.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (geminiInput) {
+                                    geminiInput.disabled = false;
+                                    geminiInput.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (openaiInput) {
+                                    openaiInput.disabled = false;
+                                    openaiInput.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (apiKeysPremiumMessage) apiKeysPremiumMessage.classList.add('hidden');
+                                if (claudeLocked) claudeLocked.classList.add('hidden');
+                                if (geminiLocked) geminiLocked.classList.add('hidden');
+                                if (openaiLocked) openaiLocked.classList.add('hidden');
+                            }
+                        }, 500); // Aguardar 500ms para garantir que os elementos existam
                     
                     // Atualiza a mensagem de boas-vindas
                     const welcomeHeading = document.getElementById('welcome-heading');
@@ -8964,6 +9163,47 @@ Equipe La Casa Dark Core</textarea>
                 }
             };
 
+            window.testEmailTemplate = async function(templateType) {
+                const testEmail = prompt('Digite o email para enviar o teste:', '');
+                
+                if (!testEmail) {
+                    return; // Usuário cancelou
+                }
+                
+                // Validar formato de email básico
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(testEmail)) {
+                    showMessage('admin-error-message', 'Email inválido', true);
+                    return;
+                }
+
+                try {
+                    showMessage('admin-success-message', 'Enviando email de teste...', false);
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/email-templates/test`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ 
+                            template_type: templateType,
+                            test_email: testEmail
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        showMessage('admin-success-message', `✅ Email de teste enviado com sucesso para ${testEmail}! Verifique sua caixa de entrada.`, false);
+                    } else {
+                        throw new Error(data.message || 'Erro ao enviar email de teste');
+                    }
+                } catch (err) {
+                    showMessage('admin-error-message', err.message || 'Erro ao enviar email de teste', true);
+                }
+            };
+
             // Carregar configurações SMTP
             async function loadSMTPConfig() {
                 try {
@@ -10567,16 +10807,34 @@ Equipe La Casa Dark Core</textarea>
                     const listDiv = document.getElementById('ai-suggestions-list');
                     if (listDiv) {
                         if (data.suggestions && data.suggestions.length > 0) {
-                            listDiv.innerHTML = data.suggestions.map(s => `
+                            // Função auxiliar para escapar HTML
+                            const escapeHtml = (text) => {
+                                if (!text) return '';
+                                const div = document.createElement('div');
+                                div.textContent = String(text);
+                                return div.innerHTML;
+                            };
+                            
+                            listDiv.innerHTML = data.suggestions.map(s => {
+                                const safeTitle = escapeHtml(s.title || '');
+                                const safeTitleForJs = safeTitle.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                                return `
                                 <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
                                     <div class="flex items-start justify-between">
                                         <div class="flex-1">
-                                            <h3 class="text-white font-semibold mb-2">${s.title}</h3>
-                                            <p class="text-gray-400 text-sm mb-2">${s.description || ''}</p>
-                                            <p class="text-gray-500 text-xs mb-2">${s.reason || ''}</p>
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <h3 class="text-white font-semibold flex-1">${safeTitle}</h3>
+                                                <button onclick="copySuggestionTitle('${safeTitleForJs}')" 
+                                                        class="p-2 text-gray-400 hover:text-amber-500 hover:bg-gray-700 rounded-lg transition" 
+                                                        title="Copiar título">
+                                                    <i data-lucide="copy" class="w-4 h-4"></i>
+                                                </button>
+                                            </div>
+                                            <p class="text-gray-400 text-sm mb-2">${escapeHtml(s.description || '')}</p>
+                                            <p class="text-gray-500 text-xs mb-2">${escapeHtml(s.reason || '')}</p>
                                             <div class="flex items-center space-x-4 text-xs">
                                                 <span class="text-amber-400">⭐ Prioridade: ${s.priority}/10</span>
-                                                <span class="text-gray-500">${s.niche || ''}</span>
+                                                <span class="text-gray-500">${escapeHtml(s.niche || '')}</span>
                                             </div>
                                         </div>
                                         <button onclick="markSuggestionViewed(${s.id})" class="ml-4 py-2 px-3 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm">
@@ -10584,7 +10842,8 @@ Equipe La Casa Dark Core</textarea>
                                         </button>
                                     </div>
                                 </div>
-                            `).join('');
+                            `;
+                            }).join('');
                         } else {
                             listDiv.innerHTML = '<p class="text-gray-400">Nenhuma sugestão disponível.</p>';
                         }
@@ -10607,6 +10866,15 @@ Equipe La Casa Dark Core</textarea>
                 } catch (err) {
                     showMessage('youtube-integration-error-message', err.message, true);
                 }
+            };
+
+            window.copySuggestionTitle = function(title) {
+                navigator.clipboard.writeText(title).then(() => {
+                    showMessage('youtube-integration-success-message', 'Título copiado para a área de transferência!', false);
+                }).catch(err => {
+                    console.error('Erro ao copiar:', err);
+                    showMessage('youtube-integration-error-message', 'Erro ao copiar título', true);
+                });
             };
 
             // B.1 - Alertas Virais
@@ -11201,7 +11469,7 @@ Equipe La Casa Dark Core</textarea>
                         </div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${formatModelNameForDisplay(data.modelUsed)})`}</h3>
+                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${formatModelNameForDisplay(data.modelUsed || 'GPT-4o')})`}</h3>
                             <button type="button" id="btn-generate-more-titles" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                 <i data-lucide="refresh-cw" class="w-4 h-4 mr-1.5"></i>
                                 <span>Gerar Mais Títulos</span>
@@ -11228,7 +11496,7 @@ Equipe La Casa Dark Core</textarea>
                                 <div class="flex items-center space-x-3 flex-1">
                                     <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
                                     <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">
-                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${titleObj.model}</span> ` : ''}${titleObj.titulo}
+                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${formatModelNameForDisplay(titleObj.model)}</span> ` : ''}${titleObj.titulo}
                                     </label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
@@ -11873,14 +12141,24 @@ Equipe La Casa Dark Core</textarea>
                         let transcriptLoaded = false;
 
                         try {
-                            const response = await fetch(`${API_BASE}/api/video/transcript/${currentVideoId}`, {
+                            // Limpar e validar videoId antes de fazer a requisição
+                            const cleanVideoId = String(currentVideoId || '').trim().split(':')[0].split('?')[0].split('#')[0];
+                            
+                            if (!cleanVideoId || cleanVideoId.length < 10) {
+                                throw new Error('ID do vídeo inválido. Certifique-se de que o vídeo foi analisado corretamente.');
+                            }
+                            
+                            console.log('[Transcrição] Carregando transcrição para videoId:', cleanVideoId);
+                            
+                            const response = await fetch(`${API_BASE}/api/video/transcript/${encodeURIComponent(cleanVideoId)}`, {
                                 headers: {
                                     'Authorization': `Bearer ${userToken}`
                                 }
                             });
 
                             if (!response.ok) {
-                                throw new Error('Erro ao carregar transcrição.');
+                                const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                                throw new Error(errorData.msg || `Erro ao carregar transcrição (${response.status})`);
                             }
 
                             const data = await response.json();
@@ -13656,7 +13934,13 @@ Equipe La Casa Dark Core</textarea>
                     body: JSON.stringify({ service_name: serviceName, api_key: apiKey })
                 });
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.msg || `Erro ao salvar ${serviceName}.`);
+                if (!response.ok) {
+                    // Se for erro de plano, mostrar mensagem especial
+                    if (response.status === 403 && data.requiresUpgrade) {
+                        throw new Error(data.msg || 'Você precisa fazer upgrade para usar esta funcionalidade.');
+                    }
+                    throw new Error(data.msg || `Erro ao salvar ${serviceName}.`);
+                }
                 return data;
             }
             
@@ -13668,6 +13952,26 @@ Equipe La Casa Dark Core</textarea>
                     const saveButton = document.getElementById('btn-save-all');
                     setButtonLoading(saveButton, true);
 
+                    // Verificar se usuário tem plano premium antes de salvar
+                    const userToken = localStorage.getItem('core_token');
+                    let hasPremiumPlan = false;
+                    try {
+                        const userResponse = await fetch(`${API_BASE}/api/auth/me`, {
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        if (userResponse.ok) {
+                            const userData = await userResponse.json();
+                            const userPlan = userData.plan || userData.subscription_plan || 'plan-free';
+                            hasPremiumPlan = userPlan === 'plan-master' || 
+                                           userPlan === 'plan-master-annual' || 
+                                           userPlan === 'plan-start-annual' || 
+                                           userPlan === 'plan-turbo-annual' ||
+                                           userData.isAdmin;
+                        }
+                    } catch (err) {
+                        console.error('Erro ao verificar plano:', err);
+                    }
+                    
                     const claudeKey = document.getElementById('key-claude').value;
                     const geminiKey = document.getElementById('key-gemini').value;
                     const openaiKey = document.getElementById('key-openai').value;
@@ -13675,11 +13979,18 @@ Equipe La Casa Dark Core</textarea>
                     const imagefxKey = document.getElementById('key-imagefx').value;
                     const useCreditsPref = document.getElementById('pref-use-credits').checked;
 
+                    // Verificar se está tentando salvar APIs bloqueadas
+                    if (!hasPremiumPlan && (claudeKey || geminiKey || openaiKey)) {
+                        showMessage('config-error-message', "Você precisa ter o plano MASTER ou um plano ANUAL para usar suas próprias chaves de API. Faça upgrade para desbloquear este recurso.", true);
+                        setButtonLoading(saveButton, false);
+                        return;
+                    }
+
                     try {
                         const promises = [];
-                        if (claudeKey) promises.push(saveKey('claude', claudeKey));
-                        if (geminiKey) promises.push(saveKey('gemini', geminiKey));
-                        if (openaiKey) promises.push(saveKey('openai', openaiKey));
+                        if (claudeKey && hasPremiumPlan) promises.push(saveKey('claude', claudeKey));
+                        if (geminiKey && hasPremiumPlan) promises.push(saveKey('gemini', geminiKey));
+                        if (openaiKey && hasPremiumPlan) promises.push(saveKey('openai', openaiKey));
                         if (youtubeKey) promises.push(saveKey('youtube', youtubeKey));
                         if (imagefxKey) promises.push(saveKey('imagefx', imagefxKey));
                         
@@ -13693,9 +14004,15 @@ Equipe La Casa Dark Core</textarea>
                             showMessage('config-success-message', "Configurações salvas com sucesso!");
                             updatePreferenceStatus(useCreditsPref);
                             
-                            document.getElementById('key-claude').value = '';
-                            document.getElementById('key-gemini').value = '';
-                            document.getElementById('key-openai').value = '';
+                            // Limpar apenas campos que não estão bloqueados
+                            const claudeInput = document.getElementById('key-claude');
+                            const geminiInput = document.getElementById('key-gemini');
+                            const openaiInput = document.getElementById('key-openai');
+                            
+                            if (claudeInput && !claudeInput.disabled) claudeInput.value = '';
+                            if (geminiInput && !geminiInput.disabled) geminiInput.value = '';
+                            if (openaiInput && !openaiInput.disabled) openaiInput.value = '';
+                            
                             document.getElementById('key-youtube').value = '';
                         }
                     } catch (err) {
@@ -18185,13 +18502,23 @@ Equipe La Casa Dark Core</textarea>
                     // Função para formatar nome do modelo (sem mostrar fornecedor)
                     const formatModelName = (model) => {
                         if (!model) return 'N/A';
+                        // CRÍTICO: Remover qualquer referência a fornecedores de API
+                        let cleanModel = String(model)
+                            .replace(/laozhang\.ai/gi, '')
+                            .replace(/laozhang/gi, '')
+                            .replace(/openai/gi, '')
+                            .replace(/anthropic/gi, '')
+                            .replace(/google/gi, '')
+                            .trim();
                         // Remover prefixos de fornecedores
-                        let cleanModel = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
-                        if (model.includes('laozhang-gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
-                        if (model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return '3.7 Sonnet';
-                        if (model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Sonnet 4';
-                        if (model.includes('claude-opus-4') || model.includes('opus-4')) return 'Opus 4';
-                        if (model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return '3.5 Haiku';
+                        cleanModel = cleanModel.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
+                        cleanModel = cleanModel.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
+                        // Mapear para nomes amigáveis
+                        if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
+                        if (cleanModel.includes('claude-3-7-sonnet') || model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+                        if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Claude Sonnet 4';
+                        if (cleanModel.includes('claude-opus-4') || model.includes('claude-opus-4') || model.includes('opus-4')) return 'Claude Opus 4';
+                        if (cleanModel.includes('claude-3-5-haiku') || model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return 'Claude 3.5 Haiku';
                         if (model.includes('claude-3-opus') || model.includes('opus-3')) return '3 Opus';
                         if (model.includes('gemini-2.5-pro') || model.includes('2.5-pro')) return '2.5 Pro';
                         if (model.includes('gemini-2.5-flash') || model.includes('2.5-flash')) return '2.5 Flash';

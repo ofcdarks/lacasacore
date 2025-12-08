@@ -2383,6 +2383,8 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             '/api/scripts/generate': 'Gerador de Roteiro',
             '/api/script-agents/:agentId/generate': 'Gerador de Roteiro',
             '/api/script-agents/:agentId/generate/laozhang': 'Gerador de Roteiro',
+            'viral_agent_chat': 'Agente Viral',
+            'viral_agent': 'Agente Viral',
             
             // ===== GERADOR DE VÍDEO =====
             'api_video_generation': 'Gerador de Vídeo',
@@ -2435,6 +2437,9 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             'api_transcript_analyze': 'Análise de Transcrição',
             '/api/video/transcript/analyze': 'Análise de Transcrição',
             '/api/video/transcript/analyze/laozhang': 'Análise de Transcrição',
+            
+            // ===== GERADOR DE METADADOS YOUTUBE =====
+            '/api/youtube/generate-metadata': 'Gerador de Metadados YouTube',
             
             // ===== GENÉRICOS (fallback) =====
             'api_generation': 'Geração de Conteúdo',
@@ -2898,7 +2903,7 @@ const generateOpenAiTtsAudio = async ({ apiKey, textInput, voiceName }) => {
 // Documentação: https://genaipro.vn/docs-api
 const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) => {
     const MAX_WAIT_TIME = 300000; // 5 minutos máximo (algumas tasks podem demorar)
-    const POLL_INTERVAL = 3000; // Verificar a cada 3 segundos (reduzir carga na API)
+    const POLL_INTERVAL = 1500; // Verificar a cada 1.5 segundos (mais rápido para preview)
     
     // API Voz Premium (GenAIPro) conforme documentação
     // Base URL: https://genaipro.vn/api/v1
@@ -3034,26 +3039,28 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                         const taskId = data.task_id || data.id;
                         console.log('[La Casa Dark Core] Labs Task criada:', taskId, '- Aguardando...');
                         
+                        // Verificação imediata após criar a task (algumas APIs retornam resultado síncrono)
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // Aguardar 1s antes do primeiro poll
+                        
                         const startTime = Date.now();
                         let pollCount = 0;
                         let lastStatus = null;
                         let statusChangeCount = 0;
+                        let consecutiveProcessingCount = 0; // Contador de polls consecutivos em "processing"
                         
                         while (Date.now() - startTime < MAX_WAIT_TIME) {
-                            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
                             pollCount++;
-                            
                             const elapsed = Math.floor((Date.now() - startTime) / 1000);
                             
-                            // Log apenas a cada 3 polls para não poluir muito
-                            if (pollCount % 3 === 1 || elapsed > 30) {
+                            // Log apenas a cada 5 polls para não poluir muito
+                            if (pollCount % 5 === 1 || elapsed > 30) {
                                 console.log(`[La Casa Dark Core] Polling Labs #${pollCount} (${elapsed}s decorridos)...`);
                             }
                             
                             try {
                                 const statusResponse = await axios.get(
                                     `${API_BASE}/labs/task/${taskId}`,
-                                    { headers: authHeaders, timeout: 10000 }
+                                    { headers: authHeaders, timeout: 8000 } // Timeout reduzido para 8s
                                 );
                                 
                                 if (statusResponse.data) {
@@ -3066,69 +3073,73 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                                         throw new Error(taskData.error);
                                     }
                                     
+                                    // PRIORIDADE 1: Verificar se tem resultado disponível (mesmo que status ainda seja processing)
+                                    // Algumas APIs retornam o resultado antes de mudar o status para "completed"
+                                    // Verificar múltiplos campos possíveis onde o resultado pode estar
+                                    const audioUrl = taskData.result || taskData.audio_url || taskData.url || taskData.output_url || taskData.file_url;
+                                    
+                                    if (audioUrl && typeof audioUrl === 'string' && audioUrl.length > 0) {
+                                        console.log('[La Casa Dark Core] ✅ Resultado encontrado! Baixando áudio (status:', status, ', URL:', audioUrl.substring(0, 100), ')');
+                                        
+                                        let fullAudioUrl = audioUrl.trim();
+                                        if (!fullAudioUrl.startsWith('http')) {
+                                            fullAudioUrl = `https://${fullAudioUrl}`;
+                                        }
+                                        
+                                        try {
+                                            const audioDownload = await axios.get(fullAudioUrl, {
+                                                responseType: 'arraybuffer',
+                                                timeout: 60000,
+                                                validateStatus: (status) => status === 200
+                                            });
+                                            
+                                            console.log('[La Casa Dark Core] ✅ Áudio baixado com sucesso (tamanho:', audioDownload.data.length, 'bytes)');
+                                            
+                                            return {
+                                                audioBase64: Buffer.from(audioDownload.data).toString('base64'),
+                                                usage: null,
+                                                format: 'mp3'
+                                            };
+                                        } catch (downloadError) {
+                                            // Se falhar o download, continuar polling
+                                            console.log('[La Casa Dark Core] ⏳ URL ainda não acessível (erro:', downloadError.message, '), continuando polling...');
+                                        }
+                                    } else if (pollCount % 20 === 0) {
+                                        // A cada 20 polls, logar estrutura completa para debug
+                                        console.log('[La Casa Dark Core] 🔍 Estrutura completa da resposta:', JSON.stringify(taskData).substring(0, 800));
+                                    }
+                                    
                                     // Detectar se status mudou
                                     if (lastStatus !== status) {
                                         lastStatus = status;
                                         statusChangeCount++;
+                                        consecutiveProcessingCount = 0; // Reset contador
                                         console.log(`[La Casa Dark Core] Status mudou para: "${status}" (mudança #${statusChangeCount})`);
+                                    } else if (status === 'processing') {
+                                        consecutiveProcessingCount++;
                                     }
                                     
-                                    // Log detalhado conforme documentação
+                                    // Log detalhado apenas quando necessário
                                     const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-                                    if (pollCount % 5 === 0 || elapsedSeconds > 30) {
-                                        // Log a cada 5 polls ou se demorar mais de 30s
+                                    if (pollCount % 10 === 0 || elapsedSeconds > 30) {
+                                        // Log completo da resposta para debug
                                         console.log(`[La Casa Dark Core] Labs Task ${taskId}:`, {
                                             status: status,
                                             hasResult: !!taskData.result,
-                                            result: taskData.result ? taskData.result.substring(0, 100) : 'não disponível',
-                                            created_at: taskData.created_at,
+                                            resultPreview: taskData.result ? taskData.result.substring(0, 100) : 'não disponível',
                                             elapsed: `${elapsedSeconds}s`,
-                                            polls: pollCount
+                                            polls: pollCount,
+                                            fullResponse: JSON.stringify(taskData).substring(0, 500)
                                         });
-                                        
-                                        // Se demorar mais de 60s em processing, avisar
-                                        if (status === 'processing' && elapsedSeconds > 60) {
-                                            console.warn(`[La Casa Dark Core] ⚠️ Task em processing há ${elapsedSeconds}s. Pode estar demorando mais que o normal.`);
-                                        }
                                     }
                                     
                                     // Conforme documentação: quando status é "completed", o campo "result" contém a URL
                                     if (status === 'completed') {
-                                        const audioUrl = taskData.result;
-                                        
-                                        if (audioUrl && typeof audioUrl === 'string' && audioUrl.length > 0) {
-                                            console.log('[La Casa Dark Core] ✅ Labs Task completa! Baixando áudio de:', audioUrl);
-                                            
-                                            // A URL já deve ser absoluta conforme documentação (https://files.genaipro.vn/...)
-                                            // Mas vamos garantir que seja válida
-                                            let fullAudioUrl = audioUrl.trim();
-                                            if (!fullAudioUrl.startsWith('http')) {
-                                                fullAudioUrl = `https://${fullAudioUrl}`;
-                                            }
-                                            
-                                            try {
-                                                const audioDownload = await axios.get(fullAudioUrl, {
-                                                    responseType: 'arraybuffer',
-                                                    timeout: 60000,
-                                                    validateStatus: (status) => status === 200
-                                                });
-                                                
-                                                console.log('[La Casa Dark Core] ✅ Áudio baixado com sucesso (tamanho:', audioDownload.data.length, 'bytes)');
-                                                
-                                                return {
-                                                    audioBase64: Buffer.from(audioDownload.data).toString('base64'),
-                                                    usage: null,
-                                                    format: 'mp3'
-                                                };
-                                            } catch (downloadError) {
-                                                console.error('[La Casa Dark Core] ❌ Erro ao baixar áudio:', downloadError.message);
-                                                // Se falhar o download, pode ser que a URL ainda não esteja acessível
-                                                // Continuar polling por mais um pouco
-                                                console.log('[La Casa Dark Core] Continuando polling (URL pode não estar pronta ainda)...');
-                                            }
-                                        } else {
-                                            // Status é completed mas não tem result ainda - pode ser que precise aguardar mais
+                                        // Se chegou aqui e não tem result, aguardar mais um pouco
+                                        if (!audioUrl) {
                                             console.log('[La Casa Dark Core] ⏳ Status completed mas sem result ainda, aguardando...');
+                                            await new Promise(resolve => setTimeout(resolve, 2000)); // Aguardar 2s e verificar novamente
+                                            continue;
                                         }
                                     } else if (status === 'failed' || status === 'error' || status === 'failure') {
                                         const errorMsg = taskData.error || taskData.message || 'Task Labs falhou';
@@ -3136,7 +3147,6 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                                         throw new Error(errorMsg);
                                     } else if (status === 'processing' || status === 'pending' || status === 'queued') {
                                         // Ainda processando, continuar aguardando
-                                        // Não logar para não poluir (já temos log no início do loop)
                                     } else {
                                         // Status desconhecido
                                         console.log(`[La Casa Dark Core] ⚠️ Status desconhecido: "${status}", continuando polling...`);
@@ -3153,6 +3163,11 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                                     throw pollError;
                                 }
                             }
+                            
+                            // Aguardar antes do próximo poll (intervalo dinâmico)
+                            // Se está em processing há muito tempo, aumentar intervalo para não sobrecarregar
+                            const waitTime = consecutiveProcessingCount > 10 ? POLL_INTERVAL * 2 : POLL_INTERVAL;
+                            await new Promise(resolve => setTimeout(resolve, waitTime));
                         }
                         
                         // Timeout - task não completou no tempo esperado
@@ -5374,7 +5389,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
     try {
-        const user = await db.get('SELECT id, name, email, whatsapp, isAdmin, isBlocked FROM users WHERE id = ?', [req.user.id]);
+        const user = await db.get('SELECT id, name, email, whatsapp, isAdmin, isBlocked, plan, subscription_plan FROM users WHERE id = ?', [req.user.id]);
         
         if (!user) {
             return res.status(404).json({ msg: 'Utilizador não encontrado.' });
@@ -7189,6 +7204,147 @@ app.post('/api/admin/email-templates', authenticateToken, isAdmin, async (req, r
     } catch (err) {
         console.error("Erro ao salvar template de email:", err.message);
         res.status(500).json({ message: "Erro ao salvar template de email." });
+    }
+});
+
+// POST /api/admin/email-templates/test - Testar envio de template de email
+app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { template_type, test_email } = req.body;
+        
+        if (!template_type) {
+            return res.status(400).json({ message: "Tipo de template é obrigatório." });
+        }
+        
+        if (!test_email) {
+            return res.status(400).json({ message: "Email de teste é obrigatório." });
+        }
+        
+        // Validar formato de email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(test_email)) {
+            return res.status(400).json({ message: "Email inválido." });
+        }
+        
+        // Variáveis de exemplo para cada tipo de template
+        const exampleVariables = {
+            register: {
+                nome: 'João Silva',
+                email: test_email,
+                creditos_iniciais: '100',
+                link_acesso: 'https://lacasadarkcore.com/login'
+            },
+            cancel: {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'MASTER PRO Mensal',
+                data_cancelamento: new Date().toLocaleDateString('pt-BR'),
+                data_fim_acesso: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')
+            },
+            payment: {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'MASTER PRO Mensal',
+                valor: 'R$ 297,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')
+            },
+            package: {
+                nome: 'João Silva',
+                email: test_email,
+                pacote: 'Pacote Premium',
+                creditos: '500',
+                valor: 'R$ 99,90',
+                data_compra: new Date().toLocaleDateString('pt-BR'),
+                saldo_atual: '600'
+            },
+            password_reset: {
+                nome: 'João Silva',
+                email: test_email,
+                senha_provisoria: 'TempPass123!',
+                link_acesso: 'https://lacasadarkcore.com/login'
+            },
+            'subscription_plan-start': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'START CREATOR Mensal',
+                valor: 'R$ 79,90',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '100'
+            },
+            'subscription_plan-turbo': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'TURBO MAKER Mensal',
+                valor: 'R$ 197,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '500'
+            },
+            'subscription_plan-master': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'MASTER PRO Mensal',
+                valor: 'R$ 297,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '1000'
+            },
+            'subscription_plan-start-annual': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'START CREATOR Anual',
+                valor: 'R$ 799,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '1200'
+            },
+            'subscription_plan-turbo-annual': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'TURBO MAKER Anual',
+                valor: 'R$ 1.970,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '6000'
+            },
+            'subscription_plan-master-annual': {
+                nome: 'João Silva',
+                email: test_email,
+                plano: 'MASTER PRO Anual',
+                valor: 'R$ 2.970,00',
+                data_pagamento: new Date().toLocaleDateString('pt-BR'),
+                proxima_cobranca: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+                creditos: '12000'
+            }
+        };
+        
+        const variables = exampleVariables[template_type] || {
+            nome: 'João Silva',
+            email: test_email
+        };
+        
+        console.log(`[EMAIL TEST] Enviando email de teste para template: ${template_type}`);
+        console.log(`[EMAIL TEST] Email de destino: ${test_email}`);
+        
+        const result = await sendTemplateEmail(template_type, test_email, variables);
+        
+        if (result.success) {
+            res.status(200).json({ 
+                message: `Email de teste enviado com sucesso para ${test_email}`,
+                messageId: result.messageId,
+                accepted: result.accepted
+            });
+        } else {
+            res.status(500).json({ 
+                message: `Erro ao enviar email de teste: ${result.error || result.message}`,
+                error: result.error
+            });
+        }
+    } catch (err) {
+        console.error("[EMAIL TEST] Erro ao testar template de email:", err.message);
+        res.status(500).json({ message: "Erro ao testar template de email.", error: err.message });
     }
 });
 
@@ -10706,6 +10862,35 @@ app.post('/api/keys/save', authenticateToken, async (req, res) => {
         return res.status(400).json({ msg: 'Serviço e Chave de API são obrigatórios.' });
     }
 
+    // Verificar se é uma API que requer plano premium (Claude, Gemini, OpenAI)
+    const premiumApis = ['claude', 'gemini', 'openai'];
+    if (premiumApis.includes(service_name.toLowerCase())) {
+        try {
+            // Verificar plano do usuário
+            const user = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [userId]);
+            if (!user) {
+                return res.status(404).json({ msg: 'Usuário não encontrado.' });
+            }
+            
+            const userPlan = user.subscription_plan || user.plan || 'plan-free';
+            const hasPremiumPlan = userPlan === 'plan-master' || 
+                                  userPlan === 'plan-master-annual' || 
+                                  userPlan === 'plan-start-annual' || 
+                                  userPlan === 'plan-turbo-annual' ||
+                                  (user.isAdmin === 1 || user.isAdmin === true || String(user.isAdmin) === '1');
+            
+            if (!hasPremiumPlan) {
+                return res.status(403).json({ 
+                    msg: 'Você precisa ter o plano MASTER ou um plano ANUAL para usar suas próprias chaves de API. Faça upgrade para desbloquear este recurso.',
+                    requiresUpgrade: true
+                });
+            }
+        } catch (planErr) {
+            console.error('Erro ao verificar plano do usuário:', planErr);
+            return res.status(500).json({ msg: 'Erro ao verificar plano do usuário.' });
+        }
+    }
+
     try {
         const encryptedKey = encrypt(api_key);
         
@@ -11124,7 +11309,7 @@ Tradução em PT-BR:`;
             
             if (useLaozhangAsDefault && laozhangKey) {
                 // Se laozhang.ai está como padrão, usar ela + outras duas APIs
-                modelUsedForDisplay = 'Comparação (Laozhang.ai, Claude, OpenAI)';
+                modelUsedForDisplay = 'Comparação (3 Modelos)';
                 const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
                 const keys = {};
                 keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
@@ -11621,7 +11806,30 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
             subniche: parsedData.subniche || 'N/A' 
         };
         const finalAnalysisData = parsedData.analiseOriginal;
-        const allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: 'Laozhang.ai' }));
+        // Função para limpar nome do modelo (remover fornecedores)
+        const cleanModelName = (modelName) => {
+            if (!modelName) return 'GPT-4o';
+            let clean = String(modelName)
+                .replace(/laozhang\.ai/gi, '')
+                .replace(/laozhang/gi, '')
+                .replace(/openai/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .trim();
+            clean = clean.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
+            clean = clean.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
+            // Mapear para nomes amigáveis
+            if (clean.includes('gpt-4o')) return 'GPT-4o';
+            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
+            if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+            if (clean.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
+            return clean || 'GPT-4o';
+        };
+        
+        // Determinar nome do modelo baseado no modelo usado (sem expor fornecedor)
+        const modelNameForDisplay = cleanModelName(model);
+        const allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: modelNameForDisplay }));
 
         // Salvar no banco
         let analysisId;
@@ -11673,7 +11881,7 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
             subniche: finalNicheData.subniche,
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: allGeneratedTitles,
-            modelUsed: 'Laozhang.ai',
+            modelUsed: modelNameForDisplay || 'GPT-4o',
             videoDetails: {
                 ...videoDetails,
                 videoId: videoId,
@@ -13694,13 +13902,33 @@ IMPORTANTE:
             console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
         }
 
+        // Função auxiliar para limpar nome do modelo (remover fornecedores)
+        const cleanModelName = (model) => {
+            if (!model) return 'GPT-4o';
+            let clean = String(model)
+                .replace(/laozhang\.ai/gi, '')
+                .replace(/laozhang/gi, '')
+                .replace(/openai/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .trim();
+            clean = clean.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
+            clean = clean.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
+            // Mapear para nomes amigáveis
+            if (clean.includes('gpt-4o')) return 'GPT-4o';
+            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
+            if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+            return clean || 'GPT-4o';
+        };
+        
         // Usar selectedModel se fornecido (modelo selecionado no frontend), senão usar model
-        const modelToReturn = selectedModel || model;
+        const modelToReturn = cleanModelName(selectedModel || model);
         
         res.json({
             msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente ou use um modelo com maior limite de tokens.)` : ''}`,
             scenes: scenesData.scenes,
-            modelUsed: modelToReturn, // Retornar o modelo selecionado no frontend
+            modelUsed: modelToReturn, // Retornar apenas o nome do modelo (sem fornecedor)
             expectedScenes: estimatedScenes,
             generatedScenes: scenesData.scenes.length
         });
@@ -13982,13 +14210,26 @@ IMPORTANTE:
             console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
         }
 
-        // Se selectedModel foi fornecido, usar ele, senão usar 'laozhang-gpt-4o'
-        const modelToReturn = selectedModel ? `laozhang-${selectedModel}` : 'laozhang-gpt-4o';
+        // Limpar nome do modelo (remover prefixos de fornecedores)
+        const cleanModelName = (model) => {
+            if (!model) return 'GPT-4o';
+            // Remover prefixos de fornecedores
+            let clean = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
+            // Mapear para nomes amigáveis
+            if (clean.includes('gpt-4o')) return 'GPT-4o';
+            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
+            if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+            if (clean.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
+            return clean || 'GPT-4o';
+        };
+        
+        const modelToReturn = cleanModelName(selectedModel || 'gpt-4o');
         
         res.json({
             msg: `${scenesData.scenes.length} prompts de cena gerados com sucesso!${scenesData.scenes.length < minScenes ? ` (Esperávamos ${estimatedScenes} cenas, mas apenas ${scenesData.scenes.length} foram geradas. Tente novamente.)` : ''}`,
             scenes: scenesData.scenes,
-            modelUsed: modelToReturn, // Retornar o modelo selecionado no frontend (com prefixo laozhang)
+            modelUsed: modelToReturn, // Retornar apenas o nome do modelo (sem fornecedor)
             expectedScenes: estimatedScenes,
             generatedScenes: scenesData.scenes.length
         });
@@ -15835,13 +16076,28 @@ app.get('/api/video/transcript/:videoId', authenticateToken, async (req, res) =>
 
     console.log(`[Transcrição] Rota chamada - Parâmetro recebido: "${videoId}"`);
     console.log(`[Transcrição] User ID: ${userId}`);
+    console.log(`[Transcrição] URL completa: ${req.url}`);
+    console.log(`[Transcrição] Parâmetros:`, req.params);
     
     // Garantir que a resposta não será fechada prematuramente
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Keep-Alive', 'timeout=900'); // 15 minutos
 
     // Validar e limpar o ID do vídeo (fazer isso antes de qualquer coisa)
-    let cleanVideoId = videoId.trim();
+    // Remover qualquer caractere inválido que possa ter sido adicionado (como :1 no final)
+    let cleanVideoId = String(videoId || '').trim();
+    
+    // Remover sufixos estranhos que podem aparecer (como :1, :2, etc)
+    cleanVideoId = cleanVideoId.split(':')[0].split('?')[0].split('#')[0];
+    
+    // Validar formato básico do videoId do YouTube (11 caracteres alfanuméricos)
+    if (!cleanVideoId || cleanVideoId.length < 10) {
+        console.error(`[Transcrição] ❌ VideoId inválido: "${videoId}" -> "${cleanVideoId}"`);
+        return res.status(400).json({ 
+            msg: 'ID do vídeo inválido',
+            error: `VideoId recebido: "${videoId}"`
+        });
+    }
     
     // Se for uma URL completa, extrair o ID
     if (cleanVideoId.includes('youtube.com') || cleanVideoId.includes('youtu.be')) {
@@ -15857,6 +16113,9 @@ app.get('/api/video/transcript/:videoId', authenticateToken, async (req, res) =>
         }
     }
 
+    // Log adicional para debug
+    console.log(`[Transcrição] VideoId limpo: "${cleanVideoId}" (tamanho: ${cleanVideoId.length})`);
+    
     try {
         // Primeiro, tentar buscar do banco de dados (cache)
         const analysis = await db.get(
@@ -18718,7 +18977,18 @@ ROTEIRO EXPANDIDO:`;
         // Salvar roteiro no banco
         // Verificar se as colunas duration_minutes e language existem
         let columnsToInsert = ['user_id', 'script_agent_id', 'title', 'script_content', 'model_used', 'niche', 'subniche'];
-        let valuesToInsert = [userId, agentId, title, cleanedScript, `laozhang-${laozhangModel}`, agent.niche, agent.subniche];
+        // Limpar nome do modelo para salvar (sem prefixo de fornecedor)
+        const cleanModelForSave = (model) => {
+            if (!model) return 'GPT-4o';
+            // Remover prefixos e mapear para nomes amigáveis
+            let clean = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
+            if (clean.includes('gpt-4o')) return 'GPT-4o';
+            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
+            if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+            return clean || 'GPT-4o';
+        };
+        let valuesToInsert = [userId, agentId, title, cleanedScript, cleanModelForSave(laozhangModel), agent.niche, agent.subniche];
         
         try {
             // Tentar verificar se as colunas existem
