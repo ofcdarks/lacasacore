@@ -3049,7 +3049,20 @@
                         else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
                         else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
                         
-                        const escapedTitle = titleObj.titulo.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                        const cleanTitle = (titleObj.titulo || '').replace(/^\[.*?\]\s*/, '');
+                        const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/\"/g, "&quot;");
+                        const modelLabel = (() => {
+                            const m = (titleObj.model || '').toLowerCase();
+                            if (m === 'gemini') return 'Gemini';
+                            if (m === 'claude') return 'Claude';
+                            if (m === 'openai' || m === 'gpt' || m.startsWith('gpt')) return 'GPT-4o';
+                            if (m.startsWith('claude-3-7-sonnet')) return 'Claude 3.7 Sonnet';
+                            if (m.startsWith('claude-sonnet-4')) return 'Claude Sonnet 4';
+                            if (m.startsWith('claude-opus-4')) return 'Claude Opus 4';
+                            if (m.startsWith('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+                            if (m.startsWith('gemini-2.0-flash')) return 'Gemini 2.0 Flash';
+                            return titleObj.model || '';
+                        })();
                         const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
                         const isCheckedLabelClass = titleObj.is_checked ? 'line-through' : '';
 
@@ -3057,13 +3070,14 @@
                             <li class="bg-gray-800 p-4 rounded-lg border border-gray-700 transition-opacity ${isCheckedClass}">
                                 <div class="flex items-center space-x-3 flex-1">
                                     <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
-                                    <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">${titleObj.titulo}</label>
+                                    <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">${cleanTitle}</label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
                                     <p class="text-sm text-gray-400 flex-1">
                                         ${titleObj.explicacao || ''}
                                     </p>
                                     <div class="flex items-center ml-4">
+                                        ${modelLabel ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap bg-gray-700 text-gray-200 border border-gray-600 mr-2">${modelLabel}</span>` : ''}
                                         ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">${titleObj.pontuacao}/10</span>` : ''}
                                         <button title="Copiar Título" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedTitle}">
                                             <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>

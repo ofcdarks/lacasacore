@@ -1378,7 +1378,7 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                     laozhangProviderId,
                     totalTokens,
                     operationType,
-                    details || JSON.stringify({ model: model || 'gpt-4o', service: 'laozhang' })
+                    details || JSON.stringify({ model: modelToUse || model || 'gpt-4o', service: 'laozhang' })
                 );
                 console.log(`[API] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
             }
@@ -1392,8 +1392,25 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
         }
     }
     
+    // Se modelo não fornecido, usar 'gpt-4o' apenas como último recurso
+    // Mas preferir extrair do details se disponível
+    let modelToUse = model;
+    if (!modelToUse && details) {
+        try {
+            const detailsObj = typeof details === 'string' ? JSON.parse(details) : details;
+            modelToUse = detailsObj?.model || detailsObj?.selectedModel;
+        } catch (e) {
+            // Ignorar erro de parsing
+        }
+    }
+    // Último fallback: usar 'gpt-4o' apenas se realmente não houver modelo
+    modelToUse = modelToUse || 'gpt-4o';
+    
+    // Log do modelo que será usado na API
+    console.log(`[callLaozhangAPI] 🎯 Enviando requisição para API com modelo: "${modelToUse}"`);
+    
     const payload = {
-        model: model || 'gpt-4o',
+        model: modelToUse,
         messages: [
             {
                 role: 'system',
@@ -2503,8 +2520,17 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             }
         }
         
-        // Extrair modelo dos details
-        let modelName = detailsObj?.model || null;
+        // Extrair modelo dos details - verificar múltiplas fontes
+        let modelName = detailsObj?.model || detailsObj?.selectedModel || null;
+        
+        // Se não encontrou nos details, tentar extrair do operationType ou endpoint
+        if (!modelName && detailsObj?.endpoint) {
+            // Alguns endpoints podem ter o modelo no nome
+            const endpointModelMatch = detailsObj.endpoint.match(/(gpt-4o|claude-3-7-sonnet|gemini-2\.5-pro)/i);
+            if (endpointModelMatch) {
+                modelName = endpointModelMatch[1];
+            }
+        }
         
         // Formatar nome do modelo para exibição amigável
         if (modelName) {
@@ -3706,6 +3732,24 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
+        `);
+        
+        // Criar tabela para rastrear armazenamento por usuário
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS user_storage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                file_type TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        `);
+        
+        // Criar índice para melhor performance
+        await db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_user_storage_user_id ON user_storage(user_id)
         `);
         
         // Criar tabela de créditos por plano
@@ -5596,45 +5640,63 @@ async function checkStorageLimit(userId, additionalSize = 0, isAdmin = false) {
 // Função auxiliar para calcular armazenamento usado pelo usuário
 async function calculateUserStorage(userId) {
     try {
-        const fs = require('fs');
-        const path = require('path');
         let totalSize = 0;
         
-        // Calcular tamanho dos arquivos em temp_audio (todos os arquivos temporários)
-        const tempAudioDir = path.join(__dirname, 'temp_audio');
-        if (fs.existsSync(tempAudioDir)) {
-            const files = fs.readdirSync(tempAudioDir);
-            for (const file of files) {
-                const filePath = path.join(tempAudioDir, file);
-                try {
-                    const stats = fs.statSync(filePath);
-                    if (stats.isFile()) {
-                        totalSize += stats.size;
+        // Calcular armazenamento baseado na tabela user_storage (fonte principal)
+        try {
+            const userStorage = await db.all(
+                'SELECT file_size FROM user_storage WHERE user_id = ?', 
+                [userId]
+            );
+            
+            if (userStorage && userStorage.length > 0) {
+                for (const file of userStorage) {
+                    if (file.file_size) {
+                        totalSize += file.file_size;
                     }
-                } catch (err) {
-                    // Ignorar erros de arquivos individuais
                 }
             }
+        } catch (err) {
+            console.error('[STORAGE] Erro ao buscar armazenamento da tabela user_storage:', err);
         }
         
-        // Calcular tamanho dos arquivos de vídeo/áudio gerados pelo usuário
-        // (se houver uma tabela de arquivos ou estrutura similar)
+        // Também verificar arquivos em temp_audio que contenham o userId no nome
+        // (para compatibilidade com arquivos antigos)
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const tempAudioDir = path.join(__dirname, 'temp_audio');
+            
+            if (fs.existsSync(tempAudioDir)) {
+                const files = fs.readdirSync(tempAudioDir);
+                const userIdStr = String(userId);
+                
+                for (const file of files) {
+                    // Verificar se o arquivo pertence a este usuário (contém userId no nome)
+                    if (file.includes(userIdStr) || file.startsWith(`${userIdStr}_`) || file.includes(`_${userIdStr}_`)) {
+                        const filePath = path.join(tempAudioDir, file);
+                        try {
+                            const stats = fs.statSync(filePath);
+                            if (stats.isFile()) {
+                                totalSize += stats.size;
+                            }
+                        } catch (err) {
+                            // Ignorar erros de arquivos individuais
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[STORAGE] Erro ao verificar temp_audio:', err);
+        }
+        
+        // Verificar tabela user_files (se existir) para compatibilidade
         try {
             const userFiles = await db.all('SELECT file_path, file_size FROM user_files WHERE user_id = ?', [userId]);
             if (userFiles && userFiles.length > 0) {
                 for (const file of userFiles) {
                     if (file.file_size) {
                         totalSize += file.file_size;
-                    } else if (file.file_path) {
-                        try {
-                            const filePath = path.join(__dirname, file.file_path);
-                            if (fs.existsSync(filePath)) {
-                                const stats = fs.statSync(filePath);
-                                totalSize += stats.size;
-                            }
-                        } catch (err) {
-                            // Ignorar erros
-                        }
                     }
                 }
             }
@@ -5646,6 +5708,60 @@ async function calculateUserStorage(userId) {
     } catch (error) {
         console.error('[STORAGE] Erro ao calcular armazenamento:', error);
         return 0;
+    }
+}
+
+// Função auxiliar para registrar um arquivo no armazenamento do usuário
+async function registerUserStorage(userId, filePath, fileSize, fileType = null) {
+    try {
+        // Normalizar o caminho do arquivo (relativo ao diretório do servidor)
+        const path = require('path');
+        const normalizedPath = path.isAbsolute(filePath) 
+            ? path.relative(__dirname, filePath) 
+            : filePath;
+        
+        // Verificar se o arquivo já está registrado
+        const existing = await db.get(
+            'SELECT id FROM user_storage WHERE user_id = ? AND file_path = ?',
+            [userId, normalizedPath]
+        );
+        
+        if (existing) {
+            // Atualizar tamanho se mudou
+            await db.run(
+                'UPDATE user_storage SET file_size = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [fileSize, existing.id]
+            );
+        } else {
+            // Registrar novo arquivo
+            await db.run(
+                'INSERT INTO user_storage (user_id, file_path, file_size, file_type) VALUES (?, ?, ?, ?)',
+                [userId, normalizedPath, fileSize, fileType]
+            );
+        }
+        
+        console.log(`[STORAGE] Arquivo registrado para usuário ${userId}: ${normalizedPath} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+    } catch (error) {
+        console.error('[STORAGE] Erro ao registrar armazenamento:', error);
+    }
+}
+
+// Função auxiliar para remover registro de arquivo do armazenamento
+async function unregisterUserStorage(userId, filePath) {
+    try {
+        const path = require('path');
+        const normalizedPath = path.isAbsolute(filePath) 
+            ? path.relative(__dirname, filePath) 
+            : filePath;
+        
+        await db.run(
+            'DELETE FROM user_storage WHERE user_id = ? AND file_path = ?',
+            [userId, normalizedPath]
+        );
+        
+        console.log(`[STORAGE] Arquivo removido do registro para usuário ${userId}: ${normalizedPath}`);
+    } catch (error) {
+        console.error('[STORAGE] Erro ao remover registro de armazenamento:', error);
     }
 }
 
@@ -6142,30 +6258,14 @@ app.get('/api/admin/storage/stats', authenticateToken, isAdmin, async (req, res)
             }
         }
         
-        // Calcular espaço usado em temp_audio
-        const tempAudioDir = path.join(__dirname, 'temp_audio');
-        let tempAudioSize = 0;
-        if (fs.existsSync(tempAudioDir)) {
-            const files = fs.readdirSync(tempAudioDir);
-            for (const file of files) {
-                try {
-                    const filePath = path.join(tempAudioDir, file);
-                    const stats = fs.statSync(filePath);
-                    if (stats.isFile()) {
-                        tempAudioSize += stats.size;
-                    }
-                } catch (err) {
-                    // Ignorar erros
-                }
-            }
-        }
+        // Buscar todos os usuários
+        const users = await db.all('SELECT id, email, name, isAdmin FROM users');
         
-        // Calcular espaço usado por todos os usuários
-        const allUsers = await db.all('SELECT id, email, name, isAdmin FROM users');
+        // Calcular espaço usado por usuário (usando a tabela user_storage)
         const usersStorage = [];
         let totalUsersStorage = 0;
         
-        for (const user of allUsers) {
+        for (const user of users) {
             const userStorage = await calculateUserStorage(user.id);
             totalUsersStorage += userStorage;
             
@@ -6196,6 +6296,24 @@ app.get('/api/admin/storage/stats', authenticateToken, isAdmin, async (req, res)
             });
         }
         
+        // Calcular espaço usado em temp_audio (arquivos não associados a usuários)
+        const tempAudioDir = path.join(__dirname, 'temp_audio');
+        let tempAudioSize = 0;
+        if (fs.existsSync(tempAudioDir)) {
+            const files = fs.readdirSync(tempAudioDir);
+            for (const file of files) {
+                try {
+                    const filePath = path.join(tempAudioDir, file);
+                    const stats = fs.statSync(filePath);
+                    if (stats.isFile()) {
+                        tempAudioSize += stats.size;
+                    }
+                } catch (err) {
+                    // Ignorar erros
+                }
+            }
+        }
+        
         res.json({
             serverTotalSpace: totalSpace,
             tempAudioSize: tempAudioSize,
@@ -6209,12 +6327,76 @@ app.get('/api/admin/storage/stats', authenticateToken, isAdmin, async (req, res)
     }
 });
 
+// POST /api/admin/storage/sync - Sincronizar armazenamento de todos os usuários
+app.post('/api/admin/storage/sync', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        
+        console.log('[STORAGE SYNC] Iniciando sincronização de armazenamento...');
+        
+        // Buscar todos os usuários
+        const users = await db.all('SELECT id FROM users');
+        let syncedCount = 0;
+        let totalFiles = 0;
+        
+        for (const user of users) {
+            const userId = user.id;
+            
+            // Verificar arquivos em temp_audio que pertencem a este usuário
+            const tempAudioDir = path.join(__dirname, 'temp_audio');
+            if (fs.existsSync(tempAudioDir)) {
+                const files = fs.readdirSync(tempAudioDir);
+                const userIdStr = String(userId);
+                
+                for (const file of files) {
+                    // Verificar se o arquivo pertence a este usuário
+                    if (file.includes(userIdStr) || file.startsWith(`${userIdStr}_`) || file.includes(`_${userIdStr}_`)) {
+                        const filePath = path.join(tempAudioDir, file);
+                        try {
+                            const stats = fs.statSync(filePath);
+                            if (stats.isFile()) {
+                                const relativePath = path.relative(__dirname, filePath);
+                                await registerUserStorage(userId, relativePath, stats.size, 'audio');
+                                totalFiles++;
+                            }
+                        } catch (err) {
+                            console.error(`[STORAGE SYNC] Erro ao processar arquivo ${file}:`, err);
+                        }
+                    }
+                }
+            }
+            
+            syncedCount++;
+        }
+        
+        console.log(`[STORAGE SYNC] Sincronização concluída: ${syncedCount} usuários, ${totalFiles} arquivos registrados`);
+        
+        res.json({ 
+            message: 'Sincronização concluída com sucesso',
+            usersSynced: syncedCount,
+            filesRegistered: totalFiles
+        });
+    } catch (error) {
+        console.error('[STORAGE SYNC] Erro ao sincronizar armazenamento:', error);
+        res.status(500).json({ message: 'Erro ao sincronizar armazenamento', error: error.message });
+    }
+});
+
 // PUT /api/admin/storage/reset/:userId - Zerar armazenamento de um usuário
 app.put('/api/admin/storage/reset/:userId', authenticateToken, isAdmin, async (req, res) => {
     try {
         const userId = parseInt(req.params.userId);
         const fs = require('fs');
         const path = require('path');
+        
+        // Deletar registros de armazenamento do usuário
+        try {
+            await db.run('DELETE FROM user_storage WHERE user_id = ?', [userId]);
+            console.log(`[STORAGE] Registros de armazenamento deletados para usuário ${userId}`);
+        } catch (err) {
+            console.error('[STORAGE] Erro ao deletar registros de armazenamento:', err);
+        }
         
         // Deletar arquivos em temp_audio do usuário (arquivos que contêm o userId ou são do usuário)
         const tempAudioDir = path.join(__dirname, 'temp_audio');
@@ -11030,7 +11212,21 @@ function isViralVideo(views, days, viewsPerDay) {
 // === ROTAS DE ANÁLISE (O CORAÇÃO DO SAAS) ===
 
 app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
-    const { videoUrl, model, folderId } = req.body;
+    // Log defensivo do corpo recebido
+    try {
+        console.log('[Análise] Body recebido tipo:', typeof req.body);
+        console.log('[Análise] Campos:', {
+            videoUrl: req.body?.videoUrl,
+            model: req.body?.model,
+            selectedModel: req.body?.selectedModel,
+            folderId: req.body?.folderId
+        });
+    } catch {}
+
+    const rawModel = (req.body && (req.body.model ?? req.body.selectedModel)) ?? '';
+    const model = typeof rawModel === 'string' ? rawModel.trim() : '';
+    const videoUrl = typeof req.body?.videoUrl === 'string' ? req.body.videoUrl.trim() : '';
+    const folderId = req.body?.folderId;
     const userId = req.user.id;
 
     if (!videoUrl || !model) {
@@ -11104,34 +11300,68 @@ Título original: "${videoDetails.title}"
 
 Tradução em PT-BR:`;
             
-            // Usar o sistema de preferência para tradução (laozhang.ai se configurada como padrão)
-            let translateProvider = await getPreferredAIProvider(userId, ['claude', 'openai', 'gemini']);
+            // Usar o modelo escolhido pelo usuário para tradução
             let translateText;
             
-            if (translateProvider && translateProvider.service === 'laozhang') {
-                // Usar laozhang.ai
-                const translateResponse = await callLaozhangAPI(
-                    translatePrompt, 
-                    translateProvider.apiKey, 
-                    translateProvider.model, 
-                    null, 
-                    userId, 
-                    'api_call', 
-                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'translate', model: translateProvider.model })
-                );
-                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
-            } else if (translateProvider && translateProvider.service === 'claude') {
-                // Usar Claude
-                const translateResponse = await callClaudeAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
-                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
-            } else if (translateProvider && translateProvider.service === 'openai') {
-                // Usar OpenAI
-                const translateResponse = await callOpenAIAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
-                translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+            // Mapear modelo do frontend para serviço e modelo correto
+            let translateService;
+            let translateModel = model;
+            if (model.startsWith('gemini') || model.includes('gemini')) {
+                translateService = 'gemini';
+                translateModel = model.includes('2.5-pro') ? 'gemini-2.5-pro' : (model.includes('2.5-flash') ? 'gemini-2.5-flash' : 'gemini-2.0-flash');
+            } else if (model.startsWith('claude') || model.includes('claude') || model.includes('sonnet')) {
+                translateService = 'claude';
+                translateModel = model.includes('3.7') ? 'claude-3-7-sonnet-20250219' : model;
+            } else if (model.startsWith('gpt') || model.includes('gpt') || model.includes('openai')) {
+                translateService = 'openai';
+                translateModel = model.includes('4o') ? 'gpt-4o' : model;
             } else {
-                // Fallback para Gemini se nenhum outro estiver disponível
-                const translateResponse = await callGeminiAPI(translatePrompt, geminiApiKey, 'gemini-2.0-flash');
-                translateText = translateResponse.titles.trim();
+                // Fallback: tentar detectar pelo modelo
+                translateService = 'gemini';
+                translateModel = 'gemini-2.0-flash';
+            }
+            
+            // Buscar chave do serviço correspondente
+            const translateKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, translateService]);
+            if (translateKeyData) {
+                const translateKey = decrypt(translateKeyData.api_key) || translateKeyData.api_key;
+                
+                if (translateService === 'claude') {
+                    const translateResponse = await callClaudeAPI(translatePrompt, translateKey, translateModel);
+                    translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+                } else if (translateService === 'openai') {
+                    const translateResponse = await callOpenAIAPI(translatePrompt, translateKey, translateModel);
+                    translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+                } else {
+                    const translateResponse = await callGeminiAPI(translatePrompt, translateKey, translateModel);
+                    translateText = translateResponse.titles.trim();
+                }
+            } else {
+                // Fallback: usar sistema de preferência se não tiver chave do modelo escolhido
+                let translateProvider = await getPreferredAIProvider(userId, ['claude', 'openai', 'gemini']);
+                
+                if (translateProvider && translateProvider.service === 'laozhang') {
+                    const translateResponse = await callLaozhangAPI(
+                        translatePrompt, 
+                        translateProvider.apiKey, 
+                        translateProvider.model, 
+                        null, 
+                        userId, 
+                        '/api/analyze/titles', 
+                        JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'translate', model: translateProvider.model })
+                    );
+                    translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+                } else if (translateProvider && translateProvider.service === 'claude') {
+                    const translateResponse = await callClaudeAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
+                    translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+                } else if (translateProvider && translateProvider.service === 'openai') {
+                    const translateResponse = await callOpenAIAPI(translatePrompt, translateProvider.apiKey, translateProvider.model);
+                    translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
+                } else {
+                    // Último fallback: Gemini
+                    const translateResponse = await callGeminiAPI(translatePrompt, geminiApiKey, 'gemini-2.0-flash');
+                    translateText = translateResponse.titles.trim();
+                }
             }
             
             // Limpar a resposta (remover markdown, aspas, etc)
@@ -11308,48 +11538,55 @@ Tradução em PT-BR:`;
             }
             
             if (useLaozhangAsDefault && laozhangKey) {
-                // Se laozhang.ai está como padrão, usar ela + outras duas APIs
+                // Comparação via laozhang com 3 modelos escolhidos
                 modelUsedForDisplay = 'Comparação (3 Modelos)';
-                const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
-                const keys = {};
-                keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
-
-                if (!keys.claude || !keys.openai) {
-                    return res.status(400).json({ msg: 'Para "Comparar" com o provedor padrão, precisa de ter as chaves de Claude E OpenAI configuradas.' });
-                }
-
-                console.log('[Análise-All] A chamar IA em paralelo (Laozhang.ai + Claude + OpenAI)...');
-                const pLaozhang = callLaozhangAPI(
-                    titlePrompt, 
-                    laozhangKey, 
-                    'gpt-4o', 
-                    null, 
-                    userId, 
-                    'api_call', 
+                console.log('[Análise-All] A chamar IA em paralelo (Laozhang.ai com 3 modelos)...');
+                const pLaoGPT = callLaozhangAPI(
+                    titlePrompt,
+                    laozhangKey,
+                    'gpt-4o',
+                    null,
+                    userId,
+                    '/api/analyze/titles',
                     JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'gpt-4o' })
                 );
-                const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
-                const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
+                const pLaoClaude = callLaozhangAPI(
+                    titlePrompt,
+                    laozhangKey,
+                    'claude-3-7-sonnet-20250219',
+                    null,
+                    userId,
+                    '/api/analyze/titles',
+                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'claude-3-7-sonnet-20250219' })
+                );
+                const pLaoGemini = callLaozhangAPI(
+                    titlePrompt,
+                    laozhangKey,
+                    'gemini-2.5-pro',
+                    null,
+                    userId,
+                    '/api/analyze/titles',
+                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'gemini-2.5-pro' })
+                );
 
-                const results = await Promise.allSettled([pLaozhang, pClaude, pOpenAI]);
+                const results = await Promise.allSettled([pLaoGPT, pLaoClaude, pLaoGemini]);
 
                 let firstSuccessfulAnalysis = null;
                 results.forEach((result, index) => {
-                    let serviceName = ['Laozhang.ai', 'Claude', 'OpenAI'][index];
+                    let serviceName = ['GPT-4o', 'Claude 3.7 Sonnet', 'Gemini 2.5 Pro'][index];
                     if (result.status === 'fulfilled') {
                         const responseValue = result.value;
                         const titlesText = typeof responseValue === 'string' ? responseValue : (responseValue.titles || JSON.stringify(responseValue));
                         const parsedData = parseAIResponse(titlesText, serviceName);
                         if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
                         
-                        parsedData.titulosSugeridos.forEach(t => {
-                            allGeneratedTitles.push({ ...t, titulo: `[${serviceName}] ${t.titulo}`, model: serviceName });
+                        const list = Array.isArray(parsedData.titulosSugeridos) ? parsedData.titulosSugeridos.slice(0, 5) : [];
+                        list.forEach(t => {
+                            allGeneratedTitles.push({ ...t, model: serviceName });
                         });
                     } else {
                         console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
-                        allGeneratedTitles.push({
-                            titulo: `[${serviceName}] Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
-                        });
+                        allGeneratedTitles.push({ titulo: `Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: 'A API falhou.', model: serviceName });
                     }
                 });
                 
@@ -11433,6 +11670,7 @@ Tradução em PT-BR:`;
                     JSON.parse(laozhangDefaultSetting.value) === true
                 );
                 
+                // Usar laozhang.ai como padrão sempre que configurado no admin
                 if (laozhangUseAsDefault) {
                     const laozhangKey = await getLaozhangApiKey();
                     if (laozhangKey) {
@@ -11452,6 +11690,7 @@ Tradução em PT-BR:`;
                 const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
                 const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
                 
+                // Usar créditos/laozhang quando preferência do usuário estiver ativa
                 if (useCredits) {
                     // Usuário prefere usar créditos - usar laozhang.ai
                     const laozhangKey = await getLaozhangApiKey();
@@ -11483,10 +11722,41 @@ Tradução em PT-BR:`;
                 else apiCallFunction = callOpenAIAPI;
             }
 
-            console.log(`[Análise-${service}] A chamar IA...`);
-            const response = await apiCallFunction(titlePrompt, decryptedKey, model);
+            // Mapear modelo do frontend para modelo da laozhang.ai
+            let modelToUseForAPI = model;
+            if (useLaozhang) {
+                const normalizeForLaozhang = (m) => {
+                    if (!m || typeof m !== 'string') return 'gpt-4o';
+                    const s = m.toLowerCase();
+                    if (s.includes('claude')) return 'claude-3-7-sonnet-20250219';
+                    if (s.includes('gemini')) return 'gemini-2.5-pro';
+                    if (s.includes('gpt')) return 'gpt-4o';
+                    if (s === 'claude-3-7-sonnet-20250219' || s === 'gemini-2.5-pro' || s === 'gpt-4o') return m;
+                    return 'gpt-4o';
+                };
+                modelToUseForAPI = normalizeForLaozhang(model);
+                console.log(`[Análise-Laozhang] Modelo selecionado: "${model}" -> Enviando para provedor principal como: "${modelToUseForAPI}"`);
+            }
             
-            const parsedData = parseAIResponse(response.titles, service);
+            console.log(`[Análise-${service}] A chamar IA com modelo: ${modelToUseForAPI || model}...`);
+            let response;
+            if (useLaozhang) {
+                // Usar callLaozhangAPI com todos os parâmetros corretos
+                response = await callLaozhangAPI(
+                    titlePrompt, 
+                    decryptedKey, 
+                    modelToUseForAPI, 
+                    null, 
+                    userId, 
+                    '/api/analyze/titles', 
+                    JSON.stringify({ endpoint: '/api/analyze/titles', model: modelToUseForAPI })
+                );
+            } else {
+                // Usar API própria do usuário
+                response = await apiCallFunction(titlePrompt, decryptedKey, model);
+            }
+            
+            const parsedData = parseAIResponse(response.titles || response, service);
             
             // Verificar se a análise tem os dados necessários
             if (!parsedData.analiseOriginal) {
@@ -11499,7 +11769,33 @@ Tradução em PT-BR:`;
                 subniche: parsedData.subniche || 'N/A' 
             };
             finalAnalysisData = parsedData.analiseOriginal;
-            allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: model }));
+            
+            // Função para formatar modelo do frontend para exibição
+            const formatModelForDisplay = (modelName) => {
+                if (!modelName) return 'GPT-4o';
+                // Se já está no formato de exibição, retornar como está
+                if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
+                    return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
+                }
+                // Mapear formatos técnicos para nomes amigáveis
+                if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
+                    return 'Claude 3.7 Sonnet';
+                } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
+                    return 'Gemini 2.5 Pro';
+                } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
+                    return 'GPT-4o';
+                } else if (modelName.includes('claude')) {
+                    return 'Claude';
+                } else if (modelName.includes('gemini')) {
+                    return 'Gemini';
+                } else if (modelName.includes('gpt')) {
+                    return 'GPT-4o';
+                }
+                return modelName;
+            };
+            
+            const modelForDisplay = formatModelForDisplay(model);
+            allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: modelForDisplay }));
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
@@ -11593,12 +11889,34 @@ Tradução em PT-BR:`;
         console.log(`[Biblioteca] Títulos gerados aguardando seleção do usuário para salvar na biblioteca`);
         
         // Garantir que todas as variáveis estão definidas antes de enviar
+        // Formatar modelo para exibição se necessário
+        const formatModelForResponse = (modelName) => {
+            if (!modelName) return 'GPT-4o';
+            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
+                return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
+            }
+            if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
+                return 'Claude 3.7 Sonnet';
+            } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
+                return 'Gemini 2.5 Pro';
+            } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
+                return 'GPT-4o';
+            }
+            return modelName;
+        };
+        
+        // Garantir que os títulos do banco tenham o modelo formatado corretamente
+        const formattedTitles = (finalTitlesWithIds || []).map(t => ({
+            ...t,
+            model: formatModelForResponse(t.model || model)
+        }));
+        
         const responseData = {
             niche: finalNicheData?.niche || 'N/A',
             subniche: finalNicheData?.subniche || 'N/A',
             analiseOriginal: finalAnalysisData || {},
-            titulosSugeridos: finalTitlesWithIds || [],
-            modelUsed: modelUsedForDisplay || 'N/A', 
+            titulosSugeridos: formattedTitles,
+            modelUsed: formatModelForResponse(model) || 'GPT-4o', 
             videoDetails: { 
                 ...videoDetails, 
                 videoId: videoId, 
@@ -11631,6 +11949,9 @@ Tradução em PT-BR:`;
 app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => {
     const { videoUrl, model: requestedModel, folderId } = req.body;
     const userId = req.user.id;
+    
+    // Garantir que modelToUse seja o modelo original do frontend para exibição
+    const modelToUse = requestedModel || 'gpt-4o';
 
     if (!videoUrl) {
         return res.status(400).json({ msg: 'URL do vídeo é obrigatória.' });
@@ -11726,11 +12047,11 @@ Tradução em PT-BR:`;
             const translateResponse = await callLaozhangAPI(
                 translatePrompt, 
                 laozhangKey, 
-                'gpt-4o', 
+                modelToUse, 
                 null, 
                 userId, 
                 'api_call', 
-                JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', operation: 'translate', model: 'gpt-4o' })
+                JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', operation: 'translate', model: modelToUse })
             );
             const translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
             translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
@@ -11788,7 +12109,7 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
             modelToUse, 
             null, 
             userId, 
-            'api_call', 
+            '/api/analyze/titles/laozhang', 
             JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: modelToUse })
         );
         
@@ -11806,29 +12127,34 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
             subniche: parsedData.subniche || 'N/A' 
         };
         const finalAnalysisData = parsedData.analiseOriginal;
-        // Função para limpar nome do modelo (remover fornecedores)
-        const cleanModelName = (modelName) => {
+        // Função para formatar modelo do frontend para exibição
+        const formatModelForDisplay = (modelName) => {
             if (!modelName) return 'GPT-4o';
-            let clean = String(modelName)
-                .replace(/laozhang\.ai/gi, '')
-                .replace(/laozhang/gi, '')
-                .replace(/openai/gi, '')
-                .replace(/anthropic/gi, '')
-                .replace(/google/gi, '')
-                .trim();
-            clean = clean.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
-            clean = clean.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
-            // Mapear para nomes amigáveis
-            if (clean.includes('gpt-4o')) return 'GPT-4o';
-            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
-            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
-            if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
-            if (clean.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
-            return clean || 'GPT-4o';
+            // Se já está no formato de exibição do frontend, retornar formatado
+            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
+                return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
+            }
+            // Mapear formatos técnicos para nomes amigáveis
+            if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
+                return 'Claude 3.7 Sonnet';
+            } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
+                return 'Gemini 2.5 Pro';
+            } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
+                return 'GPT-4o';
+            } else if (modelName.includes('claude')) {
+                return 'Claude 3.7 Sonnet';
+            } else if (modelName.includes('gemini')) {
+                return 'Gemini 2.5 Pro';
+            } else if (modelName.includes('gpt')) {
+                return 'GPT-4o';
+            }
+            return modelName;
         };
         
-        // Determinar nome do modelo baseado no modelo usado (sem expor fornecedor)
-        const modelNameForDisplay = cleanModelName(model);
+        // Usar o modelo original do frontend (modelToUse) para exibição, não o mapeado para API
+        // modelToUse vem do req.body.model que é o modelo selecionado no frontend
+        const modelNameForDisplay = formatModelForDisplay(modelToUse);
+        console.log(`[Análise Laozhang] Modelo para exibição: "${modelToUse}" -> Formatado: "${modelNameForDisplay}"`);
         const allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: modelNameForDisplay }));
 
         // Salvar no banco
@@ -13300,9 +13626,17 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
             laozhangModel = 'claude-3-7-sonnet-20250219';
         } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
             laozhangModel = 'gemini-2.5-pro';
+        } else if (modelToUse && modelToUse.includes('claude')) {
+            laozhangModel = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse && modelToUse.includes('gemini')) {
+            laozhangModel = 'gemini-2.5-pro';
+        } else if (modelToUse && modelToUse.includes('gpt')) {
+            laozhangModel = 'gpt-4o';
         } else {
-            laozhangModel = 'gpt-4o'; // Fallback
+            console.warn(`[Thumbnail Laozhang] ⚠️ Modelo não reconhecido: "${modelToUse}", usando 'gpt-4o' como fallback`);
+            laozhangModel = 'gpt-4o'; // Fallback apenas se não conseguir identificar
         }
+        console.log(`[Thumbnail Laozhang] Modelo recebido: "${modelToUse}" -> Mapeado para API: "${laozhangModel}"`);
 
         // Buscar chave do YouTube primeiro (prioridade)
         let videoDetails = null;
@@ -13743,7 +14077,7 @@ IMPORTANTE:
         if (useLaozhang && laozhangApiKey) {
             // Usar créditos (laozhang.ai)
             console.log(`[Scene Prompts] Gerando prompts com laozhang.ai (créditos) - modelo: ${model}...`);
-            response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, 'api_call', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
+            response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, '/api/generate/scene-prompts', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
         } else {
             // Usar API própria
             if (service === 'gemini') apiCallFunction = callGeminiAPI;
@@ -14040,24 +14374,34 @@ IMPORTANTE:
 - NÃO pare na cena 10 ou qualquer número menor. Continue até gerar todas as ${estimatedScenes} cenas.`;
 
         // Mapear modelo selecionado para modelo da laozhang.ai
-        let laozhangModel = 'gpt-4o'; // Padrão
+        let laozhangModel = null;
         if (selectedModel) {
             // Mapear modelos do frontend para modelos da laozhang.ai
-            const modelMapping = {
-                'gpt-4o': 'gpt-4o',
-                'gpt-4o-mini': 'gpt-4o-mini',
-                'gpt-4-turbo': 'gpt-4-turbo',
-                'claude-3-7-sonnet-20250219': 'claude-3-7-sonnet-20250219',
-                'claude-sonnet-4-20250514': 'claude-sonnet-4-20250514',
-                'claude-opus-4-20250514': 'claude-opus-4-20250514',
-                'gemini-2.5-pro': 'gemini-2.5-pro',
-                'gemini-2.5-flash': 'gemini-2.5-flash',
-                'gemini-2.0-flash': 'gemini-2.0-flash'
-            };
-            laozhangModel = modelMapping[selectedModel] || selectedModel; // Usar o modelo selecionado se não estiver no mapeamento
+            if (selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
+                laozhangModel = 'gpt-4o';
+            } else if (selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
+                laozhangModel = 'claude-3-7-sonnet-20250219';
+            } else if (selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
+                laozhangModel = 'gemini-2.5-pro';
+            } else if (selectedModel.includes('claude')) {
+                laozhangModel = 'claude-3-7-sonnet-20250219';
+            } else if (selectedModel.includes('gemini')) {
+                laozhangModel = 'gemini-2.5-pro';
+            } else if (selectedModel.includes('gpt')) {
+                laozhangModel = 'gpt-4o';
+            } else {
+                // Tentar usar o modelo diretamente se estiver no formato correto
+                laozhangModel = selectedModel;
+            }
         }
         
-        console.log(`[Scene Prompts] Gerando prompts usando modelo: ${laozhangModel} (selecionado: ${selectedModel || 'N/A'})...`);
+        // Se ainda não tem modelo, usar 'gpt-4o' apenas como último recurso
+        if (!laozhangModel) {
+            console.warn(`[Scene Prompts] ⚠️ Modelo não fornecido ou não reconhecido, usando 'gpt-4o' como fallback`);
+            laozhangModel = 'gpt-4o';
+        }
+        
+        console.log(`[Scene Prompts] Modelo recebido: "${selectedModel || 'N/A'}" -> Mapeado para API: "${laozhangModel}"`);
         const response = await callLaozhangAPI(
             prompt, 
             laozhangKey, 
@@ -16254,7 +16598,7 @@ app.post('/api/video/transcript/analyze', authenticateToken, async (req, res) =>
 
 // === ROTA LAOZHANG PARA ANÁLISE DE TRANSCRIÇÃO ===
 app.post('/api/video/transcript/analyze/laozhang', authenticateToken, async (req, res) => {
-    const { transcript, videoId, videoTitle, niche, subniche } = req.body || {};
+    const { transcript, videoId, videoTitle, niche, subniche, model: requestedModel } = req.body || {};
     const userId = req.user.id;
 
     if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 400) {
@@ -16265,6 +16609,16 @@ app.post('/api/video/transcript/analyze/laozhang', authenticateToken, async (req
         const laozhangApiKey = await getLaozhangApiKey();
         if (!laozhangApiKey) {
             return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
+        }
+        
+        // Mapear modelo selecionado para modelo da laozhang.ai
+        let modelToUse = requestedModel || 'gpt-4o';
+        if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
+            modelToUse = 'gpt-4o';
+        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
+            modelToUse = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
+            modelToUse = 'gemini-2.5-pro';
         }
 
         const sanitizedTranscript = transcript.trim();
@@ -16314,11 +16668,11 @@ ROTEIRO COMPLETO:
         const response = await callLaozhangAPI(
             analysisPrompt,
             laozhangApiKey,
-            'gpt-4o',
+            modelToUse,
             null,
             userId,
             'api_transcript_analyze',
-            JSON.stringify({ endpoint: '/api/video/transcript/analyze/laozhang', model: 'gpt-4o' })
+            JSON.stringify({ endpoint: '/api/video/transcript/analyze/laozhang', model: modelToUse })
         );
 
         // Parsear resposta JSON
@@ -18488,7 +18842,7 @@ app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, asy
         console.log(`[Script Laozhang] CTAs configurados: início=${ctaConfig.inicio}, meio=${ctaConfig.meio}, final=${ctaConfig.final}`);
         
         // Mapear o modelo selecionado (aceitar tanto os valores do frontend quanto os nomes completos)
-        let laozhangModel = 'gpt-4o'; // padrão
+        let laozhangModel = null;
         if (selectedModel) {
             const modelLower = selectedModel.toLowerCase();
             if (modelLower.includes('claude') || modelLower.includes('sonnet') || selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
@@ -18497,10 +18851,19 @@ app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, asy
                 laozhangModel = 'gemini-2.5-pro';
             } else if (modelLower.includes('gpt') || modelLower.includes('4o') || selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
                 laozhangModel = 'gpt-4o';
+            } else {
+                // Tentar usar o modelo diretamente
+                laozhangModel = selectedModel;
             }
         }
         
-        console.log(`[Script Laozhang] Modelo selecionado: "${selectedModel}" -> Mapeado para: "${laozhangModel}"`);
+        // Se ainda não tem modelo, usar 'gpt-4o' apenas como último recurso
+        if (!laozhangModel) {
+            console.warn(`[Script Laozhang] ⚠️ Modelo não fornecido, usando 'gpt-4o' como fallback`);
+            laozhangModel = 'gpt-4o';
+        }
+        
+        console.log(`[Script Laozhang] Modelo selecionado: "${selectedModel || 'N/A'}" -> Mapeado para API: "${laozhangModel}"`);
 
         // A duração já vem ajustada do frontend (com 3-5 minutos extras)
         // Não adicionar mais minutos aqui para evitar duplicação
@@ -20068,8 +20431,33 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             } else {
                 // Modo não-streaming com laozhang
                 try {
-                    const laozhangModel = modelToUse || 'gpt-4o';
-                    console.log('[Viral Agents] 📝 Modo não-streaming Laozhang com modelo:', laozhangModel);
+                    // Mapear modelo do frontend para formato da laozhang.ai
+                    let laozhangModel = null;
+                    if (modelToUse) {
+                        if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
+                            laozhangModel = 'gpt-4o';
+                        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
+                            laozhangModel = 'claude-3-7-sonnet-20250219';
+                        } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
+                            laozhangModel = 'gemini-2.5-pro';
+                        } else if (modelToUse.includes('claude')) {
+                            laozhangModel = 'claude-3-7-sonnet-20250219';
+                        } else if (modelToUse.includes('gemini')) {
+                            laozhangModel = 'gemini-2.5-pro';
+                        } else if (modelToUse.includes('gpt')) {
+                            laozhangModel = 'gpt-4o';
+                        } else {
+                            laozhangModel = modelToUse;
+                        }
+                    }
+                    
+                    // Se ainda não tem modelo, usar 'gpt-4o' apenas como último recurso
+                    if (!laozhangModel) {
+                        console.warn(`[Viral Agents] ⚠️ Modelo não fornecido, usando 'gpt-4o' como fallback`);
+                        laozhangModel = 'gpt-4o';
+                    }
+                    
+                    console.log('[Viral Agents] 📝 Modo não-streaming Laozhang - Modelo recebido:', modelToUse, '-> Mapeado para API:', laozhangModel);
                     console.log('[Viral Agents] 📤 Chamando callLaozhangAPI...');
                     console.log('[Viral Agents] 📋 FullPrompt tamanho:', fullPrompt?.length || 0, 'SystemPrompt incluído:', systemPrompt ? 'Sim' : 'Não');
                     
@@ -24165,7 +24553,7 @@ Responda APENAS com um JSON válido no formato:
 
 IMPORTANTE: Responda APENAS com o JSON, sem texto adicional.`;
 
-                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/suggest-best-time' }));
+                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, '/api/youtube/suggest-best-time', JSON.stringify({ endpoint: '/api/youtube/suggest-best-time', model: 'gpt-4o' }));
                     const responseText = response.titles || response.text || '';
                     
                     // Tentar extrair JSON da resposta
@@ -24411,7 +24799,7 @@ IMPORTANTE: A descrição deve seguir EXATAMENTE a estrutura: Hook+Palavra-chave
 Responda APENAS com o JSON, sem texto adicional.`;
 
                     console.log(`[Auto-metadata] Chamando API configurada como padrão com modelo ${modelToUse} para gerar metadata`);
-                    const response = await callLaozhangAPI(prompt, laozhangKey, modelToUse, null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/generate-metadata', model: modelToUse }));
+                    const response = await callLaozhangAPI(prompt, laozhangKey, modelToUse, null, userId, '/api/youtube/generate-metadata', JSON.stringify({ endpoint: '/api/youtube/generate-metadata', model: modelToUse }));
                     // callLaozhangAPI retorna uma string diretamente, não um objeto
                     const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
                     
@@ -27102,7 +27490,7 @@ IMPORTANTE:
 
 Responda APENAS com o JSON, sem texto adicional.`;
 
-                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, 'api_call', JSON.stringify({ endpoint: '/api/youtube/generate-suggestions' }));
+                    const response = await callLaozhangAPI(prompt, laozhangKey, 'gpt-4o', null, userId, '/api/youtube/generate-suggestions', JSON.stringify({ endpoint: '/api/youtube/generate-suggestions', model: 'gpt-4o' }));
                     // callLaozhangAPI retorna uma string diretamente, não um objeto
                     const responseText = typeof response === 'string' ? response : (response?.titles || response?.text || response?.content || JSON.stringify(response) || '');
                     

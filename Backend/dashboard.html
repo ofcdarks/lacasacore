@@ -11032,7 +11032,10 @@ Equipe La Casa Dark Core</textarea>
                         console.warn('[Title Analysis] Erro ao verificar configuração laozhang.ai:', err);
                     }
                     
-                    // Usar rota /laozhang se configurada como padrão
+                    // Validar e normalizar o modelo selecionado
+                    const modelIsString = typeof model === 'string';
+                    const normalizedModel = modelIsString ? model.trim() : '';
+                    // Se o provedor principal estiver ativo, sempre usar a rota laozhang
                     const endpoint = useLaozhang ? '/api/analyze/titles/laozhang' : '/api/analyze/titles';
                     console.log(`[Title Analysis] Usando endpoint: ${endpoint} (laozhang: ${useLaozhang})`);
                     
@@ -11052,9 +11055,7 @@ Equipe La Casa Dark Core</textarea>
                             try {
                                 console.log(`[Comparação] Iniciando requisição para: ${modelNames[modelKey]}`);
                                 // Se usar laozhang, enviar o modelo específico para que ele use o modelo correto
-                                const requestBody = useLaozhang 
-                                    ? { videoUrl, model: modelKey, folderId: folderId || null }
-                                    : { videoUrl, model: modelKey, folderId: folderId || null };
+                        const requestBody = { videoUrl, model: modelKey, folderId: folderId || null };
                                     
                                 const response = await fetch(`${API_BASE}${endpoint}`, {
                         method: 'POST',
@@ -11179,10 +11180,10 @@ Equipe La Casa Dark Core</textarea>
                             },
                             body: JSON.stringify({ 
                                 videoUrl, 
-                                model: useLaozhang ? null : model, // Não enviar model se usar laozhang
-                            folderId: folderId || null
-                        }) 
-                    });
+                                model: normalizedModel,
+                                folderId: folderId || null
+                            })
+                        });
                     
                     // Ler o texto da resposta uma única vez
                     const text = await response.text();

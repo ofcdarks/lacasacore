@@ -2357,14 +2357,14 @@ Tradução em PT-BR:`;
                 if (result.status === 'fulfilled') {
                     const parsedData = parseAIResponse(result.value.titles, serviceName);
                     if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
-                    
-                    parsedData.titulosSugeridos.forEach(t => {
-                        allGeneratedTitles.push({ ...t, titulo: `[${serviceName}] ${t.titulo}`, model: serviceName });
+                    const list = Array.isArray(parsedData.titulosSugeridos) ? parsedData.titulosSugeridos.slice(0, 5) : [];
+                    list.forEach(t => {
+                        allGeneratedTitles.push({ ...t, model: serviceName });
                     });
                 } else {
                     console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
                     allGeneratedTitles.push({
-                        titulo: `[${serviceName}] Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
+                        titulo: `Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
                     });
                 }
             });
@@ -2419,6 +2419,15 @@ Tradução em PT-BR:`;
             };
             finalAnalysisData = parsedData.analiseOriginal;
             allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: model }));
+            const nameMap = {
+                'claude-3-7-sonnet-20250219': 'Claude 3.7 Sonnet',
+                'claude-sonnet-4-20250514': 'Claude Sonnet 4',
+                'claude-opus-4-20250514': 'Claude Opus 4',
+                'gpt-4o': 'GPT-4o',
+                'gemini-2.5-pro': 'Gemini 2.5 Pro',
+                'gemini-2.0-flash': 'Gemini 2.0 Flash'
+            };
+            modelUsedForDisplay = nameMap[model] || model;
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
