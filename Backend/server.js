@@ -16099,7 +16099,7 @@ async function getTranscriptWithFallback(videoUrl, userId, videoTitle = null) {
     }
     
     // Se todos os métodos falharam
-    throw new Error('Todos os métodos de transcrição falharam. Verifique se o vídeo possui legendas habilitadas no YouTube ou instale o Whisper local para transcrição de áudio.');
+    throw new Error('Todos os métodos de transcrição falharam. Tente novamente mais tarde ou cole a transcrição manualmente.');
 }
 
 
@@ -16109,7 +16109,7 @@ async function getTranscriptWithFallback(videoUrl, userId, videoTitle = null) {
  */
 function checkWhisperInstalled() {
     try {
-        const output = execSync('python -c "import whisper; print(\'OK\')"', {
+        const output = execSync('python3 -c "import whisper; print(\'OK\')"', {
             encoding: 'utf8',
             timeout: 5000,
             stdio: ['ignore', 'pipe', 'pipe']
@@ -16209,9 +16209,9 @@ async function transcribeWithWhisperLocal(audioPath) {
         // --output_dir: diretório de saída
         // Whisper aceita MP3, WAV, M4A, FLAC, etc automaticamente
         // Usar 'python -m whisper' para garantir que funcione mesmo se não estiver no PATH
-        let command = `python -m whisper "${audioPath}" --model base --output_format txt --output_dir "${outputDir}"`;
+    let command = `python3 -m whisper "${audioPath}" --model base --output_format txt --output_dir "${outputDir}"`;
         
-        console.log(`[Whisper Local] Executando: python -m whisper "${path.basename(audioPath)}" com modelo base (detecção automática de idioma)...`);
+        console.log(`[Whisper Local] Executando: python3 -m whisper "${path.basename(audioPath)}" com modelo base (detecção automática de idioma)...`);
         
         try {
             execSync(command, { 
@@ -16379,10 +16379,7 @@ app.get('/api/transcribe', authenticateToken, async (req, res) => {
         
         res.status(500).json({ 
             error: 'Falha ao transcrever vídeo',
-            msg: err.message || 'Erro desconhecido',
-            hint: err.message?.includes('Whisper local não está instalado') 
-                ? 'Instale Whisper com: pip install openai-whisper'
-                : undefined
+            msg: 'Transcrição indisponível no momento. Tente novamente ou cole a transcrição manualmente.'
         });
     }
 });
@@ -16503,9 +16500,9 @@ app.get('/api/video/transcript/:videoId', authenticateToken, async (req, res) =>
             let statusCode = 404;
             
             if (transcriptErr.message.includes('Whisper não está instalado')) {
-                userMessage = 'Transcrição via legendas falhou. Para usar transcrição de áudio, instale o Whisper oficial da OpenAI:\n\n1. Abra o terminal/PowerShell\n2. Execute: pip install -U openai-whisper\n3. Certifique-se de ter o FFmpeg instalado (já está no projeto)\n\nDocumentação: https://github.com/openai/whisper\n\nAlternativamente, você pode colar a transcrição manualmente ao criar o agente de roteiro.';
+                userMessage = 'Não foi possível obter a transcrição automaticamente neste momento. Tente novamente mais tarde ou cole a transcrição manualmente ao criar o agente de roteiro.';
             } else if (transcriptErr.message.includes('Todos os métodos de transcrição falharam')) {
-                userMessage = 'Não foi possível obter a transcrição com nenhum método disponível.\n\nPossíveis soluções:\n1. Verifique se o vídeo possui legendas habilitadas no YouTube\n2. Instale o Whisper local: pip install -U openai-whisper\n3. Cole a transcrição manualmente ao criar o agente de roteiro';
+                userMessage = 'Não foi possível obter a transcrição com nenhum método disponível.\n\nPossíveis soluções:\n1. Verifique se o vídeo possui legendas habilitadas no YouTube\n2. Tente novamente mais tarde\n3. Cole a transcrição manualmente ao criar o agente de roteiro';
             } else {
                 userMessage = `Erro ao buscar transcrição: ${transcriptErr.message}`;
             }

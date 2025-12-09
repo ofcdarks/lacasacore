@@ -2,14 +2,17 @@
 FROM node:20.18-slim
 
 # Instalando dependências nativas obrigatórias + ffmpeg + sqlite3
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sqlite3 \
     build-essential \
     python3 \
     python3-pip \
     python3-venv \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
+
+# Alias para compatibilidade com scripts que chamam `python`
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Permitir instalação via pip em sistema gerenciado (PEP 668)
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
