@@ -8,10 +8,14 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
     python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Permitir instalação via pip em sistema gerenciado (PEP 668)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+
 # Instalar dependências de transcrição (Whisper local + downloader estável)
-RUN pip3 install --no-cache-dir openai-whisper yt-dlp
+RUN python3 -m pip install --no-cache-dir --break-system-packages openai-whisper yt-dlp
 
 # Diretório da aplicação
 WORKDIR /app
