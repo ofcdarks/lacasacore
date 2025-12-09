@@ -7,7 +7,11 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     build-essential \
     python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependências de transcrição (Whisper local + downloader estável)
+RUN pip3 install --no-cache-dir openai-whisper yt-dlp
 
 # Diretório da aplicação
 WORKDIR /app
@@ -25,7 +29,7 @@ COPY . .
 RUN mkdir -p temp_audio
 
 # Expor a porta do servidor
-EXPOSE 3000
+EXPOSE 5001
 
 # Iniciar aplicação
 CMD ["node", "server.js"]
