@@ -12036,33 +12036,9 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         
         console.log(`[Análise Laozhang] Vídeo encontrado: ${videoDetails.title}`);
 
-        // Traduzir título usando laozhang.ai
+        // Tradução: para evitar requisições duplicadas ao provedor, usar o título original diretamente
+        // Se desejar tradução, podemos incluir no mesmo prompt de análise futuramente
         let translatedTitle = videoDetails.title;
-        try {
-            const translatePrompt = `Traduza o seguinte título de vídeo do YouTube para português brasileiro (PT-BR). Mantenha o sentido, impacto e estrutura original. Retorne APENAS a tradução, sem explicações ou formatação.
-Título original: "${videoDetails.title}"
-
-Tradução em PT-BR:`;
-            
-            const translateResponse = await callLaozhangAPI(
-                translatePrompt, 
-                laozhangKey, 
-                modelToUse, 
-                null, 
-                userId, 
-                'api_call', 
-                JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', operation: 'translate', model: modelToUse })
-            );
-            const translateText = typeof translateResponse === 'string' ? translateResponse.trim() : (translateResponse.titles || translateResponse).trim();
-            translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
-            if (translatedTitle.length > 200) {
-                translatedTitle = translatedTitle.substring(0, 200);
-            }
-            console.log(`[Análise Laozhang] Título traduzido: ${translatedTitle}`);
-        } catch (err) {
-            console.warn(`[Análise Laozhang] Falha ao traduzir título, usando original: ${err.message}`);
-            translatedTitle = videoDetails.title;
-        }
 
         // Criar prompt de análise (mesmo da rota original, mas simplificado para laozhang)
         const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
