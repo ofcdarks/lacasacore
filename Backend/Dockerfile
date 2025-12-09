@@ -17,8 +17,8 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Permitir instalação via pip em sistema gerenciado (PEP 668)
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
-# Instalar dependências de transcrição (Whisper local + downloader estável)
-RUN python3 -m pip install --no-cache-dir --break-system-packages openai-whisper yt-dlp
+# Instalar dependências de transcrição (Whisper local + downloader com EJS)
+RUN python3 -m pip install --no-cache-dir --break-system-packages openai-whisper "yt-dlp[default]"
 
 # Diretório da aplicação
 WORKDIR /app

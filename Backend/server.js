@@ -15709,14 +15709,16 @@ async function downloadAudioWithYtDlp(videoId) {
         try {
             await execAsync('yt-dlp --version');
         } catch (versionErr) {
-            throw new Error('yt-dlp não está instalado. Instale com: pip install -U yt-dlp ou baixe de https://github.com/yt-dlp/yt-dlp/releases/latest');
+            throw new Error('Ferramenta de download não disponível no servidor.');
         }
         
-        // Baixar e converter para MP3 usando yt-dlp
-        // -x: extrair áudio
-        // --audio-format mp3: formato MP3
-        // -o: nome do arquivo de saída
-        const command = `yt-dlp -x --audio-format mp3 -o "${audioPath.replace('.mp3', '.%(ext)s')}" "${videoUrl}"`;
+        // Montar flags estáveis para YouTube (EJS + runtime JS + cookies opcionais)
+        const cookiesPath = '/data/youtube.cookies.txt';
+        const cookiesFlag = fs.existsSync(cookiesPath) ? `--cookies ${cookiesPath}` : '';
+        const outputTemplate = audioPath.replace('.mp3', '.%(ext)s');
+        const command = `yt-dlp -f bestaudio --extract-audio --audio-format mp3 ${cookiesFlag} \
+            --js-runtimes node --force-ipv4 --sleep-requests 5 --no-check-certificate --restrict-filenames \
+            -o "${outputTemplate}" "${videoUrl}"`;
         
         console.log(`[Whisper] Executando: yt-dlp...`);
         const { stdout, stderr } = await execAsync(command, {
@@ -15752,7 +15754,7 @@ async function downloadAudioWithYtDlp(videoId) {
                 console.log(`[Whisper] ✅ Áudio baixado com yt-dlp: ${audioPath}`);
                 return audioPath;
             }
-            throw new Error('Arquivo de áudio não foi criado pelo yt-dlp');
+            throw new Error('Arquivo de áudio não foi criado pelo downloader');
         }
         
         console.log(`[Whisper] ✅ Áudio baixado com yt-dlp: ${audioPath}`);
@@ -15802,7 +15804,7 @@ async function downloadAndExtractAudio(videoId) {
                         downloadAudioWithYtDlp(videoId)
                             .then(resolve)
                             .catch((ytdlpErr) => {
-                                reject(new Error(`Stream vazio e yt-dlp não disponível. Instale yt-dlp: pip install -U yt-dlp`));
+                                reject(new Error(`Stream vazio e downloader alternativo indisponível.`));
                             });
                     }
                 }, 5000); // 5 segundos para detectar falta de dados
@@ -15838,7 +15840,7 @@ async function downloadAndExtractAudio(videoId) {
                             downloadAudioWithYtDlp(videoId)
                                 .then(resolve)
                                 .catch((ytdlpErr) => {
-                                    reject(new Error(`FFmpeg falhou e yt-dlp não disponível. Instale yt-dlp: pip install -U yt-dlp`));
+                                    reject(new Error(`FFmpeg falhou e downloader alternativo indisponível.`));
                                 });
                         } else {
                             reject(new Error(`Erro ao processar áudio: ${err.message}`));
@@ -15903,7 +15905,7 @@ async function downloadAndExtractAudio(videoId) {
         try {
             return await downloadAudioWithYtDlp(videoId);
         } catch (ytdlpErr) {
-            throw new Error(`Ambos os métodos falharam. ytdl-core: ${err.message.substring(0, 50)}. yt-dlp: ${ytdlpErr.message.substring(0, 50)}. Instale yt-dlp para maior estabilidade: pip install -U yt-dlp`);
+            throw new Error(`Ambos os métodos falharam. ytdl-core: ${err.message.substring(0, 50)}. yt-dlp: ${ytdlpErr.message.substring(0, 50)}.`);
         }
     }
 }
