@@ -4784,10 +4784,14 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         }
 
         console.log('✅ Banco de dados inicializado com sucesso!');
-        await rehydratePendingVideoOperations();
         
-        // Sinalizar que o banco está pronto
+        // Sinalizar que o banco está pronto ANTES de operações pesadas
         global.dbReady = true;
+        
+        // Executar rehydrate em background (não bloqueia o servidor)
+        rehydratePendingVideoOperations().catch(err => {
+            console.error('[VideoCache] Erro ao reidratar operações (não crítico):', err.message);
+        });
 
     } catch (err) {
         console.error('Erro ao conectar ou inicializar o banco de dados:', err);
@@ -15721,12 +15725,42 @@ async function downloadAudioWithYtDlp(videoId) {
             -o "${outputTemplate}" "${videoUrl}"`;
         
         console.log(`[Whisper] Executando: yt-dlp...`);
-        const { stdout, stderr } = await execAsync(command, {
+        
+        // Timeout curto para evitar esperas longas (15 segundos)
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout: Download demorou mais de 15 segundos')), 15000);
+        });
+        
+        const execPromise = execAsync(command, {
             maxBuffer: 10 * 1024 * 1024 // 10MB buffer
         });
         
-        if (stderr && !stderr.includes('WARNING')) {
-            console.warn(`[Whisper] Avisos do yt-dlp:`, stderr);
+        let stdout, stderr;
+        try {
+            const result = await Promise.race([execPromise, timeoutPromise]);
+            stdout = result.stdout;
+            stderr = result.stderr;
+        } catch (err) {
+            // Detectar bloqueio do YouTube rapidamente
+            const errorMessage = err.message || err.stderr || '';
+            if (errorMessage.includes('Sign in to confirm you\'re not a bot') || 
+                errorMessage.includes('confirm you\'re not a bot') ||
+                errorMessage.includes('bot detection')) {
+                throw new Error('YouTube bloqueou o acesso. O vídeo requer autenticação ou está protegido contra bots.');
+            }
+            throw err;
+        }
+        
+        // Verificar stderr para bloqueios mesmo em caso de sucesso parcial
+        if (stderr) {
+            if (stderr.includes('Sign in to confirm you\'re not a bot') || 
+                stderr.includes('confirm you\'re not a bot') ||
+                stderr.includes('bot detection')) {
+                throw new Error('YouTube bloqueou o acesso. O vídeo requer autenticação ou está protegido contra bots.');
+            }
+            if (!stderr.includes('WARNING')) {
+                console.warn(`[Whisper] Avisos do yt-dlp:`, stderr);
+            }
         }
         
         // Verificar se o arquivo foi criado
@@ -15760,7 +15794,16 @@ async function downloadAudioWithYtDlp(videoId) {
         console.log(`[Whisper] ✅ Áudio baixado com yt-dlp: ${audioPath}`);
         return audioPath;
     } catch (err) {
-        console.error(`[Whisper] ❌ Erro ao baixar com yt-dlp:`, err.message);
+        const errorMessage = err.message || '';
+        // Detectar bloqueio do YouTube e falhar rapidamente
+        if (errorMessage.includes('Sign in to confirm you\'re not a bot') || 
+            errorMessage.includes('confirm you\'re not a bot') ||
+            errorMessage.includes('bot detection') ||
+            errorMessage.includes('YouTube bloqueou')) {
+            console.error(`[Whisper] ❌ YouTube bloqueou o acesso (bot detection):`, errorMessage);
+            throw new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots. Tente novamente mais tarde ou use a transcrição manual.');
+        }
+        console.error(`[Whisper] ❌ Erro ao baixar com yt-dlp:`, errorMessage);
         throw err;
     }
 }
@@ -15795,7 +15838,7 @@ async function downloadAndExtractAudio(videoId) {
                     hasData = true;
                 });
                 
-                // Timeout para detectar se não há dados chegando
+                // Timeout curto para detectar se não há dados chegando (3 segundos)
                 const dataTimeout = setTimeout(() => {
                     if (!hasData) {
                         stream.destroy();
@@ -15807,7 +15850,7 @@ async function downloadAndExtractAudio(videoId) {
                                 reject(new Error(`Stream vazio e downloader alternativo indisponível.`));
                             });
                     }
-                }, 5000); // 5 segundos para detectar falta de dados
+                }, 3000); // 3 segundos para detectar falta de dados (reduzido de 5s)
                 
                 // Converter para MP3 usando FFmpeg (método simplificado do tutorial)
                 const ffmpegProcess = ffmpeg(stream)
@@ -15828,14 +15871,22 @@ async function downloadAndExtractAudio(videoId) {
                     })
                     .on('error', (err) => {
                         clearTimeout(dataTimeout);
-                        console.error(`[Whisper] ❌ Erro no FFmpeg:`, err.message);
+                        const errorMsg = err.message || '';
+                        console.error(`[Whisper] ❌ Erro no FFmpeg:`, errorMsg);
+                        
+                        // Detectar bloqueio do YouTube rapidamente
+                        if (errorMsg.includes('Sign in to confirm you\'re not a bot') || 
+                            errorMsg.includes('confirm you\'re not a bot') ||
+                            errorMsg.includes('bot detection')) {
+                            reject(new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots.'));
+                            return;
+                        }
                         
                         // Verificar se é erro relacionado a stream vazio - tentar yt-dlp
-                        if (err.message && (
-                            err.message.includes('Input stream error') ||
-                            err.message.includes('pipe') ||
-                            err.message.includes('EPIPE')
-                        )) {
+                        if (errorMsg.includes('Input stream error') ||
+                            errorMsg.includes('pipe') ||
+                            errorMsg.includes('EPIPE') ||
+                            errorMsg.includes('Stream vazio')) {
                             console.log(`[Whisper] FFmpeg falhou por stream vazio, tentando yt-dlp...`);
                             downloadAudioWithYtDlp(videoId)
                                 .then(resolve)
@@ -15843,7 +15894,7 @@ async function downloadAndExtractAudio(videoId) {
                                     reject(new Error(`FFmpeg falhou e downloader alternativo indisponível.`));
                                 });
                         } else {
-                            reject(new Error(`Erro ao processar áudio: ${err.message}`));
+                            reject(new Error(`Erro ao processar áudio: ${errorMsg}`));
                         }
                     })
                     .save(audioPath);
@@ -15851,24 +15902,39 @@ async function downloadAndExtractAudio(videoId) {
                 // Tratar erros do stream do YouTube
                 stream.on('error', (streamErr) => {
                     clearTimeout(dataTimeout);
-                    console.error(`[Whisper] ❌ Erro no stream do YouTube:`, streamErr.message);
+                    const errorMsg = streamErr.message || '';
+                    console.error(`[Whisper] ❌ Erro no stream do YouTube:`, errorMsg);
+                    
+                    // Detectar bloqueio do YouTube rapidamente e falhar imediatamente
+                    if (errorMsg.includes('Sign in to confirm you\'re not a bot') || 
+                        errorMsg.includes('confirm you\'re not a bot') ||
+                        errorMsg.includes('bot detection')) {
+                        reject(new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots.'));
+                        return;
+                    }
                     
                     // Verificar se é o erro conhecido de parsing - tentar yt-dlp como fallback
-                    if (streamErr.message && (
-                        streamErr.message.includes('Could not parse') ||
-                        streamErr.message.includes('decipher function') ||
-                        streamErr.message.includes('Stream URLs will be missing')
-                    )) {
+                    if (errorMsg.includes('Could not parse') ||
+                        errorMsg.includes('decipher function') ||
+                        errorMsg.includes('Stream URLs will be missing')) {
                         console.log(`[Whisper] ytdl-core falhou, tentando yt-dlp (método 100% estável)...`);
                         // Tentar com yt-dlp
                         downloadAudioWithYtDlp(videoId)
                             .then(resolve)
                             .catch((ytdlpErr) => {
-                                console.error(`[Whisper] yt-dlp também falhou:`, ytdlpErr.message);
-                                reject(new Error(`Não foi possível baixar o áudio. ytdl-core falhou e yt-dlp não está instalado ou também falhou. Instale yt-dlp: pip install -U yt-dlp`));
+                                const ytdlpErrorMsg = ytdlpErr.message || '';
+                                // Se yt-dlp também detectar bloqueio, falhar imediatamente
+                                if (ytdlpErrorMsg.includes('YouTube bloqueou') || 
+                                    ytdlpErrorMsg.includes('bot') ||
+                                    ytdlpErrorMsg.includes('Sign in to confirm')) {
+                                    reject(new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots.'));
+                                } else {
+                                    console.error(`[Whisper] yt-dlp também falhou:`, ytdlpErrorMsg);
+                                    reject(new Error(`Não foi possível baixar o áudio. ytdl-core falhou e yt-dlp não está instalado ou também falhou.`));
+                                }
                             });
                     } else {
-                        reject(new Error(`Erro ao baixar áudio do YouTube: ${streamErr.message}`));
+                        reject(new Error(`Erro ao baixar áudio do YouTube: ${errorMsg}`));
                     }
                 });
                 
@@ -16059,49 +16125,99 @@ async function getTranscriptWithFallback(videoUrl, userId, videoTitle = null) {
     
     console.log(`[Transcrição] 🎯 Iniciando busca de transcrição com múltiplos métodos para: ${videoId}`);
     
-    // MÉTODO 1: youtube-transcript (GRATUITO, mais rápido)
-    try {
-        console.log(`[Transcrição] Tentando método 1: youtube-transcript (gratuito)...`);
-        const transcript = await getTranscriptFromYouTubeTranscript(videoId);
-        console.log(`[Transcrição] ✅✅✅ SUCESSO com youtube-transcript!`);
-        return { transcript, source: 'youtube-transcript' };
-    } catch (youtubeTranscriptErr) {
-        console.warn(`[Transcrição] Método 1 falhou:`, youtubeTranscriptErr.message);
-    }
+    // Timeout geral de 30 segundos para toda a operação de transcrição
+    const overallTimeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: Operação de transcrição demorou mais de 30 segundos')), 30000);
+    });
     
-    // MÉTODO 2: Whisper Local (open-source, se instalado)
-    try {
-        console.log(`[Transcrição] Tentando método 2: Whisper Local (open-source)...`);
-        
-        // Verificar se Whisper está instalado usando método confiável
-        if (!checkWhisperInstalled()) {
-            console.warn('[Transcrição] ❌ Whisper não encontrado — pulando método local');
-            throw new Error('Whisper não está instalado. Instale com: pip install git+https://github.com/openai/whisper.git');
-        }
-        
-        console.log(`[Transcrição] ✅ Whisper detectado e disponível`);
-        
-        // Para Whisper, usar yt-dlp diretamente (mais confiável que ytdl-core)
-        // ytdl-core está tendo problemas com YouTube, então vamos direto para yt-dlp
-        console.log(`[Transcrição] Baixando áudio com yt-dlp (método mais confiável)...`);
-        let audioPath;
+    const transcriptionPromise = (async () => {
+        // MÉTODO 1: youtube-transcript (GRATUITO, mais rápido)
         try {
-            audioPath = await downloadAudioWithYtDlp(videoId);
-        } catch (ytdlpErr) {
-            // Se yt-dlp falhar, tentar com ytdl-core como último recurso
-            console.log(`[Transcrição] yt-dlp falhou, tentando ytdl-core como fallback...`);
-            audioPath = await downloadAndExtractAudio(videoId);
+            console.log(`[Transcrição] Tentando método 1: youtube-transcript (gratuito)...`);
+            const transcript = await getTranscriptFromYouTubeTranscript(videoId);
+            console.log(`[Transcrição] ✅✅✅ SUCESSO com youtube-transcript!`);
+            return { transcript, source: 'youtube-transcript' };
+        } catch (youtubeTranscriptErr) {
+            console.warn(`[Transcrição] Método 1 falhou:`, youtubeTranscriptErr.message);
         }
         
-        const transcript = await transcribeWithWhisperLocal(audioPath);
-        console.log(`[Transcrição] ✅✅✅ SUCESSO com Whisper Local!`);
-        return { transcript, source: 'whisper-local' };
-    } catch (whisperErr) {
-        console.warn(`[Transcrição] Método 2 falhou:`, whisperErr.message);
-    }
+        // MÉTODO 2: Whisper Local (open-source, se instalado)
+        try {
+            console.log(`[Transcrição] Tentando método 2: Whisper Local (open-source)...`);
+            
+            // Verificar se Whisper está instalado usando método confiável
+            if (!checkWhisperInstalled()) {
+                console.warn('[Transcrição] ❌ Whisper não encontrado — pulando método local');
+                throw new Error('Whisper não está instalado. Instale com: pip install git+https://github.com/openai/whisper.git');
+            }
+            
+            console.log(`[Transcrição] ✅ Whisper detectado e disponível`);
+            
+            // Para Whisper, usar yt-dlp diretamente (mais confiável que ytdl-core)
+            // ytdl-core está tendo problemas com YouTube, então vamos direto para yt-dlp
+            console.log(`[Transcrição] Baixando áudio com yt-dlp (método mais confiável)...`);
+            let audioPath;
+            let isBotBlocked = false;
+            
+            try {
+                audioPath = await downloadAudioWithYtDlp(videoId);
+            } catch (ytdlpErr) {
+                const errorMsg = ytdlpErr.message || '';
+                // Se detectar bloqueio de bot, não tentar ytdl-core (vai falhar também)
+                if (errorMsg.includes('YouTube bloqueou') || 
+                    errorMsg.includes('bot') ||
+                    errorMsg.includes('Sign in to confirm')) {
+                    isBotBlocked = true;
+                    throw ytdlpErr;
+                }
+                // Se yt-dlp falhar por outro motivo, tentar com ytdl-core como último recurso
+                console.log(`[Transcrição] yt-dlp falhou, tentando ytdl-core como fallback...`);
+                try {
+                    audioPath = await downloadAndExtractAudio(videoId);
+                } catch (ytdlErr) {
+                    const ytdlErrorMsg = ytdlErr.message || '';
+                    if (ytdlErrorMsg.includes('YouTube bloqueou') || 
+                        ytdlErrorMsg.includes('bot') ||
+                        ytdlErrorMsg.includes('Sign in to confirm')) {
+                        isBotBlocked = true;
+                    }
+                    throw ytdlErr;
+                }
+            }
+            
+            // Se foi bloqueado, não tentar transcrever
+            if (isBotBlocked) {
+                throw new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots.');
+            }
+            
+            const transcript = await transcribeWithWhisperLocal(audioPath);
+            console.log(`[Transcrição] ✅✅✅ SUCESSO com Whisper Local!`);
+            return { transcript, source: 'whisper-local' };
+        } catch (whisperErr) {
+            const errorMsg = whisperErr.message || '';
+            // Se foi bloqueio de bot, falhar imediatamente sem tentar outros métodos
+            if (errorMsg.includes('YouTube bloqueou') || 
+                errorMsg.includes('bot') ||
+                errorMsg.includes('Sign in to confirm')) {
+                throw new Error('YouTube bloqueou o acesso. Este vídeo requer autenticação ou está protegido contra bots. Tente novamente mais tarde ou use a transcrição manual.');
+            }
+            console.warn(`[Transcrição] Método 2 falhou:`, errorMsg);
+        }
+        
+        // Se todos os métodos falharam
+        throw new Error('Todos os métodos de transcrição falharam. Tente novamente mais tarde ou cole a transcrição manualmente.');
+    })();
     
-    // Se todos os métodos falharam
-    throw new Error('Todos os métodos de transcrição falharam. Tente novamente mais tarde ou cole a transcrição manualmente.');
+    // Executar com timeout geral
+    try {
+        return await Promise.race([transcriptionPromise, overallTimeout]);
+    } catch (err) {
+        const errorMsg = err.message || '';
+        if (errorMsg.includes('Timeout')) {
+            throw new Error('A transcrição está demorando muito. O YouTube pode estar bloqueando o acesso. Tente novamente mais tarde ou use a transcrição manual.');
+        }
+        throw err;
+    }
 }
 
 
@@ -27974,8 +28090,6 @@ Nicho identificado:`;
 // ============================================
 // Variável para garantir que o servidor só inicie UMA vez (proteção contra race condition)
 let serverStarted = false;
-let startServerInterval = null;
-let startServerTimeout = null;
 
 // Função única para iniciar o servidor (garante que só inicie uma vez)
 function startServer() {
@@ -27987,29 +28101,29 @@ function startServer() {
     // Marcar como iniciado ANTES de tentar iniciar (previne race condition)
     serverStarted = true;
     
-    // Limpar intervalos e timeouts para evitar múltiplas tentativas
-    if (startServerInterval) {
-        clearInterval(startServerInterval);
-        startServerInterval = null;
-    }
-    if (startServerTimeout) {
-        clearTimeout(startServerTimeout);
-        startServerTimeout = null;
-    }
-    
     // Iniciar servidor
     try {
-        const server = app.listen(PORT, async () => {
-            // Restaurar loops ativos após o servidor iniciar
-            setTimeout(() => {
-                restoreActiveLoops();
-            }, 2000); // Aguardar 2 segundos para garantir que o banco está pronto
+        const server = app.listen(PORT, () => {
             console.log(`🚀 Servidor "La Casa Dark Core" a rodar na porta ${PORT}`);
             if (!db) {
                 console.log(`⚠️  Banco de dados ainda não está pronto. Algumas funcionalidades podem não estar disponíveis.`);
             } else {
                 console.log(`✅ Todas as rotas registradas e funcionando!`);
             }
+            
+            // Restaurar loops ativos em background (não bloqueia o servidor)
+            // Verifica se o banco está pronto antes de executar
+            const checkAndRestore = () => {
+                if (global.dbReady && db) {
+                    restoreActiveLoops().catch(err => {
+                        console.error('[NOTIFICATIONS] Erro ao restaurar loops (não crítico):', err.message);
+                    });
+                } else {
+                    // Tentar novamente após 1 segundo se o banco ainda não estiver pronto
+                    setTimeout(checkAndRestore, 1000);
+                }
+            };
+            setTimeout(checkAndRestore, 500); // Iniciar verificação após 500ms
         });
         
         // Tratamento de erro para porta em uso
@@ -28272,16 +28386,15 @@ app.post('/api/translate/batch', authenticateToken, async (req, res) => {
 console.log('✅ Serviço de Tradução Online configurado (MyMemory + LibreTranslate)');
 
 
-// Aguardar a inicialização do banco de dados antes de iniciar o servidor
-startServerInterval = setInterval(() => {
-    if (global.dbReady && db) {
-        startServer();
-    }
-}, 100);
+// Iniciar servidor imediatamente (não bloqueia no banco de dados)
+// O servidor pode iniciar antes do banco estar pronto - as rotas verificarão o banco quando necessário
+startServer();
 
-// Timeout de segurança: iniciar servidor após 3 segundos mesmo se o banco não estiver pronto
-startServerTimeout = setTimeout(() => {
-    if (!serverStarted) {
-        startServer();
+// Verificar se o banco ficou pronto após o servidor iniciar (opcional, para log)
+setTimeout(() => {
+    if (global.dbReady && db) {
+        console.log('✅ Banco de dados confirmado como pronto após inicialização do servidor');
+    } else {
+        console.log('⚠️  Banco de dados ainda não está pronto - servidor iniciado mesmo assim');
     }
-}, 3000);
+}, 1000);
