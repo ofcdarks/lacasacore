@@ -2533,7 +2533,18 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
         }
         
         // Formatar nome do modelo para exibição amigável
+        // IMPORTANTE: Remover qualquer referência a fornecedores de API
         if (modelName) {
+            // Remover referências a fornecedores de API ANTES de formatar
+            modelName = modelName
+                .replace(/genaipro/gi, 'Voz Premium')
+                .replace(/laozhang/gi, 'Provedor Externo')
+                .replace(/openai/gi, '')
+                .replace(/claude/gi, '')
+                .replace(/gemini/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .trim();
             // Vídeo - Veo
             // Veo models - verificar modelos landscape primeiro
             if (modelName.includes('veo-3.1-landscape-fast-fl') || modelName === 'veo-3.1-landscape-fast-fl') {
@@ -2592,15 +2603,43 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
                     .replace(/-latest$/, '')
                     .replace(/-exp$/, '')
                     .replace(/-experimental$/, '')
+                    .replace(/-default$/, '') // Remover "-default"
+                    .replace(/voz-premium/gi, 'Voz Premium') // Formatar nome genérico
                     .replace(/-/g, ' ')
                     .replace(/\b\w/g, l => l.toUpperCase());
             }
+            
+            // Limpeza final: garantir que não há referências a fornecedores
+            modelName = modelName
+                .replace(/genaipro/gi, 'Voz Premium')
+                .replace(/laozhang/gi, 'Provedor Externo')
+                .replace(/openai/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
         }
         
         // Criar descrição apenas com nome da ferramenta e modelo (sem fornecedor de API)
         let description = toolName;
         if (modelName) {
             description += ` - ${modelName}`;
+        }
+        
+        // Limpeza final: garantir que não há referências a fornecedores na descrição
+        description = description
+            .replace(/genaipro/gi, 'Voz Premium')
+            .replace(/laozhang/gi, 'Provedor Externo')
+            .replace(/laozhang\.ai/gi, 'Provedor Externo')
+            .replace(/openai/gi, '')
+            .replace(/anthropic/gi, '')
+            .replace(/google/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        
+        // Se a descrição ficou vazia ou só com espaços, usar apenas o nome da ferramenta
+        if (!description || description.trim() === '' || description.trim() === '-') {
+            description = toolName || 'Ferramenta';
         }
         
         // Registrar transação para histórico do usuário
@@ -2691,7 +2730,8 @@ const VALID_TTS_MODELS = [
     'gemini-2.5-flash-preview-tts',
     'tts-1',
     'tts-1-hd',
-    'genaipro-default'
+    'voz-premium', // Nome genérico para Voz Premium (não expor fornecedor)
+    'genaipro-default' // Mantido para compatibilidade, mas será substituído por 'voz-premium'
 ];
 const DEFAULT_TTS_MODEL = 'gemini-2.5-pro-preview-tts';
 const FALLBACK_TTS_VOICE = 'zephyr';
@@ -2699,7 +2739,15 @@ const DEFAULT_TTS_SAMPLE_TEXT = 'LaCasa Dark A ferramenta de elite para canais d
 
 const validateTtsModel = (model) => {
     if (!model || !VALID_TTS_MODELS.includes(model)) {
+        // Se for genaipro-default, converter para voz-premium
+        if (model && (model.includes('genaipro') || model === 'genaipro-default')) {
+            return 'voz-premium';
+        }
         return DEFAULT_TTS_MODEL;
+    }
+    // Se for genaipro-default, converter para voz-premium
+    if (model === 'genaipro-default') {
+        return 'voz-premium';
     }
     return model;
 };
@@ -2993,6 +3041,13 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
         if (isLabsVoice) {
             console.log('[La Casa Dark Core] Voz Labs detectada, tentando POST /labs/task...');
             try {
+                console.log(`[La Casa Dark Core] Tamanho do texto para Labs: ${cleanText.length} caracteres`);
+                
+                // Verificar se o texto não está muito grande (algumas APIs têm limite)
+                if (cleanText.length > 5000) {
+                    console.warn(`[La Casa Dark Core] ⚠️ Texto muito grande (${cleanText.length} chars). A API Labs pode ter limites.`);
+                }
+                
                 const labsTaskResponse = await axios.post(
                     `${API_BASE}/labs/task`,
                     {
@@ -3003,7 +3058,7 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                     },
                     {
                         headers: authHeaders,
-                        timeout: 30000,
+                        timeout: 60000, // Aumentar timeout para 60s para textos maiores
                         validateStatus: (status) => true
                     }
                 );
@@ -3020,12 +3075,27 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                     }
                 }
                 
-                // Tratar erro 400 (Bad Request)
+                // Tratar erros HTTP antes de processar resposta
                 if (labsTaskResponse.status === 400) {
                     const errorData = labsTaskResponse.data;
-                    const errorMsg = errorData?.error || errorData?.message || 'Parâmetros inválidos';
-                    console.log('[La Casa Dark Core] Labs retornou 400:', errorData);
-                    throw new Error(`Erro ao gerar áudio: ${errorMsg}`);
+                    const errorMsg = errorData?.error || errorData?.message || errorData?.detail || 'Parâmetros inválidos';
+                    console.error('[La Casa Dark Core] ❌ Labs retornou 400 (Bad Request):', errorMsg);
+                    console.error('[La Casa Dark Core] ❌ Dados completos do erro:', JSON.stringify(errorData));
+                    throw new Error(`Erro ao gerar áudio: ${errorMsg}. Verifique se a voz e os parâmetros estão corretos.`);
+                }
+                
+                if (labsTaskResponse.status === 401 || labsTaskResponse.status === 403) {
+                    const errorData = labsTaskResponse.data;
+                    const errorMsg = errorData?.error || errorData?.message || 'Não autorizado';
+                    console.error('[La Casa Dark Core] ❌ Labs retornou erro de autenticação:', errorMsg);
+                    throw new Error(`Erro de autenticação: ${errorMsg}. Verifique sua chave de API.`);
+                }
+                
+                if (labsTaskResponse.status >= 500 && labsTaskResponse.status !== 503) {
+                    const errorData = labsTaskResponse.data;
+                    const errorMsg = errorData?.error || errorData?.message || 'Erro interno do servidor';
+                    console.error('[La Casa Dark Core] ❌ Labs retornou erro do servidor:', errorMsg);
+                    throw new Error(`Erro no servidor da API: ${errorMsg}. Tente novamente em alguns instantes.`);
                 }
                 
                 if (labsTaskResponse.status === 200 || labsTaskResponse.status === 201) {
@@ -3212,6 +3282,13 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
         // MÉTODO MAX: POST /max/tasks (para vozes Max/numéricas)
         // =========================================================
         console.log('[La Casa Dark Core] Tentando POST /max/tasks...');
+        console.log(`[La Casa Dark Core] Tamanho do texto: ${cleanText.length} caracteres`);
+        
+        // Verificar se o texto não está muito grande (algumas APIs têm limite)
+        if (cleanText.length > 5000) {
+            console.warn(`[La Casa Dark Core] ⚠️ Texto muito grande (${cleanText.length} chars). A API pode ter limites.`);
+        }
+        
         try {
             const maxTaskResponse = await axios.post(
                 `${API_BASE}/max/tasks`,
@@ -3226,7 +3303,7 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                 },
                 {
                     headers: authHeaders,
-                    timeout: 30000,
+                    timeout: 60000, // Aumentar timeout para 60s para textos maiores
                     validateStatus: (status) => true // Aceitar qualquer status para tratar manualmente
                 }
             );
@@ -3242,6 +3319,28 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
             
             console.log('[La Casa Dark Core] Resposta /max/tasks status:', maxTaskResponse.status);
             console.log('[La Casa Dark Core] Resposta /max/tasks data:', JSON.stringify(maxTaskResponse.data).substring(0, 500));
+            
+            // Tratar erros HTTP antes de processar resposta
+            if (maxTaskResponse.status === 400) {
+                const errorData = maxTaskResponse.data;
+                const errorMsg = errorData?.error || errorData?.message || errorData?.detail || 'Parâmetros inválidos';
+                console.error('[La Casa Dark Core] ❌ Erro 400 (Bad Request):', errorMsg);
+                throw new Error(`Erro ao gerar áudio: ${errorMsg}. Verifique se a voz e os parâmetros estão corretos.`);
+            }
+            
+            if (maxTaskResponse.status === 401 || maxTaskResponse.status === 403) {
+                const errorData = maxTaskResponse.data;
+                const errorMsg = errorData?.error || errorData?.message || 'Não autorizado';
+                console.error('[La Casa Dark Core] ❌ Erro de autenticação:', errorMsg);
+                throw new Error(`Erro de autenticação: ${errorMsg}. Verifique sua chave de API.`);
+            }
+            
+            if (maxTaskResponse.status >= 500 && maxTaskResponse.status !== 503) {
+                const errorData = maxTaskResponse.data;
+                const errorMsg = errorData?.error || errorData?.message || 'Erro interno do servidor';
+                console.error('[La Casa Dark Core] ❌ Erro do servidor:', errorMsg);
+                throw new Error(`Erro no servidor da API: ${errorMsg}. Tente novamente em alguns instantes.`);
+            }
             
             if (maxTaskResponse.status === 200 || maxTaskResponse.status === 201) {
                 const data = maxTaskResponse.data;
@@ -6102,7 +6201,20 @@ app.get('/api/credits/transactions', authenticateToken, async (req, res) => {
                         modelName = 'Veo 3.1';
                     } else if (modelName.includes('veo-3.1')) {
                         modelName = 'Veo 3.1';
+                    } else if (modelName.includes('voz-premium') || modelName.includes('genaipro')) {
+                        modelName = 'Voz Premium';
                     }
+                    
+                    // Limpeza final: remover qualquer referência a fornecedores
+                    modelName = modelName
+                        .replace(/genaipro/gi, 'Voz Premium')
+                        .replace(/laozhang/gi, 'Provedor Externo')
+                        .replace(/laozhang\.ai/gi, 'Provedor Externo')
+                        .replace(/openai/gi, '')
+                        .replace(/anthropic/gi, '')
+                        .replace(/google/gi, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
                 }
                 
                 operationInfo = {
@@ -6125,6 +6237,18 @@ app.get('/api/credits/transactions', authenticateToken, async (req, res) => {
                     }
                 }
             }
+            
+            // Limpeza final da descrição: remover referências a fornecedores
+            finalDescription = finalDescription
+                .replace(/genaipro/gi, 'Voz Premium')
+                .replace(/laozhang/gi, 'Provedor Externo')
+                .replace(/laozhang\.ai/gi, 'Provedor Externo')
+                .replace(/openai/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
             finalDescription = sanitizeUserFacingText(
                 finalDescription || (operationInfo?.typeName || 'Operação'),
                 operationInfo?.typeName || 'Operação'
@@ -7048,7 +7172,20 @@ app.get('/api/admin/credits/transactions/:userId', authenticateToken, isAdmin, a
                         modelName = 'Veo 3.1';
                     } else if (modelName.includes('veo-3.1')) {
                         modelName = 'Veo 3.1';
+                    } else if (modelName.includes('voz-premium') || modelName.includes('genaipro')) {
+                        modelName = 'Voz Premium';
                     }
+                    
+                    // Limpeza final: remover qualquer referência a fornecedores
+                    modelName = modelName
+                        .replace(/genaipro/gi, 'Voz Premium')
+                        .replace(/laozhang/gi, 'Provedor Externo')
+                        .replace(/laozhang\.ai/gi, 'Provedor Externo')
+                        .replace(/openai/gi, '')
+                        .replace(/anthropic/gi, '')
+                        .replace(/google/gi, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
                 }
                 
                 operationInfo = {
@@ -7071,6 +7208,17 @@ app.get('/api/admin/credits/transactions/:userId', authenticateToken, isAdmin, a
                     }
                 }
             }
+            
+            // Limpeza final da descrição: remover referências a fornecedores
+            finalDescription = finalDescription
+                .replace(/genaipro/gi, 'Voz Premium')
+                .replace(/laozhang/gi, 'Provedor Externo')
+                .replace(/laozhang\.ai/gi, 'Provedor Externo')
+                .replace(/openai/gi, '')
+                .replace(/anthropic/gi, '')
+                .replace(/google/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
             
             return {
                 id: t.id,
@@ -10478,7 +10626,7 @@ app.post('/api/tts/generate-from-script', authenticateToken, async (req, res) =>
         } else if (provider === 'gemini') {
             finalTtsModel = 'gemini-2.5-pro-preview-tts';
         } else {
-            finalTtsModel = 'genaipro-default';
+            finalTtsModel = 'voz-premium'; // Nome genérico, não expor fornecedor
         }
     }
     
@@ -10836,9 +10984,9 @@ async function processScriptTtsJob(jobId, jobData) {
             minDelayBetweenRequests = 500; // 0.5s (OpenAI é rápido)
             console.log(`📢 Usando OpenAI TTS para gerar áudio (4000 chars por parte)`);
         } else if (jobData.provider === 'genaipro' || jobData.provider === 'voice_premium') {
-            validatedTtsModel = 'genaipro-default';
+            validatedTtsModel = 'voz-premium'; // Nome genérico, não expor fornecedor
             minDelayBetweenRequests = 2000; // 2s entre requisições
-            console.log(`📢 Usando GenAIPro TTS para gerar áudio (4000 chars por parte)`);
+            console.log(`📢 Usando Voz Premium para gerar áudio (4000 chars por parte)`);
         } else if (jobData.provider === 'laozhang') {
             // Usar modelo do jobData se fornecido, senão usar padrão
             validatedTtsModel = jobData.ttsModel || 'tts-1';
@@ -10904,12 +11052,23 @@ async function processScriptTtsJob(jobId, jobData) {
             
             try {
                 const speakerVoiceMap = new Map([['Narrador', jobData.voice]]);
+                
+                // Garantir que o provider seja correto para a função generateTtsAudio
+                // Se for voice_premium ou genaipro, converter para genaipro
+                let actualProvider = jobData.provider;
+                if (actualProvider === 'voice_premium' || actualProvider === 'genaipro') {
+                    actualProvider = 'genaipro';
+                } else if (actualProvider === 'gemini') {
+                    // Gemini TTS: usar 'gemini' para usar a API oficial do Google Gemini
+                    actualProvider = 'gemini';
+                }
+                
                 const result = await generateTtsAudio({
                     apiKey: jobData.apiKey,
                     model: validatedTtsModel,
                     textInput: chunks[i],
                     speakerVoiceMap: speakerVoiceMap,
-                    provider: jobData.provider,
+                    provider: actualProvider,
                     speed: jobData.speed || 1.0
                 });
                 
@@ -10928,12 +11087,44 @@ async function processScriptTtsJob(jobId, jobData) {
                 }
             } catch (chunkError) {
                 console.error(`❌ Erro ao gerar parte ${i + 1}/${chunks.length}:`, chunkError);
-                // Continuar com outras partes mesmo se uma falhar
+                console.error(`❌ Detalhes do erro:`, {
+                    message: chunkError.message,
+                    stack: chunkError.stack,
+                    response: chunkError.response ? {
+                        status: chunkError.response.status,
+                        data: chunkError.response.data
+                    } : null,
+                    provider: actualProvider || jobData.provider,
+                    chunkLength: chunks[i].length,
+                    chunkPreview: chunks[i].substring(0, 100)
+                });
+                // Se for erro crítico (não de rede), parar o processamento
+                if (chunkError.message && (
+                    chunkError.message.includes('manutenção') ||
+                    chunkError.message.includes('API Key') ||
+                    chunkError.message.includes('inválida') ||
+                    chunkError.message.includes('indisponível')
+                )) {
+                    throw chunkError; // Parar processamento se for erro crítico
+                }
+                // Continuar com outras partes mesmo se uma falhar (apenas para erros não críticos)
             }
         }
         
         if (validTempFiles.length === 0) {
-            throw new Error('Nenhuma parte de áudio foi gerada com sucesso.');
+            const errorDetails = {
+                totalChunks: chunks.length,
+                provider: actualProvider || jobData.provider,
+                scriptLength: jobData.script.length,
+                voice: jobData.voice
+            };
+            console.error('❌ Nenhuma parte de áudio foi gerada com sucesso. Detalhes:', errorDetails);
+            throw new Error(`Nenhuma parte de áudio foi gerada com sucesso. Verifique os logs do servidor para mais detalhes. Provider: ${errorDetails.provider}, Voz: ${errorDetails.voice}`);
+        }
+        
+        // Log de sucesso parcial se nem todos os chunks foram gerados
+        if (validTempFiles.length < chunks.length) {
+            console.warn(`⚠️ Apenas ${validTempFiles.length} de ${chunks.length} partes foram geradas com sucesso. Continuando com as partes disponíveis...`);
         }
         
         // CASO 1: apenas 1 arquivo → retornar direto
@@ -12777,7 +12968,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 
                 Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
                 `}
-            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido. CRÍTICO: Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem.'}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
             
             CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
             - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
@@ -12911,7 +13102,271 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                     : `\n            🚀 CONTEXTO DO VÍDEO DE REFERÊNCIA:\n            Esta thumbnail pertence a um vídeo que alcançou ${videoDetails.views.toLocaleString()} views. Este vídeo NÃO viralizou, mas a thumbnail pode ser analisada e melhorada para criar versões com maior potencial viral.`);
             
             // Prompts otimizados por modelo
-            if (service === 'gemini') {
+            if (service === 'claude') {
+                thumbPrompt = `
+            Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
+            
+            ⚠️⚠️⚠️ ATENÇÃO CRÍTICA - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+            O idioma selecionado é: "${language}"
+            Se "${language}" for "Português", TODAS as frases de gancho DEVEM estar em PORTUGUÊS.
+            Se "${language}" for "Inglês", TODAS as frases de gancho DEVEM estar em INGLÊS.
+            Se "${language}" for "Espanhol", TODAS as frases de gancho DEVEM estar em ESPANHOL.
+            NUNCA, JAMAIS retorne frases em inglês se o idioma for português ou espanhol.
+            NUNCA, JAMAIS retorne frases em português se o idioma for inglês ou espanhol.
+            NUNCA, JAMAIS retorne frases em espanhol se o idioma for português ou inglês.
+            ANTES DE RETORNAR O JSON, VERIFIQUE SE TODAS AS 5 FRASES ESTÃO NO IDIOMA CORRETO "${language}".${formulaContext}${videoPerformanceContext}
+
+            🎯 PROMPT DE ANÁLISE DE THUMBS (DIRETO DO VÍDEO VIRAL):
+            Este vídeo ${isViralThumb ? 'COM ESTA THUMBNAIL VIRALIZOU' : 'DE REFERÊNCIA tem esta thumbnail'}, com o título: "${videoDetails.title}"
+            
+            OBJETIVO: Criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%) para canais milionários.
+            
+            Quero que você me dê uma ADAPTAÇÃO para meu SUBNICHO de "${subniche}" com o título: "${selectedTitle}"
+            
+            REGRAS CRÍTICAS:
+            - Mantenha o PODER VIRAL da thumbnail original que gerou milhões de views
+            - Adapte para o meu subnicho e título, mas SEMPRE mantenha a capacidade de gerar alto CTR e milhões de views
+            - Analise PROFUNDAMENTE o que tornou a thumbnail original viral (composição, cores, elementos visuais, expressões, texto, contraste, psicologia visual)
+            - Identifique os ELEMENTOS VIRAIS COMPROVADOS que funcionaram e mantenha-os na adaptação
+            - Melhore o que for possível (cores mais vibrantes, contraste maior, composição mais impactante, iluminação mais dramática)
+            - Crie thumbnails que TENHAM POTENCIAL PARA VIRALIZAR e gerar milhões de views como a original
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo VIRAL está anexada - analise cuidadosamente o que tornou esta thumbnail viral e gerou milhões de views]${formulaContext}
+
+            IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
+            SUBNICHO (Público-Alvo): "${subniche}"
+            ESTILO DE ARTE DESEJADO: "${style}"
+            IDIOMA DO CONTEÚDO: "${language}"
+
+            ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            ${(() => {
+                const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
+                if (ruleData.mode === 'auto') {
+                    return `\n            🔍 MODO AUTOMÁTICO - ANÁLISE DE REGRA:\n            Analise o título "${selectedTitle}" e identifique qual das 12 regras de thumbnail viral abaixo melhor se encaixa. Aplique a regra identificada de forma RIGOROSA e EXPLÍCITA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.\n\n            📋 AS 12 REGRAS DE THUMBNAIL VIRAL DO YOUTUBE (ALGORITMO OFICIAL):\n\n            1️⃣ REGRA DA CLAREZA IMEDIATA (1 SEGUNDO):\n            O cérebro precisa entender a thumbnail em menos de 1 segundo. Se houver confusão, o clique cai.\n            Checklist OBRIGATÓRIO: 1 ideia principal, 1 personagem, 1 emoção, 1 objeto-chave.\n            A thumbnail DEVE ser compreendida instantaneamente. Elimine qualquer elemento que cause confusão ou distração.\n\n            2️⃣ REGRA DO ASSUNTO ÚNICO:\n            Nada divide a atenção. A thumbnail boa é sempre uma história em uma imagem.\n            Foque em UM ÚNICO assunto dominante. Nada deve competir pela atenção. A thumbnail deve contar uma história completa em uma única imagem, sem elementos que dividam o foco.\n\n            3️⃣ REGRA DO ROSTO GRANDE:\n            Rostos com forte expressão emocional aumentam CTR de 20% a 60%.\n            Expressões mais fortes: choque, surpresa, medo, raiva, felicidade extrema.\n            Use um rosto GRANDE ocupando pelo menos 40-50% da imagem. A expressão facial DEVE ser EXTREMA e EMOCIONAL. O rosto deve ser o elemento dominante e a primeira coisa que o olho vê.\n\n            4️⃣ REGRA DO CONTRASTE BRUTAL:\n            Se não tiver contraste, a thumbnail fica invisível.\n            Use CONTRASTE BRUTAL entre: texto vs fundo, personagem vs fundo, cores complementares (azul/laranja, amarelo/roxo).\n            O contraste deve ser tão forte que a thumbnail "pula" da tela mesmo em tamanho pequeno.\n\n            5️⃣ REGRA DA COR ESTRATÉGICA:\n            Cada cor ativa um gatilho:\n            - Amarelo: atenção imediata\n            - Vermelho: urgência / perigo\n            - Azul: confiança\n            - Verde: dinheiro / solução\n            - Preto: premium / mistério\n            Escolha a cor baseada na emoção que o título transmite.\n\n            6️⃣ REGRA DOS TERÇOS:\n            Posicionar o assunto nos cruzamentos dos "9 quadrantes". Isso dá harmonia e aumenta o foco natural.\n            Posicione o elemento principal (rosto, objeto, texto) nos pontos de cruzamento da regra dos terços (onde as linhas dos 9 quadrantes se encontram). Isso cria harmonia visual e guia o olhar naturalmente para o foco.\n\n            7️⃣ REGRA DO TEXTO ULTRA CURTO:\n            Texto deve ter 2 a 4 palavras, nunca mais.\n            Exemplos: "Ele mentiu", "Descobri isso", "Ninguém viu", "Proibido".\n            O texto na thumbnail DEVE ter APENAS 2 a 4 palavras. Textos longos matam o CTR. Seja brutalmente direto e impactante.\n\n            8️⃣ REGRA DO ZOOM EMOCIONAL:\n            Aparece sempre um elemento gigante que amplifica a emoção ou o conflito.\n            Exemplos: uma conta bancária gigante, uma faca gigante, uma lupa gigante, um número gigante.\n            Use um elemento GIGANTE que amplifique a emoção ou conflito. Este elemento deve ocupar 30-40% da imagem e ser o foco emocional.\n\n            9️⃣ REGRA DO MISTÉRIO:\n            Toda thumbnail viral tem uma pergunta implícita.\n            Exemplos: algo escondido atrás de blur, objeto cortado pela metade, pessoa olhando para fora do quadro, seta apontando para algo fora da tela.\n            Crie uma pergunta implícita na thumbnail. O espectador DEVE sentir curiosidade sobre o que está fora da imagem.\n\n            🔟 REGRA DOS PONTOS DE FUGA:\n            Linhas visuais guiam o olhar para o foco: personagem ou objeto principal.\n            Sinalizações: setas, linhas diagonais, perspectiva.\n            Use linhas visuais que guiem o olhar para o foco. Essas linhas devem criar um caminho visual que leve o olho diretamente para o elemento principal.\n\n            1️⃣1️⃣ REGRA DO ESPAÇO NEGATIVO:\n            Deixar áreas vazias acentua o foco. Sem isso, a imagem vira bagunça.\n            Deixe áreas vazias (espaço negativo) que acentuem o foco no elemento principal. O espaço vazio cria respiração visual e faz o elemento principal "pular" da imagem.\n\n            1️⃣2️⃣ REGRA DA COERÊNCIA COM O TÍTULO:\n            Thumbnail e título precisam contar a mesma história, mas com ângulos diferentes.\n            Título = contexto, Thumbnail = emoção.\n            A thumbnail e o título DEVEM contar a mesma história, mas com ângulos diferentes. A thumbnail deve amplificar a emoção que o título promete, criando uma sinergia perfeita.\n\n            ⚠️ CRÍTICO: Identifique qual regra melhor se encaixa no título "${selectedTitle}" e aplique-a de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail. Se múltiplas regras se aplicarem, combine-as de forma harmoniosa, mas sempre priorize a que tiver maior impacto no CTR.`;
+                } else {
+                    return `\n            📋 REGRA SELECIONADA: ${ruleData.rule.name}\n            ${ruleData.rule.description}\n\n            ${ruleData.rule.checklist ? `✅ Checklist: ${ruleData.rule.checklist.join(', ')}` : ''}\n            ${ruleData.rule.expressions ? `😮 Expressões recomendadas: ${ruleData.rule.expressions.join(', ')}` : ''}\n            ${ruleData.rule.contrasts ? `🎨 Contrastes: ${ruleData.rule.contrasts.join(', ')}` : ''}\n            ${ruleData.rule.colors ? `🌈 Cores estratégicas: ${Object.entries(ruleData.rule.colors).map(([k, v]) => `${k} (${v})`).join(', ')}` : ''}\n            ${ruleData.rule.examples ? `💡 Exemplos: ${ruleData.rule.examples.join(', ')}` : ''}\n            ${ruleData.rule.elements ? `➡️ Elementos: ${ruleData.rule.elements.join(', ')}` : ''}\n\n            ⚠️ CRÍTICO: Aplique esta regra de forma EXPLÍCITA e RIGOROSA na descrição da thumbnail:\n            ${ruleData.instructions}`;
+                }
+            })()}
+            
+            🎯 OBJETIVO: Criar thumbnails otimizadas para CTR acima de 25% usando técnicas de Thumbnail Designer profissional:
+            - TEXTO PROFISSIONAL (COMO PHOTOSHOP): O texto DEVE parecer feito no Photoshop por um designer profissional. Use múltiplos efeitos de camada (stroke, drop shadow com valores específicos, outer glow, bevel and emboss), tipografia profissional com kerning perfeito, renderização profissional com anti-aliasing. Grande, estilizado, cores vibrantes (amarelo/vermelho/branco com outline preto), efeitos visuais profissionais com valores específicos (distância, spread, tamanho, opacidade, ângulo), posicionamento estratégico (topo/centro), ocupando 25-35% da imagem. O texto DEVE ter qualidade de agência de design, não amador.
+            - COMPOSIÇÃO: Regra dos terços, hierarquia visual clara, elemento principal em destaque
+            - CORES: Alto contraste, cores complementares, saturação otimizada, fundo que faz o texto "pular"
+            - EMOÇÃO: Expressões faciais intensas, momentos de tensão, curiosidade visual
+            - ELEMENTOS VIRAIS: FOMO (medo de perder), surpresa, contraste dramático, storytelling visual
+            
+            SUA TAREFA (OTIMIZADA PARA VIRALIZAÇÃO - CLAUDE):
+            Analise a thumbnail VIRAL de referência e crie DUAS (2) adaptações que mantenham o PODER VIRAL original, mas adaptadas para o subnicho "${subniche}" e o título "${selectedTitle}".
+            
+            ⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+            - **IDEIA 1 (RÉPLICA APRIMORADA DA ORIGINAL):** 
+              * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+              * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+              * Replique a estrutura da thumbnail de referência quase 1:1: mantenha EXATAMENTE a mesma composição, ângulo de câmera, enquadramento, posição dos personagens/objetos, paleta de cores, quantidade de texto, posição do texto, elementos visuais principais e storytelling.
+              * PRESERVE o poder viral da thumbnail original que gerou milhões de views.
+              * Apenas ELEVE A QUALIDADE: mais nitidez (8K), contraste reforçado, iluminação cinematográfica profissional, correções de cor profissionais, tratamento de pele profissional, brilho nos olhos, textura realista, limpeza de ruídos, adicione luzes/sombras profissionais, aplique efeitos de texto Photoshop com valores específicos (stroke, drop shadow, outer glow, bevel & emboss).
+              * NÃO altere o storytelling principal, apenas entregue a versão definitiva com acabamento premium.
+              * Resultado: praticamente igual à thumbnail original, mas com sensação de upgrade premium e leitura instantânea mais clara e clicável.
+              * IMPORTANTE: Se a thumbnail original não estiver disponível ou não puder ser analisada, ainda assim mantenha o mesmo conceito visual e estrutura, apenas melhorando a qualidade.
+            
+            - **IDEIA 2 (THUMBNAIL MELHORADA E OTIMIZADA):** 
+              * Esta é uma versão COMPLETAMENTE NOVA, melhorada e otimizada para CTR alto (30%+).
+              * Crie um conceito totalmente novo com foco em CTR máximo: novo enquadramento, nova composição, novos elementos que gerem curiosidade extrema.
+              * Use gatilhos agressivos (perigo, segredo revelado, números gigantes, setas, antes/depois, close dramático) e cores super contrastantes.
+              * Construa um storytelling diferente, alinhado ao título "${selectedTitle}", que prometa algo ainda mais irresistível que a versão original.
+              * O texto deve ser redesenhado para máxima legibilidade mobile, com layer styles profissionais e valores precisos.
+              * Pode mudar cenário, personagens, enquadramento e paleta, explorando um novo gancho visual com FOMO extremo, contraste máximo, expressões dramáticas e elementos que não existem na thumb original.
+              * Objetivo: criar uma thumbnail inédita que pareça "campanha de performance", otimizada para CTR alto e retenção visual imediata.
+              * Esta versão deve ser AINDA MELHOR que a original, com técnicas avançadas de viralização.
+              * LEMBRE-SE: Deve ser descrito como uma FOTO REAL, e o texto precisa parecer produzido no Photoshop por um designer profissional com múltiplos efeitos de camada e valores específicos.
+
+            PARA CADA UMA DAS 2 IDEIAS, GERE:
+            1.  **"seoDescription"**: Uma descrição de vídeo para o YouTube, EXTREMAMENTE OTIMIZADA PARA SEO E VIRALIZAÇÃO, com:
+               - Emojis estratégicos e relevantes (use emojis que representem o nicho e subnicho)
+               - Parágrafos bem estruturados com quebras de linha
+               - Chamadas para ação (CTA) claras e persuasivas
+               - Uso estratégico de palavras-chave relevantes para o título "${selectedTitle}" e subnicho "${subniche}"
+               - Formatação profissional com separadores visuais (━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━)
+               - Seções organizadas: introdução, conteúdo do vídeo, sobre o canal, links importantes, hashtags
+               - Linguagem persuasiva e envolvente que gere curiosidade e urgência
+               - A descrição deve estar no idioma "${language}" e ter entre 300-500 palavras
+               - IMPORTANTE: Use emojis de forma estratégica (não exagere, mas use para destacar seções importantes)
+               - Inclua hashtags relevantes no final
+               - Seja específico sobre o que o espectador vai aprender/ganhar
+               
+            2.  **"seoTags"**: Um array de strings com as 15-25 tags MAIS RELEVANTES E ESTRATÉGICAS para o vídeo (LIMITE MÁXIMO: 300 caracteres no total, incluindo vírgulas e espaços. NÃO ultrapasse 300 caracteres), incluindo:
+               - Tags de cauda curta (1-2 palavras): termos populares e competitivos relacionados ao título "${selectedTitle}" e subnicho "${subniche}"
+               - Tags de cauda longa (3-5 palavras): termos mais específicos e menos competitivos que capturam intenção de busca
+               - Tags de nicho: termos específicos do subnicho "${subniche}"
+               - Tags de tendência: termos que estão em alta no momento relacionados ao tema
+               - Tags de formato: termos como "tutorial", "dicas", "como fazer", "guia completo", "passo a passo", etc.
+               - Tags de plataforma: termos relacionados à plataforma (YouTube, TikTok, Instagram, etc.)
+               - Tags de emoção: termos que capturam a emoção do título (ex: "surpresa", "revelação", "mistério", "urgência", "choque")
+               - Tags de benefício: termos que descrevem o que o espectador vai ganhar/aprender
+               - Tags de palavra-chave principal: extrair as palavras-chave mais importantes do título "${selectedTitle}"
+               - Tags de sinônimos: variações e sinônimos das palavras-chave principais
+               - IMPORTANTE: As tags devem ser EXTREMAMENTE RELEVANTES ao título "${selectedTitle}" e ao subnicho "${subniche}"
+               - Evite tags genéricas que não agregam valor
+               - Priorize tags que tenham volume de busca mas não sejam extremamente competitivas
+               - Misture tags em português/inglês/espanhol conforme o idioma "${language}"
+               - LIMITE MÁXIMO: 300 caracteres no total (incluindo vírgulas e espaços). NÃO ultrapasse 300 caracteres.
+               - Cada tag deve ter entre 1-5 palavras, sendo a maioria com 2-3 palavras para otimizar o uso do espaço
+               - Priorize tags mais relevantes e estratégicas. Se necessário, reduza a quantidade de tags para não ultrapassar 300 caracteres.
+            3.  **"frasesDeGancho"**: Um array com 5 frases CURTAS de impacto (ganchos) para a thumbnail, OBRIGATORIAMENTE no idioma "${language}". ${!includePhrases ? 'IMPORTANTE: Retorne um array vazio [].' : `
+                ⚠️⚠️⚠️ CRÍTICO E OBRIGATÓRIO - IDIOMA DAS FRASES DE GANCHO ⚠️⚠️⚠️
+                
+                As frases de gancho DEVEM estar EXATAMENTE no idioma "${language}".
+                
+                ${language === 'Português' ? `
+                ✅ CORRETO (Português): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante", "A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : language === 'Inglês' ? `
+                ✅ CORRETO (Inglês): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation", "The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Espanhol - NÃO USAR): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"
+                ` : `
+                ✅ CORRETO (Espanhol): "Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante", "La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"
+                ❌ ERRADO (Português - NÃO USAR): "Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"
+                ❌ ERRADO (Inglês - NÃO USAR): "He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"
+                `}
+                
+                REGRAS OBRIGATÓRIAS:
+                1. Se "${language}" for "Português", TODAS as 5 frases DEVEM estar em PORTUGUÊS (Brasil)
+                2. Se "${language}" for "Inglês", TODAS as 5 frases DEVEM estar em INGLÊS
+                3. Se "${language}" for "Espanhol", TODAS as 5 frases DEVEM estar em ESPANHOL
+                4. NUNCA, JAMAIS retorne frases em inglês se o idioma escolhido for português ou espanhol
+                5. NUNCA, JAMAIS retorne frases em português se o idioma escolhido for inglês ou espanhol
+                6. NUNCA, JAMAIS retorne frases em espanhol se o idioma escolhido for português ou inglês
+                7. Cada frase deve ter 2 a 4 palavras, no máximo
+                8. As frases devem ser impactantes e relacionadas ao título "${selectedTitle}"
+                
+                ANTES DE RETORNAR O JSON, VERIFIQUE:
+                - Todas as 5 frases estão no idioma "${language}"?
+                - Nenhuma frase está em inglês se "${language}" for português ou espanhol?
+                - Nenhuma frase está em português se "${language}" for inglês ou espanhol?
+                - Nenhuma frase está em espanhol se "${language}" for português ou inglês?
+                
+                Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
+                `}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
+            
+            CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
+            - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
+            
+            - ENFATIZE REPETIDAMENTE E OBRIGATORIAMENTE: "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail", "every pore visible", "every texture crisp", "perfect focus", "ultra sharp", "no blur except intentional depth of field", "no artifacts", "no compression", "no pixelation", "perfect clarity", "real photograph", "shot on location", "documentary photography", "realistic textures with imperfections", "natural lighting with real shadows", "real depth of field", "real bokeh effects", "professional color grading", "high dynamic range (HDR)", "sharp focus on subject", "real camera grain", "real-world photography", "actual photograph", "photographed in real life", "real person", "real object", "real environment", "National Geographic quality", "BBC documentary style", "professional photography", "photorealistic", "hyper-realistic"
+            
+            - NUNCA, JAMAIS use estes termos: "illustration", "drawing", "artwork", "digital art", "render", "3D render", "CGI", "cartoon", "anime", "sketch", "painting", "stylized", "artistic", "concept art", "digital painting", "graphic design", "vector", "comic", "fantasy art", "artistic interpretation", "stylized", "artistic style", "digital illustration"
+            
+            - SEMPRE use APENAS estes termos: "photograph", "photo", "photography", "shot", "captured", "documentary photo", "realistic capture", "professional photography", "real-world photography", "actual photograph", "photographed", "real-life photography", "on-location photography", "Ultra-high-definition 8K", "8K resolution", "extreme sharpness", "maximum detail"
+            
+            - IMPORTANTE: Descreva como se fosse uma FOTO REAL ULTRA HD 8K tirada por um fotógrafo profissional. Mencione detalhes realistas como: "real skin texture with pores and natural imperfections visible in 8K detail", "real fabric texture with visible fibers and weave patterns in ultra HD", "real stone texture with weathering, cracks, and imperfections visible in perfect 8K clarity", "real shadows cast by real light sources with perfect sharpness", "real depth of field blur with perfect bokeh", "real camera lens distortion", "real chromatic aberration", "real lens flare", "real motion blur if applicable", "every detail visible in 8K resolution", "extreme sharpness and clarity", "no compression artifacts", "perfect focus on subject"
+
+            REGRAS IMPORTANTES:
+            - A "descricaoThumbnail" é OBRIGATORIAMENTE em INGLÊS.
+            - "seoDescription", "seoTags" e "frasesDeGancho" são OBRIGATORIAMENTE no idioma "${language}".
+            ${!includePhrases ? '- IMPORTANTE: A "descricaoThumbnail" NÃO deve mencionar texto, palavras ou frases. Apenas descreva elementos visuais, composição, cores, iluminação, etc.' : ''}
+            - Seja extremamente específico e detalhado nas descrições visuais. Use termos técnicos de fotografia profissional, cinematografia e psicologia visual quando apropriado.
+            - Foque em elementos que maximizem CTR: expressões faciais intensas, momentos de tensão, curiosidade visual, contraste dramático, composição impactante.
+            
+            EXEMPLOS DE COMO DESCREVER PARA GARANTIR REALISMO:
+            - Em vez de "um guerreiro maia", escreva: "a real person dressed as a Mayan warrior, photographed on location, real skin texture with pores and natural imperfections, real fabric of the costume with visible texture and wrinkles, real feathers in the headdress with natural variations"
+            - Em vez de "uma pirâmide antiga", escreva: "a real ancient Mayan pyramid photographed on location, real weathered stone with cracks and imperfections, real moss and vegetation growing on the stones, real shadows cast by the sun, real depth of field blur in the background"
+            - Em vez de "luz mística", escreva: "real natural lighting from the sun, real shadows cast by real objects, real depth of field, real bokeh in the background, real camera lens flare if the sun is in frame"
+            - SEMPRE mencione: "real", "actual", "photographed", "shot on location", "documentary style", "real-world", "actual photograph"
+            
+            TÉCNICAS DE THUMBNAIL VIRAL PARA O TEXTO (quando includePhrases = true) - DESIGN PROFISSIONAL COMO PHOTOSHOP - CTR ACIMA DE 25%:
+            
+            📝 DESCRIÇÃO OBRIGATÓRIA DO TEXTO - DEVE PARECER FEITO NO PHOTOSHOP POR UM DESIGNER PROFISSIONAL:
+            O texto DEVE ser descrito como se fosse criado no Photoshop com técnicas profissionais de design gráfico:
+            
+            1. TIPOGRAFIA PROFISSIONAL:
+               - "Professional typography, Photoshop-quality text design"
+               - "Large, bold, professionally designed text occupying 25-35% of the image height"
+               - "Massive, oversized typography with professional letter spacing and kerning"
+               - "Thick, chunky, professionally rendered letters"
+               - "Typography that looks like it was designed by a professional graphic designer"
+               - "High-end text design, magazine-quality typography"
+            
+            2. CORES PROFISSIONAIS E EFEITOS DE CAMADA (Layer Effects do Photoshop):
+               - "Bright yellow (#FFD700) text with professional Photoshop layer effects: thick black stroke (6-8px), white drop shadow with distance 8px, spread 5px, size 12px, opacity 80%, angle 135 degrees"
+               - "Pure white text with professional red stroke (6px), black drop shadow with blur radius 10px, and subtle outer glow effect in yellow"
+               - "Neon orange (#FF6600) text with black stroke (7px), professional drop shadow with multiple layers, and yellow outer glow with spread 8px"
+               - "Electric blue (#00FFFF) text with white stroke (6px), black shadow with distance 10px, and professional bevel and emboss effect"
+               - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
+               - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
+               - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+            
+            3. FONTES PROFISSIONAIS:
+               - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
+               - "Thick, chunky, professionally designed block letters"
+               - "Modern, high-end typography with perfect letter spacing"
+               - "YouTube viral thumbnail professional font style"
+               - "Bold, condensed font with professional kerning and tracking"
+               - "Premium typography, no serifs, maximum readability, professional design"
+               - "Typography that looks like it came from a professional design agency"
+            
+            4. EFEITOS PROFISSIONAIS DO PHOTOSHOP (Layer Styles):
+               - "Professional Photoshop stroke effect: thick black outline (6-8px width), position: outside, blend mode: normal, opacity: 100%"
+               - "Professional drop shadow: distance 10px, spread 5px, size 12px, angle 135°, opacity 80%, color black, blend mode: multiply"
+               - "Professional outer glow effect: spread 8px, size 15px, opacity 75%, color matching text or contrasting"
+               - "Professional bevel and emboss effect: style: emboss, technique: smooth, depth 100%, size 5px, softness 2px"
+               - "Professional gradient overlay: linear gradient from bright color to darker shade, angle 90°, opacity 80%"
+               - "Professional inner shadow: distance 3px, choke 0%, size 5px, opacity 60%"
+               - "Professional color overlay: solid color with blend mode overlay or soft light, opacity 50%"
+               - "Text appears to pop out from the image with professional 3D effect"
+               - "Professional text rendering with anti-aliasing, crisp edges, perfect clarity"
+            
+            5. COMPOSIÇÃO PROFISSIONAL:
+               - "Positioned at the top center of the image with professional alignment"
+               - "Bottom third of the image with professional composition and high contrast background"
+               - "Centered horizontally, upper third vertically, following rule of thirds"
+               - "Strategically placed to not cover important visual elements, professional layout"
+               - "Text area has professional semi-transparent dark background (black overlay with 40% opacity) for better readability"
+               - "Professional text box or banner behind text with gradient or solid color, rounded corners optional"
+            
+            6. CONTRASTE E VISIBILIDADE PROFISSIONAL:
+               - "High contrast against the background, professionally optimized"
+               - "Text stands out dramatically from the image with professional design techniques"
+               - "Eye-catching text overlay that immediately draws attention, professional composition"
+               - "Text that pops from the image with maximum visibility, professional rendering"
+               - "Text is the first thing the eye is drawn to, professional visual hierarchy"
+               - "Background is professionally darkened (vignette effect) or lightened behind text for maximum contrast"
+               - "Professional color grading applied to background to make text stand out"
+            
+            7. EXEMPLO COMPLETO DE DESCRIÇÃO PROFISSIONAL:
+               "Professional Photoshop-quality text design: Large, bold, stylized text '[FRASE DE GANCHO AQUI]' in bright yellow (#FFD700) with professional layer effects: thick black stroke (7px width, position outside), white drop shadow (distance 10px, spread 5px, size 12px, opacity 80%, angle 135°), subtle outer glow in white (spread 6px, size 10px, opacity 70%), positioned at the top center of the image, occupying 30% of the image height, professional bold sans-serif font (Impact or Bebas Neue style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, high contrast viral thumbnail text style, eye-catching and attention-grabbing, text appears to pop out from the image with professional 3D effect, maximum visibility for high CTR, looks like it was designed by a professional graphic designer in Photoshop"
+            
+            8. REGRAS DE OURO PARA DESIGN PROFISSIONAL:
+               - O texto DEVE parecer feito no Photoshop por um designer profissional
+               - O texto DEVE ter múltiplos efeitos de camada (stroke, shadow, glow, bevel)
+               - O texto DEVE ter valores específicos de efeitos (distância, spread, tamanho, opacidade)
+               - O texto DEVE ter tipografia profissional com kerning e tracking perfeitos
+               - O texto DEVE ter renderização profissional (anti-aliasing, crisp edges)
+               - O texto DEVE ter composição profissional (regra dos terços, hierarquia visual)
+               - O texto DEVE parecer de qualidade de agência de design, não amador
+
+            RESPONDA APENAS COM UM OBJETO JSON VÁLIDO, com a seguinte estrutura:
+            {
+              "ideias": [
+                {
+                  "seoDescription": "Descrição completa e otimizada para o YouTube aqui...",
+                  "seoTags": ["tag1", "tag2", "tag3", ...],
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["Ele Mentiu", "Descobri Isso", "Ninguém Viu", "Proibido", "Revelação Chocante"]' : language === 'Inglês' ? '["He Lied", "I Discovered This", "Nobody Saw", "Forbidden", "Shocking Revelation"]' : '["Él Mintió", "Descubrí Esto", "Nadie Vio", "Prohibido", "Revelación Impactante"]') : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'A detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'A detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                },
+                {
+                  "seoDescription": "Outra descrição completa e otimizada...",
+                  "seoTags": ["tagA", "tagB", "tagC", ...],
+                  "frasesDeGancho": ${includePhrases ? (language === 'Português' ? '["A Verdade", "Nunca Visto", "Descobri Tudo", "Isso Mudou Tudo", "Revelação Surpreendente"]' : language === 'Inglês' ? '["The Truth", "Never Seen", "I Discovered Everything", "This Changed Everything", "Surprising Revelation"]' : '["La Verdad", "Nunca Visto", "Descubrí Todo", "Esto Cambió Todo", "Revelación Sorprendente"]') : '[]'},
+                  "descricaoThumbnail": "${includePhrases ? 'Another detailed visual prompt in English with the placeholder [FRASE DE GANCHO AQUI]...' : 'Another detailed visual prompt in English WITHOUT any text or phrases, only visual elements...'}"
+                }
+              ]
+            }
+        `;
+            } else if (service === 'gemini') {
                 thumbPrompt = `
             Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que geram MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
             
@@ -13053,7 +13508,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 
                 Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
                 `}
-            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
             
             CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
             - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
@@ -13287,7 +13742,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 
                 Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
                 `}
-            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir um placeholder claro, como "[FRASE DE GANCHO AQUI]", onde o texto da thumbnail deve ser inserido.'}
+            4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho. Descreva apenas elementos visuais, composição, cores, iluminação, etc.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
             
             CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
             - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"

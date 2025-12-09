@@ -12758,44 +12758,89 @@ Equipe La Casa Dark Core</textarea>
                 const promptTextElement = card.querySelector('.image-prompt-text');
                 const originalPrompt = promptTextElement ? promptTextElement.dataset.originalPrompt : null;
                 
-                // Se temos frase selecionada e prompt original, garantir que a substituição está correta
+                // Obter o prompt atual do botão
                 let promptDesc = targetButton.getAttribute('data-prompt');
                 
-                if (selectedPhrase && originalPrompt && promptDesc) {
-                    // Verificar se o prompt já tem a frase correta
+                // CRÍTICO: Garantir que a frase de gancho está sempre incluída no prompt
+                if (selectedPhrase && selectedPhrase.trim() !== '' && promptDesc) {
+                    // Lista de variações do placeholder
                     const placeholderVariations = [
                         '[FRASE DE GANCHO AQUI]',
                         '[FRASE DE GANCHO]',
                         '[Frase de Gancho Aqui]',
                         '[frase de gancho aqui]',
-                        /\[.*?gancho.*?\]/gi
+                        '[FRASE DE GANCHO AQUI]',
+                        '[Frase de Gancho]',
+                        '[frase de gancho]',
+                        'FRASE DE GANCHO AQUI',
+                        'Frase de Gancho Aqui',
+                        'frase de gancho aqui'
                     ];
                     
-                    let needsUpdate = false;
+                    let replaced = false;
+                    
+                    // Tentar substituir qualquer variação do placeholder
                     for (const placeholder of placeholderVariations) {
-                        if (typeof placeholder === 'string' && promptDesc.includes(placeholder)) {
-                            needsUpdate = true;
-                            promptDesc = promptDesc.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), selectedPhrase);
-                            break;
-                        } else if (placeholder instanceof RegExp && placeholder.test(promptDesc)) {
-                            needsUpdate = true;
-                            promptDesc = promptDesc.replace(placeholder, selectedPhrase);
+                        const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                        if (regex.test(promptDesc)) {
+                            promptDesc = promptDesc.replace(regex, selectedPhrase);
+                            replaced = true;
                             break;
                         }
                     }
                     
-                    // Se ainda tem placeholder, fazer substituição final
-                    if (promptDesc.includes('[FRASE') || promptDesc.includes('[Frase') || promptDesc.includes('[frase')) {
-                        promptDesc = promptDesc.replace(/\[.*?gancho.*?\]/gi, selectedPhrase);
-                    }
-                    
-                    // Atualizar o atributo data-prompt para garantir consistência
-                    if (needsUpdate) {
-                        targetButton.setAttribute('data-prompt', promptDesc);
-                        if (promptTextElement) {
-                            promptTextElement.textContent = promptDesc;
+                    // Se não encontrou placeholder, tentar regex genérico
+                    if (!replaced) {
+                        const genericRegex = /\[.*?gancho.*?\]/gi;
+                        if (genericRegex.test(promptDesc)) {
+                            promptDesc = promptDesc.replace(genericRegex, selectedPhrase);
+                            replaced = true;
                         }
                     }
+                    
+                    // Se ainda não foi substituído e o prompt não menciona a frase, adicionar a frase ao prompt
+                    if (!replaced && !promptDesc.toLowerCase().includes(selectedPhrase.toLowerCase())) {
+                        // Adicionar a frase de forma inteligente: procurar onde mencionar texto e adicionar a frase
+                        // Se o prompt menciona "text", "typography", "design", etc., adicionar a frase lá
+                        const textMentions = [
+                            /(with.*?text.*?that.*?says?)/gi,
+                            /(featuring.*?text.*?that.*?reads?)/gi,
+                            /(displaying.*?text.*?that.*?says?)/gi,
+                            /(showing.*?text.*?that.*?says?)/gi,
+                            /(professional.*?text.*?design)/gi,
+                            /(photoshop.*?text)/gi
+                        ];
+                        
+                        let textMentionFound = false;
+                        for (const mention of textMentions) {
+                            if (mention.test(promptDesc)) {
+                                // Substituir a menção genérica pela frase específica
+                                promptDesc = promptDesc.replace(mention, `$1 "${selectedPhrase}"`);
+                                textMentionFound = true;
+                                break;
+                            }
+                        }
+                        
+                        // Se não encontrou menção de texto, adicionar no final da descrição visual
+                        if (!textMentionFound) {
+                            // Adicionar a frase como texto profissional no prompt
+                            promptDesc += `, with professional Photoshop-quality text design displaying "${selectedPhrase}" in large, bold, vibrant typography with professional layer effects including drop shadow, stroke, outer glow, and bevel & emboss, positioned strategically in the composition`;
+                        }
+                    }
+                    
+                    // Atualizar o atributo data-prompt e o texto exibido
+                    targetButton.setAttribute('data-prompt', promptDesc);
+                    if (promptTextElement) {
+                        promptTextElement.textContent = promptDesc;
+                    }
+                    
+                    console.log('[ImageFX] Frase de gancho garantida no prompt:', {
+                        fraseSelecionada: selectedPhrase,
+                        promptAtualizado: promptDesc.substring(0, 200) + '...',
+                        foiSubstituido: replaced
+                    });
+                } else if (!selectedPhrase || selectedPhrase.trim() === '') {
+                    console.warn('[ImageFX] Nenhuma frase de gancho selecionada - gerando sem texto');
                 }
                 
                 const imageFxLoading = card.querySelector('.imagefx-loading');
