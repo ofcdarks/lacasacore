@@ -19080,6 +19080,16 @@ Equipe La Casa Dark Core</textarea>
                     document.removeEventListener('click', window._lightboxImageClickHandler, true);
                 }
                 
+                // Garantir que o lightbox esteja fora de views ocultas
+                function ensureGlobalLightbox() {
+                    const lb = document.getElementById('image-lightbox');
+                    if (!lb) return;
+                    const parentView = lb.closest('[id^="view-"]');
+                    if (parentView && parentView.style.display === 'none') {
+                        document.body.appendChild(lb);
+                    }
+                }
+
                 // Usar event delegation para funcionar com imagens dinâmicas
                 window._lightboxImageClickHandler = (e) => {
                     // Verificar se o clique foi diretamente na imagem ou no container
@@ -19139,6 +19149,7 @@ Equipe La Casa Dark Core</textarea>
                 
                 function openLightbox(index, images) {
                     if (!images || images.length === 0) return;
+                    ensureGlobalLightbox();
                     
                     window._lightboxImages = images;
                     window._lightboxCurrentIndex = index;
@@ -19163,7 +19174,7 @@ Equipe La Casa Dark Core</textarea>
                     
                     lightbox.classList.remove('hidden');
                     document.body.style.overflow = 'hidden'; // Prevenir scroll do body
-                    
+                
                     // Atualizar botões de navegação
                     const prevBtn = document.getElementById('lightbox-prev');
                     const nextBtn = document.getElementById('lightbox-next');
@@ -20145,7 +20156,47 @@ Equipe La Casa Dark Core</textarea>
                         document.getElementById('batch-image-gen-failed-count').textContent = `${failedCount} erros`;
                         
                         completeModal.classList.remove('hidden');
-                    }
+
+                        // Handlers para fechar e navegar
+                        const closeBtn = document.getElementById('batch-close-image-gen-modal-btn');
+                        const viewBtn = document.getElementById('batch-view-generated-images-btn');
+                        const overlay = completeModal;
+                        const grid = document.getElementById('batch-generated-images-output');
+
+                        const hideModal = () => {
+                            completeModal.classList.add('hidden');
+                        };
+
+                        if (closeBtn) {
+                            closeBtn.onclick = hideModal;
+                        }
+                        if (viewBtn) {
+                            viewBtn.onclick = () => {
+                                hideModal();
+                                if (grid) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                // Abrir lightbox na primeira imagem válida, se existir
+                                const triggers = Array.from(document.querySelectorAll('.image-lightbox-trigger'));
+                                const valid = triggers.filter(img => {
+                                    const url = img.dataset.imgUrl || img.src;
+                                    return url && url !== '' && !url.includes('data:image/svg') && (url.startsWith('data:image/') || url.startsWith('http'));
+                                });
+                                if (valid.length > 0 && typeof window._lbOpen === 'function') {
+                                    const images = valid.map((img, idx) => ({ index: idx, url: img.dataset.imgUrl || img.src, scene: img.dataset.imgScene || (idx + 1) }));
+                                    window._lbOpen(0, images);
+                                }
+                            };
+                        }
+                        // Fechar ao clicar fora
+                        if (!overlay._batchModalBound) {
+                            overlay.addEventListener('click', (e) => {
+                                if (e.target === overlay) hideModal();
+                            });
+                            document.addEventListener('keydown', (e) => {
+                                if (!completeModal.classList.contains('hidden') && e.key === 'Escape') hideModal();
+                            });
+                            overlay._batchModalBound = true;
+                        }
+                        }
                     
                 } catch (err) {
                     console.error('[Batch Images] Erro:', err);
