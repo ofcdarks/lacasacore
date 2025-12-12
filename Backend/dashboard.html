@@ -2820,7 +2820,7 @@
                 </div>
 
                 <!-- Lightbox para Visualizar Imagens -->
-                <div id="image-lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-sm z-[10000] hidden flex items-center justify-center p-4">
+                <div id="image-lightbox" class="fixed inset-0 bg-black/95 backdrop-blur-sm z-[10002] hidden flex items-center justify-center p-4">
                     <div class="relative w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
                         <!-- Botão Fechar -->
                         <button id="lightbox-close" class="absolute top-4 right-4 z-50 w-12 h-12 bg-gray-900/80 hover:bg-gray-800 rounded-full flex items-center justify-center text-white transition-all shadow-lg">
@@ -19241,6 +19241,11 @@ Equipe La Casa Dark Core</textarea>
                     });
                     window._lightboxClickHandler = true;
                 }
+
+                // Expor funções para uso externo (ex.: grid de imagens em lote)
+                window._lbOpen = openLightbox;
+                window._lbClose = closeLightbox;
+                window._lbNavigate = navigateLightbox;
             }
             
             // Função para renderizar progresso (estilo DARKSCRIPT)
@@ -19304,35 +19309,70 @@ Equipe La Casa Dark Core</textarea>
             async function processBatchTxtFile(file) {
                 if (!file) {
                     console.warn('[Batch Upload] Nenhum arquivo fornecido');
+                    showMessage('imagens-lote-error-message', 'Nenhum arquivo fornecido.', true);
                     return;
                 }
                 
-                console.log('[Batch Upload] Processando arquivo:', file.name, 'Tipo:', file.type);
+                console.log('[Batch Upload] Processando arquivo:', file.name, 'Tipo:', file.type, 'Tamanho:', file.size);
                 
-                if (!file.name.endsWith('.txt') && file.type !== 'text/plain') {
-                    showMessage('imagens-lote-error-message', 'Por favor, selecione um arquivo TXT.', true);
+                // Validar extensão e tipo (mais flexível)
+                const isValidTxt = file.name.toLowerCase().endsWith('.txt') || 
+                                  file.type === 'text/plain' || 
+                                  file.type === '' || // Alguns navegadores não retornam tipo para TXT
+                                  file.type === 'application/octet-stream'; // Fallback para alguns sistemas
+                
+                if (!isValidTxt) {
+                    showMessage('imagens-lote-error-message', 'Por favor, selecione um arquivo TXT (.txt).', true);
+                    return;
+                }
+                
+                // Validar tamanho (máximo 5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    showMessage('imagens-lote-error-message', 'Arquivo muito grande. O tamanho máximo é 5MB.', true);
                     return;
                 }
                 
                 try {
                     const text = await file.text();
                     console.log('[Batch Upload] Arquivo lido, tamanho:', text.length, 'caracteres');
+                    
+                    if (!text || text.trim().length === 0) {
+                        showMessage('imagens-lote-error-message', 'O arquivo TXT está vazio.', true);
+                        return;
+                    }
+                    
                     const textarea = document.getElementById('batch-image-prompts-textarea');
                     if (textarea) {
                         textarea.value = text;
                         // Disparar evento input para atualizar contagem
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     }
+                    
                     parsePromptsFromText(text);
-                    showMessage('imagens-lote-success-message', `Arquivo "${file.name}" carregado com sucesso!`, false);
+                    
+                    const promptCount = batchPromptsFromTxt.length;
+                    if (promptCount > 0) {
+                        showMessage('imagens-lote-success-message', `Arquivo "${file.name}" carregado com sucesso! ${promptCount} prompt${promptCount !== 1 ? 's' : ''} encontrado${promptCount !== 1 ? 's' : ''}.`, false);
+                    } else {
+                        showMessage('imagens-lote-error-message', 'Nenhum prompt válido encontrado no arquivo. Verifique se há pelo menos uma linha com conteúdo.', true);
+                    }
                 } catch (err) {
                     console.error('[Upload TXT] Erro:', err);
-                    showMessage('imagens-lote-error-message', 'Erro ao ler arquivo TXT: ' + err.message, true);
+                    showMessage('imagens-lote-error-message', 'Erro ao ler arquivo TXT: ' + (err.message || 'Erro desconhecido'), true);
                 }
             }
             
             // Configurar upload de TXT para prompts em lote
+            // Flag para evitar múltiplas inicializações
+            let batchTxtUploadInitialized = false;
+            
             function setupBatchTxtUpload() {
+                // Evitar múltiplas inicializações
+                if (batchTxtUploadInitialized) {
+                    console.log('[Batch Upload] Já inicializado, pulando...');
+                    return;
+                }
+                
                 console.log('[Batch Upload] Inicializando setupBatchTxtUpload...');
                 
                 const uploadBtn = document.getElementById('batch-upload-txt-btn');
@@ -19350,45 +19390,37 @@ Equipe La Casa Dark Core</textarea>
                     generateBtn: !!generateBtn
                 });
                 
-                // Remover event listeners antigos para evitar duplicação
-                if (uploadBtn) {
-                    // Remover listeners antigos removendo e recriando
-                    const uploadBtnParent = uploadBtn.parentNode;
-                    const uploadBtnClone = uploadBtn.cloneNode(true);
-                    uploadBtnParent.replaceChild(uploadBtnClone, uploadBtn);
-                    
-                    uploadBtnClone.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('[Batch Upload] Botão Upload TXT clicado');
-                        const txtInputRef = document.getElementById('batch-txt-file-input');
-                        if (txtInputRef) {
-                            txtInputRef.click();
-                        }
-                    });
-                    
-                    // Recriar ícones do Lucide
-                    if (typeof lucide !== 'undefined') {
-                        setTimeout(() => lucide.createIcons(), 50);
-                    }
+                // Verificar se todos os elementos necessários existem
+                if (!uploadBtn || !txtInput || !textarea || !generateBtn) {
+                    console.error('[Batch Upload] Elementos essenciais não encontrados!');
+                    return;
                 }
                 
-                if (txtInput) {
-                    // Remover listeners antigos removendo e recriando
-                    const txtInputParent = txtInput.parentNode;
-                    const txtInputClone = txtInput.cloneNode(true);
-                    txtInputParent.replaceChild(txtInputClone, txtInput);
-                    
-                    txtInputClone.addEventListener('change', async (e) => {
-                        const file = e.target.files[0];
-                        console.log('[Batch Upload] Arquivo selecionado:', file ? file.name : 'nenhum');
-                        if (file) {
-                            await processBatchTxtFile(file);
-                        }
-                        // Limpar input para permitir selecionar o mesmo arquivo novamente
-                        e.target.value = '';
-                    });
+                // Configurar botão de upload
+                uploadBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[Batch Upload] Botão Upload TXT clicado');
+                    txtInput.click();
+                };
+                
+                // Configurar input de arquivo
+                txtInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    console.log('[Batch Upload] Arquivo selecionado:', file ? file.name : 'nenhum');
+                    if (file) {
+                        await processBatchTxtFile(file);
+                    }
+                    // Limpar input para permitir selecionar o mesmo arquivo novamente
+                    e.target.value = '';
+                };
+                
+                // Recriar ícones do Lucide
+                if (typeof lucide !== 'undefined') {
+                    setTimeout(() => lucide.createIcons(), 50);
                 }
+                
+                batchTxtUploadInitialized = true;
                 
                 // Configurar drag and drop
                 const textareaContainer = document.getElementById('batch-textarea-container') || (textarea ? textarea.closest('.relative') : null);
@@ -19462,7 +19494,14 @@ Equipe La Casa Dark Core</textarea>
                         console.log('[Batch Upload] Drop detectado, arquivos:', files.length);
                         if (files && files.length > 0) {
                             const file = files[0];
-                            console.log('[Batch Upload] Processando arquivo do drop:', file.name);
+                            console.log('[Batch Upload] Processando arquivo do drop:', file.name, 'Tipo:', file.type);
+                            
+                            // Validar se é arquivo TXT
+                            if (!file.name.endsWith('.txt') && file.type !== 'text/plain' && file.type !== '') {
+                                showMessage('imagens-lote-error-message', 'Por favor, solte apenas arquivos TXT.', true);
+                                return;
+                            }
+                            
                             await processBatchTxtFile(file);
                         } else {
                             console.warn('[Batch Upload] Nenhum arquivo encontrado no drop');
@@ -19481,43 +19520,27 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 // Atualizar contagem quando o texto mudar
-                if (textarea) {
-                    textarea.addEventListener('input', () => {
-                        parsePromptsFromText(textarea.value);
-                    });
-                }
+                textarea.oninput = () => {
+                    parsePromptsFromText(textarea.value);
+                };
                 
                 // Botão de gerar imagens em lote
-                if (generateBtn) {
-                    // Remover listeners antigos removendo e recriando
-                    const generateBtnParent = generateBtn.parentNode;
-                    const generateBtnClone = generateBtn.cloneNode(true);
-                    generateBtnParent.replaceChild(generateBtnClone, generateBtn);
+                generateBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[Batch Generate] Botão Gerar Todas as Imagens clicado');
+                    console.log('[Batch Generate] Prompts disponíveis:', batchPromptsFromTxt.length);
                     
-                    generateBtnClone.addEventListener('click', async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('[Batch Generate] Botão Gerar Todas as Imagens clicado');
-                        console.log('[Batch Generate] Prompts disponíveis:', batchPromptsFromTxt.length);
-                        
-                        if (batchPromptsFromTxt.length === 0) {
-                            showMessage('imagens-lote-error-message', 'Adicione prompts primeiro! Cole no campo de texto ou faça upload de um arquivo TXT.', true);
-                            return;
-                        }
-                        
-                        // Usar a função existente de geração em lote
-                        await generateBatchImagesFromPrompts(batchPromptsFromTxt);
-                    });
-                    
-                    // Recriar ícones do Lucide
-                    if (typeof lucide !== 'undefined') {
-                        setTimeout(() => lucide.createIcons(), 50);
+                    if (batchPromptsFromTxt.length === 0) {
+                        showMessage('imagens-lote-error-message', 'Adicione prompts primeiro! Cole no campo de texto ou faça upload de um arquivo TXT.', true);
+                        return;
                     }
                     
-                    console.log('[Batch Generate] Event listener adicionado ao botão de gerar');
-                } else {
-                    console.warn('[Batch Generate] Botão de gerar imagens não encontrado!');
-                }
+                    // Usar a função existente de geração em lote
+                    await generateBatchImagesFromPrompts(batchPromptsFromTxt);
+                };
+                
+                console.log('[Batch Generate] Event listener adicionado ao botão de gerar');
                 
                 // Botões de ação para imagens em lote
                 const selectAllBtn = document.getElementById('batch-select-all-images-btn');
@@ -19526,21 +19549,21 @@ Equipe La Casa Dark Core</textarea>
                 const clearAllBtn = document.getElementById('batch-clear-all-images-btn');
                 
                 if (selectAllBtn) {
-                    selectAllBtn.addEventListener('click', () => {
+                    selectAllBtn.onclick = () => {
                         const checkboxes = document.querySelectorAll('#batch-generated-images-output .image-select-checkbox');
                         checkboxes.forEach(cb => cb.checked = true);
-                    });
+                    };
                 }
                 
                 if (deselectAllBtn) {
-                    deselectAllBtn.addEventListener('click', () => {
+                    deselectAllBtn.onclick = () => {
                         const checkboxes = document.querySelectorAll('#batch-generated-images-output .image-select-checkbox');
                         checkboxes.forEach(cb => cb.checked = false);
-                    });
+                    };
                 }
                 
                 if (downloadSelectedBtn) {
-                    downloadSelectedBtn.addEventListener('click', async () => {
+                    downloadSelectedBtn.onclick = async () => {
                         const checkboxes = document.querySelectorAll('#batch-generated-images-output .image-select-checkbox:checked');
                         if (checkboxes.length === 0) {
                             showMessage('imagens-lote-error-message', 'Selecione pelo menos uma imagem para baixar.', true);
@@ -19559,11 +19582,11 @@ Equipe La Casa Dark Core</textarea>
                                 await new Promise(resolve => setTimeout(resolve, 100));
                             }
                         }
-                    });
+                    };
                 }
                 
                 if (clearAllBtn) {
-                    clearAllBtn.addEventListener('click', () => {
+                    clearAllBtn.onclick = () => {
                         if (confirm('Tem certeza que deseja limpar todas as imagens geradas?')) {
                             const output = document.getElementById('batch-generated-images-output');
                             if (output) {
@@ -19574,7 +19597,7 @@ Equipe La Casa Dark Core</textarea>
                             batchPromptsFromTxt = [];
                             updatePromptsCount(0);
                         }
-                    });
+                    };
                 }
                 
                 // Event listeners dos modais
@@ -19582,21 +19605,23 @@ Equipe La Casa Dark Core</textarea>
                 const batchViewImagesBtn = document.getElementById('batch-view-generated-images-btn');
                 
                 if (batchCloseModalBtn) {
-                    batchCloseModalBtn.addEventListener('click', () => {
+                    batchCloseModalBtn.onclick = () => {
                         document.getElementById('batch-image-gen-complete-modal')?.classList.add('hidden');
-                    });
+                    };
                 }
                 
                 if (batchViewImagesBtn) {
-                    batchViewImagesBtn.addEventListener('click', () => {
+                    batchViewImagesBtn.onclick = () => {
                         document.getElementById('batch-image-gen-complete-modal')?.classList.add('hidden');
                         // Scroll para o grid de imagens
                         const output = document.getElementById('batch-generated-images-output');
                         if (output) {
                             output.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }
-                    });
+                    };
                 }
+                
+                console.log('[Batch Upload] Setup concluído com sucesso!');
             }
             
             // Parsear prompts do texto (um por linha)
@@ -19607,26 +19632,35 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                // Dividir por linhas e filtrar linhas vazias e comentários
-                const lines = text.split('\n')
+                // Dividir por linhas e processar
+                const lines = text.split(/\r?\n/)
                     .map(line => line.trim())
                     .filter(line => {
                         const trimmed = line.trim();
-                        return trimmed.length > 0 && 
-                               !trimmed.startsWith('//') && 
-                               !trimmed.startsWith('#') &&
-                               !trimmed.toLowerCase().startsWith('prompts de cena gerados') &&
-                               !trimmed.toLowerCase().startsWith('data:') &&
-                               !trimmed.toLowerCase().startsWith('total de cenas:') &&
-                               !trimmed.match(/^cena \d+:/i) || trimmed.length > 20; // Incluir linhas que começam com "CENA X:" mas têm conteúdo
+                        // Filtrar linhas vazias e comentários, mas manter linhas que começam com "CENA X:" se tiverem conteúdo
+                        if (trimmed.length === 0) return false;
+                        if (trimmed.startsWith('//') || trimmed.startsWith('#')) return false;
+                        if (trimmed.toLowerCase().startsWith('prompts de cena gerados')) return false;
+                        if (trimmed.toLowerCase().startsWith('data:')) return false;
+                        if (trimmed.toLowerCase().startsWith('total de cenas:')) return false;
+                        // Se começar com "CENA X:" mas tiver menos de 20 caracteres, provavelmente é só o cabeçalho
+                        if (trimmed.match(/^cena \d+:\s*$/i)) return false;
+                        return true;
                     });
                 
-                batchPromptsFromTxt = lines.map((line, index) => ({
-                    scene_number: index + 1,
-                    prompt_text: line.replace(/^CENA \d+:\s*/i, '').trim(), // Remover prefixo "CENA X:" se existir
-                    style: document.getElementById('batch-image-style-select')?.value || 'photorealistic'
-                }));
+                console.log('[Batch Parse] Linhas processadas:', lines.length);
                 
+                batchPromptsFromTxt = lines.map((line, index) => {
+                    // Remover prefixo "CENA X:" se existir, mas manter o resto do conteúdo
+                    const cleanLine = line.replace(/^CENA \d+:\s*/i, '').trim();
+                    return {
+                        scene_number: index + 1,
+                        prompt_text: cleanLine,
+                        style: document.getElementById('batch-image-style-select')?.value || 'photorealistic'
+                    };
+                });
+                
+                console.log('[Batch Parse] Prompts parseados:', batchPromptsFromTxt.length);
                 updatePromptsCount(batchPromptsFromTxt.length);
             }
             
@@ -19646,7 +19680,7 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 try {
-                    const token = localStorage.getItem('core_token');
+                    const token = safeLocalStorageGet('core_token');
                     if (!token) {
                         throw new Error('Token de autenticação não encontrado.');
                     }
@@ -20124,6 +20158,57 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
+            // Garantir handlers ativos mesmo sem navegação explícita
+            function ensureBatchImageHandlers() {
+                const textarea = document.getElementById('batch-image-prompts-textarea');
+                const uploadBtn = document.getElementById('batch-upload-txt-btn');
+                const txtInput = document.getElementById('batch-txt-file-input');
+                const generateBtn = document.getElementById('batch-btn-generate-images');
+
+                if (textarea) {
+                    textarea.addEventListener('input', () => {
+                        parsePromptsFromText(textarea.value);
+                    }, { once: true });
+                }
+
+                if (uploadBtn && txtInput) {
+                    const newUpload = uploadBtn.cloneNode(true);
+                    uploadBtn.parentNode.replaceChild(newUpload, uploadBtn);
+                    newUpload.onclick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        txtInput.click();
+                    };
+                    txtInput.onchange = async (e) => {
+                        const file = e.target.files[0];
+                        if (file) await processBatchTxtFile(file);
+                        e.target.value = '';
+                    };
+                }
+
+                if (generateBtn) {
+                    const newGen = generateBtn.cloneNode(true);
+                    generateBtn.parentNode.replaceChild(newGen, generateBtn);
+                    newGen.onclick = async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const text = textarea?.value || '';
+                        if (text && (!window.batchPromptsFromTxt || window.batchPromptsFromTxt.length === 0)) {
+                            parsePromptsFromText(text);
+                        }
+                        const prompts = batchPromptsFromTxt || [];
+                        if (prompts.length === 0) {
+                            showMessage('imagens-lote-error-message', 'Adicione prompts primeiro! Cole no campo de texto ou faça upload de um arquivo TXT.', true);
+                            return;
+                        }
+                        await generateBatchImagesFromPrompts(prompts);
+                    };
+                }
+            }
+
+            // Inicialização defensiva
+            setTimeout(ensureBatchImageHandlers, 300);
+
             // Função para atualizar painel de progresso
             function updateBatchProgressPanel() {
                 const batchProgressPanel = document.getElementById('batch-image-gen-progress-panel');
@@ -20323,6 +20408,10 @@ Equipe La Casa Dark Core</textarea>
                         output.style.overflowY = 'visible';
                         output.style.maxHeight = 'none';
                         output.style.height = 'auto';
+
+                        // Garantir que a página possa rolar para visualizar todas as imagens
+                        document.documentElement.style.overflowY = 'auto';
+                        document.body.style.overflow = 'auto';
                     }, 100);
                 }
                 
@@ -20334,11 +20423,39 @@ Equipe La Casa Dark Core</textarea>
                 
                 // Configurar event listeners
                 setupBatchImageEventListeners();
-                
+
                 // Configurar lightbox (apenas uma vez)
                 if (!window._batchLightboxInitialized) {
                     setupImageLightbox();
                     window._batchLightboxInitialized = true;
+                }
+
+                // Delegar clique diretamente no grid para garantir abertura do lightbox
+                const grid = document.getElementById('batch-generated-images-output');
+                if (grid && !grid._lightboxGridBound) {
+                    grid.addEventListener('click', (e) => {
+                        const imgElement = e.target.closest('.image-lightbox-trigger');
+                        if (!imgElement) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const allImageTriggers = Array.from(document.querySelectorAll('.image-lightbox-trigger'));
+                        const validImages = allImageTriggers.filter(img => {
+                            const url = img.dataset.imgUrl || img.src;
+                            return url && url !== '' && !url.includes('data:image/svg') && (url.startsWith('data:image/') || url.startsWith('http'));
+                        });
+                        if (validImages.length === 0) return;
+
+                        const images = validImages.map((img, idx) => ({
+                            index: idx,
+                            url: img.dataset.imgUrl || img.src,
+                            scene: img.dataset.imgScene || (idx + 1)
+                        }));
+                        let index = validImages.findIndex(img => parseInt(img.dataset.imgIndex) === parseInt(imgElement.dataset.imgIndex));
+                        if (index === -1) index = 0;
+                        if (typeof window._lbOpen === 'function') window._lbOpen(index, images);
+                    }, true);
+                    grid._lightboxGridBound = true;
                 }
                 
                 // Atualizar ícones
@@ -22123,24 +22240,35 @@ Equipe La Casa Dark Core</textarea>
                     }
                     if (viewName === 'imagens-lote') {
                         console.log('[Dashboard] Navegando para imagens em lote, inicializando...');
+                        // Resetar flag de inicialização quando a view é mostrada
+                        batchTxtUploadInitialized = false;
+                        
                         // Tentar múltiplas vezes para garantir que o DOM está pronto
                         let attempts = 0;
-                        const maxAttempts = 5;
+                        const maxAttempts = 10;
                         const trySetup = () => {
                             attempts++;
                             const uploadBtn = document.getElementById('batch-upload-txt-btn');
                             const generateBtn = document.getElementById('batch-btn-generate-images');
+                            const textarea = document.getElementById('batch-image-prompts-textarea');
                             
-                            if ((uploadBtn && generateBtn) || attempts >= maxAttempts) {
+                            console.log(`[Dashboard] Tentativa ${attempts}/${maxAttempts} - Elementos:`, {
+                                uploadBtn: !!uploadBtn,
+                                generateBtn: !!generateBtn,
+                                textarea: !!textarea
+                            });
+                            
+                            if ((uploadBtn && generateBtn && textarea) || attempts >= maxAttempts) {
                                 try {
                                     setupBatchTxtUpload();
                                     if (typeof lucide !== 'undefined') lucide.createIcons();
                                     console.log('[Dashboard] Setup de imagens em lote concluído');
                                 } catch (error) {
                                     console.error('[Dashboard] Erro ao inicializar imagens em lote:', error);
+                                    console.error(error.stack);
                                 }
                             } else {
-                                setTimeout(trySetup, 100);
+                                setTimeout(trySetup, 200);
                             }
                         };
                         setTimeout(trySetup, 100);
