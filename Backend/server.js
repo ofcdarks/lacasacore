@@ -653,6 +653,24 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
         prompt.includes('SEM JSON')
     );
 
+    // Determinar max_tokens baseado no modelo
+    // GPT-4o suporta no máximo 16384 tokens de completion
+    // Outros modelos podem ter limites diferentes
+    let maxTokens = 16384; // Padrão seguro para GPT-4o
+    if (modelName && typeof modelName === 'string') {
+        const modelLower = modelName.toLowerCase();
+        if (modelLower.includes('gpt-4o')) {
+            maxTokens = 16384; // Limite do GPT-4o
+        } else if (modelLower.includes('gpt-4-turbo') || modelLower.includes('gpt-4-1106')) {
+            maxTokens = 4096; // Limite de modelos GPT-4 Turbo mais antigos
+        } else if (modelLower.includes('gpt-3.5')) {
+            maxTokens = 4096; // Limite do GPT-3.5
+        } else {
+            // Para outros modelos, usar 16384 como padrão seguro
+            maxTokens = 16384;
+        }
+    }
+
     const payload = {
         model: modelName,
         messages: [
@@ -665,7 +683,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
             { role: "user", content: content }
         ],
         temperature: 0.7,
-        max_tokens: 32000,  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
+        max_tokens: maxTokens,
     };
     
     // CRÍTICO: Só adicionar response_format se NÃO for pedido de roteiro
@@ -1632,7 +1650,8 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
     }
 
     // SEGUNDO: Verificar se deve usar créditos (laozhang.ai)
-    // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+    // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+    // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
     try {
         const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
         
@@ -2269,17 +2288,65 @@ const getLaozhangApiProviderId = async () => {
  * Determina se deve usar créditos (laozhang.ai) ou API própria
  * REGRA: Usa créditos se:
  * 1. Usuário marcou preferência para usar créditos, OU
- * 2. Usuário NÃO tem API própria configurada
+ * 2. Usuário NÃO tem plano que permite API própria, OU
+ * 3. Usuário tem plano que permite mas NÃO tem API própria configurada
+ * 
+ * REGRA CRÍTICA: Se preferência NÃO estiver marcada E usuário tem plano que permite API própria E tem API própria configurada → usar API própria
  * 
  * @param {number} userId - ID do usuário
  * @param {string[]} services - Lista de serviços para verificar (ex: ['claude', 'openai', 'gemini'])
- * @returns {Promise<{shouldUse: boolean, reason: string, hasOwnApi: boolean, hasPreference: boolean}>}
+ * @returns {Promise<{shouldUse: boolean, reason: string, hasOwnApi: boolean, hasPreference: boolean, hasPlanPermission: boolean}>}
  */
 async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini']) {
     try {
         // Verificar preferência do usuário
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
         const hasPreference = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Se preferência estiver marcada, SEMPRE usar créditos
+        if (hasPreference) {
+            console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: true, reason: Preferência do usuário marcada para usar créditos`);
+            return {
+                shouldUse: true,
+                reason: 'Preferência do usuário marcada para usar créditos',
+                hasOwnApi: false,
+                hasPreference: true,
+                hasPlanPermission: false
+            };
+        }
+        
+        // Verificar se usuário tem plano que permite usar API própria
+        let hasPlanPermission = false;
+        try {
+            const userData = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [userId]);
+            if (userData) {
+                // Admin sempre tem permissão
+                if (userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1') {
+                    hasPlanPermission = true;
+                } else {
+                    const planName = userData.subscription_plan || userData.plan || 'plan-free';
+                    const permission = await db.get(
+                        'SELECT is_allowed FROM plan_permissions WHERE plan_name = ? AND feature_name = ?',
+                        [planName, 'api_propria']
+                    );
+                    hasPlanPermission = permission && permission.is_allowed === 1;
+                }
+            }
+        } catch (err) {
+            console.warn('[shouldUseCredits] Erro ao verificar permissão do plano:', err.message);
+        }
+        
+        // Se não tem plano que permite API própria, usar créditos
+        if (!hasPlanPermission) {
+            console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: true, reason: Usuário não tem plano que permite usar API própria`);
+            return {
+                shouldUse: true,
+                reason: 'Usuário não tem plano que permite usar API própria',
+                hasOwnApi: false,
+                hasPreference: false,
+                hasPlanPermission: false
+            };
+        }
         
         // Verificar se usuário tem API própria configurada
         let hasOwnApi = false;
@@ -2301,22 +2368,32 @@ async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini'
             }
         }
         
-        // REGRA: Usa créditos se tem preferência OU não tem API própria
-        const shouldUse = hasPreference || !hasOwnApi;
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E tem plano que permite E tem API própria → usar API própria
+        if (!hasPreference && hasPlanPermission && hasOwnApi) {
+            console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: false, reason: Usuário tem plano que permite API própria, tem API própria configurada e não marcou preferência para usar créditos`);
+            return {
+                shouldUse: false,
+                reason: 'Usuário tem plano que permite API própria, tem API própria configurada e não marcou preferência para usar créditos',
+                hasOwnApi: true,
+                hasPreference: false,
+                hasPlanPermission: true
+            };
+        }
         
-        const reason = hasPreference 
-            ? 'Preferência do usuário marcada para usar créditos'
-            : !hasOwnApi 
-                ? 'Usuário não tem API própria configurada'
-                : 'Usuário tem API própria e não marcou preferência';
+        // Se tem plano mas não tem API própria configurada, usar créditos
+        const shouldUse = !hasOwnApi;
+        const reason = !hasOwnApi 
+            ? 'Usuário tem plano que permite API própria mas não tem API própria configurada'
+            : 'Usuário tem API própria e não marcou preferência';
         
-        console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: ${shouldUse}, reason: ${reason}, hasOwnApi: ${hasOwnApi}, hasPreference: ${hasPreference}`);
+        console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: ${shouldUse}, reason: ${reason}, hasOwnApi: ${hasOwnApi}, hasPreference: ${hasPreference}, hasPlanPermission: ${hasPlanPermission}`);
         
         return {
             shouldUse,
             reason,
             hasOwnApi,
-            hasPreference
+            hasPreference,
+            hasPlanPermission
         };
     } catch (error) {
         console.error('[shouldUseCredits] Erro:', error);
@@ -2325,7 +2402,8 @@ async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini'
             shouldUse: true,
             reason: 'Erro ao verificar configurações, usando créditos por padrão',
             hasOwnApi: false,
-            hasPreference: false
+            hasPreference: false,
+            hasPlanPermission: false
         };
     }
 }
@@ -3484,14 +3562,25 @@ const generateLaozhangTtsAudio = async ({ apiKey, textInput, voiceName = 'alloy'
         };
     } catch (error) {
         console.error('[DarkVoz TTS] Erro ao gerar áudio:', error.message);
+        console.error('[DarkVoz TTS] Voz usada:', voiceName);
         if (error.response) {
             console.error('[DarkVoz TTS] Status:', error.response.status);
-            console.error('[DarkVoz TTS] Data:', typeof error.response.data === 'string' ? error.response.data.substring(0, 500) : error.response.data);
+            const errorData = typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data);
+            console.error('[DarkVoz TTS] Data:', errorData.substring(0, 500));
+            
             if (error.response.status === 401) {
                 throw new Error('Chave do DarkVoz inválida ou expirada. Atualize a chave no painel admin.');
             }
             if (error.response.status === 403) {
                 throw new Error('Acesso negado pela API do DarkVoz. Verifique se a chave possui permissões para TTS.');
+            }
+            if (error.response.status === 400) {
+                // Erro 400 geralmente indica voz inválida ou parâmetros incorretos
+                const errorMsg = errorData.toLowerCase();
+                if (errorMsg.includes('voice') || errorMsg.includes('voz')) {
+                    throw new Error(`Voz "${voiceName}" não está disponível ou é inválida. Verifique se a voz existe no DarkVoz e tente outra voz.`);
+                }
+                throw new Error(`Erro na requisição: ${errorData.substring(0, 200)}`);
             }
             if (error.response.status === 503) {
                 throw new Error('O DarkVoz está temporariamente indisponível. Tente novamente em alguns minutos.');
@@ -3842,6 +3931,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 file_size INTEGER NOT NULL,
                 file_type TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         `);
@@ -3850,6 +3940,20 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         await db.exec(`
             CREATE INDEX IF NOT EXISTS idx_user_storage_user_id ON user_storage(user_id)
         `);
+        
+        // Migração: adicionar coluna updated_at se não existir
+        try {
+            const userStorageInfo = await db.all("PRAGMA table_info(user_storage)");
+            if (!userStorageInfo.some(c => c.name === 'updated_at')) {
+                console.log('MIGRATION: Adicionando coluna "updated_at" à tabela "user_storage"...');
+                await db.exec('ALTER TABLE user_storage ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+            }
+        } catch (err) {
+            // Ignorar se já existe
+            if (!/duplicate column name/i.test(err.message)) {
+                console.error('[MIGRATION] Erro ao adicionar coluna updated_at:', err);
+            }
+        }
         
         // Criar tabela de créditos por plano
         await db.exec(`
@@ -4766,8 +4870,8 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             }
             
             // Verificar e adicionar colunas duration_minutes e language se não existirem
-            const hasDurationMinutes = tableInfo.some(col => col.name === 'duration_minutes');
-            const hasLanguage = tableInfo.some(col => col.name === 'language');
+            const hasDurationMinutes = scriptsInfo.some(col => col.name === 'duration_minutes');
+            const hasLanguage = scriptsInfo.some(col => col.name === 'language');
             
             if (!hasDurationMinutes) {
                 console.log('MIGRATION: Adicionando coluna "duration_minutes" em generated_scripts...');
@@ -5740,72 +5844,338 @@ async function checkStorageLimit(userId, additionalSize = 0, isAdmin = false) {
     }
 }
 
-// Função auxiliar para calcular armazenamento usado pelo usuário
-async function calculateUserStorage(userId) {
+// Função auxiliar para calcular tamanho de string/texto em bytes
+function calculateTextSize(text) {
+    if (!text) return 0;
+    return Buffer.byteLength(String(text), 'utf8');
+}
+
+// Função para calcular e atualizar armazenamento usado por dados nas tabelas
+async function calculateAndUpdateDatabaseStorage(userId) {
     try {
         let totalSize = 0;
         
-        // Calcular armazenamento baseado na tabela user_storage (fonte principal)
+        // 1. PASTAS E HISTÓRICOS
+        // analysis_folders (apenas name, não tem description)
         try {
-            const userStorage = await db.all(
-                'SELECT file_size FROM user_storage WHERE user_id = ?', 
+            const folders = await db.all('SELECT name FROM analysis_folders WHERE user_id = ?', [userId]);
+            for (const folder of folders) {
+                totalSize += calculateTextSize(folder.name);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de analysis_folders:', err.message);
+        }
+        
+        // generated_scripts (roteiros)
+        try {
+            const scripts = await db.all(
+                'SELECT title, script_content, optimization_report FROM generated_scripts WHERE user_id = ?', 
                 [userId]
             );
-            
-            if (userStorage && userStorage.length > 0) {
-                for (const file of userStorage) {
-                    if (file.file_size) {
-                        totalSize += file.file_size;
-                    }
-                }
+            for (const script of scripts) {
+                totalSize += calculateTextSize(script.title);
+                totalSize += calculateTextSize(script.script_content);
+                totalSize += calculateTextSize(script.optimization_report);
             }
         } catch (err) {
-            console.error('[STORAGE] Erro ao buscar armazenamento da tabela user_storage:', err);
+            console.warn('[STORAGE] Erro ao calcular armazenamento de generated_scripts:', err.message);
         }
         
-        // Também verificar arquivos em temp_audio que contenham o userId no nome
-        // (para compatibilidade com arquivos antigos)
+        // analyzed_videos (usar colunas corretas: original_title, translated_title, analysis_data_json)
         try {
-            const fs = require('fs');
-            const path = require('path');
-            const tempAudioDir = path.join(__dirname, 'temp_audio');
-            
-            if (fs.existsSync(tempAudioDir)) {
-                const files = fs.readdirSync(tempAudioDir);
-                const userIdStr = String(userId);
-                
-                for (const file of files) {
-                    // Verificar se o arquivo pertence a este usuário (contém userId no nome)
-                    if (file.includes(userIdStr) || file.startsWith(`${userIdStr}_`) || file.includes(`_${userIdStr}_`)) {
-                        const filePath = path.join(tempAudioDir, file);
-                        try {
-                            const stats = fs.statSync(filePath);
-                            if (stats.isFile()) {
-                                totalSize += stats.size;
-                            }
-                        } catch (err) {
-                            // Ignorar erros de arquivos individuais
-                        }
-                    }
-                }
+            const videos = await db.all(
+                'SELECT original_title, translated_title, analysis_data_json FROM analyzed_videos WHERE user_id = ?', 
+                [userId]
+            );
+            for (const video of videos) {
+                totalSize += calculateTextSize(video.original_title);
+                totalSize += calculateTextSize(video.translated_title);
+                totalSize += calculateTextSize(video.analysis_data_json);
             }
         } catch (err) {
-            console.error('[STORAGE] Erro ao verificar temp_audio:', err);
+            console.warn('[STORAGE] Erro ao calcular armazenamento de analyzed_videos:', err.message);
         }
         
-        // Verificar tabela user_files (se existir) para compatibilidade
+        // 2. CANAIS MONITORADOS
+        // monitored_channels
         try {
-            const userFiles = await db.all('SELECT file_path, file_size FROM user_files WHERE user_id = ?', [userId]);
-            if (userFiles && userFiles.length > 0) {
-                for (const file of userFiles) {
-                    if (file.file_size) {
-                        totalSize += file.file_size;
-                    }
+            const channels = await db.all(
+                'SELECT channel_name, channel_url FROM monitored_channels WHERE user_id = ?', 
+                [userId]
+            );
+            for (const channel of channels) {
+                totalSize += calculateTextSize(channel.channel_name);
+                totalSize += calculateTextSize(channel.channel_url);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de monitored_channels:', err.message);
+        }
+        
+        // youtube_integrations
+        try {
+            const integrations = await db.all(
+                'SELECT channel_id, channel_name, access_token, refresh_token FROM youtube_integrations WHERE user_id = ?', 
+                [userId]
+            );
+            for (const integration of integrations) {
+                totalSize += calculateTextSize(integration.channel_id);
+                totalSize += calculateTextSize(integration.channel_name);
+                totalSize += calculateTextSize(integration.access_token);
+                totalSize += calculateTextSize(integration.refresh_token);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de youtube_integrations:', err.message);
+        }
+        
+        // pinned_videos
+        try {
+            const pinnedVideos = await db.all(
+                'SELECT youtube_video_id, video_title FROM pinned_videos WHERE user_id = ?', 
+                [userId]
+            );
+            for (const pinned of pinnedVideos) {
+                totalSize += calculateTextSize(pinned.youtube_video_id);
+                totalSize += calculateTextSize(pinned.video_title);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de pinned_videos:', err.message);
+        }
+        
+        // 3. BIBLIOTECA DE TÍTULOS E THUMBNAILS
+        // generated_titles (através de analyzed_videos)
+        try {
+            const titles = await db.all(`
+                SELECT gt.title_text, gt.explicacao 
+                FROM generated_titles gt
+                INNER JOIN analyzed_videos av ON gt.video_analysis_id = av.id
+                WHERE av.user_id = ?
+            `, [userId]);
+            for (const title of titles) {
+                totalSize += calculateTextSize(title.title_text);
+                totalSize += calculateTextSize(title.explicacao);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de generated_titles:', err.message);
+        }
+        
+        // generated_thumbnails (imagens em base64 - muito pesado)
+        try {
+            const thumbnails = await db.all(`
+                SELECT gt.base_title, gt.description, gt.hook_phrases_json, gt.generated_image_base64
+                FROM generated_thumbnails gt
+                INNER JOIN analyzed_videos av ON gt.video_analysis_id = av.id
+                WHERE av.user_id = ?
+            `, [userId]);
+            for (const thumb of thumbnails) {
+                totalSize += calculateTextSize(thumb.base_title);
+                totalSize += calculateTextSize(thumb.description);
+                totalSize += calculateTextSize(thumb.hook_phrases_json);
+                // Base64 de imagem é muito pesado
+                totalSize += calculateTextSize(thumb.generated_image_base64);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de generated_thumbnails:', err.message);
+        }
+        
+        // viral_thumbnails_library
+        try {
+            const viralThumbnails = await db.all(
+                'SELECT thumbnail_url, thumbnail_description, niche, subniche, style, elements FROM viral_thumbnails_library WHERE user_id = ?', 
+                [userId]
+            );
+            for (const thumb of viralThumbnails) {
+                totalSize += calculateTextSize(thumb.thumbnail_url);
+                totalSize += calculateTextSize(thumb.thumbnail_description);
+                totalSize += calculateTextSize(thumb.niche);
+                totalSize += calculateTextSize(thumb.subniche);
+                totalSize += calculateTextSize(thumb.style);
+                totalSize += calculateTextSize(thumb.elements);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de viral_thumbnails_library:', err.message);
+        }
+        
+        // 4. AGENTES VIRAIS
+        // viral_agents
+        try {
+            const viralAgents = await db.all(
+                'SELECT name, description, memory, instructions FROM viral_agents WHERE user_id = ?', 
+                [userId]
+            );
+            for (const agent of viralAgents) {
+                totalSize += calculateTextSize(agent.name);
+                totalSize += calculateTextSize(agent.description);
+                totalSize += calculateTextSize(agent.memory);
+                totalSize += calculateTextSize(agent.instructions);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de viral_agents:', err.message);
+        }
+        
+        // viral_agent_files
+        try {
+            const agentFiles = await db.all(`
+                SELECT vaf.file_name, vaf.file_content, vaf.file_type, vaf.file_size
+                FROM viral_agent_files vaf
+                INNER JOIN viral_agents va ON vaf.agent_id = va.id
+                WHERE va.user_id = ?
+            `, [userId]);
+            for (const file of agentFiles) {
+                totalSize += calculateTextSize(file.file_name);
+                totalSize += calculateTextSize(file.file_content);
+                totalSize += calculateTextSize(file.file_type);
+                // Se file_size estiver disponível, usar ele (mais preciso)
+                if (file.file_size) {
+                    totalSize += file.file_size;
                 }
             }
         } catch (err) {
-            // Tabela pode não existir ainda, ignorar
+            console.warn('[STORAGE] Erro ao calcular armazenamento de viral_agent_files:', err.message);
         }
+        
+        // viral_agent_messages
+        try {
+            const agentMessages = await db.all(`
+                SELECT vam.content
+                FROM viral_agent_messages vam
+                INNER JOIN viral_agent_conversations vac ON vam.conversation_id = vac.id
+                WHERE vac.user_id = ?
+            `, [userId]);
+            for (const msg of agentMessages) {
+                totalSize += calculateTextSize(msg.content);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de viral_agent_messages:', err.message);
+        }
+        
+        // script_agents
+        try {
+            const scriptAgents = await db.all(
+                'SELECT name, description, system_prompt, niche, subniche FROM script_agents WHERE user_id = ?', 
+                [userId]
+            );
+            for (const agent of scriptAgents) {
+                totalSize += calculateTextSize(agent.name);
+                totalSize += calculateTextSize(agent.description);
+                totalSize += calculateTextSize(agent.system_prompt);
+                totalSize += calculateTextSize(agent.niche);
+                totalSize += calculateTextSize(agent.subniche);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de script_agents:', err.message);
+        }
+        
+        // 5. PROMPTS E IMAGENS
+        // scene_prompts_history
+        try {
+            const scenePrompts = await db.all(
+                'SELECT title, script, scenes_json FROM scene_prompts_history WHERE user_id = ?', 
+                [userId]
+            );
+            for (const prompt of scenePrompts) {
+                totalSize += calculateTextSize(prompt.title);
+                totalSize += calculateTextSize(prompt.script);
+                totalSize += calculateTextSize(prompt.scenes_json);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de scene_prompts_history:', err.message);
+        }
+        
+        // Registrar o total calculado na tabela user_storage com um identificador único
+        const storageKey = `database_data_${userId}`;
+        const existing = await db.get(
+            'SELECT id FROM user_storage WHERE user_id = ? AND file_path = ?',
+            [userId, storageKey]
+        );
+        
+        if (existing) {
+            // Atualizar
+            try {
+                await db.run(
+                    'UPDATE user_storage SET file_size = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    [totalSize, existing.id]
+                );
+            } catch (err) {
+                // Se a coluna updated_at não existir, atualizar sem ela
+                if (err.message && err.message.includes('updated_at')) {
+                    await db.run(
+                        'UPDATE user_storage SET file_size = ? WHERE id = ?',
+                        [totalSize, existing.id]
+                    );
+                } else {
+                    throw err;
+                }
+            }
+        } else {
+            // Inserir
+            await db.run(
+                'INSERT INTO user_storage (user_id, file_path, file_size, file_type) VALUES (?, ?, ?, ?)',
+                [userId, storageKey, totalSize, 'database']
+            );
+        }
+        
+        console.log(`[STORAGE] Armazenamento de dados do banco calculado para usuário ${userId}: ${(totalSize / (1024 * 1024)).toFixed(2)} MB`);
+        
+        return totalSize;
+    } catch (error) {
+        console.error('[STORAGE] Erro ao calcular armazenamento do banco de dados:', error);
+        return 0;
+    }
+}
+
+// Função para recalcular armazenamento de forma assíncrona (não bloqueia)
+function recalculateStorageAsync(userId) {
+    // Executar de forma assíncrona sem bloquear
+    setImmediate(async () => {
+        try {
+            await calculateAndUpdateDatabaseStorage(userId);
+        } catch (error) {
+            console.error(`[STORAGE] Erro ao recalcular armazenamento assíncrono para usuário ${userId}:`, error);
+        }
+    });
+}
+
+// Função auxiliar para calcular armazenamento usado pelo usuário
+// Calcula baseado na tabela user_storage (arquivos + dados do banco)
+async function calculateUserStorage(userId, forceRecalculate = false) {
+    try {
+        // Se forçar recálculo ou se não houver registro de dados do banco, recalcular
+        const storageKey = `database_data_${userId}`;
+        let existing = null;
+        try {
+            existing = await db.get(
+                'SELECT id, updated_at FROM user_storage WHERE user_id = ? AND file_path = ?',
+                [userId, storageKey]
+            );
+        } catch (err) {
+            // Se a coluna updated_at não existir, buscar apenas id
+            if (err.message && err.message.includes('updated_at')) {
+                existing = await db.get(
+                    'SELECT id FROM user_storage WHERE user_id = ? AND file_path = ?',
+                    [userId, storageKey]
+                );
+            } else {
+                throw err;
+            }
+        }
+        
+        // Recalcular se forçado ou se não existir registro ou se o registro for muito antigo (> 1 hora)
+        const shouldRecalculate = forceRecalculate || !existing || 
+            (existing && existing.updated_at && (Date.now() - new Date(existing.updated_at).getTime() > 3600000));
+        
+        if (shouldRecalculate) {
+            await calculateAndUpdateDatabaseStorage(userId);
+        }
+        
+        // Depois, somar tudo da tabela user_storage
+        const result = await db.get(
+            'SELECT COALESCE(SUM(file_size), 0) as total_size FROM user_storage WHERE user_id = ?', 
+            [userId]
+        );
+        
+        const totalSize = result?.total_size || 0;
+        
+        console.log(`[STORAGE] Armazenamento total calculado para usuário ${userId}: ${(totalSize / (1024 * 1024)).toFixed(2)} MB`);
         
         return totalSize;
     } catch (error) {
@@ -5831,10 +6201,22 @@ async function registerUserStorage(userId, filePath, fileSize, fileType = null) 
         
         if (existing) {
             // Atualizar tamanho se mudou
-            await db.run(
-                'UPDATE user_storage SET file_size = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [fileSize, existing.id]
-            );
+            try {
+                await db.run(
+                    'UPDATE user_storage SET file_size = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    [fileSize, existing.id]
+                );
+            } catch (err) {
+                // Se a coluna updated_at não existir, atualizar sem ela
+                if (err.message && err.message.includes('updated_at')) {
+                    await db.run(
+                        'UPDATE user_storage SET file_size = ? WHERE id = ?',
+                        [fileSize, existing.id]
+                    );
+                } else {
+                    throw err;
+                }
+            }
         } else {
             // Registrar novo arquivo
             await db.run(
@@ -6034,6 +6416,34 @@ app.post('/api/user/preferences', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Erro ao salvar preferências:', error);
         res.status(500).json({ message: 'Erro ao salvar preferências' });
+    }
+});
+
+// POST /api/storage/recalculate - Forçar recálculo do armazenamento
+app.post('/api/storage/recalculate', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Forçar recálculo completo
+        await calculateUserStorage(userId, true);
+        
+        // Obter o resultado atualizado
+        const result = await db.get(
+            'SELECT COALESCE(SUM(file_size), 0) as total_size FROM user_storage WHERE user_id = ?', 
+            [userId]
+        );
+        
+        const totalSize = result?.total_size || 0;
+        
+        res.json({ 
+            success: true, 
+            message: 'Armazenamento recalculado com sucesso',
+            storageUsed: totalSize,
+            storageUsedMB: (totalSize / (1024 * 1024)).toFixed(2)
+        });
+    } catch (error) {
+        console.error('[STORAGE] Erro ao recalcular armazenamento:', error);
+        res.status(500).json({ message: 'Erro ao recalcular armazenamento', error: error.message });
     }
 });
 
@@ -11079,6 +11489,11 @@ async function processScriptTtsJob(jobId, jobData) {
                 validTempFiles.push(tempPath);
                 tempFilePaths.push(tempPath);
                 
+                // Registrar arquivo no banco de dados para controle de armazenamento
+                if (jobData.userId) {
+                    await registerUserStorage(jobData.userId, tempPath, audioBuffer.length, 'audio');
+                }
+                
                 console.log(`✅ Parte ${i + 1}/${chunks.length} gerada: ${audioBuffer.length} bytes`);
                 
                 // Delay entre partes
@@ -11095,19 +11510,32 @@ async function processScriptTtsJob(jobId, jobData) {
                         data: chunkError.response.data
                     } : null,
                     provider: actualProvider || jobData.provider,
+                    voice: jobData.voice,
                     chunkLength: chunks[i].length,
                     chunkPreview: chunks[i].substring(0, 100)
                 });
+                
                 // Se for erro crítico (não de rede), parar o processamento
-                if (chunkError.message && (
+                const isCriticalError = chunkError.message && (
                     chunkError.message.includes('manutenção') ||
                     chunkError.message.includes('API Key') ||
                     chunkError.message.includes('inválida') ||
-                    chunkError.message.includes('indisponível')
-                )) {
-                    throw chunkError; // Parar processamento se for erro crítico
+                    chunkError.message.includes('indisponível') ||
+                    chunkError.message.includes('não está disponível') ||
+                    chunkError.message.includes('não existe') ||
+                    chunkError.message.includes('voz') && chunkError.message.includes('inválida') ||
+                    (chunkError.response && chunkError.response.status === 400) // Erro 400 geralmente indica parâmetros inválidos
+                );
+                
+                if (isCriticalError) {
+                    // Se for primeira parte e erro crítico, parar imediatamente
+                    if (i === 0) {
+                        throw chunkError; // Parar processamento se for erro crítico na primeira parte
+                    }
+                    // Se for erro crítico em partes subsequentes, também parar para evitar desperdício
+                    throw chunkError;
                 }
-                // Continuar com outras partes mesmo se uma falhar (apenas para erros não críticos)
+                // Continuar com outras partes mesmo se uma falhar (apenas para erros não críticos como timeout de rede)
             }
         }
         
@@ -11183,6 +11611,15 @@ async function processScriptTtsJob(jobId, jobData) {
             const finalBase64 = finalAudio.toString('base64');
             job.downloadUrl = `data:audio/${audioExt};base64,${finalBase64}`;
             tempFilePaths.push(finalPath);
+            
+            // Registrar arquivo final no banco de dados para controle de armazenamento
+            if (jobData.userId) {
+                await registerUserStorage(jobData.userId, finalPath, finalAudio.length, 'audio');
+                // Remover registros das partes individuais já que temos o arquivo final
+                for (const partPath of validTempFiles) {
+                    await unregisterUserStorage(jobData.userId, partPath);
+                }
+            }
         } else {
             // CASO 3: FFmpeg não disponível → retornar partes separadas
             job.message = `⚠️ ${validTempFiles.length} partes geradas (FFmpeg não disponível para concatenação)`;
@@ -11216,9 +11653,13 @@ async function processScriptTtsJob(jobId, jobData) {
             }
         }
     } finally {
-        // Limpar arquivos temporários
+        // Limpar arquivos temporários e remover registros do banco de dados
         for (const filePath of tempFilePaths) {
             try {
+                // Remover registro do banco de dados antes de deletar o arquivo
+                if (jobData.userId) {
+                    await unregisterUserStorage(jobData.userId, filePath);
+                }
                 await fs.promises.unlink(filePath);
             } catch (unlinkError) {
                 console.warn(`Não foi possível excluir o arquivo temporário ${filePath}: ${unlinkError.message}`);
@@ -12156,12 +12597,6 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         if (!db) {
             return res.status(503).json({ msg: 'Banco de dados não está disponível. Aguarde alguns instantes.' });
         }
-        
-        // SEMPRE usar laozhang.ai
-        const laozhangKey = await getLaozhangApiKey();
-        if (!laozhangKey) {
-            return res.status(400).json({ msg: 'Provedor externo não configurado no painel admin. Configure a chave de API primeiro.' });
-        }
 
         // Determinar qual modelo usar (se especificado, usar ele; senão, usar gpt-4o como padrão)
         let modelToUse = requestedModel || 'gpt-4o';
@@ -12174,7 +12609,75 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             modelToUse = 'gemini-2.5-pro';
         }
 
-        const userId = req.user.id;
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        let useLaozhang = false;
+        let apiKeyToUse = null;
+        let serviceToUse = null;
+        let apiCallFunction = null;
+        
+        try {
+            const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
+            
+            if (creditsCheck.shouldUse) {
+                // Se deve usar créditos, usar laozhang.ai
+                const laozhangKey = await getLaozhangApiKey();
+                if (laozhangKey) {
+                    useLaozhang = true;
+                    apiKeyToUse = laozhangKey;
+                    serviceToUse = 'laozhang';
+                    apiCallFunction = callLaozhangAPI;
+                    console.log(`[Análise Laozhang] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+                } else {
+                    console.warn('[Análise Laozhang] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+                }
+            } else {
+                console.log(`[Análise Laozhang] ✅ Usando API própria (${creditsCheck.reason})`);
+            }
+        } catch (err) {
+            console.warn('[Análise Laozhang] Erro ao verificar uso de créditos:', err.message);
+        }
+        
+        // Se não usar laozhang.ai, usar APIs próprias do usuário
+        if (!useLaozhang) {
+            // Determinar qual serviço usar baseado no modelo
+            if (modelToUse.includes('claude') || modelToUse.includes('sonnet')) {
+                serviceToUse = 'claude';
+            } else if (modelToUse.includes('gemini')) {
+                serviceToUse = 'gemini';
+            } else if (modelToUse.includes('gpt') || modelToUse.includes('openai')) {
+                serviceToUse = 'openai';
+            } else {
+                serviceToUse = 'gemini'; // fallback
+            }
+            
+            // Buscar API key do serviço apropriado
+            const keyData = await db.get(
+                'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                [userId, serviceToUse]
+            );
+            
+            if (!keyData || !keyData.api_key) {
+                return res.status(400).json({ 
+                    msg: `API key do ${serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'gemini' ? 'Gemini' : 'Claude'} não configurada. Configure nas Configurações.` 
+                });
+            }
+            
+            apiKeyToUse = decrypt(keyData.api_key);
+            if (!apiKeyToUse) {
+                return res.status(500).json({ msg: 'Erro ao descriptografar API key.' });
+            }
+            
+            // Definir função de API apropriada
+            if (serviceToUse === 'gemini') {
+                apiCallFunction = callGeminiAPI;
+            } else if (serviceToUse === 'claude') {
+                apiCallFunction = callClaudeAPI;
+            } else {
+                apiCallFunction = callOpenAIAPI;
+            }
+        }
 
         // Mineração de dados (mesma lógica da rota original)
         console.log(`[Análise Laozhang] A iniciar mineração para: ${videoUrl}`);
@@ -12273,21 +12776,32 @@ FORMATO DE RESPOSTA (JSON):
 
 IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
 
-        console.log('[Análise Laozhang] A chamar Laozhang.ai...');
-        const response = await callLaozhangAPI(
-            titlePrompt, 
-            laozhangKey, 
-            modelToUse, 
-            null, 
-            userId, 
-            '/api/analyze/titles/laozhang', 
-            JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: modelToUse })
-        );
+        // Chamar API apropriada (Laozhang ou API própria)
+        let response;
+        let responseText;
         
-        // callLaozhangAPI retorna string diretamente agora
-        const responseText = typeof response === 'string' ? response.trim() : JSON.stringify(response);
-        console.log('[Análise Laozhang] Resposta recebida (primeiros 500 chars):', responseText.substring(0, 500));
-        const parsedData = parseAIResponse(responseText, 'Laozhang.ai');
+        if (useLaozhang) {
+            console.log('[Análise Laozhang] A chamar Laozhang.ai...');
+            response = await callLaozhangAPI(
+                titlePrompt, 
+                apiKeyToUse, 
+                modelToUse, 
+                null, 
+                userId, 
+                '/api/analyze/titles/laozhang', 
+                JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: modelToUse })
+            );
+            // callLaozhangAPI retorna string diretamente agora
+            responseText = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        } else {
+            console.log(`[Análise Laozhang] A chamar API própria (${serviceToUse})...`);
+            const apiResponse = await apiCallFunction(titlePrompt, apiKeyToUse, modelToUse);
+            // APIs próprias retornam objeto com propriedade titles
+            responseText = typeof apiResponse === 'string' ? apiResponse.trim() : (apiResponse.titles || JSON.stringify(apiResponse));
+        }
+        console.log(`[Análise Laozhang] Resposta recebida (primeiros 500 chars):`, responseText.substring(0, 500));
+        const serviceNameForParse = useLaozhang ? 'Laozhang.ai' : (serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'claude' ? 'Claude' : 'Gemini');
+        const parsedData = parseAIResponse(responseText, serviceNameForParse);
         
         if (!parsedData.analiseOriginal) {
             throw new Error("A IA retornou uma análise incompleta.");
@@ -12770,20 +13284,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
     thumbnailRule = thumbnailRule || 'auto';
 
     try {
-        // Verificar se Laozhang está configurado como padrão
-        const laozhangSettings = await db.get('SELECT laozhang_use_as_default FROM app_settings LIMIT 1');
-        const useLaozhang = laozhangSettings && (laozhangSettings.laozhang_use_as_default === 1 || laozhangSettings.laozhang_use_as_default === true);
-        
-        if (useLaozhang) {
-            // Redirecionar para rota Laozhang
-            const laozhangKeyData = await db.get('SELECT api_key FROM app_settings WHERE setting_key = ?', ['laozhang_api_key']);
-            if (!laozhangKeyData || !laozhangKeyData.api_key) {
-                return res.status(400).json({ msg: 'Provedor externo configurado como padrão, mas chave não encontrada.' });
-            }
-            // Continuar com rota normal mas usando Laozhang internamente
-        }
-        
-        // --- 1. Identificar serviço e buscar chaves ---
+        // --- 1. Identificar serviço e verificar preferências ---
         let service;
         
         // Mapear modelos corretamente
@@ -12807,10 +13308,44 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             model = 'gemini-2.5-pro';
         }
 
-        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-        if (!keyData) return res.status(400).json({ msg: `Chave de API do ${service} não configurada.` });
-        const decryptedKey = decrypt(keyData.api_key);
-        if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        let useLaozhang = false;
+        let decryptedKey = null;
+        
+        try {
+            let preferenceOrder = ['claude', 'openai', 'gemini'];
+            if (service === 'gemini') preferenceOrder = ['gemini', 'claude', 'openai'];
+            else if (service === 'claude') preferenceOrder = ['claude', 'openai', 'gemini'];
+            else if (service === 'openai') preferenceOrder = ['openai', 'claude', 'gemini'];
+            
+            const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
+            
+            if (creditsCheck.shouldUse) {
+                // Se deve usar créditos, usar laozhang.ai
+                const laozhangKey = await getLaozhangApiKey();
+                if (laozhangKey) {
+                    useLaozhang = true;
+                    decryptedKey = laozhangKey;
+                    console.log(`[Analyze Thumbnail] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+                } else {
+                    console.warn('[Analyze Thumbnail] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+                }
+            } else {
+                console.log(`[Analyze Thumbnail] ✅ Usando API própria (${creditsCheck.reason})`);
+            }
+        } catch (err) {
+            console.warn('[Analyze Thumbnail] Erro ao verificar uso de créditos:', err.message);
+        }
+        
+        // Se não usar laozhang.ai, buscar API própria do usuário
+        if (!useLaozhang) {
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (!keyData) return res.status(400).json({ msg: `Chave de API do ${service} não configurada.` });
+            decryptedKey = decrypt(keyData.api_key);
+            if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
+        }
         
         const geminiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'gemini']);
         const geminiApiKey = decrypt(geminiKeyData.api_key);
@@ -13862,19 +14397,38 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         
         // --- 4. Chamar a API Multimodal com fallback ---
         let apiCallFunction;
-        if (service === 'gemini') apiCallFunction = callGeminiAPI;
-        else if (service === 'claude') apiCallFunction = callClaudeAPI;
-        else if (service === 'openai') apiCallFunction = callOpenAIAPI;
+        if (useLaozhang) {
+            apiCallFunction = callLaozhangAPI;
+        } else {
+            if (service === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (service === 'claude') apiCallFunction = callClaudeAPI;
+            else if (service === 'openai') apiCallFunction = callOpenAIAPI;
+        }
         
-        console.log(`[Análise-Thumb] A chamar ${service} com o modelo ${model}...`);
+        console.log(`[Análise-Thumb] A chamar ${useLaozhang ? 'Laozhang.ai' : service} com o modelo ${model}...`);
         
         let response;
         let parsedData;
-        let successfulService = service;
+        let successfulService = useLaozhang ? 'laozhang' : service;
         
         try {
-            response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
-            parsedData = parseAIResponse(response.titles, service);
+            if (useLaozhang) {
+                response = await callLaozhangAPI(
+                    thumbPrompt, 
+                    decryptedKey, 
+                    model, 
+                    videoDetails.thumbnailUrl, 
+                    userId, 
+                    '/api/analyze/thumbnail', 
+                    JSON.stringify({ endpoint: '/api/analyze/thumbnail', model })
+                );
+                // callLaozhangAPI retorna string diretamente
+                response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+                response = { titles: response };
+            } else {
+                response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
+            }
+            parsedData = parseAIResponse(response.titles, successfulService);
             
             if (!parsedData.ideias || !Array.isArray(parsedData.ideias) || parsedData.ideias.length === 0) {
                 throw new Error("A IA não retornou o array 'ideias' esperado.");
@@ -14047,31 +14601,81 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
     thumbnailRule = thumbnailRule || 'auto';
 
     try {
-        const laozhangApiKey = await getLaozhangApiKey();
-        if (!laozhangApiKey) {
-            return res.status(400).json({ msg: 'Chave de API do provedor externo não configurada no painel admin.' });
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        
+        // Determinar ordem de preferência baseado no modelo
+        let preferenceOrder = ['claude', 'openai', 'gemini'];
+        if (modelToUse && modelToUse.includes('gemini')) preferenceOrder = ['gemini', 'claude', 'openai'];
+        else if (modelToUse && modelToUse.includes('claude')) preferenceOrder = ['claude', 'openai', 'gemini'];
+        else if (modelToUse && modelToUse.includes('gpt')) preferenceOrder = ['openai', 'claude', 'gemini'];
+        
+        const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
+        
+        let useLaozhang = false;
+        let apiKeyToUse = null;
+        let serviceToUse = null;
+        let apiCallFunction = null;
+        
+        if (creditsCheck.shouldUse) {
+            // Se deve usar créditos, usar laozhang.ai
+            const laozhangKey = await getLaozhangApiKey();
+            if (laozhangKey) {
+                useLaozhang = true;
+                apiKeyToUse = laozhangKey;
+                serviceToUse = 'laozhang';
+                apiCallFunction = callLaozhangAPI;
+                console.log(`[Thumbnail] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+            } else {
+                console.warn('[Thumbnail] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+            }
+        } else {
+            console.log(`[Thumbnail] ✅ Usando API própria (${creditsCheck.reason})`);
+        }
+        
+        // Se não usar laozhang.ai, usar APIs próprias do usuário
+        if (!useLaozhang) {
+            // Determinar serviço baseado no modelo
+            if (modelToUse && modelToUse.includes('gemini')) serviceToUse = 'gemini';
+            else if (modelToUse && modelToUse.includes('claude')) serviceToUse = 'claude';
+            else if (modelToUse && modelToUse.includes('gpt')) serviceToUse = 'openai';
+            else serviceToUse = 'gemini'; // fallback
+            
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, serviceToUse]);
+            if (!keyData) return res.status(400).json({ msg: `Chave de API do ${serviceToUse} não configurada.` });
+            
+            apiKeyToUse = decrypt(keyData.api_key);
+            if (!apiKeyToUse) return res.status(500).json({ msg: 'Falha ao descriptografar a sua chave de API.' });
+            
+            if (serviceToUse === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (serviceToUse === 'claude') apiCallFunction = callClaudeAPI;
+            else apiCallFunction = callOpenAIAPI;
         }
 
-        // Mapear modelo selecionado para modelo Laozhang
-        // O frontend envia: 'gpt-4o', 'claude-3-7-sonnet-20250219', 'gemini-2.5-pro'
-        let laozhangModel;
-        if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
-            laozhangModel = 'gpt-4o';
-        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
-            laozhangModel = 'claude-3-7-sonnet-20250219';
-        } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
-            laozhangModel = 'gemini-2.5-pro';
-        } else if (modelToUse && modelToUse.includes('claude')) {
-            laozhangModel = 'claude-3-7-sonnet-20250219';
-        } else if (modelToUse && modelToUse.includes('gemini')) {
-            laozhangModel = 'gemini-2.5-pro';
-        } else if (modelToUse && modelToUse.includes('gpt')) {
-            laozhangModel = 'gpt-4o';
+        if (useLaozhang) {
+            // Mapear para modelo Laozhang
+            if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
+                modelForAPI = 'gpt-4o';
+            } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
+                modelForAPI = 'claude-3-7-sonnet-20250219';
+            } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
+                modelForAPI = 'gemini-2.5-pro';
+            } else if (modelToUse && modelToUse.includes('claude')) {
+                modelForAPI = 'claude-3-7-sonnet-20250219';
+            } else if (modelToUse && modelToUse.includes('gemini')) {
+                modelForAPI = 'gemini-2.5-pro';
+            } else if (modelToUse && modelToUse.includes('gpt')) {
+                modelForAPI = 'gpt-4o';
+            } else {
+                console.warn(`[Thumbnail] ⚠️ Modelo não reconhecido: "${modelToUse}", usando 'gpt-4o' como fallback`);
+                modelForAPI = 'gpt-4o';
+            }
         } else {
-            console.warn(`[Thumbnail Laozhang] ⚠️ Modelo não reconhecido: "${modelToUse}", usando 'gpt-4o' como fallback`);
-            laozhangModel = 'gpt-4o'; // Fallback apenas se não conseguir identificar
+            // Usar modelo original para API própria
+            modelForAPI = modelToUse;
         }
-        console.log(`[Thumbnail Laozhang] Modelo recebido: "${modelToUse}" -> Mapeado para API: "${laozhangModel}"`);
+        console.log(`[Thumbnail] Modelo recebido: "${modelToUse}" -> Mapeado para API: "${modelForAPI}" (${useLaozhang ? 'Laozhang' : serviceToUse})`);
 
         // Buscar chave do YouTube primeiro (prioridade)
         let videoDetails = null;
@@ -14274,15 +14878,27 @@ Retorne APENAS JSON válido:
   ]
 }`;
 
-        const response = await callLaozhangAPI(
-            thumbPrompt,
-            laozhangApiKey,
-            laozhangModel,
-            videoDetails.thumbnailUrl,
-            userId,
-            'api_analyze_thumbnail',
-            JSON.stringify({ endpoint: '/api/analyze/thumbnail/laozhang', model: laozhangModel })
-        );
+        // Chamar API apropriada
+        let response;
+        if (useLaozhang) {
+            response = await callLaozhangAPI(
+                thumbPrompt,
+                apiKeyToUse,
+                modelForAPI,
+                videoDetails.thumbnailUrl,
+                userId,
+                '/api/analyze/thumbnail/laozhang',
+                JSON.stringify({ endpoint: '/api/analyze/thumbnail/laozhang', model: modelForAPI })
+            );
+            // callLaozhangAPI retorna string diretamente
+            response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        } else {
+            response = await apiCallFunction(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl);
+            // APIs próprias retornam objeto com propriedade titles
+            if (response && typeof response === 'object' && response.titles) {
+                response = response.titles;
+            }
+        }
 
         // Parsear resposta
         let parsedData;
@@ -14380,7 +14996,8 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
 
     try {
         // Verificar se deve usar créditos (laozhang.ai) ou API própria
-        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
         let service = 'gemini';
         if (model.includes('claude') || model.includes('sonnet')) {
             service = 'claude';
@@ -20451,6 +21068,85 @@ app.post('/api/viral-agents/:agentId/conversations', authenticateToken, async (r
 });
 
 // Rota para enviar mensagem para um agente viral (chat) - COM STREAMING
+// Função helper para remover avaliação do roteiro e extrair nota/checklist
+function removeAvaliacaoFromRoteiro(roteiroTexto) {
+    let nota = null;
+    let checklist = null;
+    let roteiroFinal = roteiroTexto ? roteiroTexto.trim() : '';
+    
+    if (!roteiroFinal) {
+        return { roteiroFinal: '', nota: null, checklist: null };
+    }
+    
+    // Remover a seção completa de avaliação (texto + JSON)
+    const avaliacaoRegex = /#\s*📊\s*AVALIAÇÃO\s*DO\s*ROTEIRO[\s\S]*$/i;
+    if (avaliacaoRegex.test(roteiroFinal)) {
+        // Encontrar onde começa a avaliação
+        const avaliacaoIndex = roteiroFinal.search(avaliacaoRegex);
+        if (avaliacaoIndex !== -1) {
+            // Extrair JSON da avaliação antes de remover
+            const parteAvaliacao = roteiroFinal.substring(avaliacaoIndex);
+            const jsonMatch = parteAvaliacao.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+            if (jsonMatch) {
+                try {
+                    const avaliacao = JSON.parse(jsonMatch[0]);
+                    nota = avaliacao.nota;
+                    checklist = avaliacao.checklist || null;
+                } catch (e) {
+                    // Tentar extrair nota do texto
+                    const notaMatch = parteAvaliacao.match(/nota[:\s]*(\d+)\/10/i);
+                    if (notaMatch) {
+                        nota = parseInt(notaMatch[1]);
+                    }
+                }
+            } else {
+                // Tentar extrair nota do texto se não houver JSON
+                const notaMatch = parteAvaliacao.match(/nota[:\s]*(\d+)\/10/i);
+                if (notaMatch) {
+                    nota = parseInt(notaMatch[1]);
+                }
+            }
+            // Remover toda a seção de avaliação
+            roteiroFinal = roteiroFinal.substring(0, avaliacaoIndex).trim();
+        }
+    } else {
+        // Se não encontrar a seção completa, tentar remover apenas o JSON
+        const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+        if (jsonMatch) {
+            try {
+                const avaliacao = JSON.parse(jsonMatch[0]);
+                nota = avaliacao.nota;
+                checklist = avaliacao.checklist || null;
+                roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+            } catch (e) {
+                const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
+                if (notaMatch) {
+                    nota = parseInt(notaMatch[1]);
+                    roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                }
+            }
+        }
+    }
+    
+    // Remover também qualquer texto relacionado à avaliação que possa ter ficado
+    roteiroFinal = roteiroFinal.replace(/Análise da Avaliação:[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/Pontos Fortes:[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/Área de Melhoria:[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/GANCHO INICIAL[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/ESTRUTURA NARRATIVA[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/ENGAJAMENTO EMOCIONAL[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/DENSIDADE DE VALOR[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/TÉCNICAS DE RETENÇÃO[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/LINGUAGEM E TOM[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/ELEMENTOS ESTRUTURAIS[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/LOOPS ABERTOS[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/VARIAÇÃO EMOCIONAL[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/FINAL SATISFATÓRIO[\s\S]*$/i, '').trim();
+    roteiroFinal = roteiroFinal.replace(/```json[\s\S]*?```/gi, '').trim();
+    
+    return { roteiroFinal, nota, checklist };
+}
+
 app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) => {
         const { agentId } = req.params;
         const { conversation_id, message, model: requestModel, stream = true } = req.body;
@@ -20555,24 +21251,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         systemPrompt += `- Se as instruções pedirem um formato específico, use EXATAMENTE esse formato\n`;
         systemPrompt += `- Se a memória descrever o propósito do agente, mantenha esse propósito em todas as respostas\n\n`;
         
-        // Adicionar instrução para gerar avaliação separadamente (não no roteiro)
-        systemPrompt += `# 📊 AVALIAÇÃO DO ROTEIRO\n`;
-        systemPrompt += `Após finalizar o roteiro completo, gere uma avaliação separada no formato JSON:\n`;
-        systemPrompt += `{"nota": X, "checklist": {"gancho_inicial": true/false, "estrutura_narrativa": true/false, "engajamento_emocional": true/false, "densidade_valor": true/false, "tecnicas_retencao": true/false, "linguagem_tom": true/false, "elementos_estruturais": true/false, "loops_abertos": true/false, "variacao_emocional": true/false, "final_satisfatorio": true/false}}\n`;
-        systemPrompt += `Onde X é uma nota de 1 a 10 baseada nos critérios:\n`;
-        systemPrompt += `1. GANCHO INICIAL (0-30 segundos): Abertura magnética que cria "lacuna de curiosidade". Promessa clara do valor do vídeo.\n`;
-        systemPrompt += `2. ESTRUTURA NARRATIVA: Arco dramático completo, ritmo variado, transições fluidas.\n`;
-        systemPrompt += `3. ENGAJAMENTO EMOCIONAL: Apelo a emoções primárias, personagens identificáveis, stakes claros.\n`;
-        systemPrompt += `4. DENSIDADE DE VALOR: Informação surpreendente a cada 30-60s, especificidade, sem enchimento.\n`;
-        systemPrompt += `5. TÉCNICAS DE RETENÇÃO: Pattern interrupts, foreshadowing, cliffhangers internos, payoff satisfatório.\n`;
-        systemPrompt += `6. LINGUAGEM E TOM: Voz ativa, frases variadas, naturalidade, vocabulário acessível.\n`;
-        systemPrompt += `7. ELEMENTOS ESTRUTURAIS: Duração otimizada, CTA orgânica, final memorável.\n`;
-        systemPrompt += `8. LOOPS ABERTOS: Loops abertos sendo fechados no momento certo.\n`;
-        systemPrompt += `9. VARIAÇÃO EMOCIONAL: A emoção varia ao longo do roteiro.\n`;
-        systemPrompt += `10. FINAL SATISFATÓRIO: Todas as promessas cumpridas, final memorável.\n`;
-        systemPrompt += `Avalie cada critério como true/false e calcule a nota baseada na quantidade de critérios atendidos.\n\n`;
-        
-        // INSTRUÇÃO CRÍTICA: Gerar roteiro completo
+        // INSTRUÇÃO CRÍTICA: Gerar roteiro completo (SEM avaliação)
         systemPrompt += `# 🎬 INSTRUÇÃO FINAL - CRÍTICA\n\n`;
         systemPrompt += `VOCÊ DEVE:\n`;
         systemPrompt += `1. Seguir RIGOROSAMENTE as INSTRUÇÕES e MEMÓRIA configuradas acima\n`;
@@ -20581,7 +21260,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
         systemPrompt += `4. NÃO pare no meio do roteiro - complete TODA a história até o final\n`;
         systemPrompt += `5. NÃO corte o roteiro - continue até concluir completamente a narrativa\n`;
         systemPrompt += `6. Use a memória para personalizar o roteiro ao contexto do usuário\n`;
-        systemPrompt += `7. Após o roteiro completo, adicione a avaliação JSON no final\n`;
+        systemPrompt += `7. NÃO inclua avaliações, análises ou comentários sobre o roteiro - apenas o roteiro em si\n`;
         systemPrompt += `8. Se o roteiro for longo, continue escrevendo até o final - NÃO pare antes de concluir\n\n`;
         systemPrompt += `IMPORTANTE: Se as instruções pedirem um formato específico de roteiro, use EXATAMENTE esse formato.\n`;
         systemPrompt += `Se a memória descrever o propósito do agente, mantenha esse propósito ao gerar o roteiro.\n`;
@@ -20718,7 +21397,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             fullPrompt += `4. NÃO pare no meio - complete TODA a história/roteiro até o final\n`;
             fullPrompt += `5. NÃO corte o roteiro - continue escrevendo até concluir completamente\n`;
             fullPrompt += `6. Use a memória para personalizar o roteiro ao contexto\n`;
-            fullPrompt += `7. Após o roteiro completo, adicione a avaliação JSON no final\n`;
+            fullPrompt += `7. NÃO inclua avaliações, análises ou comentários - apenas o roteiro em si\n`;
             fullPrompt += `8. Você tem até 16384 tokens disponíveis - use TODOS se necessário para completar o roteiro\n\n`;
             fullPrompt += `Agora gere sua resposta seguindo essas instruções:\n\n`;
             fullPrompt += `Assistente:`;
@@ -20891,21 +21570,63 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                         let roteiroFinal = fullMessage.trim();
                         
                         if (roteiroFinal) {
-                            const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-                            if (jsonMatch) {
-                                try {
-                                    const avaliacao = JSON.parse(jsonMatch[0]);
-                                    nota = avaliacao.nota;
-                                    checklist = avaliacao.checklist || null;
-                                    roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-                                } catch (e) {
-                                    const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
-                                    if (notaMatch) {
-                                        nota = parseInt(notaMatch[1]);
-                                        roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                            // Remover a seção completa de avaliação (texto + JSON)
+                            // Procura por "# 📊 AVALIAÇÃO DO ROTEIRO" ou variações e remove tudo até o final
+                            const avaliacaoRegex = /#\s*📊\s*AVALIAÇÃO\s*DO\s*ROTEIRO[\s\S]*$/i;
+                            if (avaliacaoRegex.test(roteiroFinal)) {
+                                // Encontrar onde começa a avaliação
+                                const avaliacaoIndex = roteiroFinal.search(avaliacaoRegex);
+                                if (avaliacaoIndex !== -1) {
+                                    // Extrair JSON da avaliação antes de remover
+                                    const parteAvaliacao = roteiroFinal.substring(avaliacaoIndex);
+                                    const jsonMatch = parteAvaliacao.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                    if (jsonMatch) {
+                                        try {
+                                            const avaliacao = JSON.parse(jsonMatch[0]);
+                                            nota = avaliacao.nota;
+                                            checklist = avaliacao.checklist || null;
+                                        } catch (e) {
+                                            // Tentar extrair nota do texto
+                                            const notaMatch = parteAvaliacao.match(/nota[:\s]*(\d+)\/10/i);
+                                            if (notaMatch) {
+                                                nota = parseInt(notaMatch[1]);
+                                            }
+                                        }
+                                    } else {
+                                        // Tentar extrair nota do texto se não houver JSON
+                                        const notaMatch = parteAvaliacao.match(/nota[:\s]*(\d+)\/10/i);
+                                        if (notaMatch) {
+                                            nota = parseInt(notaMatch[1]);
+                                        }
+                                    }
+                                    // Remover toda a seção de avaliação
+                                    roteiroFinal = roteiroFinal.substring(0, avaliacaoIndex).trim();
+                                }
+                            } else {
+                                // Se não encontrar a seção completa, tentar remover apenas o JSON
+                                const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
+                                if (jsonMatch) {
+                                    try {
+                                        const avaliacao = JSON.parse(jsonMatch[0]);
+                                        nota = avaliacao.nota;
+                                        checklist = avaliacao.checklist || null;
+                                        roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
+                                    } catch (e) {
+                                        const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
+                                        if (notaMatch) {
+                                            nota = parseInt(notaMatch[1]);
+                                            roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
+                                        }
                                     }
                                 }
                             }
+                            
+                            // Remover também qualquer texto relacionado à avaliação que possa ter ficado
+                            roteiroFinal = roteiroFinal.replace(/Análise da Avaliação:[\s\S]*$/i, '').trim();
+                            roteiroFinal = roteiroFinal.replace(/Pontos Fortes:[\s\S]*$/i, '').trim();
+                            roteiroFinal = roteiroFinal.replace(/Área de Melhoria:[\s\S]*$/i, '').trim();
+                            roteiroFinal = roteiroFinal.replace(/GANCHO INICIAL[\s\S]*$/i, '').trim();
+                            roteiroFinal = roteiroFinal.replace(/ESTRUTURA NARRATIVA[\s\S]*$/i, '').trim();
                             
                             // Salvar mensagem no banco (CRÍTICO: sempre salvar)
                             await db.run(
@@ -21040,26 +21761,8 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     assistantMessage = await callLaozhangAPI(promptWithMarker, laozhangApiKey, laozhangModel, null, userId, 'viral_agent_chat', JSON.stringify({ agent_id: agentId, conversation_id: conversation_id, model: laozhangModel }));
                     console.log('[Viral Agents] ✅ Resposta recebida, tamanho:', assistantMessage?.length || 0);
                     
-                    // Extrair nota e checklist do JSON (se houver) - modo não-streaming laozhang
-                    let nota = null;
-                    let checklist = null;
-                    let roteiroFinal = assistantMessage;
-                    
-                    const jsonMatch = assistantMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-                    if (jsonMatch) {
-                        try {
-                            const avaliacao = JSON.parse(jsonMatch[0]);
-                            nota = avaliacao.nota;
-                            checklist = avaliacao.checklist || null;
-                            roteiroFinal = assistantMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-                        } catch (e) {
-                            const notaMatch = assistantMessage.match(/nota[:\s]*(\d+)\/10/i);
-                            if (notaMatch) {
-                                nota = parseInt(notaMatch[1]);
-                                roteiroFinal = assistantMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
-                            }
-                        }
-                    }
+                    // Extrair nota e checklist usando função helper - modo não-streaming laozhang
+                    const { roteiroFinal, nota, checklist } = removeAvaliacaoFromRoteiro(assistantMessage);
                     
                     // Salvar roteiro completo (sem a nota)
                     await db.run(
@@ -21194,29 +21897,8 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                                     if (data === '[DONE]') {
                                         clearTimeout(timeoutId);
                                         
-                                        // Extrair nota e checklist do JSON (se houver)
-                                        let nota = null;
-                                        let checklist = null;
-                                        let roteiroFinal = fullMessage;
-                                        
-                                        // Tentar encontrar JSON no final da mensagem
-                                        const jsonMatch = fullMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-                                        if (jsonMatch) {
-                                            try {
-                                                const avaliacao = JSON.parse(jsonMatch[0]);
-                                                nota = avaliacao.nota;
-                                                checklist = avaliacao.checklist || null;
-                                                // Remover JSON do roteiro
-                                                roteiroFinal = fullMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-                                            } catch (e) {
-                                                // Se não conseguir parsear, tentar extrair nota manualmente
-                                                const notaMatch = fullMessage.match(/nota[:\s]*(\d+)\/10/i);
-                                                if (notaMatch) {
-                                                    nota = parseInt(notaMatch[1]);
-                                                    roteiroFinal = fullMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
-                                                }
-                                            }
-                                        }
+                                        // Extrair nota e checklist usando função helper
+                                        const { roteiroFinal, nota, checklist } = removeAvaliacaoFromRoteiro(fullMessage);
                                         
                                         // Salvar roteiro completo (sem a nota)
                                         await db.run(
@@ -21267,26 +21949,8 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                         if (fullMessage.trim()) {
                             clearTimeout(timeoutId);
                             
-                            // Extrair nota e checklist
-                            let nota = null;
-                            let checklist = null;
-                            let roteiroFinal = fullMessage.trim();
-                            
-                            const jsonMatch = roteiroFinal.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-                            if (jsonMatch) {
-                                try {
-                                    const avaliacao = JSON.parse(jsonMatch[0]);
-                                    nota = avaliacao.nota;
-                                    checklist = avaliacao.checklist || null;
-                                    roteiroFinal = roteiroFinal.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-                                } catch (e) {
-                                    const notaMatch = roteiroFinal.match(/nota[:\s]*(\d+)\/10/i);
-                                    if (notaMatch) {
-                                        nota = parseInt(notaMatch[1]);
-                                        roteiroFinal = roteiroFinal.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
-                                    }
-                                }
-                            }
+                            // Extrair nota e checklist usando função helper
+                            const { roteiroFinal, nota, checklist } = removeAvaliacaoFromRoteiro(fullMessage);
                             
                             // Salvar mensagem
                             await db.run(
@@ -21562,29 +22226,15 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             assistantMessage = result.response.text();
         }
 
-        // Extrair nota e pontos fortes do JSON (se houver) - modo não-streaming
+        // Extrair nota e checklist usando função helper - modo não-streaming
         let nota = null;
-        let pontosFortes = [];
-        let roteiroFinal = assistantMessage;
-        
-        // Tentar encontrar JSON no final da mensagem
-        const jsonMatch = assistantMessage.match(/\{[\s\S]*"nota"[\s\S]*\}/);
-        if (jsonMatch) {
-            try {
-                const avaliacao = JSON.parse(jsonMatch[0]);
-                nota = avaliacao.nota;
-                                                checklist = avaliacao.checklist || null;
-                // Remover JSON do roteiro
-                roteiroFinal = assistantMessage.replace(/\{[\s\S]*"nota"[\s\S]*\}/, '').trim();
-            } catch (e) {
-                // Se não conseguir parsear, tentar extrair nota manualmente
-                const notaMatch = assistantMessage.match(/nota[:\s]*(\d+)\/10/i);
-                if (notaMatch) {
-                    nota = parseInt(notaMatch[1]);
-                    roteiroFinal = assistantMessage.replace(/nota[:\s]*\d+\/10[\s\S]*/i, '').trim();
-                }
-            }
-        }
+        let checklist = null;
+        const { roteiroFinal, nota: notaExtraida, checklist: checklistExtraido } = removeAvaliacaoFromRoteiro(assistantMessage);
+        if (notaExtraida !== null) nota = notaExtraida;
+        if (checklistExtraido !== null) checklist = checklistExtraido;
+        const pontosFortes = checklist ? Object.keys(checklist).filter(k => checklist[k] === true) : [];
+        if (notaExtraida !== null) nota = notaExtraida;
+        if (checklistExtraido !== null) checklist = checklistExtraido;
         
         // Salvar roteiro completo (sem a nota)
         await db.run(
@@ -21959,25 +22609,83 @@ app.post('/api/niche/find-subniche', authenticateToken, async (req, res) => {
             - Sugestões de títulos e thumbnails que gerem alto CTR
         `;
 
-        let service;
-        if (model.startsWith('gemini')) service = 'gemini';
-        else if (model.startsWith('claude')) service = 'claude';
-        else if (model.startsWith('gpt')) service = 'openai';
-        else return res.status(400).json({ msg: 'Modelo de IA inválido.' });
-
-        const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-        if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        let useLaozhang = false;
+        let apiKeyToUse = null;
+        let serviceToUse = null;
+        let apiCallFunction = null;
         
-        const decryptedKey = decrypt(userKeyData.api_key);
-        if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
+        try {
+            // Determinar ordem de preferência baseado no modelo
+            let preferenceOrder = ['claude', 'openai', 'gemini'];
+            if (model.startsWith('gemini')) preferenceOrder = ['gemini', 'claude', 'openai'];
+            else if (model.startsWith('claude')) preferenceOrder = ['claude', 'openai', 'gemini'];
+            else if (model.startsWith('gpt')) preferenceOrder = ['openai', 'claude', 'gemini'];
+            
+            const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
+            
+            if (creditsCheck.shouldUse) {
+                // Se deve usar créditos, usar laozhang.ai
+                const laozhangKey = await getLaozhangApiKey();
+                if (laozhangKey) {
+                    useLaozhang = true;
+                    apiKeyToUse = laozhangKey;
+                    serviceToUse = 'laozhang';
+                    apiCallFunction = callLaozhangAPI;
+                    console.log(`[Find Subniche] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+                } else {
+                    console.warn('[Find Subniche] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+                }
+            } else {
+                console.log(`[Find Subniche] ✅ Usando API própria (${creditsCheck.reason})`);
+            }
+        } catch (err) {
+            console.warn('[Find Subniche] Erro ao verificar uso de créditos:', err.message);
+        }
+        
+        // Se não usar laozhang.ai, usar APIs próprias do usuário
+        if (!useLaozhang) {
+            let service;
+            if (model.startsWith('gemini')) service = 'gemini';
+            else if (model.startsWith('claude')) service = 'claude';
+            else if (model.startsWith('gpt')) service = 'openai';
+            else return res.status(400).json({ msg: 'Modelo de IA inválido.' });
+            
+            serviceToUse = service;
+            
+            const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
+            
+            apiKeyToUse = decrypt(userKeyData.api_key);
+            if (!apiKeyToUse) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
 
-        let apiCallFunction;
-        if (service === 'gemini') apiCallFunction = callGeminiAPI;
-        else if (service === 'claude') apiCallFunction = callClaudeAPI;
-        else apiCallFunction = callOpenAIAPI;
-
-        const response = await apiCallFunction(prompt, decryptedKey, model);
-        const recommendation = parseAIResponse(response.titles, service);
+            if (service === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (service === 'claude') apiCallFunction = callClaudeAPI;
+            else apiCallFunction = callOpenAIAPI;
+        }
+        
+        // Chamar API apropriada
+        let response;
+        if (useLaozhang) {
+            response = await callLaozhangAPI(
+                prompt, 
+                apiKeyToUse, 
+                model, 
+                null, 
+                userId, 
+                '/api/niche/find-subniche', 
+                JSON.stringify({ endpoint: '/api/niche/find-subniche', model })
+            );
+            // callLaozhangAPI retorna string diretamente
+            response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+            response = { titles: response };
+        } else {
+            response = await apiCallFunction(prompt, apiKeyToUse, model);
+        }
+        
+        const recommendation = parseAIResponse(response.titles, serviceToUse);
 
         res.status(200).json({ recommendation: recommendation.text || recommendation });
 
@@ -22207,26 +22915,83 @@ app.post('/api/niche/analyze-competitor', authenticateToken, async (req, res) =>
             Analise tudo com atenção e me dê uma resposta estratégica e prática, voltada para resultados e criação de canais milionários, em formato JSON. O JSON deve ter chaves como "analise_nicho", "diferenciais_sucesso", "publico_alvo", "estrategias_conteudo", "padroes_videos", "analise_comentarios", "oportunidades_explorar", e "orientacoes_finais" (que por sua vez contém "estrutura_conteudo", "linha_editorial", "sugestoes_branding", "ideias_roteiros", "estrategias_viralizacao", "titulos_ctr_alto", "thumbnails_virais").
         `;
 
-        // 5. Chamar a IA
-        let service;
-        if (model.startsWith('gemini')) service = 'gemini';
-        else if (model.startsWith('claude')) service = 'claude';
-        else if (model.startsWith('gpt')) service = 'openai';
-        else return res.status(400).json({ msg: 'Modelo de IA inválido.' });
-
-        const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
-        if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
+        // 5. Chamar a IA - Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        let useLaozhang = false;
+        let apiKeyToUse = null;
+        let serviceToUse = null;
+        let apiCallFunction = null;
         
-        const decryptedKey = decrypt(userKeyData.api_key);
-        if (!decryptedKey) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
+        try {
+            // Determinar ordem de preferência baseado no modelo
+            let preferenceOrder = ['claude', 'openai', 'gemini'];
+            if (model.startsWith('gemini')) preferenceOrder = ['gemini', 'claude', 'openai'];
+            else if (model.startsWith('claude')) preferenceOrder = ['claude', 'openai', 'gemini'];
+            else if (model.startsWith('gpt')) preferenceOrder = ['openai', 'claude', 'gemini'];
+            
+            const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
+            
+            if (creditsCheck.shouldUse) {
+                // Se deve usar créditos, usar laozhang.ai
+                const laozhangKey = await getLaozhangApiKey();
+                if (laozhangKey) {
+                    useLaozhang = true;
+                    apiKeyToUse = laozhangKey;
+                    serviceToUse = 'laozhang';
+                    apiCallFunction = callLaozhangAPI;
+                    console.log(`[Analyze Competitor] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+                } else {
+                    console.warn('[Analyze Competitor] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+                }
+            } else {
+                console.log(`[Analyze Competitor] ✅ Usando API própria (${creditsCheck.reason})`);
+            }
+        } catch (err) {
+            console.warn('[Analyze Competitor] Erro ao verificar uso de créditos:', err.message);
+        }
+        
+        // Se não usar laozhang.ai, usar APIs próprias do usuário
+        if (!useLaozhang) {
+            let service;
+            if (model.startsWith('gemini')) service = 'gemini';
+            else if (model.startsWith('claude')) service = 'claude';
+            else if (model.startsWith('gpt')) service = 'openai';
+            else return res.status(400).json({ msg: 'Modelo de IA inválido.' });
+            
+            serviceToUse = service;
+            
+            const userKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (!userKeyData) return res.status(400).json({ msg: `Nenhuma Chave de API do ${service} configurada.` });
+            
+            apiKeyToUse = decrypt(userKeyData.api_key);
+            if (!apiKeyToUse) return res.status(500).json({ msg: 'Falha ao desencriptar a sua chave de API.' });
 
-        let apiCallFunction;
-        if (service === 'gemini') apiCallFunction = callGeminiAPI;
-        else if (service === 'claude') apiCallFunction = callClaudeAPI;
-        else apiCallFunction = callOpenAIAPI;
-
-        const response = await apiCallFunction(prompt, decryptedKey, model);
-        const analysis = parseAIResponse(response.titles, service);
+            if (service === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (service === 'claude') apiCallFunction = callClaudeAPI;
+            else apiCallFunction = callOpenAIAPI;
+        }
+        
+        // Chamar API apropriada
+        let response;
+        if (useLaozhang) {
+            response = await callLaozhangAPI(
+                prompt, 
+                apiKeyToUse, 
+                model, 
+                null, 
+                userId, 
+                '/api/niche/analyze-competitor', 
+                JSON.stringify({ endpoint: '/api/niche/analyze-competitor', model })
+            );
+            // callLaozhangAPI retorna string diretamente
+            response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+            response = { titles: response };
+        } else {
+            response = await apiCallFunction(prompt, apiKeyToUse, model);
+        }
+        
+        const analysis = parseAIResponse(response.titles, serviceToUse);
 
         res.status(200).json(analysis);
 
@@ -25067,15 +25832,16 @@ app.post('/api/youtube/suggest-best-time', authenticateToken, async (req, res) =
     }
 
     try {
-        // Verificar se deve usar créditos (laozhang.ai)
-        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
-        const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
         
         let bestTime = null;
         let explanation = '';
         
         // Se deve usar créditos, usar laozhang.ai primeiro
-        if (useCredits) {
+        if (creditsCheck.shouldUse) {
             const laozhangKey = await getLaozhangApiKey();
             if (laozhangKey) {
                 try {
@@ -25231,7 +25997,8 @@ app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) =
 
     try {
         // Verificar se deve usar créditos (laozhang.ai) ou API própria
-        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
         const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
         
         console.log(`[Generate Metadata] shouldUseCredits: ${creditsCheck.shouldUse}, reason: ${creditsCheck.reason}, requestedModel: ${requestedModel}`);
@@ -27981,7 +28748,8 @@ app.post('/api/youtube/generate-suggestions', authenticateToken, async (req, res
         }
 
         // Verificar se deve usar créditos (laozhang.ai) ou API própria
-        // REGRA: Usa créditos se usuário marcou preferência OU não tem API própria configurada
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
         const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
         
         console.log(`[Generate Suggestions] shouldUseCredits: ${creditsCheck.shouldUse}, reason: ${creditsCheck.reason}`);

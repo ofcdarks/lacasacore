@@ -576,10 +576,79 @@
 
     <!-- Script de Proteção de Rota -->
     <script>
-        const token = localStorage.getItem('core_token');
-        if (!token || token === 'undefined') {
-            localStorage.removeItem('core_token');
-            window.location.href = 'la-casa-dark-core-auth.html';
+        // Tratamento global de erros para evitar que erros de extensões quebrem a aplicação
+        window.addEventListener('error', function(event) {
+            // Ignorar erros relacionados a storage em contextos restritos
+            if (event.message && event.message.includes('Access to storage is not allowed')) {
+                event.preventDefault();
+                console.warn('[AUTH] Acesso ao storage bloqueado neste contexto (pode ser iframe ou extensão)');
+                return false;
+            }
+            // Ignorar erros de extensões do navegador
+            if (event.message && event.message.includes('message channel closed')) {
+                event.preventDefault();
+                return false;
+            }
+        });
+        
+        // Tratamento de erros não capturados em promises
+        window.addEventListener('unhandledrejection', function(event) {
+            // Ignorar erros relacionados a storage
+            if (event.reason && typeof event.reason === 'object' && event.reason.message) {
+                if (event.reason.message.includes('Access to storage is not allowed') ||
+                    event.reason.message.includes('message channel closed')) {
+                    event.preventDefault();
+                    console.warn('[AUTH] Erro de promise relacionado a storage/extensão ignorado');
+                    return false;
+                }
+            }
+            // Ignorar erros de string
+            if (typeof event.reason === 'string') {
+                if (event.reason.includes('Access to storage is not allowed') ||
+                    event.reason.includes('message channel closed')) {
+                    event.preventDefault();
+                    console.warn('[AUTH] Erro de promise (string) relacionado a storage/extensão ignorado');
+                    return false;
+                }
+            }
+        });
+        
+        // Função helper para acessar localStorage de forma segura (definida antes de usar)
+        function safeLocalStorageGet(key) {
+            try {
+                if (typeof Storage !== 'undefined' && typeof localStorage !== 'undefined') {
+                    return localStorage.getItem(key);
+                }
+            } catch (error) {
+                // Silenciar erro para não quebrar a página
+                return null;
+            }
+            return null;
+        }
+        
+        function safeLocalStorageRemove(key) {
+            try {
+                if (typeof Storage !== 'undefined' && typeof localStorage !== 'undefined') {
+                    localStorage.removeItem(key);
+                    return true;
+                }
+            } catch (error) {
+                // Silenciar erro para não quebrar a página
+                return false;
+            }
+            return false;
+        }
+        
+        // Verificar token de forma segura
+        try {
+            const token = safeLocalStorageGet('core_token');
+            if (!token || token === 'undefined') {
+                safeLocalStorageRemove('core_token');
+                window.location.href = 'la-casa-dark-core-auth.html';
+            }
+        } catch (error) {
+            // Se houver erro, não fazer nada - pode ser contexto restrito
+            console.warn('[AUTH] Não foi possível verificar token:', error.message);
         }
     </script>
 
@@ -702,6 +771,23 @@
                         <div class="w-full bg-gray-700 rounded-full h-1.5">
                             <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" id="sidebar-storage-progress" style="width: 0%"></div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Plano Atual no Sidebar -->
+                <div class="mt-4 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="crown" class="w-4 h-4 text-amber-500"></i>
+                            <span class="text-xs font-medium text-gray-400">Plano Atual</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-bold text-white" id="sidebar-current-plan">Carregando...</p>
+                    <div class="mt-2">
+                        <a href="javascript:void(0)" id="sidebar-upgrade-plan-btn" class="block w-full px-3 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-semibold rounded-lg transition duration-200 text-center cursor-pointer">
+                            <i data-lucide="arrow-up-circle" class="w-3 h-3 inline-block mr-1"></i>
+                            Fazer Upgrade
+                        </a>
                     </div>
                 </div>
 
@@ -2041,13 +2127,21 @@
                     </div>
                     <p class="text-gray-300 mb-4">Cole ou faça upload de um arquivo TXT com os prompts das imagens (um por linha). As imagens serão geradas em lote.</p>
                     
-                    <div class="relative">
-                        <textarea id="batch-image-prompts-textarea" rows="8" placeholder="Cole os prompts aqui (um por linha) ou faça upload de um arquivo TXT...&#10;&#10;Exemplo:&#10;CENA 1: Opening scene with tense and mysterious music on a black screen.&#10;CENA 2: A person walking through a dark corridor..." class="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
-                        <button type="button" id="batch-upload-txt-btn" class="absolute top-2 right-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2">
+                    <div class="relative" id="batch-textarea-container">
+                        <textarea id="batch-image-prompts-textarea" rows="8" placeholder="Cole os prompts aqui (um por linha) ou arraste e solte um arquivo TXT aqui...&#10;&#10;Exemplo:&#10;CENA 1: Opening scene with tense and mysterious music on a black screen.&#10;CENA 2: A person walking through a dark corridor..." class="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-colors duration-200" style="min-height: 200px;"></textarea>
+                        <button type="button" id="batch-upload-txt-btn" class="absolute top-2 right-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition duration-200 flex items-center gap-2 z-20">
                             <i data-lucide="upload" class="w-4 h-4"></i>
                             Upload TXT
                         </button>
                         <input type="file" id="batch-txt-file-input" accept=".txt" class="hidden">
+                        <!-- Área de drop para drag and drop -->
+                        <div id="batch-drop-zone" class="absolute inset-0 border-2 border-dashed border-blue-500 bg-blue-500/20 rounded-lg flex items-center justify-center pointer-events-none opacity-0 transition-all duration-200 z-10 backdrop-blur-sm">
+                            <div class="text-center">
+                                <i data-lucide="upload-cloud" class="w-16 h-16 text-blue-400 mx-auto mb-3"></i>
+                                <p class="text-blue-300 font-semibold text-lg mb-1">Solte o arquivo TXT aqui</p>
+                                <p class="text-blue-400 text-sm">Arraste e solte seu arquivo TXT nesta área</p>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="mt-3 flex items-center justify-between">
@@ -5042,6 +5136,42 @@ Equipe La Casa Dark Core</textarea>
     </div>
 
     <script>
+        // Função helper global para acessar localStorage de forma segura
+        function safeLocalStorageGet(key) {
+            try {
+                if (typeof Storage !== 'undefined' && typeof localStorage !== 'undefined') {
+                    return localStorage.getItem(key);
+                }
+            } catch (error) {
+                console.warn(`[STORAGE] Erro ao acessar localStorage para chave "${key}":`, error.message);
+            }
+            return null;
+        }
+        
+        function safeLocalStorageSet(key, value) {
+            try {
+                if (typeof Storage !== 'undefined' && typeof localStorage !== 'undefined') {
+                    localStorage.setItem(key, value);
+                    return true;
+                }
+            } catch (error) {
+                console.warn(`[STORAGE] Erro ao definir localStorage para chave "${key}":`, error.message);
+            }
+            return false;
+        }
+        
+        function safeLocalStorageRemove(key) {
+            try {
+                if (typeof Storage !== 'undefined' && typeof localStorage !== 'undefined') {
+                    localStorage.removeItem(key);
+                    return true;
+                }
+            } catch (error) {
+                console.warn(`[STORAGE] Erro ao remover localStorage para chave "${key}":`, error.message);
+            }
+            return false;
+        }
+        
         document.addEventListener('DOMContentLoaded', (event) => {
         
             // URLs da API - Detecta automaticamente a porta do backend
@@ -5065,7 +5195,8 @@ Equipe La Casa Dark Core</textarea>
                 console.error('Script Lucide (ícones) não carregou a tempo.');
             }
 
-            const userToken = localStorage.getItem('core_token');
+            // Obter token de forma segura usando a função helper
+            const userToken = safeLocalStorageGet('core_token');
 
             let currentAnalysisData = {
                 videoId: null,
@@ -10250,6 +10381,7 @@ Equipe La Casa Dark Core</textarea>
                 if (inicioView && inicioView.style.display !== 'none') {
                     loadDashboard();
                     loadCreditsBalance();
+                    loadCurrentPlan();
                 }
             }
             
@@ -10331,6 +10463,7 @@ Equipe La Casa Dark Core</textarea>
                 if (viewName === 'inicio') {
                     loadDashboard(); // Recarregar dashboard quando voltar para a tela inicial
                     loadCreditsBalance(); // Carregar saldo de créditos
+                    loadCurrentPlan(); // Carregar plano atual
                     startDashboardAutoRefresh(); // Iniciar atualização automática
                 } else {
                     stopDashboardAutoRefresh(); // Parar atualização quando sair da tela de início
@@ -14570,25 +14703,93 @@ Equipe La Casa Dark Core</textarea>
                     
                     // Carregar armazenamento se disponível
                     if (data.storageUsed !== undefined && data.storageLimit !== undefined) {
+                        console.log('[STORAGE] Dados recebidos:', {
+                            storageUsed: data.storageUsed,
+                            storageLimit: data.storageLimit,
+                            storageUsedMB: (data.storageUsed / (1024 * 1024)).toFixed(2),
+                            storageLimitGB: (data.storageLimit / (1024 * 1024 * 1024)).toFixed(2)
+                        });
                         updateStorageDisplay(data.storageUsed, data.storageLimit);
                         updateSidebarStorage(data.storageUsed, data.storageLimit);
+                    } else {
+                        console.warn('[STORAGE] Dados de armazenamento não disponíveis na resposta:', data);
                     }
                 } catch (err) {
                     console.error('[CRÉDITOS] Erro ao carregar saldo de créditos:', err);
                 }
             }
             
+            // Função para carregar plano atual do usuário
+            async function loadCurrentPlan() {
+                try {
+                    console.log('[PLANO] Carregando plano atual...');
+                    const response = await fetch(`${API_BASE}/api/user/permissions`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) {
+                        console.error('[PLANO] Erro ao carregar plano:', response.status, response.statusText);
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    console.log('[PLANO] Plano recebido:', data);
+                    
+                    const planName = data.plan || 'plan-free';
+                    const planDisplayName = getPlanDisplayName(planName);
+                    
+                    const sidebarPlanEl = document.getElementById('sidebar-current-plan');
+                    if (sidebarPlanEl) {
+                        sidebarPlanEl.textContent = planDisplayName;
+                    }
+                } catch (err) {
+                    console.error('[PLANO] Erro ao carregar plano:', err);
+                    const sidebarPlanEl = document.getElementById('sidebar-current-plan');
+                    if (sidebarPlanEl) {
+                        sidebarPlanEl.textContent = 'Erro ao carregar';
+                    }
+                }
+            }
+            
+            // Função para obter nome amigável do plano
+            function getPlanDisplayName(planKey) {
+                const planNames = {
+                    'plan-free': 'FREE',
+                    'plan-start': 'START CREATOR',
+                    'plan-turbo': 'TURBO MAKER',
+                    'plan-master': 'MASTER PRO',
+                    'plan-start-annual': 'START CREATOR Anual',
+                    'plan-turbo-annual': 'TURBO MAKER Anual',
+                    'plan-master-annual': 'MASTER PRO Anual',
+                    'admin': 'ADMIN'
+                };
+                return planNames[planKey] || planKey.toUpperCase().replace('PLAN-', '').replace(/-/g, ' ');
+            }
+            
             // Função para atualizar exibição de armazenamento
             function updateStorageDisplay(used, limit) {
+                // Garantir que os valores são números
+                used = Number(used) || 0;
+                limit = Number(limit) || 0;
+                
+                console.log('[STORAGE] Atualizando display principal:', { used, limit, usedMB: (used / (1024 * 1024)).toFixed(2) });
+                
                 const usedMB = (used / (1024 * 1024)).toFixed(2);
                 const limitMB = (limit / (1024 * 1024)).toFixed(0);
                 const limitGB = (limit / (1024 * 1024 * 1024)).toFixed(1);
-                const percentage = Math.min((used / limit) * 100, 100);
+                const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
                 
                 const storageUsedEl = document.getElementById('stat-storage-used');
                 const storageLimitEl = document.getElementById('stat-storage-limit');
                 const storageProgressEl = document.getElementById('stat-storage-progress');
                 const storagePercentageEl = document.getElementById('stat-storage-percentage');
+                
+                console.log('[STORAGE] Elementos encontrados:', {
+                    storageUsedEl: !!storageUsedEl,
+                    storageLimitEl: !!storageLimitEl,
+                    storageProgressEl: !!storageProgressEl,
+                    storagePercentageEl: !!storagePercentageEl
+                });
                 
                 if (storageUsedEl) {
                     if (limit >= 1024 * 1024 * 1024) {
@@ -14626,33 +14827,55 @@ Equipe La Casa Dark Core</textarea>
             
             // Função para atualizar armazenamento no sidebar
             function updateSidebarStorage(used, limit) {
+                // Garantir que os valores são números
+                used = Number(used) || 0;
+                limit = Number(limit) || 0;
+                
+                console.log('[STORAGE] Atualizando sidebar:', { used, limit, usedMB: (used / (1024 * 1024)).toFixed(2) });
+                
                 const usedMB = (used / (1024 * 1024)).toFixed(2);
                 const limitMB = (limit / (1024 * 1024)).toFixed(0);
                 const limitGB = (limit / (1024 * 1024 * 1024)).toFixed(1);
-                const percentage = Math.min((used / limit) * 100, 100);
+                const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
                 
                 const sidebarUsedEl = document.getElementById('sidebar-storage-used');
                 const sidebarLimitEl = document.getElementById('sidebar-storage-limit');
                 const sidebarProgressEl = document.getElementById('sidebar-storage-progress');
                 
+                console.log('[STORAGE] Elementos encontrados:', {
+                    sidebarUsedEl: !!sidebarUsedEl,
+                    sidebarLimitEl: !!sidebarLimitEl,
+                    sidebarProgressEl: !!sidebarProgressEl
+                });
+                
                 if (sidebarUsedEl) {
                     if (limit >= 1024 * 1024 * 1024) {
-                        sidebarUsedEl.textContent = `${(used / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+                        const usedGB = (used / (1024 * 1024 * 1024)).toFixed(2);
+                        sidebarUsedEl.textContent = `${usedGB} GB`;
+                        console.log('[STORAGE] Sidebar usado atualizado para:', `${usedGB} GB`);
                     } else {
                         sidebarUsedEl.textContent = `${usedMB} MB`;
+                        console.log('[STORAGE] Sidebar usado atualizado para:', `${usedMB} MB`);
                     }
+                } else {
+                    console.error('[STORAGE] Elemento sidebar-storage-used não encontrado!');
                 }
                 
                 if (sidebarLimitEl) {
                     if (limit >= 1024 * 1024 * 1024) {
                         sidebarLimitEl.textContent = `de ${limitGB} GB`;
+                        console.log('[STORAGE] Sidebar limite atualizado para:', `de ${limitGB} GB`);
                     } else {
                         sidebarLimitEl.textContent = `de ${limitMB} MB`;
+                        console.log('[STORAGE] Sidebar limite atualizado para:', `de ${limitMB} MB`);
                     }
+                } else {
+                    console.error('[STORAGE] Elemento sidebar-storage-limit não encontrado!');
                 }
                 
                 if (sidebarProgressEl) {
                     sidebarProgressEl.style.width = `${percentage}%`;
+                    console.log('[STORAGE] Sidebar progress atualizado para:', `${percentage}%`);
                     if (percentage >= 90) {
                         sidebarProgressEl.className = 'bg-red-500 h-1.5 rounded-full transition-all duration-300';
                     } else if (percentage >= 70) {
@@ -14795,6 +15018,19 @@ Equipe La Casa Dark Core</textarea>
                 });
             }
             
+            // Event listener para botão de upgrade no sidebar
+            const sidebarUpgradePlanBtn = document.getElementById('sidebar-upgrade-plan-btn');
+            if (sidebarUpgradePlanBtn) {
+                sidebarUpgradePlanBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Redirecionar para página de planos
+                    console.log('Redirecionando para página de planos...');
+                    window.location.href = '/plans.html#pacotes';
+                });
+            }
+            
 
             async function loadDashboard() {
                 try {
@@ -14822,6 +15058,7 @@ Equipe La Casa Dark Core</textarea>
                     
                     // Carregar saldo de créditos
                     loadCreditsBalance();
+                    loadCurrentPlan();
                     
                     // Atualizar métricas adicionais (com verificação de existência)
                     const statAvgCtr = document.getElementById('stat-avg-ctr');
@@ -19063,37 +19300,182 @@ Equipe La Casa Dark Core</textarea>
             // Variável global para armazenar prompts do TXT
             let batchPromptsFromTxt = [];
             
+            // Função para processar arquivo TXT
+            async function processBatchTxtFile(file) {
+                if (!file) {
+                    console.warn('[Batch Upload] Nenhum arquivo fornecido');
+                    return;
+                }
+                
+                console.log('[Batch Upload] Processando arquivo:', file.name, 'Tipo:', file.type);
+                
+                if (!file.name.endsWith('.txt') && file.type !== 'text/plain') {
+                    showMessage('imagens-lote-error-message', 'Por favor, selecione um arquivo TXT.', true);
+                    return;
+                }
+                
+                try {
+                    const text = await file.text();
+                    console.log('[Batch Upload] Arquivo lido, tamanho:', text.length, 'caracteres');
+                    const textarea = document.getElementById('batch-image-prompts-textarea');
+                    if (textarea) {
+                        textarea.value = text;
+                        // Disparar evento input para atualizar contagem
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    parsePromptsFromText(text);
+                    showMessage('imagens-lote-success-message', `Arquivo "${file.name}" carregado com sucesso!`, false);
+                } catch (err) {
+                    console.error('[Upload TXT] Erro:', err);
+                    showMessage('imagens-lote-error-message', 'Erro ao ler arquivo TXT: ' + err.message, true);
+                }
+            }
+            
             // Configurar upload de TXT para prompts em lote
             function setupBatchTxtUpload() {
+                console.log('[Batch Upload] Inicializando setupBatchTxtUpload...');
+                
                 const uploadBtn = document.getElementById('batch-upload-txt-btn');
                 const txtInput = document.getElementById('batch-txt-file-input');
                 const textarea = document.getElementById('batch-image-prompts-textarea');
+                const dropZone = document.getElementById('batch-drop-zone');
                 const promptsCountDisplay = document.getElementById('batch-prompts-count-display');
                 const generateBtn = document.getElementById('batch-btn-generate-images');
                 
-                if (uploadBtn && txtInput) {
-                    uploadBtn.addEventListener('click', () => {
-                        txtInput.click();
+                console.log('[Batch Upload] Elementos encontrados:', {
+                    uploadBtn: !!uploadBtn,
+                    txtInput: !!txtInput,
+                    textarea: !!textarea,
+                    dropZone: !!dropZone,
+                    generateBtn: !!generateBtn
+                });
+                
+                // Remover event listeners antigos para evitar duplicação
+                if (uploadBtn) {
+                    // Remover listeners antigos removendo e recriando
+                    const uploadBtnParent = uploadBtn.parentNode;
+                    const uploadBtnClone = uploadBtn.cloneNode(true);
+                    uploadBtnParent.replaceChild(uploadBtnClone, uploadBtn);
+                    
+                    uploadBtnClone.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Batch Upload] Botão Upload TXT clicado');
+                        const txtInputRef = document.getElementById('batch-txt-file-input');
+                        if (txtInputRef) {
+                            txtInputRef.click();
+                        }
                     });
                     
-                    txtInput.addEventListener('change', async (e) => {
+                    // Recriar ícones do Lucide
+                    if (typeof lucide !== 'undefined') {
+                        setTimeout(() => lucide.createIcons(), 50);
+                    }
+                }
+                
+                if (txtInput) {
+                    // Remover listeners antigos removendo e recriando
+                    const txtInputParent = txtInput.parentNode;
+                    const txtInputClone = txtInput.cloneNode(true);
+                    txtInputParent.replaceChild(txtInputClone, txtInput);
+                    
+                    txtInputClone.addEventListener('change', async (e) => {
                         const file = e.target.files[0];
-                        if (!file) return;
-                        
-                        if (!file.name.endsWith('.txt')) {
-                            showMessage('imagens-lote-error-message', 'Por favor, selecione um arquivo TXT.', true);
-                            return;
+                        console.log('[Batch Upload] Arquivo selecionado:', file ? file.name : 'nenhum');
+                        if (file) {
+                            await processBatchTxtFile(file);
                         }
-                        
-                        try {
-                            const text = await file.text();
+                        // Limpar input para permitir selecionar o mesmo arquivo novamente
+                        e.target.value = '';
+                    });
+                }
+                
+                // Configurar drag and drop
+                const textareaContainer = document.getElementById('batch-textarea-container') || (textarea ? textarea.closest('.relative') : null);
+                
+                if (textareaContainer && dropZone) {
+                    let isDragging = false;
+                    
+                    // Prevenir comportamento padrão em todos os eventos de drag
+                    const preventDefaults = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    };
+                    
+                    // Função para mostrar área de drop
+                    const showDropZone = () => {
+                        if (!isDragging) {
+                            isDragging = true;
+                            dropZone.classList.remove('opacity-0');
+                            dropZone.classList.add('opacity-100');
+                            dropZone.style.pointerEvents = 'auto';
                             if (textarea) {
-                                textarea.value = text;
+                                textarea.style.borderColor = '#3b82f6'; // Azul para indicar área de drop
+                                textarea.style.borderWidth = '2px';
                             }
-                            parsePromptsFromText(text);
-                        } catch (err) {
-                            console.error('[Upload TXT] Erro:', err);
-                            showMessage('imagens-lote-error-message', 'Erro ao ler arquivo TXT.', true);
+                        }
+                    };
+                    
+                    // Função para esconder área de drop
+                    const hideDropZone = () => {
+                        isDragging = false;
+                        dropZone.classList.remove('opacity-100');
+                        dropZone.classList.add('opacity-0');
+                        dropZone.style.pointerEvents = 'none';
+                        if (textarea) {
+                            textarea.style.borderColor = '';
+                            textarea.style.borderWidth = '';
+                        }
+                    };
+                    
+                    // Adicionar eventos no container
+                    textareaContainer.addEventListener('dragenter', (e) => {
+                        preventDefaults(e);
+                        showDropZone();
+                    });
+                    
+                    textareaContainer.addEventListener('dragover', (e) => {
+                        preventDefaults(e);
+                        e.dataTransfer.dropEffect = 'copy'; // Mostrar cursor de cópia
+                        showDropZone();
+                    });
+                    
+                    textareaContainer.addEventListener('dragleave', (e) => {
+                        preventDefaults(e);
+                        // Verificar se realmente saiu do container (não apenas de um elemento filho)
+                        const rect = textareaContainer.getBoundingClientRect();
+                        const x = e.clientX;
+                        const y = e.clientY;
+                        
+                        // Se o mouse saiu dos limites do container, esconder
+                        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+                            hideDropZone();
+                        }
+                    });
+                    
+                    // Processar arquivo quando soltar
+                    textareaContainer.addEventListener('drop', async (e) => {
+                        preventDefaults(e);
+                        hideDropZone();
+                        
+                        const files = e.dataTransfer.files;
+                        console.log('[Batch Upload] Drop detectado, arquivos:', files.length);
+                        if (files && files.length > 0) {
+                            const file = files[0];
+                            console.log('[Batch Upload] Processando arquivo do drop:', file.name);
+                            await processBatchTxtFile(file);
+                        } else {
+                            console.warn('[Batch Upload] Nenhum arquivo encontrado no drop');
+                            showMessage('imagens-lote-error-message', 'Nenhum arquivo foi solto. Por favor, arraste um arquivo TXT.', true);
+                        }
+                    });
+                    
+                    // Também adicionar no textarea e dropZone para garantir que funcione
+                    [textarea, dropZone].forEach(element => {
+                        if (element) {
+                            element.addEventListener('dragenter', preventDefaults);
+                            element.addEventListener('dragover', preventDefaults);
+                            element.addEventListener('drop', preventDefaults);
                         }
                     });
                 }
@@ -19107,7 +19489,17 @@ Equipe La Casa Dark Core</textarea>
                 
                 // Botão de gerar imagens em lote
                 if (generateBtn) {
-                    generateBtn.addEventListener('click', async () => {
+                    // Remover listeners antigos removendo e recriando
+                    const generateBtnParent = generateBtn.parentNode;
+                    const generateBtnClone = generateBtn.cloneNode(true);
+                    generateBtnParent.replaceChild(generateBtnClone, generateBtn);
+                    
+                    generateBtnClone.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Batch Generate] Botão Gerar Todas as Imagens clicado');
+                        console.log('[Batch Generate] Prompts disponíveis:', batchPromptsFromTxt.length);
+                        
                         if (batchPromptsFromTxt.length === 0) {
                             showMessage('imagens-lote-error-message', 'Adicione prompts primeiro! Cole no campo de texto ou faça upload de um arquivo TXT.', true);
                             return;
@@ -19116,6 +19508,15 @@ Equipe La Casa Dark Core</textarea>
                         // Usar a função existente de geração em lote
                         await generateBatchImagesFromPrompts(batchPromptsFromTxt);
                     });
+                    
+                    // Recriar ícones do Lucide
+                    if (typeof lucide !== 'undefined') {
+                        setTimeout(() => lucide.createIcons(), 50);
+                    }
+                    
+                    console.log('[Batch Generate] Event listener adicionado ao botão de gerar');
+                } else {
+                    console.warn('[Batch Generate] Botão de gerar imagens não encontrado!');
                 }
                 
                 // Botões de ação para imagens em lote
@@ -21721,10 +22122,28 @@ Equipe La Casa Dark Core</textarea>
                         }, 200);
                     }
                     if (viewName === 'imagens-lote') {
-                        setTimeout(() => {
-                            setupBatchTxtUpload();
-                            if (typeof lucide !== 'undefined') lucide.createIcons();
-                        }, 100);
+                        console.log('[Dashboard] Navegando para imagens em lote, inicializando...');
+                        // Tentar múltiplas vezes para garantir que o DOM está pronto
+                        let attempts = 0;
+                        const maxAttempts = 5;
+                        const trySetup = () => {
+                            attempts++;
+                            const uploadBtn = document.getElementById('batch-upload-txt-btn');
+                            const generateBtn = document.getElementById('batch-btn-generate-images');
+                            
+                            if ((uploadBtn && generateBtn) || attempts >= maxAttempts) {
+                                try {
+                                    setupBatchTxtUpload();
+                                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                                    console.log('[Dashboard] Setup de imagens em lote concluído');
+                                } catch (error) {
+                                    console.error('[Dashboard] Erro ao inicializar imagens em lote:', error);
+                                }
+                            } else {
+                                setTimeout(trySetup, 100);
+                            }
+                        };
+                        setTimeout(trySetup, 100);
                     }
                 });
             });
@@ -23701,9 +24120,26 @@ Equipe La Casa Dark Core</textarea>
                 });
             }
             
-            setTimeout(() => {
+            setTimeout(async () => {
                 loadDashboard();
+                // Forçar recálculo do armazenamento ao carregar (opcional, não crítico)
+                if (userToken) {
+                    try {
+                        const recalcResponse = await fetch(`${API_BASE}/api/storage/recalculate`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        if (recalcResponse.ok) {
+                            const recalcData = await recalcResponse.json();
+                            console.log('[STORAGE] Armazenamento recalculado:', recalcData);
+                        }
+                    } catch (err) {
+                        // Não é crítico se falhar, o cálculo normal já acontece em loadCreditsBalance
+                        console.warn('[STORAGE] Erro ao recalcular armazenamento (não crítico):', err.message);
+                    }
+                }
                 loadCreditsBalance();
+                loadCurrentPlan();
                 startDashboardAutoRefresh();
             }, 500); // Pequeno delay para garantir que tudo está carregado
 
