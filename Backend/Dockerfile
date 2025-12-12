@@ -21,8 +21,16 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 RUN python3 -m pip install --no-cache-dir --break-system-packages --upgrade pip setuptools wheel
 
 # Instalar dependências de transcrição (Whisper local + downloader com EJS)
-# Usar --no-verify para evitar problemas de hash com pacotes nvidia (problema conhecido)
-RUN python3 -m pip install --no-cache-dir --break-system-packages --no-verify openai-whisper "yt-dlp[default]"
+# Instalar yt-dlp primeiro (mais simples)
+RUN python3 -m pip install --no-cache-dir --break-system-packages "yt-dlp[default]"
+
+# Instalar openai-whisper com versão específica do torch (CPU only) para evitar problemas de hash
+# Usar torch CPU-only para evitar dependências NVIDIA problemáticas
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.1.0 torchaudio==2.1.0 && \
+    python3 -m pip install --no-cache-dir --break-system-packages \
+    openai-whisper
 
 # Diretório da aplicação
 WORKDIR /app
