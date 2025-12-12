@@ -15335,10 +15335,65 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
     }
 
     try {
-        // SEMPRE usar laozhang.ai
-        const laozhangKey = await getLaozhangApiKey();
-        if (!laozhangKey) {
-            return res.status(400).json({ msg: 'Provedor externo não configurado no painel admin. Configure a chave de API primeiro.' });
+        // Verificar se deve usar créditos (laozhang.ai) ou API própria
+        // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+        // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+        
+        // Determinar modelo a partir do selectedModel
+        let model = selectedModel || 'gpt-4o';
+        let service = 'gemini';
+        if (model.includes('claude') || model.includes('sonnet')) {
+            service = 'claude';
+        } else if (model.includes('gpt') || model.includes('openai')) {
+            service = 'openai';
+        }
+        
+        // Determinar ordem de preferência baseado no modelo
+        let preferenceOrder = ['claude', 'openai', 'gemini'];
+        if (service === 'gemini') preferenceOrder = ['gemini', 'claude', 'openai'];
+        else if (service === 'claude') preferenceOrder = ['claude', 'openai', 'gemini'];
+        else if (service === 'openai') preferenceOrder = ['openai', 'claude', 'gemini'];
+        
+        const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
+        
+        let useLaozhang = false;
+        let apiKeyToUse = null;
+        let serviceToUse = null;
+        let apiCallFunction = null;
+        
+        if (creditsCheck.shouldUse) {
+            // Se deve usar créditos, usar laozhang.ai
+            const laozhangKey = await getLaozhangApiKey();
+            if (laozhangKey) {
+                useLaozhang = true;
+                apiKeyToUse = laozhangKey;
+                serviceToUse = 'laozhang';
+                apiCallFunction = callLaozhangAPI;
+                console.log(`[Scene Prompts] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+            } else {
+                console.warn('[Scene Prompts] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+            }
+        } else {
+            console.log(`[Scene Prompts] ✅ Usando API própria (${creditsCheck.reason})`);
+        }
+        
+        // Se não usar laozhang.ai, usar APIs próprias do usuário
+        if (!useLaozhang) {
+            serviceToUse = service;
+            
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (!keyData) {
+                return res.status(400).json({ msg: `Chave de API do ${service} não configurada. Configure nas Configurações.` });
+            }
+            
+            apiKeyToUse = decrypt(keyData.api_key);
+            if (!apiKeyToUse) {
+                return res.status(500).json({ msg: 'Falha ao descriptografar a chave de API.' });
+            }
+            
+            if (service === 'gemini') apiCallFunction = callGeminiAPI;
+            else if (service === 'claude') apiCallFunction = callClaudeAPI;
+            else apiCallFunction = callOpenAIAPI;
         }
 
         // Calcular número estimado de cenas baseado no modo
@@ -15425,44 +15480,63 @@ IMPORTANTE:
 - Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.
 - NÃO pare na cena 10 ou qualquer número menor. Continue até gerar todas as ${estimatedScenes} cenas.`;
 
-        // Mapear modelo selecionado para modelo da laozhang.ai
-        let laozhangModel = null;
-        if (selectedModel) {
-            // Mapear modelos do frontend para modelos da laozhang.ai
+        // Mapear modelo selecionado para modelo da API (Laozhang ou própria)
+        let modelForAPI = null;
+        if (useLaozhang) {
+            // Mapear para modelo Laozhang
             if (selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
-                laozhangModel = 'gpt-4o';
+                modelForAPI = 'gpt-4o';
             } else if (selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
-                laozhangModel = 'claude-3-7-sonnet-20250219';
+                modelForAPI = 'claude-3-7-sonnet-20250219';
             } else if (selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
-                laozhangModel = 'gemini-2.5-pro';
-            } else if (selectedModel.includes('claude')) {
-                laozhangModel = 'claude-3-7-sonnet-20250219';
-            } else if (selectedModel.includes('gemini')) {
-                laozhangModel = 'gemini-2.5-pro';
-            } else if (selectedModel.includes('gpt')) {
-                laozhangModel = 'gpt-4o';
+                modelForAPI = 'gemini-2.5-pro';
+            } else if (selectedModel && selectedModel.includes('claude')) {
+                modelForAPI = 'claude-3-7-sonnet-20250219';
+            } else if (selectedModel && selectedModel.includes('gemini')) {
+                modelForAPI = 'gemini-2.5-pro';
+            } else if (selectedModel && selectedModel.includes('gpt')) {
+                modelForAPI = 'gpt-4o';
             } else {
-                // Tentar usar o modelo diretamente se estiver no formato correto
-                laozhangModel = selectedModel;
+                modelForAPI = selectedModel || 'gpt-4o';
             }
+        } else {
+            // Usar modelo original para API própria
+            modelForAPI = selectedModel || model;
         }
         
         // Se ainda não tem modelo, usar 'gpt-4o' apenas como último recurso
-        if (!laozhangModel) {
+        if (!modelForAPI) {
             console.warn(`[Scene Prompts] ⚠️ Modelo não fornecido ou não reconhecido, usando 'gpt-4o' como fallback`);
-            laozhangModel = 'gpt-4o';
+            modelForAPI = 'gpt-4o';
         }
         
-        console.log(`[Scene Prompts] Modelo recebido: "${selectedModel || 'N/A'}" -> Mapeado para API: "${laozhangModel}"`);
-        const response = await callLaozhangAPI(
-            prompt, 
-            laozhangKey, 
-            laozhangModel, 
-            null, 
-            userId, 
-            '/api/generate/scene-prompts', 
-            JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: laozhangModel })
-        );
+        console.log(`[Scene Prompts] Modelo recebido: "${selectedModel || 'N/A'}" -> Mapeado para API: "${modelForAPI}" (${useLaozhang ? 'Laozhang' : serviceToUse})`);
+        
+        // Chamar API apropriada
+        let response;
+        if (useLaozhang) {
+            response = await callLaozhangAPI(
+                prompt, 
+                apiKeyToUse, 
+                modelForAPI, 
+                null, 
+                userId, 
+                '/api/generate/scene-prompts/laozhang', 
+                JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI })
+            );
+            // callLaozhangAPI retorna string diretamente
+            response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        } else {
+            response = await apiCallFunction(prompt, apiKeyToUse, modelForAPI);
+            // APIs próprias retornam objeto com propriedade titles
+            if (response && typeof response === 'object' && response.titles) {
+                response = response.titles;
+            } else if (typeof response === 'string') {
+                response = response.trim();
+            } else {
+                response = JSON.stringify(response);
+            }
+        }
 
         // Parsear resposta - callLaozhangAPI retorna string diretamente agora
         let scenesData;
