@@ -17,8 +17,12 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Permitir instalação via pip em sistema gerenciado (PEP 668)
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
+# Atualizar pip para versão mais recente
+RUN python3 -m pip install --no-cache-dir --break-system-packages --upgrade pip setuptools wheel
+
 # Instalar dependências de transcrição (Whisper local + downloader com EJS)
-RUN python3 -m pip install --no-cache-dir --break-system-packages openai-whisper "yt-dlp[default]"
+# Usar --no-verify para evitar problemas de hash com pacotes nvidia (problema conhecido)
+RUN python3 -m pip install --no-cache-dir --break-system-packages --no-verify openai-whisper "yt-dlp[default]"
 
 # Diretório da aplicação
 WORKDIR /app
