@@ -31,7 +31,8 @@
     "sqlite3": "^5.1.7",
     "stripe": "^14.25.0",
     "undici": "^6.19.2",
-    "youtube-transcript": "^1.2.1"
+    "youtube-transcript": "^1.2.1",
+    "puppeteer": "^23.8.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

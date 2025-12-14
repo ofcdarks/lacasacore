@@ -32,6 +32,7 @@ const { GoogleGenAI } = require('@google/genai');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
 const LAOZHANG_CHAT_ENDPOINT = process.env.LAOZHANG_CHAT_ENDPOINT || 'https://api.laozhang.ai/v1/chat/completions';
+const puppeteer = require('puppeteer');
 
 const PROVIDER_NAME_PATTERNS = [
     { pattern: /laozhang(\.ai)?/gi, replacement: 'provedor externo' },
@@ -423,6 +424,49 @@ function fixJsonWithUnescapedNewlines(jsonString) {
     }
     
     return result;
+}
+
+// --- Função auxiliar para extrair JSON completo contando chaves ---
+function extractCompleteJson(text, startPattern = /\{/) {
+    const startMatch = text.match(startPattern);
+    if (!startMatch) return null;
+    
+    const startIndex = startMatch.index;
+    let braceCount = 0;
+    let inString = false;
+    let escapeNext = false;
+    
+    for (let i = startIndex; i < text.length; i++) {
+        const char = text[i];
+        
+        if (escapeNext) {
+            escapeNext = false;
+            continue;
+        }
+        
+        if (char === '\\') {
+            escapeNext = true;
+            continue;
+        }
+        
+        if (char === '"') {
+            inString = !inString;
+            continue;
+        }
+        
+        if (!inString) {
+            if (char === '{') {
+                braceCount++;
+            } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                    return text.substring(startIndex, i + 1);
+                }
+            }
+        }
+    }
+    
+    return null;
 }
 
 // --- Helper para analisar resposta JSON da IA ---
@@ -11863,6 +11907,7 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
     const model = typeof rawModel === 'string' ? rawModel.trim() : '';
     const videoUrl = typeof req.body?.videoUrl === 'string' ? req.body.videoUrl.trim() : '';
     const folderId = req.body?.folderId;
+    const language = req.body?.language || 'Português'; // Idioma padrão: Português
     const userId = req.user.id;
 
     if (!videoUrl || !model) {
@@ -12080,7 +12125,7 @@ Tradução em PT-BR:`;
                 - Identifique PALAVRAS-CHAVE PODEROSAS que geraram cliques: quais palavras específicas fizeram a diferença? Quais palavras emocionais criaram conexão?
 
             3.  **Geração de Títulos Virais (FOCO EM MILHÕES DE VIEWS E ALTO CTR):** 
-                Usando a "formulaTitulo" identificada como base, crie 5 variações MUITO CHAMATIVAS de títulos EM PORTUGUÊS BRASILEIRO (PT-BR) que:
+                Usando a "formulaTitulo" identificada como base, crie 5 variações MUITO CHAMATIVAS de títulos ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'} que:
                 - TENHAM ALTO POTENCIAL VIRAL (capazes de gerar MILHÕES DE VIEWS como o original, não apenas milhares)
                 - USEM GATILHOS MENTAIS PODEROSOS E COMPROVADOS (curiosidade, FOMO, surpresa, urgência, escassez, autoridade, prova social, emoção intensa)
                 - INCLUAM PALAVRAS-CHAVE VIRAIS E PODEROSAS (números impactantes, palavras emocionais, perguntas que prendem atenção, palavras que geram cliques)
@@ -12091,9 +12136,9 @@ Tradução em PT-BR:`;
                 - TENHAM POTENCIAL PARA VIRALIZAR e gerar engajamento massivo (compartilhamentos, comentários, views orgânicas)
 
                 Para cada novo título, forneça:
-                - "titulo": O novo título EM PORTUGUÊS BRASILEIRO (PT-BR), otimizado para viralização e milhões de views, seguindo a fórmula que funcionou no título original.
+                - "titulo": O novo título ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'}, otimizado para viralização e milhões de views, seguindo a fórmula que funcionou no título original.
                 - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral e de CTR (10 = capaz de gerar milhões de views como o original com CTR acima de 25%, 9-10 = alto potencial viral com milhões de views, 7-8 = bom potencial mas pode melhorar, abaixo de 7 = precisa ser reescrito).
-                - "explicacao": Uma justificativa detalhada em PORTUGUÊS BRASILEIRO explicando: 
+                - "explicacao": Uma justificativa detalhada ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : language === 'Inglês' ? 'EM INGLÊS' : language === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO'} explicando: 
                   * Por que esse título tem potencial para gerar MILHÕES DE VIEWS? 
                   * Quais gatilhos mentais específicos ele usa e por que eles funcionam?
                   * Por que ele pode gerar alto CTR (acima de 25%)?
@@ -12113,8 +12158,8 @@ Tradução em PT-BR:`;
             - **Personalização:** "Você não sabia", "Isso vai mudar sua vida", "O que ninguém te conta", "O que você precisa saber" (ex: "O que você não sabia sobre...", "Isso vai mudar como você vê...").
 
             ⚠️ REGRAS CRÍTICAS PARA TÍTULOS VIRAIS (CRIAR CANAIS MILIONÁRIOS):
-            - TODOS os títulos sugeridos DEVEM estar em PORTUGUÊS BRASILEIRO (PT-BR).
-            - A "explicacao" de cada título também deve estar em PORTUGUÊS BRASILEIRO.
+            - TODOS os títulos sugeridos DEVEM estar ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'}.
+            - A "explicacao" de cada título também deve estar ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : language === 'Inglês' ? 'EM INGLÊS' : language === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO'}.
             - Mantenha o IMPACTO, CURIOSIDADE e GATILHOS MENTAIS do título original, mas MELHORE-OS para maior viralização e mais views.
             - Foque APENAS em títulos que TENHAM POTENCIAL PARA GERAR MILHÕES DE VIEWS, não apenas alguns milhares. Rejeite títulos que não tenham potencial viral alto.
             - Cada título deve ter um POTENCIAL VIRAL MUITO ALTO (pontuação 9-10, preferencialmente 10). Títulos com pontuação abaixo de 9 devem ser reescritos.
@@ -12556,12 +12601,14 @@ Tradução em PT-BR:`;
             videoDetails: { 
                 ...videoDetails, 
                 videoId: videoId, 
-                translatedTitle: translatedTitle || videoDetails.title,
+                originalTitle: videoDetails.title, // Título original no idioma original
+                translatedTitle: translatedTitle || videoDetails.title, // Tradução em PT-BR (sempre disponível)
                 estimatedRevenueUSD: typeof estimatedRevenueUSD === 'number' ? estimatedRevenueUSD : 0,
                 estimatedRevenueBRL: typeof estimatedRevenueBRL === 'number' ? estimatedRevenueBRL : 0,
                 rpmUSD: typeof rpmUSD === 'number' ? rpmUSD : 2.0,
                 rpmBRL: typeof rpmBRL === 'number' ? rpmBRL : 11.0
             },
+            language: language, // Idioma escolhido para os títulos gerados
             folderId: folderId || null
         };
         
@@ -12583,8 +12630,9 @@ Tradução em PT-BR:`;
 
 // Rota alternativa que SEMPRE usa Laozhang.ai para análise de títulos
 app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => {
-    const { videoUrl, model: requestedModel, folderId } = req.body;
+    const { videoUrl, model: requestedModel, folderId, language } = req.body;
     const userId = req.user.id;
+    const selectedLanguage = language || 'Português'; // Idioma padrão: Português
     
     // Garantir que modelToUse seja o modelo original do frontend para exibição
     const modelToUse = requestedModel || 'gpt-4o';
@@ -12742,6 +12790,9 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         const viewsPerDay = Math.round(videoDetails.views / Math.max(videoDetails.days, 1));
         const isViral = isViralVideo(videoDetails.views, videoDetails.days, viewsPerDay);
         
+        const languageInstruction = selectedLanguage === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : selectedLanguage === 'Inglês' ? 'EM INGLÊS (EN)' : selectedLanguage === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)';
+        const languageExplanation = selectedLanguage === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : selectedLanguage === 'Inglês' ? 'EM INGLÊS' : selectedLanguage === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO';
+        
         const titlePrompt = `Você é um ESPECIALISTA EM TÍTULOS VIRAIS PARA YOUTUBE com experiência em criar canais milionários.
 
 ANÁLISE DO VÍDEO VIRAL:
@@ -12759,6 +12810,11 @@ SUA TAREFA:
 2. Identifique a FÓRMULA EXATA do título
 3. Gere 5 títulos novos usando a mesma fórmula, mas com variações criativas
 
+⚠️ REGRAS CRÍTICAS DE IDIOMA:
+- TODOS os títulos sugeridos DEVEM estar ${languageInstruction}.
+- A "explicacao" de cada título também deve estar ${languageExplanation}.
+- Mantenha o IMPACTO, CURIOSIDADE e GATILHOS MENTAIS do título original, mas MELHORE-OS para maior viralização e mais views.
+
 FORMATO DE RESPOSTA (JSON):
 {
   "niche": "Nicho detectado",
@@ -12768,8 +12824,8 @@ FORMATO DE RESPOSTA (JSON):
     "formulaTitulo": "Fórmula identificada"
   },
   "titulosSugeridos": [
-    { "titulo": "Título 1", "pontuacao": 10, "explicacao": "Por que funciona" },
-    { "titulo": "Título 2", "pontuacao": 9, "explicacao": "Por que funciona" },
+    { "titulo": "Título 1 ${languageInstruction}", "pontuacao": 10, "explicacao": "Por que funciona ${languageExplanation}" },
+    { "titulo": "Título 2 ${languageInstruction}", "pontuacao": 9, "explicacao": "Por que funciona ${languageExplanation}" },
     ...
   ]
 }
@@ -12896,12 +12952,14 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
             videoDetails: {
                 ...videoDetails,
                 videoId: videoId,
-                translatedTitle: translatedTitle || videoDetails.title,
+                originalTitle: videoDetails.title, // Título original no idioma original
+                translatedTitle: translatedTitle || videoDetails.title, // Tradução em PT-BR (sempre disponível)
                 estimatedRevenueUSD: estimatedRevenueUSD,
                 estimatedRevenueBRL: estimatedRevenueBRL,
                 rpmUSD: rpmUSD,
                 rpmBRL: rpmBRL
             },
+            language: selectedLanguage, // Idioma escolhido para os títulos gerados
             folderId: folderId || null
         });
 
@@ -12981,7 +13039,12 @@ function getStyleSpecificPrompt(style, includePhrases) {
         'Foco nitido, alto detalhe': 'photorealistic',
         'Longa Exposicao': 'documentary',
         'Preto e Branco': 'documentary',
-        'Fotografia Macro': 'photorealistic'
+        'Fotografia Macro': 'photorealistic',
+        'Diorama Cinematográfico Narrativo': 'cinematic-diorama',
+        'Cinematic Diorama': 'cinematic-diorama',
+        'Diorama Narrativo': 'cinematic-diorama',
+        'Narrativa Diorama': 'cinematic-diorama',
+        'Realismo Miniaturizado': 'cinematic-diorama'
     };
     
     // Se o estilo já for um dos estilos de prompts/imagens, usar diretamente
@@ -13011,7 +13074,8 @@ function getStyleSpecificPrompt(style, includePhrases) {
         'fragmented-memory': 'fragmented memory style, collage aesthetic, fragmented composition',
         'fragmented-narrative': 'fragmented narrative style, collage style, layered visual narrative',
         'dream-real': 'dream-real style, liminal space between dream and reality, ethereal atmosphere',
-        'vhs-nostalgic': 'VHS nostalgic style, retro 80s/90s aesthetic, vintage quality, analog grain'
+        'vhs-nostalgic': 'VHS nostalgic style, retro 80s/90s aesthetic, vintage quality, analog grain',
+        'cinematic-diorama': 'Cinematic diorama-style scene, miniature environment designed like a handcrafted scale model, diorama-style environment, scale model aesthetic, handcrafted set. Stylized human figures with simplified, sculpted features and faceted geometry, low-detail facial features, sculpted characters, stylized human figures. Story-driven composition, dramatic cinematic lighting with practical light sources, soft volumetric shadows, low-key lighting, cinematic lighting. Shallow depth of field, tilt-shift effect, tilt-shift perspective, narrative camera angle, story-driven camera angle, diorama perspective, cinematic depth of field. Matte textures, subtle imperfections, handcrafted textures, matte surfaces, handcrafted look. Emotional storytelling atmosphere, frozen moment in time, metaphorical visual, staged scene, narrative depth, miniature scene aesthetic, maquette-style environment'
     };
     
     return styleSuffixes[mappedStyle] || styleSuffixes['photorealistic'];
@@ -14497,7 +14561,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         
         // Validar e corrigir tags (limite de 300 caracteres) e frases de gancho (idioma correto)
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
-            parsedData.ideias = parsedData.ideias.map(idea => {
+            parsedData.ideias = parsedData.ideias.map((idea, index) => {
                 // Validar tags - limitar a 300 caracteres
                 if (idea.seoTags && Array.isArray(idea.seoTags)) {
                     let tagsString = idea.seoTags.join(', ');
@@ -14565,6 +14629,10 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                         return frase;
                     });
                 }
+                
+                // Calcular score viral baseado no algoritmo do YouTube
+                const viralScore = calculateThumbnailViralScore(idea.descricaoThumbnail, index, parsedData.ideias.length);
+                idea.viralScore = viralScore;
                 
                 return idea;
             });
@@ -14900,18 +14968,59 @@ Retorne APENAS JSON válido:
             }
         }
 
-        // Parsear resposta
+        // Parsear resposta usando função robusta existente
         let parsedData;
-        const rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+        const rawResponse = typeof response === 'string' ? response : JSON.stringify(response);
         
         try {
-            parsedData = JSON.parse(rawResponse);
+            // Usar a função parseAIResponse que já tem tratamento robusto para JSON malformado
+            parsedData = parseAIResponse(rawResponse, 'Thumbnail Laozhang');
+            
+            // Verificar se o JSON tem a estrutura esperada
+            if (!parsedData || typeof parsedData !== 'object') {
+                throw new Error('Resposta da IA não retornou um objeto JSON válido.');
+            }
+            
+            // Verificar se tem "ideias" no objeto parseado
+            if (!parsedData.ideias) {
+                throw new Error('Resposta da IA não contém o campo "ideias" esperado.');
+            }
         } catch (e) {
-            const jsonMatch = rawResponse.match(/\{[\s\S]*"ideias"[\s\S]*\}/);
-            if (jsonMatch) {
-                parsedData = JSON.parse(jsonMatch[0]);
-            } else {
-                throw new Error('Resposta da IA não contém JSON válido.');
+            console.log('[Thumbnail Laozhang] Erro no parse inicial, tentando extrair JSON completo...');
+            
+            // Tentar extrair JSON completo usando contagem de chaves
+            try {
+                // Primeiro, encontrar onde está "ideias"
+                const ideiasIndex = rawResponse.indexOf('"ideias"');
+                if (ideiasIndex === -1) {
+                    throw new Error('Campo "ideias" não encontrado na resposta.');
+                }
+                
+                // Encontrar o início do objeto que contém "ideias" (procurar para trás)
+                let objStart = rawResponse.lastIndexOf('{', ideiasIndex);
+                if (objStart === -1) {
+                    // Se não encontrou, tentar encontrar qualquer { antes de "ideias"
+                    objStart = rawResponse.indexOf('{');
+                }
+                
+                if (objStart !== -1) {
+                    // Extrair JSON completo a partir do objeto encontrado
+                    const jsonFromStart = extractCompleteJson(rawResponse.substring(objStart));
+                    if (jsonFromStart) {
+                        const fixedJson = fixJsonWithUnescapedNewlines(jsonFromStart);
+                        parsedData = JSON.parse(fixedJson);
+                        console.log('[Thumbnail Laozhang] ✅ JSON extraído e parseado com sucesso usando contagem de chaves');
+                    } else {
+                        throw new Error('Não foi possível extrair JSON completo usando contagem de chaves.');
+                    }
+                } else {
+                    throw new Error('Não foi possível encontrar início do objeto JSON.');
+                }
+            } catch (extractError) {
+                console.error('[Thumbnail Laozhang] Erro ao extrair JSON:', extractError.message);
+                console.error('[Thumbnail Laozhang] Erro original:', e.message);
+                console.error('[Thumbnail Laozhang] Resposta (primeiros 2000 chars):', rawResponse.substring(0, 2000));
+                throw new Error(`Erro ao processar resposta da IA: ${e.message}. Tentativa de extração também falhou: ${extractError.message}`);
             }
         }
 
@@ -14921,7 +15030,7 @@ Retorne APENAS JSON válido:
 
         // Validar e processar dados antes de enviar (mesma lógica da rota principal)
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
-            parsedData.ideias = parsedData.ideias.map(idea => {
+            parsedData.ideias = parsedData.ideias.map((idea, index) => {
                 // Validar tags - limitar a 300 caracteres
                 if (idea.seoTags && Array.isArray(idea.seoTags)) {
                     let tagsString = idea.seoTags.join(', ');
@@ -14969,6 +15078,10 @@ Retorne APENAS JSON válido:
                     });
                 }
                 
+                // Calcular score viral baseado no algoritmo do YouTube
+                const viralScore = calculateThumbnailViralScore(idea.descricaoThumbnail, index, parsedData.ideias.length);
+                idea.viralScore = viralScore;
+                
                 return idea;
             });
         }
@@ -14983,8 +15096,9 @@ Retorne APENAS JSON válido:
 
 // === ROTA PARA GERAR PROMPTS DE CENA ===
 app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
-    const { script, model, style, imageModel, mode, wordsPerScene, characters, selectedModel } = req.body;
+    const { script, model, style, imageModel, mode, wordsPerScene, characters, selectedModel, isVO3 } = req.body;
     const userId = req.user.id;
+    const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
     if (!script || !script.trim()) {
         return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
@@ -15053,6 +15167,7 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
         const styleInstructions = {
             'photorealistic': 'O estilo visual deve ser fotorealista, com detalhes perfeitos, ultra alta definição, foco nítido, fotografia profissional.',
             'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
+            'cinematic-diorama': 'O estilo visual deve ser Diorama Cinematográfico Narrativo: cena em estilo de miniatura/maquete, ambiente como diorama artesanal, personagens semi-estilizados com geometria simplificada e facetada (não realistas, não cartoon), iluminação dramática localizada com sombras volumétricas suaves, câmera narrativa com profundidade exagerada e efeito tilt-shift, texturas foscas e levemente imperfeitas com aparência artesanal, atmosfera de storytelling emocional, sensação de "história congelada no tempo" e encenação metafórica. Tudo deve parecer uma miniatura física iluminada cinematograficamente.',
             'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
             'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
             'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
@@ -15081,11 +15196,48 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
+        
+        // Instruções específicas para VO3
+        const vo3Instructions = forVO3 ? `
+        
+⚠️⚠️⚠️ MODO VO3 ATIVADO - OTIMIZAÇÃO PARA GERAÇÃO DE VÍDEO ⚠️⚠️⚠️
+Os prompts devem ser OTIMIZADOS ESPECIFICAMENTE para o modelo VO3 (geração de vídeo).
 
-        const prompt = `Você é um especialista em criação de prompts para geração de imagens usando IA.
+REGRAS CRÍTICAS PARA VO3:
+1. MOVIMENTO E AÇÃO: Cada prompt DEVE descrever movimento, ação ou transição. VO3 precisa de elementos dinâmicos para gerar vídeo fluido.
+   - Use verbos de ação: "walking", "running", "flying", "rotating", "approaching", "receding", "panning", "zooming"
+   - Descreva direção de movimento: "from left to right", "approaching camera", "flying away", "spinning clockwise"
+   - Inclua transições: "fade in", "slow reveal", "gradual zoom", "smooth pan"
+
+2. SFX (EFEITOS SONOROS) EMBUTIDOS: Cada prompt DEVE incluir descrições de efeitos sonoros relevantes para a cena, usando a sintaxe: [SFX: descrição do som]
+   - Exemplos: [SFX: distant explosion, rumbling], [SFX: footsteps on gravel, crunching], [SFX: wind howling, atmospheric], [SFX: engine revving, mechanical], [SFX: water splashing, liquid], [SFX: door creaking, wooden], [SFX: birds chirping, nature], [SFX: crowd murmuring, ambient], [SFX: glass breaking, shattering], [SFX: thunder rumbling, weather]
+   - Inclua SFX que faça sentido para a ação visual descrita
+   - Use 1-3 SFX por cena, dependendo da complexidade
+   - SFX deve estar ENTRE PARÊNTESES QUADRADOS no formato [SFX: nome do som, categoria]
+
+3. DURAÇÃO E RITMO: Indique o ritmo/tempo da cena quando relevante
+   - "slow motion", "time-lapse", "real-time", "fast-paced", "leisurely pace"
+
+4. CONTINUIDADE VISUAL: Mantenha consistência entre cenas consecutivas
+   - Se uma cena termina com um personagem à esquerda, a próxima pode começar com ele à direita (mostrando movimento)
+   - Descreva posições relativas que permitam transições suaves
+
+5. ELEMENTOS CINEMATOGRÁFICOS PARA VÍDEO:
+   - Movimentos de câmera: "camera panning left", "dolly forward", "crane shot rising", "handheld following"
+   - Profundidade dinâmica: "foreground elements moving", "background parallax", "layered movement"
+   - Mudanças de foco: "rack focus from A to B", "shallow focus transitioning"
+
+FORMATO DO PROMPT PARA VO3:
+Cada prompt_text deve seguir este padrão:
+"[Descrição visual detalhada com movimento e ação] [SFX: som1, categoria1] [SFX: som2, categoria2] [Movimento de câmera] [Ritmo/tempo]"
+
+EXEMPLO DE PROMPT VO3:
+"Aerial view of a military helicopter flying low over a desert landscape, rotor blades spinning rapidly, dust clouds trailing behind, camera tracking the helicopter from behind and slightly above, smooth forward motion, golden hour lighting casting long shadows, [SFX: helicopter rotor blades, mechanical] [SFX: wind rushing, atmospheric] [SFX: distant engine roar, vehicle] - fast-paced action sequence, dynamic camera movement"` : '';
+
+        const prompt = `Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
 
 TAREFA:
-Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer na imagem para aquela parte do roteiro.
+Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'} para aquela parte do roteiro.${vo3Instructions}
 
 ROTEIRO:
 """
@@ -15094,9 +15246,9 @@ ${script}
 
 INSTRUÇÕES:
 1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
-2. Cada prompt deve ter entre 600-1200 caracteres
-3. Cada prompt deve ser em INGLÊS e otimizado para geração de imagens
-4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário
+2. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
+3. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
+4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
 5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
 6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
 
@@ -15106,20 +15258,20 @@ FORMATO DE RESPOSTA (JSON):
     {
       "scene_number": 1,
       "scene_description": "Breve descrição da cena em português",
-      "prompt_text": "Prompt detalhado em inglês para geração de imagem (600-1200 caracteres)"
+      "prompt_text": "Prompt detalhado em inglês para ${forVO3 ? 'geração de vídeo VO3 com SFX embutido' : 'geração de imagem'} (${forVO3 ? '800-1500' : '600-1200'} caracteres)${forVO3 ? ' - DEVE incluir [SFX: ...] e descrições de movimento' : ''}"
     },
     {
       "scene_number": 2,
       "scene_description": "Breve descrição da cena em português",
-      "prompt_text": "Prompt detalhado em inglês para geração de imagem (600-1200 caracteres)"
+      "prompt_text": "Prompt detalhado em inglês para ${forVO3 ? 'geração de vídeo VO3 com SFX embutido' : 'geração de imagem'} (${forVO3 ? '800-1500' : '600-1200'} caracteres)${forVO3 ? ' - DEVE incluir [SFX: ...] e descrições de movimento' : ''}"
     }
   ]
 }
 
 IMPORTANTE:
 - Responda APENAS com o JSON válido, sem texto adicional
-- Certifique-se de que cada prompt_text tem entre 600-1200 caracteres
-- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
+- Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
+${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
 - O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
 - Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.`;
 
@@ -15327,8 +15479,9 @@ IMPORTANTE:
 
 // Rota alternativa que SEMPRE usa Laozhang.ai
 app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, res) => {
-    const { script, style, imageModel, mode, wordsPerScene, characters, selectedModel } = req.body;
+    const { script, style, imageModel, mode, wordsPerScene, characters, selectedModel, isVO3 } = req.body;
     const userId = req.user.id;
+    const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
     if (!script || !script.trim()) {
         return res.status(400).json({ msg: 'O roteiro é obrigatório.' });
@@ -15416,6 +15569,7 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
             'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
             'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
             'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
+            'cinematic-diorama': 'O estilo visual deve ser Diorama Cinematográfico Narrativo: cena em estilo de miniatura/maquete, ambiente como diorama artesanal, personagens semi-estilizados com geometria simplificada e facetada (não realistas, não cartoon), iluminação dramática localizada com sombras volumétricas suaves, câmera narrativa com profundidade exagerada e efeito tilt-shift, texturas foscas e levemente imperfeitas com aparência artesanal, atmosfera de storytelling emocional, sensação de "história congelada no tempo" e encenação metafórica. Tudo deve parecer uma miniatura física iluminada cinematograficamente.',
             'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
             'cartoon': 'O estilo visual deve ser desenho animado, colorido, expressivo, com estética de animação tradicional.',
             'cartoon-premium': 'O estilo visual deve ser cartoon premium, com alta qualidade de animação e design profissional.',
@@ -15442,11 +15596,48 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
+        
+        // Instruções específicas para VO3 (mesmas da rota principal)
+        const vo3Instructions = forVO3 ? `
+        
+⚠️⚠️⚠️ MODO VO3 ATIVADO - OTIMIZAÇÃO PARA GERAÇÃO DE VÍDEO ⚠️⚠️⚠️
+Os prompts devem ser OTIMIZADOS ESPECIFICAMENTE para o modelo VO3 (geração de vídeo).
 
-        const prompt = `Você é um especialista em criação de prompts para geração de imagens usando IA.
+REGRAS CRÍTICAS PARA VO3:
+1. MOVIMENTO E AÇÃO: Cada prompt DEVE descrever movimento, ação ou transição. VO3 precisa de elementos dinâmicos para gerar vídeo fluido.
+   - Use verbos de ação: "walking", "running", "flying", "rotating", "approaching", "receding", "panning", "zooming"
+   - Descreva direção de movimento: "from left to right", "approaching camera", "flying away", "spinning clockwise"
+   - Inclua transições: "fade in", "slow reveal", "gradual zoom", "smooth pan"
+
+2. SFX (EFEITOS SONOROS) EMBUTIDOS: Cada prompt DEVE incluir descrições de efeitos sonoros relevantes para a cena, usando a sintaxe: [SFX: descrição do som]
+   - Exemplos: [SFX: distant explosion, rumbling], [SFX: footsteps on gravel, crunching], [SFX: wind howling, atmospheric], [SFX: engine revving, mechanical], [SFX: water splashing, liquid], [SFX: door creaking, wooden], [SFX: birds chirping, nature], [SFX: crowd murmuring, ambient], [SFX: glass breaking, shattering], [SFX: thunder rumbling, weather]
+   - Inclua SFX que faça sentido para a ação visual descrita
+   - Use 1-3 SFX por cena, dependendo da complexidade
+   - SFX deve estar ENTRE PARÊNTESES QUADRADOS no formato [SFX: nome do som, categoria]
+
+3. DURAÇÃO E RITMO: Indique o ritmo/tempo da cena quando relevante
+   - "slow motion", "time-lapse", "real-time", "fast-paced", "leisurely pace"
+
+4. CONTINUIDADE VISUAL: Mantenha consistência entre cenas consecutivas
+   - Se uma cena termina com um personagem à esquerda, a próxima pode começar com ele à direita (mostrando movimento)
+   - Descreva posições relativas que permitam transições suaves
+
+5. ELEMENTOS CINEMATOGRÁFICOS PARA VÍDEO:
+   - Movimentos de câmera: "camera panning left", "dolly forward", "crane shot rising", "handheld following"
+   - Profundidade dinâmica: "foreground elements moving", "background parallax", "layered movement"
+   - Mudanças de foco: "rack focus from A to B", "shallow focus transitioning"
+
+FORMATO DO PROMPT PARA VO3:
+Cada prompt_text deve seguir este padrão:
+"[Descrição visual detalhada com movimento e ação] [SFX: som1, categoria1] [SFX: som2, categoria2] [Movimento de câmera] [Ritmo/tempo]"
+
+EXEMPLO DE PROMPT VO3:
+"Aerial view of a military helicopter flying low over a desert landscape, rotor blades spinning rapidly, dust clouds trailing behind, camera tracking the helicopter from behind and slightly above, smooth forward motion, golden hour lighting casting long shadows, [SFX: helicopter rotor blades, mechanical] [SFX: wind rushing, atmospheric] [SFX: distant engine roar, vehicle] - fast-paced action sequence, dynamic camera movement"` : '';
+
+        const prompt = `Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
 
 TAREFA:
-Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer na imagem para aquela parte do roteiro.
+Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'} para aquela parte do roteiro.${vo3Instructions}
 
 ROTEIRO:
 """
@@ -15455,9 +15646,9 @@ ${script}
 
 INSTRUÇÕES:
 1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
-2. Cada prompt deve ter entre 600-1200 caracteres
-3. Cada prompt deve ser em INGLÊS e otimizado para geração de imagens
-4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário
+2. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
+3. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
+4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
 5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
 6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
 
@@ -15467,7 +15658,7 @@ FORMATO DE RESPOSTA (JSON):
     {
       "scene_number": 1,
       "scene_description": "Breve descrição da cena",
-      "prompt_text": "Prompt detalhado em inglês para geração de imagem"
+      "prompt_text": "Prompt detalhado em inglês para ${forVO3 ? 'geração de vídeo VO3 com SFX embutido' : 'geração de imagem'} (${forVO3 ? '800-1500' : '600-1200'} caracteres)${forVO3 ? ' - DEVE incluir [SFX: ...] e descrições de movimento' : ''}"
     },
     ...
   ]
@@ -15475,6 +15666,7 @@ FORMATO DE RESPOSTA (JSON):
 
 IMPORTANTE: 
 - Retorne APENAS o JSON, sem texto adicional
+${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}- Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
 - Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
 - O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
 - Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.
@@ -24172,6 +24364,28 @@ app.delete('/api/videos/unpin/:pinId', authenticateToken, async (req, res) => {
         res.status(500).json({ msg: 'Erro no servidor ao remover vídeo fixado.' });
     }
 });
+
+// GET /api/videos/generated - Lista vídeos gerados pelo usuário
+app.get('/api/videos/generated', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    
+    try {
+        const videos = await db.all(
+            `SELECT id, operation_id, video_uri, prompt, model, aspect_ratio, resolution, created_at 
+             FROM generated_videos 
+             WHERE user_id = ? 
+             ORDER BY created_at DESC 
+             LIMIT 50`,
+            [userId]
+        );
+        
+        res.status(200).json({ videos: videos || [] });
+    } catch (err) {
+        console.error("Erro ao listar vídeos gerados:", err);
+        res.status(500).json({ msg: 'Erro no servidor ao listar vídeos gerados.' });
+    }
+});
+
 // === ROTAS DE ANALYTICS E TRACKING ===
 
 // Registrar tracking de vídeo publicado
@@ -24987,6 +25201,80 @@ app.post('/api/analytics/validate-title', authenticateToken, async (req, res) =>
         res.status(500).json({ msg: 'Erro ao validar título.' });
     }
 });
+
+// Função para calcular score viral de thumbnail baseado no algoritmo do YouTube
+function calculateThumbnailViralScore(thumbnailDescription, index, totalThumbnails) {
+    if (!thumbnailDescription || typeof thumbnailDescription !== 'string') {
+        return 8; // Score padrão se não houver descrição
+    }
+    
+    const descLower = thumbnailDescription.toLowerCase();
+    let baseScore = 6; // Score base (mínimo 6)
+    
+    // Fatores do algoritmo do YouTube que aumentam CTR:
+    
+    // 1. Presença de rosto humano (aumenta CTR em 20-30%)
+    if (/face|rosto|pessoa|person|human|portrait|close-up|closeup/i.test(descLower)) {
+        baseScore += 0.8;
+    }
+    
+    // 2. Expressões emocionais fortes (aumenta engajamento)
+    const emotionWords = ['surprised', 'surpreso', 'shocked', 'chocado', 'excited', 'animado', 'angry', 'bravo', 'happy', 'feliz', 'fear', 'medo', 'shock', 'choque'];
+    const emotionCount = emotionWords.filter(word => descLower.includes(word)).length;
+    baseScore += Math.min(emotionCount * 0.3, 1.0);
+    
+    // 3. Texto na thumbnail (aumenta cliques)
+    if (/text|texto|phrase|frase|word|palavra|letter|letra|font|fonte/i.test(descLower)) {
+        baseScore += 0.6;
+    }
+    
+    // 4. Alto contraste e cores vibrantes (melhora visibilidade)
+    if (/contrast|contraste|bright|brilhante|vibrant|vibrante|color|cor|saturated|saturado/i.test(descLower)) {
+        baseScore += 0.5;
+    }
+    
+    // 5. Composição profissional (regra dos terços, centro)
+    if (/rule of thirds|terços|center|centro|composition|composição|framing|enquadramento/i.test(descLower)) {
+        baseScore += 0.4;
+    }
+    
+    // 6. Elementos que geram curiosidade
+    const curiosityElements = ['mystery', 'mistério', 'secret', 'segredo', 'hidden', 'escondido', 'reveal', 'revelar', 'blur', 'desfocado', 'question', 'pergunta'];
+    const curiosityCount = curiosityElements.filter(word => descLower.includes(word)).length;
+    baseScore += Math.min(curiosityCount * 0.2, 0.6);
+    
+    // 7. Qualidade técnica (8K, profissional, etc)
+    if (/8k|ultra.*high|professional|profissional|cinematic|cinematográfico|arri|red|canon|nikon/i.test(descLower)) {
+        baseScore += 0.3;
+    }
+    
+    // 8. Elementos visuais poderosos
+    if (/arrow|seta|number|número|before.*after|antes.*depois|comparison|comparação/i.test(descLower)) {
+        baseScore += 0.4;
+    }
+    
+    // 9. Iluminação profissional
+    if (/lighting|iluminação|dramatic.*light|luz.*dramática|rim.*light|backlight/i.test(descLower)) {
+        baseScore += 0.3;
+    }
+    
+    // 10. Variação baseada no índice (para garantir diferentes scores)
+    // Primeira thumbnail geralmente é melhor (réplica melhorada)
+    // Segunda thumbnail é nova e otimizada
+    const indexVariation = index === 0 ? 0.2 : -0.1; // Primeira ligeiramente melhor
+    baseScore += indexVariation;
+    
+    // Adicionar pequena variação aleatória para simular algoritmo do YouTube
+    // (variação de -0.3 a +0.3 para tornar mais realista)
+    const randomVariation = (Math.random() * 0.6) - 0.3;
+    baseScore += randomVariation;
+    
+    // Garantir que o score fique entre 6.0 e 10.0
+    baseScore = Math.max(6.0, Math.min(10.0, baseScore));
+    
+    // Arredondar para 1 casa decimal
+    return Math.round(baseScore * 10) / 10;
+}
 
 // 6. Validação de Thumbnail (análise básica)
 app.post('/api/analytics/validate-thumbnail', authenticateToken, async (req, res) => {
@@ -29379,6 +29667,331 @@ Nicho identificado:`;
     } catch (err) {
         console.error('[ERRO NA ROTA /api/channels/fetch-info]:', err);
         res.status(500).json({ msg: 'Erro ao buscar informações do canal.' });
+    }
+});
+
+// === META.AI: Cookies e Animação de Imagens ===
+app.post('/api/meta/cookies/save', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { cookiesJson } = req.body || {};
+    try {
+        if (!cookiesJson || typeof cookiesJson !== 'string') {
+            return res.status(400).json({ msg: 'Cole os cookies do Meta.ai (JSON ou string "name=value;...")' });
+        }
+        const normalizeCookies = (input) => {
+            try {
+                const parsed = JSON.parse(input);
+                if (Array.isArray(parsed)) return parsed;
+                if (parsed && Array.isArray(parsed.cookies)) return parsed.cookies;
+            } catch (_) {}
+            // Tentar formato "name=value; name2=value2; ..."
+            const parts = input.split(';').map(s => s.trim()).filter(Boolean);
+            const arr = [];
+            for (const p of parts) {
+                const eq = p.indexOf('=');
+                if (eq > 0) {
+                    const name = p.slice(0, eq).trim();
+                    const value = p.slice(eq + 1).trim();
+                    if (name && value) arr.push({ name, value });
+                }
+            }
+            return arr.length ? arr : null;
+        };
+
+        const normalized = normalizeCookies(cookiesJson);
+        if (!normalized || !normalized.every(c => c && c.name && c.value)) {
+            return res.status(400).json({ msg: 'Formato de cookies inválido. Use JSON válido ou "name=value; name2=value2".' });
+        }
+
+        const encrypted = encrypt(JSON.stringify(normalized));
+        await db.run(
+            `INSERT INTO user_api_keys (user_id, service_name, api_key)
+             VALUES (?, ?, ?)
+             ON CONFLICT(user_id, service_name) DO UPDATE SET api_key=excluded.api_key`,
+            [userId, 'meta_ai_cookies', encrypted]
+        );
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[Meta.ai] Erro ao salvar cookies:', err);
+        return res.status(500).json({ msg: 'Erro interno ao salvar cookies.' });
+    }
+});
+
+app.get('/api/meta/cookies/status', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const row = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
+        if (!row) return res.json({ hasCookies: false, isValid: false });
+        const json = decrypt(row.api_key);
+        let parsed = null;
+        try { parsed = JSON.parse(json); } catch {}
+        const isValid = Array.isArray(parsed) && parsed.every(c => c && c.name && c.value);
+        return res.json({ hasCookies: true, isValid });
+    } catch (err) {
+        console.error('[Meta.ai] Erro ao verificar status de cookies:', err);
+        return res.status(500).json({ msg: 'Erro ao verificar cookies.' });
+    }
+});
+
+app.post('/api/animate/meta', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { base64, imageUrl, sceneNumber } = req.body || {};
+    try {
+        const cookieRow = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
+        const hasCookies = !!cookieRow;
+        if (!hasCookies) return res.status(400).json({ msg: 'Configure os cookies do Meta.ai nas Configurações para habilitar a animação.' });
+
+        let imgBuffer;
+        if (base64 && typeof base64 === 'string') {
+            const commaIdx = base64.indexOf(',');
+            const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
+            imgBuffer = Buffer.from(raw, 'base64');
+        } else if (imageUrl) {
+            const resp = await fetch(imageUrl);
+            if (!resp.ok) throw new Error('Falha ao baixar imagem');
+            imgBuffer = Buffer.from(await resp.arrayBuffer());
+        } else {
+            return res.status(400).json({ msg: 'Envie base64 ou imageUrl para animar.' });
+        }
+
+        const tmpDir = TEMP_DIR || path.join(process.cwd(), 'temp_audio');
+        const imgPath = path.join(tmpDir, `meta_img_${Date.now()}.png`);
+        fs.writeFileSync(imgPath, imgBuffer);
+        const outPath = path.join(tmpDir, `meta_anim_${Date.now()}.mp4`);
+
+        await new Promise((resolve, reject) => {
+            ffmpeg()
+                .input(imgPath)
+                .inputOptions(['-loop 1'])
+                .videoFilters("zoompan=z='min(zoom+0.0018,1.15)':d=125,framerate=25")
+                .duration(5)
+                .outputOptions(['-pix_fmt yuv420p'])
+                .on('end', resolve)
+                .on('error', reject)
+                .save(outPath);
+        });
+
+        const videoB64 = fs.readFileSync(outPath).toString('base64');
+        try { fs.unlinkSync(imgPath); fs.unlinkSync(outPath); } catch {}
+        return res.json({ success: true, sceneNumber: sceneNumber || null, videoBase64: `data:video/mp4;base64,${videoB64}` });
+    } catch (err) {
+        console.error('[Meta.ai] Erro ao animar imagem:', err.message);
+        return res.status(500).json({ msg: err.message || 'Erro ao animar imagem.' });
+    }
+});
+
+app.post('/api/animate/parallax', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { base64, imageUrl, sceneNumber, duration = 5 } = req.body || {};
+    try {
+        let imgBuffer;
+        if (base64 && typeof base64 === 'string') {
+            const commaIdx = base64.indexOf(',');
+            const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
+            imgBuffer = Buffer.from(raw, 'base64');
+        } else if (imageUrl) {
+            const resp = await fetch(imageUrl);
+            if (!resp.ok) throw new Error('Falha ao baixar imagem');
+            imgBuffer = Buffer.from(await resp.arrayBuffer());
+        } else {
+            return res.status(400).json({ msg: 'Envie base64 ou imageUrl para animar.' });
+        }
+        const tmpDir = TEMP_DIR || path.join(process.cwd(), 'temp_audio');
+        const imgPath = path.join(tmpDir, `parallax_${Date.now()}.png`);
+        const outPath = path.join(tmpDir, `parallax_${Date.now()}.mp4`);
+        fs.writeFileSync(imgPath, imgBuffer);
+        const py = (() => {
+            try { execSync('python3 --version', { stdio: 'ignore' }); return 'python3'; } catch {}
+            try { execSync('python --version', { stdio: 'ignore' }); return 'python'; } catch {}
+            return 'python3';
+        })();
+        const cmd = `${py} ${path.join(__dirname, 'animator_depth.py')} --input "${imgPath}" --output "${outPath}" --duration ${duration}`;
+        const { stdout, stderr } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
+        const videoB64 = fs.readFileSync(outPath).toString('base64');
+        try { fs.unlinkSync(imgPath); fs.unlinkSync(outPath); } catch {}
+        return res.json({ success: true, sceneNumber: sceneNumber || null, videoBase64: `data:video/mp4;base64,${videoB64}` });
+    } catch (err) {
+        console.error('[Parallax] Erro:', err.message);
+        return res.status(500).json({ msg: `Falha parallax: ${err.message}` });
+    }
+});
+app.post('/api/animate/meta/live', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { base64, imageUrl, sceneNumber, prompt } = req.body || {};
+    try {
+        const row = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
+        if (!row) return res.status(400).json({ msg: 'Configure os cookies do Meta.ai nas Configurações.' });
+        const cookiesArr = JSON.parse(decrypt(row.api_key));
+        let imgBuffer;
+        if (base64 && typeof base64 === 'string') {
+            const commaIdx = base64.indexOf(',');
+            const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
+            imgBuffer = Buffer.from(raw, 'base64');
+        } else if (imageUrl) {
+            const resp = await fetch(imageUrl);
+            if (!resp.ok) throw new Error('Falha ao baixar imagem');
+            imgBuffer = Buffer.from(await resp.arrayBuffer());
+        } else {
+            return res.status(400).json({ msg: 'Envie base64 ou imageUrl para animar.' });
+        }
+        const tmpDir = TEMP_DIR || path.join(process.cwd(), 'temp_audio');
+        const imgPath = path.join(tmpDir, `meta_live_${Date.now()}.png`);
+        fs.writeFileSync(imgPath, imgBuffer);
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)
+            ? process.env.PUPPETEER_EXECUTABLE_PATH
+            : undefined;
+        const browser = await puppeteer.launch({ headless: true, executablePath, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        });
+        const setCookies = cookiesArr.map(c => ({ name: c.name, value: c.value, domain: c.domain || '.meta.ai', path: c.path || '/', httpOnly: !!c.httpOnly, secure: !!c.secure }));
+        const namesAuth = cookiesArr.map(c => c.name);
+        const requiredAuth = ['c_user','xs'];
+        const missingAuth = requiredAuth.filter(n => !namesAuth.includes(n));
+        if (missingAuth.length > 0) {
+            return res.status(400).json({ msg: 'Sessão não autenticada no Meta.ai. Adicione cookies de login.', missing: missingAuth });
+        }
+        try { await page.setCookie(...setCookies); } catch {}
+        try { await page.setCookie(...setCookies.map(c => ({ ...c, domain: 'www.meta.ai' }))); } catch {}
+        await page.goto('https://www.meta.ai/media', { waitUntil: 'networkidle2', timeout: 120000 });
+        let triedAlt = false;
+        if ((await page.content()).includes('login') || (await page.$('input[name="email"]'))) {
+            triedAlt = true;
+            await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
+        }
+        let videoSrc = null;
+        // Capturar URL de vídeo via network
+        const mp4Candidates = new Set();
+        page.on('response', async (response) => {
+            try {
+                const ct = response.headers()['content-type'] || '';
+                const url = response.url();
+                if (ct.includes('video/mp4') || url.endsWith('.mp4')) {
+                    mp4Candidates.add(url);
+                }
+            } catch {}
+        });
+        try {
+            const createSpan = await page.$x("//span[normalize-space()='Criar' or normalize-space()='Create']");
+            if (createSpan && createSpan[0]) {
+                await createSpan[0].evaluate(el => {
+                    let n = el;
+                    for (let i = 0; i < 5 && n; i++) {
+                        if (n.tagName === 'BUTTON' || n.tagName === 'A') { n.click(); return; }
+                        n = n.parentElement;
+                    }
+                    el.click();
+                });
+                await page.waitForTimeout(300);
+            }
+            let input = await page.$('input[type=file]');
+            if (input) {
+                await input.uploadFile(imgPath);
+            }
+            // Se o input não estiver visível, clicar no elemento "Carregar imagem" (Português) ou "Upload image" (Inglês)
+            if (!input) {
+                const uploadNodes = await page.$x(
+                    "//div[@role='button'][.//span[normalize-space()='Carregar imagem'] or .//*[contains(normalize-space(.),'Carregar imagem')]] | " +
+                    "//div[@role='button'][.//span[normalize-space()='Upload image'] or .//*[contains(normalize-space(.),'Upload image')]] | " +
+                    "//*[contains(text(),'Carregar imagem')] | //*[contains(text(),'Upload image')]"
+                );
+                if (uploadNodes && uploadNodes[0]) {
+                    try { await uploadNodes[0].click(); } catch {}
+                    try {
+                        await page.waitForSelector('input[type=file]', { timeout: 10000 });
+                        input = await page.$('input[type=file]');
+                        if (input) await input.uploadFile(imgPath);
+                    } catch {}
+                }
+            }
+            // Escrever prompt (se fornecido)
+            if (prompt && prompt.trim().length > 0) {
+                const inputCandidates = await page.$x("//textarea | //input[@placeholder] | //*[@contenteditable='true']");
+                if (inputCandidates && inputCandidates[0]) {
+                    try {
+                        await inputCandidates[0].focus();
+                        await inputCandidates[0].click({ clickCount: 1 });
+                        await page.keyboard.type(prompt.trim());
+                    } catch {}
+                }
+            }
+            // Garantir modo Vídeo
+            const videoMode = await page.$x("//*[contains(text(),'Vídeo')]//ancestor::button | //*[contains(text(),'Vídeo')]");
+            if (videoMode && videoMode[0]) {
+                try { await videoMode[0].click(); } catch {}
+            }
+            // Clicar em Animar
+            let animateSpan = await page.$x("//span[normalize-space()='Animar'] | //span[normalize-space()='Animate']");
+            if (animateSpan && animateSpan[0]) {
+                await animateSpan[0].evaluate(el => {
+                    let n = el;
+                    for (let i = 0; i < 6 && n; i++) {
+                        if ((n.tagName === 'BUTTON') || (n.getAttribute && n.getAttribute('role') === 'button')) { n.click(); return; }
+                        n = n.parentElement;
+                    }
+                    el.click();
+                });
+            } else {
+                const animateNode = await page.$x("//button[.//text()[contains(.,'Animar')]] | //*[(self::button or self::div) and contains(text(),'Animar')] | //button[.//text()[contains(.,'Animate')]] | //*[(self::button or self::div) and contains(text(),'Animate')]");
+                if (animateNode && animateNode[0]) {
+                    await animateNode[0].click();
+                }
+            }
+            await page.waitForSelector('video, canvas, img', { timeout: 60000 });
+            await page.waitForTimeout(5000);
+            // Tentar pegar por DOM
+            videoSrc = await page.evaluate(() => {
+                const v = document.querySelector('video');
+                if (v && v.src) return v.src;
+                const a = Array.from(document.querySelectorAll('a')).find(x => (x.href || '').endsWith('.mp4'));
+                return a ? a.href : null;
+            });
+            if (!videoSrc && mp4Candidates.size > 0) {
+                videoSrc = Array.from(mp4Candidates).pop();
+            }
+            if (!videoSrc) {
+                const candidate = (await page.$$('a[download], button svg, div[role="button"] svg')).pop();
+                if (candidate) {
+                    try {
+                        await candidate.evaluate(el => {
+                            let n = el;
+                            for (let i = 0; i < 6 && n; i++) {
+                                if (n.tagName === 'A' || n.tagName === 'BUTTON' || (n.getAttribute && n.getAttribute('role') === 'button')) { n.click(); return; }
+                                n = n.parentElement;
+                            }
+                        });
+                    } catch {}
+                    await page.waitForTimeout(2000);
+                }
+                if (mp4Candidates.size > 0) {
+                    videoSrc = Array.from(mp4Candidates).pop();
+                }
+            }
+        } catch (e) {
+            if (!triedAlt) {
+                await page.goto('https://www.meta.ai', { waitUntil: 'networkidle2' });
+            }
+            try {
+                const dbgPath = path.join(TEMP_DIR, `meta_debug_${Date.now()}.png`);
+                await page.screenshot({ path: dbgPath, fullPage: true });
+                const dbgB64 = fs.readFileSync(dbgPath).toString('base64');
+                videoSrc = null;
+                return res.status(502).json({ msg: 'Meta.ai não retornou vídeo. Verifique cookies válidos.', debugScreenshot: `data:image/png;base64,${dbgB64}` });
+            } catch {}
+        }
+        await browser.close();
+        try { fs.unlinkSync(imgPath); } catch {}
+        if (!videoSrc) return res.status(502).json({ msg: 'Não foi possível obter o vídeo do Meta.ai (verifique cookies válidos e fluxo).'});
+        const vidResp = await fetch(videoSrc, { headers: { 'Referer': 'https://www.meta.ai/media', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', 'Accept': 'video/mp4,*/*' } });
+        if (!vidResp.ok) return res.status(502).json({ msg: 'Falha ao baixar vídeo do Meta.ai.' });
+        const buf = Buffer.from(await vidResp.arrayBuffer());
+        const b64 = buf.toString('base64');
+        return res.json({ success: true, sceneNumber: sceneNumber || null, videoBase64: `data:video/mp4;base64,${b64}` });
+    } catch (err) {
+        return res.status(500).json({ msg: err.message || 'Erro ao animar imagem (live).' });
     }
 });
 

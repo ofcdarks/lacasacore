@@ -6,9 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sqlite3 \
     build-essential \
+    git \
     python3 \
     python3-pip \
     python3-venv \
+    chromium \
+    libglib2.0-0 libnss3 libxss1 libasound2 libatk-bridge2.0-0 libgtk-3-0 \
+    libxrender1 libxext6 libgl1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Alias para compatibilidade com scripts que chamam `python`
@@ -30,7 +34,12 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     --index-url https://download.pytorch.org/whl/cpu \
     torch==2.1.0 torchaudio==2.1.0 && \
     python3 -m pip install --no-cache-dir --break-system-packages \
-    openai-whisper
+    openai-whisper && \
+    python3 -m pip install --no-cache-dir --break-system-packages \
+    opencv-python-headless timm
+
+# Definir caminho do Chromium para puppeteer
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Diretório da aplicação
 WORKDIR /app
