@@ -773,7 +773,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
     }
 }
 
-async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
+async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeout = null) {
     if (!apiKey) throw new Error("Chave de API do Utilizador (Claude) não configurada.");
     
     const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -927,8 +927,9 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null) {
     } catch (error) {
         // Tratamento específico para timeout
         if (error.name === 'AbortError') {
-            console.error('[Claude API] ⏰ Timeout após 120 segundos');
-            throw new Error('A API do Claude demorou muito para responder (timeout). Tente novamente com um roteiro mais curto ou use outro modelo.');
+            const timeoutSeconds = (customTimeout || 120000) / 1000;
+            console.error(`[Claude API] ⏰ Timeout após ${timeoutSeconds} segundos`);
+            throw new Error(`A API do Claude demorou muito para responder (timeout após ${timeoutSeconds}s). Tente novamente com um roteiro mais curto ou use outro modelo.`);
         }
         console.error('Falha ao chamar a API do Claude:', error);
         throw error;
@@ -3765,12 +3766,20 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             fs.mkdirSync(dbDir, { recursive: true });
         }
 
+        // Configurar SQLite para melhor performance
         db = await sqlite.open({
             filename: dbPath, // Usa o caminho definido
             driver: sqlite3.Database
         });
 
-        console.log(`Conectado ao banco de dados em: ${dbPath}`);
+        // Otimizações de performance do SQLite
+        await db.exec('PRAGMA journal_mode = WAL;'); // Write-Ahead Logging para melhor performance
+        await db.exec('PRAGMA synchronous = NORMAL;'); // Balance entre segurança e performance
+        await db.exec('PRAGMA cache_size = -64000;'); // 64MB de cache
+        await db.exec('PRAGMA foreign_keys = ON;'); // Garantir integridade referencial
+        await db.exec('PRAGMA temp_store = MEMORY;'); // Usar memória para temporários
+
+        console.log(`✅ Conectado ao banco de dados em: ${dbPath}`);
 
         // --- CRIAÇÃO DAS TABELAS ---
 
@@ -3876,6 +3885,21 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 generated_image_base64 TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (video_analysis_id) REFERENCES analyzed_videos (id) ON DELETE CASCADE
+            );
+        `);
+        
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS generated_videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                operation_id TEXT UNIQUE NOT NULL,
+                video_uri TEXT NOT NULL,
+                prompt TEXT,
+                model TEXT,
+                aspect_ratio TEXT,
+                resolution TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             );
         `);
         
@@ -5039,9 +5063,9 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         rehydratePendingVideoOperations().catch(err => {
             console.error('[VideoCache] Erro ao reidratar operações (não crítico):', err.message);
         });
-
+        
     } catch (err) {
-        console.error('Erro ao conectar ou inicializar o banco de dados:', err);
+        console.error('❌ Erro ao conectar ou inicializar o banco de dados:', err);
         global.dbReady = false;
     }
 })();
@@ -5974,12 +5998,12 @@ async function calculateAndUpdateDatabaseStorage(userId) {
         // pinned_videos
         try {
             const pinnedVideos = await db.all(
-                'SELECT youtube_video_id, video_title FROM pinned_videos WHERE user_id = ?', 
+                'SELECT youtube_video_id, title FROM pinned_videos WHERE user_id = ?', 
                 [userId]
             );
             for (const pinned of pinnedVideos) {
                 totalSize += calculateTextSize(pinned.youtube_video_id);
-                totalSize += calculateTextSize(pinned.video_title);
+                totalSize += calculateTextSize(pinned.title || '');
             }
         } catch (err) {
             console.warn('[STORAGE] Erro ao calcular armazenamento de pinned_videos:', err.message);
@@ -12261,7 +12285,9 @@ Tradução em PT-BR:`;
                         const parsedData = parseAIResponse(titlesText, serviceName);
                         if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
                         
-                        const list = Array.isArray(parsedData.titulosSugeridos) ? parsedData.titulosSugeridos.slice(0, 5) : [];
+                        // Salvar TODOS os títulos gerados, não apenas os primeiros 5
+                        const list = Array.isArray(parsedData.titulosSugeridos) ? parsedData.titulosSugeridos : [];
+                        console.log(`[Análise-All Laozhang] ${serviceName}: ${list.length} títulos gerados`);
                         list.forEach(t => {
                             allGeneratedTitles.push({ ...t, model: serviceName });
                         });
@@ -12310,6 +12336,7 @@ Tradução em PT-BR:`;
                     const parsedData = parseAIResponse(result.value.titles, serviceName);
                     if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
                     
+                    console.log(`[Análise-All APIs Próprias] ${serviceName}: ${parsedData.titulosSugeridos.length} títulos gerados`);
                     parsedData.titulosSugeridos.forEach(t => {
                         allGeneratedTitles.push({ ...t, titulo: `[${serviceName}] ${t.titulo}`, model: serviceName });
                     });
@@ -12480,6 +12507,15 @@ Tradução em PT-BR:`;
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
+        // Log final: verificar quantos títulos foram gerados no total
+        console.log(`[Análise] ✅ Total de títulos gerados: ${allGeneratedTitles.length}`);
+        const titlesByModelFinal = {};
+        allGeneratedTitles.forEach(t => {
+            const model = t.model || 'Desconhecido';
+            titlesByModelFinal[model] = (titlesByModelFinal[model] || 0) + 1;
+        });
+        console.log(`[Análise] Títulos por modelo antes de salvar:`, titlesByModelFinal);
+        
         console.log('[Análise] Títulos gerados com sucesso.');
 
         // --- ETAPA 3: Salvar no Banco de Dados ---
@@ -12496,12 +12532,26 @@ Tradução em PT-BR:`;
             );
             analysisId = analysisResult.lastID;
 
+            console.log(`[Análise] Salvando ${allGeneratedTitles.length} títulos no banco de dados...`);
+            console.log(`[Análise] Detalhes dos títulos a serem salvos:`, allGeneratedTitles.map(t => ({ model: t.model, titulo: t.titulo?.substring(0, 50) })));
+            
+            let savedCount = 0;
             for (const titleData of allGeneratedTitles) {
-                await db.run(
-                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, explicacao) VALUES (?, ?, ?, ?, ?)',
-                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.explicacao]
-                );
+                try {
+                    await db.run(
+                        'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, explicacao) VALUES (?, ?, ?, ?, ?)',
+                        [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.explicacao]
+                    );
+                    savedCount++;
+                } catch (saveErr) {
+                    console.error(`[Análise] Erro ao salvar título:`, saveErr.message, titleData);
+                }
             }
+            
+            // Verificar quantos títulos foram salvos
+            const savedTitles = await db.all('SELECT model_used, COUNT(*) as count FROM generated_titles WHERE video_analysis_id = ? GROUP BY model_used', [analysisId]);
+            console.log(`[Análise] Total de títulos salvos: ${savedCount} de ${allGeneratedTitles.length}`);
+            console.log(`[Análise] Títulos salvos por modelo:`, savedTitles);
             console.log(`[Análise] Análise ${analysisId} salva no histórico (Pasta: ${folderId || 'Nenhuma'}).`);
         } catch (dbErr) {
             console.error("[Análise] FALHA AO SALVAR NO BANCO DE DADOS:", dbErr.message);
@@ -12975,6 +13025,8 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     try {
+        console.log(`[Biblioteca] Recebida requisição para atualizar título ${titleId}, is_checked: ${is_checked}, userId: ${userId}`);
+        
         // Buscar informações do título antes de atualizar
         const titleData = await db.get(`
             SELECT gt.id, gt.title_text, gt.pontuacao, gt.video_analysis_id, av.detected_niche, av.detected_subniche, av.original_views, av.analysis_data_json
@@ -12984,8 +13036,18 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
         `, [titleId, userId]);
 
         if (!titleData) {
+            console.error(`[Biblioteca] Título ${titleId} não encontrado para usuário ${userId}`);
             return res.status(404).json({ msg: 'Título não encontrado ou não pertence a este utilizador.' });
         }
+        
+        console.log(`[Biblioteca] Dados do título encontrado:`, {
+            id: titleData.id,
+            title: titleData.title_text?.substring(0, 50),
+            niche: titleData.detected_niche,
+            subniche: titleData.detected_subniche,
+            views: titleData.original_views,
+            score: titleData.pontuacao
+        });
 
         // Atualiza o status do título específico
         const result = await db.run(
@@ -13001,8 +13063,18 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
         // Se o título foi marcado (is_checked = true), salvar na biblioteca
         if (is_checked) {
             try {
+                console.log(`[Biblioteca] Tentando salvar título marcado: ${titleId} para usuário ${userId}`);
                 const cleanTitle = titleData.title_text.replace(/^\[.*?\]\s*/, ''); // Remove prefixo [Gemini], [Claude], etc
                 const analysisData = titleData.analysis_data_json ? JSON.parse(titleData.analysis_data_json) : null;
+                
+                console.log(`[Biblioteca] Título limpo: "${cleanTitle.substring(0, 50)}..."`);
+                console.log(`[Biblioteca] Dados:`, {
+                    niche: titleData.detected_niche,
+                    subniche: titleData.detected_subniche,
+                    views: titleData.original_views,
+                    score: titleData.pontuacao,
+                    formula: analysisData?.formulaTitulo || null
+                });
                 
                 // Verificar se já existe na biblioteca para evitar duplicatas
                 const existing = await db.get(
@@ -13010,17 +13082,22 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
                     [userId, cleanTitle]
                 );
 
-                if (!existing) {
-                    await db.run(
+                if (existing) {
+                    console.log(`[Biblioteca] Título já existe na biblioteca (ID: ${existing.id}), pulando inserção`);
+                } else {
+                    const result = await db.run(
                         `INSERT INTO viral_titles_library (user_id, title, niche, subniche, original_views, formula_type, viral_score)
                          VALUES (?, ?, ?, ?, ?, ?, ?)`,
                         [userId, cleanTitle, titleData.detected_niche, titleData.detected_subniche, titleData.original_views, analysisData?.formulaTitulo || null, titleData.pontuacao || null]
                     );
-                    console.log(`[Biblioteca] Título "${cleanTitle.substring(0, 50)}..." salvo na biblioteca`);
+                    console.log(`[Biblioteca] ✅ Título "${cleanTitle.substring(0, 50)}..." salvo na biblioteca (ID: ${result.lastID})`);
                 }
             } catch (libErr) {
-                console.warn('[Biblioteca] Erro ao salvar título marcado na biblioteca:', libErr.message);
+                console.error('[Biblioteca] ❌ Erro ao salvar título marcado na biblioteca:', libErr);
+                console.error('[Biblioteca] Stack trace:', libErr.stack);
             }
+        } else {
+            console.log(`[Biblioteca] Título ${titleId} foi desmarcado, não será salvo na biblioteca`);
         }
 
         res.status(200).json({ msg: 'Status do título atualizado.' });
@@ -15096,7 +15173,7 @@ Retorne APENAS JSON válido:
 
 // === ROTA PARA GERAR PROMPTS DE CENA ===
 app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
-    const { script, model, style, imageModel, mode, wordsPerScene, characters, selectedModel, isVO3 } = req.body;
+    const { script, model, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3 } = req.body;
     const userId = req.user.id;
     const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
@@ -15152,10 +15229,22 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
         let estimatedScenes, minScenes, maxScenes;
         
         if (mode === 'manual' && wordsPerScene) {
-            // Modo manual: baseado em palavras por cena
-            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
-            minScenes = Math.max(1, Math.floor(wordCount / (parseInt(wordsPerScene) * 1.4)));
-            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (parseInt(wordsPerScene) * 0.6)));
+            const unitType = unit || 'words'; // 'words' ou 'seconds'
+            const value = parseInt(wordsPerScene);
+            
+            if (unitType === 'seconds') {
+                // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
+                const wordsPerSecond = 2.5;
+                const wordsPerInterval = value * wordsPerSecond;
+                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
+            } else {
+                // Modo manual: baseado em palavras por cena
+                estimatedScenes = Math.max(1, Math.round(wordCount / value));
+                minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
+            }
         } else {
             // Modo automático: 1 cena a cada ~90 palavras
             estimatedScenes = Math.max(1, Math.round(wordCount / 90));
@@ -15163,36 +15252,138 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
             maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
         }
 
-        // Mapeamento detalhado de estilos para instruções
-        const styleInstructions = {
-            'photorealistic': 'O estilo visual deve ser fotorealista, com detalhes perfeitos, ultra alta definição, foco nítido, fotografia profissional.',
-            'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
-            'cinematic-diorama': 'O estilo visual deve ser Diorama Cinematográfico Narrativo: cena em estilo de miniatura/maquete, ambiente como diorama artesanal, personagens semi-estilizados com geometria simplificada e facetada (não realistas, não cartoon), iluminação dramática localizada com sombras volumétricas suaves, câmera narrativa com profundidade exagerada e efeito tilt-shift, texturas foscas e levemente imperfeitas com aparência artesanal, atmosfera de storytelling emocional, sensação de "história congelada no tempo" e encenação metafórica. Tudo deve parecer uma miniatura física iluminada cinematograficamente.',
-            'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
-            'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
-            'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
-            'cartoon': 'O estilo visual deve ser desenho animado, colorido, expressivo, com estética de animação tradicional.',
-            'cartoon-premium': 'O estilo visual deve ser cartoon premium, com alta qualidade de animação e design profissional.',
-            'fantasy': 'O estilo visual deve ser fantasia, mágico, épico, com atmosfera encantada e elementos místicos.',
-            'stick-figure': 'O estilo visual deve ser desenho de palitos, minimalista, linhas simples em fundo branco.',
-            'whiteboard': 'O estilo visual deve ser animação de quadro branco, educativo, limpo, com ilustrações desenhadas à mão.',
-            'tech-minimalist': 'O estilo visual deve ser tech minimalista, design limpo, estética moderna e futurista.',
-            'spiritual-minimalist': 'O estilo visual deve ser espiritual minimalista, sereno, com atmosfera meditativa e zen.',
-            'viral-vibrant': 'O estilo visual deve ser viral vibrante, alto contraste, cores saturadas, otimizado para redes sociais.',
-            'modern-documentary': 'O estilo visual deve ser documentário moderno, dinâmico, contemporâneo, com momentos autênticos.',
-            'analog-horror': 'O estilo visual deve ser terror analógico, qualidade VHS, textura granulada, estética retro de horror.',
-            'dark-theater': 'O estilo visual deve ser teatro sombrio, iluminação dramática de palco, sombras intensas.',
-            'naturalist-drama': 'O estilo visual deve ser drama naturalista, realista, emocional, com momentos humanos autênticos.',
-            'spiritual-neorealism': 'O estilo visual deve ser neo-realismo espiritual, realismo transcendente, atmosfera mística.',
-            'psychological-surrealism': 'O estilo visual deve ser surrealismo psicológico, imagens oníricas, realidade abstrata.',
-            'fragmented-memory': 'O estilo visual deve ser memória fragmentada, estética de colagem, composição fragmentada.',
-            'fragmented-narrative': 'O estilo visual deve ser narrativa fragmentada, estilo colagem, narrativa visual em camadas.',
-            'dream-real': 'O estilo visual deve ser sonho-real, espaço liminar entre sonho e realidade, atmosfera etérea.',
-            'vhs-nostalgic': 'O estilo visual deve ser VHS nostálgico, estética retro anos 80/90, qualidade vintage, grão analógico.'
+        // ============================================
+        // CAMADA 1: ÂNCORA VISUAL GLOBAL (VERSÃO DEFINITIVA FINAL)
+        // ============================================
+        // REGRA DE OURO: Se uma cena parecer que poderia ser uma foto real, ela está errada.
+        // Ela precisa parecer uma miniatura filmada, não uma pessoa filmada.
+        // Este texto nunca muda. Nunca.
+        const GLOBAL_VISUAL_ANCHOR = `
+🧩 GLOBAL VISUAL IDENTITY — LOCKED:
+
+The entire story exists inside a cinematic narrative diorama.
+All environments are handcrafted miniature scale models,
+the world feels like a physical maquette filmed up close.
+
+All characters, including close-ups and portraits,
+must appear as stylized sculpted figures,
+never as real human faces.
+
+All faces must retain a sculpted, physical miniature appearance.
+No natural photographic skin softness.
+Faces should look like crafted figures, not real people,
+even in close-up shots.
+
+Consistent semi-stylized realism across all scenes,
+no photorealistic skin, no natural human softness.
+
+Matte materials, handcrafted textures,
+subtle imperfections, physical model feel.
+
+Cinematic depth of field,
+controlled perspective,
+subtle tilt-shift to reinforce miniature scale.
+
+Every frame must look like a frozen cinematic moment
+from the same miniature world.
+
+⚠️ This text NEVER changes. NEVER.
+⚠️ If a scene looks like it could be a real photograph, it's wrong.
+⚠️ It must look like a filmed miniature, not a filmed person.
+
+🚫 NEGATIVE PROMPT — ÚLTIMO REFORÇO:
+photorealistic humans,
+hyper-detailed skin,
+real-world full scale environments,
+life-size architecture,
+photographic realism,
+cinema movie still look,
+video game graphics,
+cartoon style,
+anime style,
+plastic or glossy materials,
+stop-motion puppets,
+toy-like exaggeration,
+full-scale real world,
+wide open real locations,
+global illumination,
+neutral camera angles,
+real human skin texture,
+natural photographic portrait,
+beauty photography lighting,
+hyper-smooth faces,
+ultra-real close-up photography,
+photographic portrait,
+beauty photography,
+natural skin translucency,
+cinema realism close-up
+
+⚠️ If any of these appear visually, the scene has failed.
+
+WHAT CAN VARY (WITHOUT BREAKING STYLE):
+✅ Lighting (warm / cold)
+✅ Time of day
+✅ Emotion
+✅ Action
+✅ Narrative framing
+
+WHAT NEVER VARIES:
+❌ Scale
+❌ Character type (always stylized sculpted figures)
+❌ Material (always matte, handcrafted)
+❌ Camera language (always story-driven)
+❌ Realism level (always semi-stylized, never photorealistic)
+
+SCENE VALIDATION CHECKLIST (ALL MUST BE YES):
+- Does it look like a physical miniature?
+- Could it fit on a table?
+- Do people look like sculpted figures, not actors?
+- Do close-ups look like stylized sculptures, not real faces?
+- Does light look controlled, not randomly natural?
+- Does it look like a frame from the same film as all others?
+
+If any answer is NO → regenerate the scene.
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "as if filmed inside a handcrafted scale model"
+- "the environment feels like a physical miniature set"
+- "miniature world with cinematic lighting"
+`;
+
+        // ============================================
+        // CAMADA 2: ESTILO (MODIFICADORES)
+        // ============================================
+        // O estilo apenas modula iluminação, contraste, paleta, mood
+        // NÃO pode alterar: tipo de personagem, escala, câmera, realismo
+        const styleModifiers = {
+            'photorealistic': 'High contrast lighting, sharp focus, professional photography aesthetic, saturated colors.',
+            'cinematic': 'Dramatic cinematic lighting, low-key illumination, strong shadows, emotional tension, film-like contrast, controlled color palette.',
+            'cinematic-diorama': 'Dramatic cinematic lighting with practical light sources, low-key illumination, strong volumetric shadows, emotional storytelling atmosphere, warm color palette with desaturated shadows.',
+            'documentary': 'Natural lighting, authentic moments, journalistic approach, realistic color grading.',
+            'cinematic-narrative': 'Story-driven lighting, emotional depth, narrative composition, dramatic shadows.',
+            'anime': 'Vibrant colors, expressive lighting, high saturation, dynamic contrast.',
+            'cartoon': 'Colorful palette, expressive lighting, high contrast, playful mood.',
+            'cartoon-premium': 'Premium animation quality, sophisticated color palette, professional lighting.',
+            'fantasy': 'Magical lighting, epic atmosphere, enchanted color palette, mystical elements.',
+            'stick-figure': 'Minimalist lighting, simple lines, white background, clean aesthetic.',
+            'whiteboard': 'Clean educational lighting, hand-drawn illustrations, minimalist aesthetic.',
+            'tech-minimalist': 'Modern clean lighting, futuristic aesthetic, minimalist design.',
+            'spiritual-minimalist': 'Serene lighting, meditative atmosphere, zen aesthetic, soft illumination.',
+            'viral-vibrant': 'High contrast, saturated colors, social media optimized, vibrant palette.',
+            'modern-documentary': 'Dynamic contemporary lighting, authentic moments, modern color grading.',
+            'analog-horror': 'VHS quality grain, retro horror aesthetic, low-fi texture, analog degradation.',
+            'dark-theater': 'Dramatic stage lighting, intense shadows, theatrical illumination.',
+            'naturalist-drama': 'Realistic emotional lighting, authentic human moments, natural color palette.',
+            'spiritual-neorealism': 'Transcendent realistic lighting, mystical atmosphere, spiritual color grading.',
+            'psychological-surrealism': 'Dreamlike lighting, abstract reality, surreal color palette.',
+            'fragmented-memory': 'Collage aesthetic, fragmented composition, layered lighting.',
+            'fragmented-narrative': 'Fragmented narrative style, collage composition, layered visual narrative.',
+            'dream-real': 'Liminal space lighting, ethereal atmosphere, dream-reality blend.',
+            'vhs-nostalgic': 'VHS nostalgic aesthetic, retro 80s/90s quality, vintage grain, analog texture.'
         };
         
-        const styleInstruction = style && style !== 'none' && styleInstructions[style] 
-            ? ` ${styleInstructions[style]}` 
+        const styleModifier = style && style !== 'none' && styleModifiers[style] 
+            ? `\n\n🎭 MODIFICADOR DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ IMPORTANTE: Este modificador apenas ajusta iluminação, contraste e paleta. A base visual (personagens, escala, câmera) permanece inalterada conforme a Âncora Global.` 
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
@@ -15234,7 +15425,9 @@ Cada prompt_text deve seguir este padrão:
 EXEMPLO DE PROMPT VO3:
 "Aerial view of a military helicopter flying low over a desert landscape, rotor blades spinning rapidly, dust clouds trailing behind, camera tracking the helicopter from behind and slightly above, smooth forward motion, golden hour lighting casting long shadows, [SFX: helicopter rotor blades, mechanical] [SFX: wind rushing, atmospheric] [SFX: distant engine roar, vehicle] - fast-paced action sequence, dynamic camera movement"` : '';
 
-        const prompt = `Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
+        const prompt = `${GLOBAL_VISUAL_ANCHOR}${styleModifier}
+
+Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
 
 TAREFA:
 Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'} para aquela parte do roteiro.${vo3Instructions}
@@ -15245,12 +15438,19 @@ ${script}
 """
 
 INSTRUÇÕES:
-1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
-2. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
-3. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
-4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
-5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
-6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
+1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual que NUNCA muda.
+2. 🎭 Se um estilo foi selecionado, aplique apenas os modificadores de iluminação/contraste/paleta. A base visual (personagens, escala, câmera) permanece conforme a Âncora Global.
+3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
+5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
+6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
+7. Use termos técnicos de fotografia/cinematografia quando apropriado${imageModelInstruction}${charactersInstruction}
+8. ⚠️ CRÍTICO: Cada prompt_text DEVE incluir os elementos da Âncora Visual Global. Não gere cenas com estética diferente (stop-motion, realismo fotográfico, cartoon, game, etc.). Todas as cenas devem pertencer ao mesmo mundo visual.
+9. 🔧 REFORÇO DE ESCALA: Cada prompt_text DEVE incluir UMA das frases de reforço (alternando entre cenas):
+   - "as if filmed inside a handcrafted scale model"
+   - "the environment feels like a physical miniature set"
+   - "miniature world with cinematic lighting"
+   Alternar entre essas três frases para evitar repetição óbvia, mas sempre incluir uma delas para reforçar a escala de miniatura.
 
 FORMATO DE RESPOSTA (JSON):
 {
@@ -15284,12 +15484,23 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, '/api/generate/scene-prompts', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
         } else {
             // Usar API própria
-            if (service === 'gemini') apiCallFunction = callGeminiAPI;
-            else if (service === 'claude') apiCallFunction = callClaudeAPI;
-            else apiCallFunction = callOpenAIAPI;
-
-            console.log(`[Scene Prompts] Gerando prompts com ${service} (API própria) - modelo: ${model}...`);
-            response = await apiCallFunction(prompt, decryptedKey, model);
+            // Para geração de prompts de cena, usar timeout maior (5 minutos) devido ao tamanho do prompt e número de cenas
+            const scenePromptsTimeout = 300000; // 5 minutos
+            
+            if (service === 'gemini') {
+                apiCallFunction = callGeminiAPI;
+                response = await apiCallFunction(prompt, decryptedKey, model);
+            } else if (service === 'claude') {
+                console.log(`[Scene Prompts] Gerando prompts com ${service} (API própria) - modelo: ${model}... (timeout: ${scenePromptsTimeout/1000}s)`);
+                response = await callClaudeAPI(prompt, decryptedKey, model, null, scenePromptsTimeout);
+            } else {
+                apiCallFunction = callOpenAIAPI;
+                response = await apiCallFunction(prompt, decryptedKey, model);
+            }
+            
+            if (!response) {
+                console.log(`[Scene Prompts] Gerando prompts com ${service} (API própria) - modelo: ${model}...`);
+            }
         }
 
         // Parsear resposta
@@ -15479,7 +15690,7 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
 
 // Rota alternativa que SEMPRE usa Laozhang.ai
 app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, res) => {
-    const { script, style, imageModel, mode, wordsPerScene, characters, selectedModel, isVO3 } = req.body;
+    const { script, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3 } = req.body;
     const userId = req.user.id;
     const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
@@ -15544,9 +15755,19 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
                 return res.status(500).json({ msg: 'Falha ao descriptografar a chave de API.' });
             }
             
-            if (service === 'gemini') apiCallFunction = callGeminiAPI;
-            else if (service === 'claude') apiCallFunction = callClaudeAPI;
-            else apiCallFunction = callOpenAIAPI;
+            // Para geração de prompts de cena, usar timeout maior (5 minutos) devido ao tamanho do prompt e número de cenas
+            const scenePromptsTimeout = 300000; // 5 minutos
+            
+            if (service === 'gemini') {
+                apiCallFunction = callGeminiAPI;
+            } else if (service === 'claude') {
+                // Criar wrapper para passar timeout customizado
+                apiCallFunction = async (prompt, key, model) => {
+                    return await callClaudeAPI(prompt, key, model, null, scenePromptsTimeout);
+                };
+            } else {
+                apiCallFunction = callOpenAIAPI;
+            }
         }
 
         // Calcular número estimado de cenas baseado no modo
@@ -15554,45 +15775,160 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
         let estimatedScenes, minScenes, maxScenes;
         
         if (mode === 'manual' && wordsPerScene) {
-            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
-            minScenes = Math.max(1, Math.floor(wordCount / (parseInt(wordsPerScene) * 1.4)));
-            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (parseInt(wordsPerScene) * 0.6)));
+            const unitType = unit || 'words'; // 'words' ou 'seconds'
+            const value = parseInt(wordsPerScene);
+            
+            if (unitType === 'seconds') {
+                // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
+                const wordsPerSecond = 2.5;
+                const wordsPerInterval = value * wordsPerSecond;
+                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
+            } else {
+                // Modo manual: baseado em palavras por cena
+                estimatedScenes = Math.max(1, Math.round(wordCount / value));
+                minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
+            }
         } else {
             estimatedScenes = Math.max(1, Math.round(wordCount / 90));
             minScenes = Math.max(1, Math.floor(wordCount / 140));
             maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
         }
 
-        // Mapeamento de estilos (mesmo da rota original)
-        const styleInstructions = {
-            'photorealistic': 'O estilo visual deve ser fotorealista, com detalhes perfeitos, ultra alta definição, foco nítido, fotografia profissional.',
-            'cinematic': 'O estilo visual deve ser cinematográfico, com iluminação dramática, composição épica, estética de filme Hollywood.',
-            'documentary': 'O estilo visual deve ser documental, natural, autêntico, com momentos reais e abordagem jornalística.',
-            'cinematic-narrative': 'O estilo visual deve ser narrativo cinematográfico, focado em storytelling visual, profundidade emocional.',
-            'cinematic-diorama': 'O estilo visual deve ser Diorama Cinematográfico Narrativo: cena em estilo de miniatura/maquete, ambiente como diorama artesanal, personagens semi-estilizados com geometria simplificada e facetada (não realistas, não cartoon), iluminação dramática localizada com sombras volumétricas suaves, câmera narrativa com profundidade exagerada e efeito tilt-shift, texturas foscas e levemente imperfeitas com aparência artesanal, atmosfera de storytelling emocional, sensação de "história congelada no tempo" e encenação metafórica. Tudo deve parecer uma miniatura física iluminada cinematograficamente.',
-            'anime': 'O estilo visual deve ser anime, com cores vibrantes, personagens expressivos, estética de animação japonesa.',
-            'cartoon': 'O estilo visual deve ser desenho animado, colorido, expressivo, com estética de animação tradicional.',
-            'cartoon-premium': 'O estilo visual deve ser cartoon premium, com alta qualidade de animação e design profissional.',
-            'fantasy': 'O estilo visual deve ser fantasia, mágico, épico, com atmosfera encantada e elementos místicos.',
-            'stick-figure': 'O estilo visual deve ser desenho de palitos, minimalista, linhas simples em fundo branco.',
-            'whiteboard': 'O estilo visual deve ser animação de quadro branco, educativo, limpo, com ilustrações desenhadas à mão.',
-            'tech-minimalist': 'O estilo visual deve ser tech minimalista, design limpo, estética moderna e futurista.',
-            'spiritual-minimalist': 'O estilo visual deve ser espiritual minimalista, sereno, com atmosfera meditativa e zen.',
-            'viral-vibrant': 'O estilo visual deve ser viral vibrante, alto contraste, cores saturadas, otimizado para redes sociais.',
-            'modern-documentary': 'O estilo visual deve ser documentário moderno, dinâmico, contemporâneo, com momentos autênticos.',
-            'analog-horror': 'O estilo visual deve ser terror analógico, qualidade VHS, textura granulada, estética retro de horror.',
-            'dark-theater': 'O estilo visual deve ser teatro sombrio, iluminação dramática de palco, sombras intensas.',
-            'naturalist-drama': 'O estilo visual deve ser drama naturalista, realista, emocional, com momentos humanos autênticos.',
-            'spiritual-neorealism': 'O estilo visual deve ser neo-realismo espiritual, realismo transcendente, atmosfera mística.',
-            'psychological-surrealism': 'O estilo visual deve ser surrealismo psicológico, imagens oníricas, realidade abstrata.',
-            'fragmented-memory': 'O estilo visual deve ser memória fragmentada, estética de colagem, composição fragmentada.',
-            'fragmented-narrative': 'O estilo visual deve ser narrativa fragmentada, estilo colagem, narrativa visual em camadas.',
-            'dream-real': 'O estilo visual deve ser sonho-real, espaço liminar entre sonho e realidade, atmosfera etérea.',
-            'vhs-nostalgic': 'O estilo visual deve ser VHS nostálgico, estética retro anos 80/90, qualidade vintage, grão analógico.'
+        // ============================================
+        // CAMADA 1: ÂNCORA VISUAL GLOBAL (VERSÃO DEFINITIVA FINAL)
+        // ============================================
+        // REGRA DE OURO: Se uma cena parecer que poderia ser uma foto real, ela está errada.
+        // Ela precisa parecer uma miniatura filmada, não uma pessoa filmada.
+        // Este texto nunca muda. Nunca.
+        const GLOBAL_VISUAL_ANCHOR = `
+🧩 GLOBAL VISUAL IDENTITY — LOCKED:
+
+The entire story exists inside a cinematic narrative diorama.
+All environments are handcrafted miniature scale models,
+the world feels like a physical maquette filmed up close.
+
+All characters, including close-ups and portraits,
+must appear as stylized sculpted figures,
+never as real human faces.
+
+All faces must retain a sculpted, physical miniature appearance.
+No natural photographic skin softness.
+Faces should look like crafted figures, not real people,
+even in close-up shots.
+
+Consistent semi-stylized realism across all scenes,
+no photorealistic skin, no natural human softness.
+
+Matte materials, handcrafted textures,
+subtle imperfections, physical model feel.
+
+Cinematic depth of field,
+controlled perspective,
+subtle tilt-shift to reinforce miniature scale.
+
+Every frame must look like a frozen cinematic moment
+from the same miniature world.
+
+⚠️ This text NEVER changes. NEVER.
+⚠️ If a scene looks like it could be a real photograph, it's wrong.
+⚠️ It must look like a filmed miniature, not a filmed person.
+
+🚫 NEGATIVE PROMPT — ÚLTIMO REFORÇO:
+photorealistic humans,
+hyper-detailed skin,
+real-world full scale environments,
+life-size architecture,
+photographic realism,
+cinema movie still look,
+video game graphics,
+cartoon style,
+anime style,
+plastic or glossy materials,
+stop-motion puppets,
+toy-like exaggeration,
+full-scale real world,
+wide open real locations,
+global illumination,
+neutral camera angles,
+real human skin texture,
+natural photographic portrait,
+beauty photography lighting,
+hyper-smooth faces,
+ultra-real close-up photography,
+photographic portrait,
+beauty photography,
+natural skin translucency,
+cinema realism close-up
+
+⚠️ If any of these appear visually, the scene has failed.
+
+WHAT CAN VARY (WITHOUT BREAKING STYLE):
+✅ Lighting (warm / cold)
+✅ Time of day
+✅ Emotion
+✅ Action
+✅ Narrative framing
+
+WHAT NEVER VARIES:
+❌ Scale
+❌ Character type (always stylized sculpted figures)
+❌ Material (always matte, handcrafted)
+❌ Camera language (always story-driven)
+❌ Realism level (always semi-stylized, never photorealistic)
+
+SCENE VALIDATION CHECKLIST (ALL MUST BE YES):
+- Does it look like a physical miniature?
+- Could it fit on a table?
+- Do people look like sculpted figures, not actors?
+- Do close-ups look like stylized sculptures, not real faces?
+- Does light look controlled, not randomly natural?
+- Does it look like a frame from the same film as all others?
+
+If any answer is NO → regenerate the scene.
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "as if filmed inside a handcrafted scale model"
+- "the environment feels like a physical miniature set"
+- "miniature world with cinematic lighting"
+`;
+
+        // ============================================
+        // CAMADA 2: ESTILO (MODIFICADORES)
+        // ============================================
+        // O estilo apenas modula iluminação, contraste, paleta, mood
+        // NÃO pode alterar: tipo de personagem, escala, câmera, realismo
+        const styleModifiers = {
+            'photorealistic': 'High contrast lighting, sharp focus, professional photography aesthetic, saturated colors.',
+            'cinematic': 'Dramatic cinematic lighting, low-key illumination, strong shadows, emotional tension, film-like contrast, controlled color palette.',
+            'cinematic-diorama': 'Dramatic cinematic lighting with practical light sources, low-key illumination, strong volumetric shadows, emotional storytelling atmosphere, warm color palette with desaturated shadows.',
+            'documentary': 'Natural lighting, authentic moments, journalistic approach, realistic color grading.',
+            'cinematic-narrative': 'Story-driven lighting, emotional depth, narrative composition, dramatic shadows.',
+            'anime': 'Vibrant colors, expressive lighting, high saturation, dynamic contrast.',
+            'cartoon': 'Colorful palette, expressive lighting, high contrast, playful mood.',
+            'cartoon-premium': 'Premium animation quality, sophisticated color palette, professional lighting.',
+            'fantasy': 'Magical lighting, epic atmosphere, enchanted color palette, mystical elements.',
+            'stick-figure': 'Minimalist lighting, simple lines, white background, clean aesthetic.',
+            'whiteboard': 'Clean educational lighting, hand-drawn illustrations, minimalist aesthetic.',
+            'tech-minimalist': 'Modern clean lighting, futuristic aesthetic, minimalist design.',
+            'spiritual-minimalist': 'Serene lighting, meditative atmosphere, zen aesthetic, soft illumination.',
+            'viral-vibrant': 'High contrast, saturated colors, social media optimized, vibrant palette.',
+            'modern-documentary': 'Dynamic contemporary lighting, authentic moments, modern color grading.',
+            'analog-horror': 'VHS quality grain, retro horror aesthetic, low-fi texture, analog degradation.',
+            'dark-theater': 'Dramatic stage lighting, intense shadows, theatrical illumination.',
+            'naturalist-drama': 'Realistic emotional lighting, authentic human moments, natural color palette.',
+            'spiritual-neorealism': 'Transcendent realistic lighting, mystical atmosphere, spiritual color grading.',
+            'psychological-surrealism': 'Dreamlike lighting, abstract reality, surreal color palette.',
+            'fragmented-memory': 'Collage aesthetic, fragmented composition, layered lighting.',
+            'fragmented-narrative': 'Fragmented narrative style, collage composition, layered visual narrative.',
+            'dream-real': 'Liminal space lighting, ethereal atmosphere, dream-reality blend.',
+            'vhs-nostalgic': 'VHS nostalgic aesthetic, retro 80s/90s quality, vintage grain, analog texture.'
         };
         
-        const styleInstruction = style && style !== 'none' && styleInstructions[style] 
-            ? ` ${styleInstructions[style]}` 
+        const styleModifier = style && style !== 'none' && styleModifiers[style] 
+            ? `\n\n🎭 MODIFICADOR DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ IMPORTANTE: Este modificador apenas ajusta iluminação, contraste e paleta. A base visual (personagens, escala, câmera) permanece inalterada conforme a Âncora Global.` 
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
@@ -15634,7 +15970,9 @@ Cada prompt_text deve seguir este padrão:
 EXEMPLO DE PROMPT VO3:
 "Aerial view of a military helicopter flying low over a desert landscape, rotor blades spinning rapidly, dust clouds trailing behind, camera tracking the helicopter from behind and slightly above, smooth forward motion, golden hour lighting casting long shadows, [SFX: helicopter rotor blades, mechanical] [SFX: wind rushing, atmospheric] [SFX: distant engine roar, vehicle] - fast-paced action sequence, dynamic camera movement"` : '';
 
-        const prompt = `Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
+        const prompt = `${GLOBAL_VISUAL_ANCHOR}${styleModifier}
+
+Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
 
 TAREFA:
 Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'} para aquela parte do roteiro.${vo3Instructions}
@@ -15645,12 +15983,19 @@ ${script}
 """
 
 INSTRUÇÕES:
-1. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
-2. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
-3. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
-4. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
-5. Use termos técnicos de fotografia/cinematografia quando apropriado${styleInstruction}${imageModelInstruction}${charactersInstruction}
-6. Os prompts devem ser fotorealísticos e cinematográficos, a menos que especificado outro estilo
+1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual que NUNCA muda.
+2. 🎭 Se um estilo foi selecionado, aplique apenas os modificadores de iluminação/contraste/paleta. A base visual (personagens, escala, câmera) permanece conforme a Âncora Global.
+3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
+5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
+6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
+7. Use termos técnicos de fotografia/cinematografia quando apropriado${imageModelInstruction}${charactersInstruction}
+8. ⚠️ CRÍTICO: Cada prompt_text DEVE incluir os elementos da Âncora Visual Global. Não gere cenas com estética diferente (stop-motion, realismo fotográfico, cartoon, game, etc.). Todas as cenas devem pertencer ao mesmo mundo visual.
+9. 🔧 REFORÇO DE ESCALA: Cada prompt_text DEVE incluir UMA das frases de reforço (alternando entre cenas):
+   - "as if filmed inside a handcrafted scale model"
+   - "the environment feels like a physical miniature set"
+   - "miniature world with cinematic lighting"
+   Alternar entre essas três frases para evitar repetição óbvia, mas sempre incluir uma delas para reforçar a escala de miniatura.
 
 FORMATO DE RESPOSTA (JSON):
 {
@@ -15719,7 +16064,15 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             // callLaozhangAPI retorna string diretamente
             response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         } else {
-            response = await apiCallFunction(prompt, apiKeyToUse, modelForAPI);
+            // Para geração de prompts de cena, usar timeout maior (5 minutos) se for Claude
+            const scenePromptsTimeout = 300000; // 5 minutos
+            
+            if (serviceToUse === 'claude') {
+                console.log(`[Scene Prompts] Usando timeout estendido de ${scenePromptsTimeout/1000}s para Claude (geração de múltiplas cenas)`);
+                response = await callClaudeAPI(prompt, apiKeyToUse, modelForAPI, null, scenePromptsTimeout);
+            } else {
+                response = await apiCallFunction(prompt, apiKeyToUse, modelForAPI);
+            }
             // APIs próprias retornam objeto com propriedade titles
             if (response && typeof response === 'object' && response.titles) {
                 response = response.titles;
@@ -23895,10 +24248,31 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
         );
         if (!analysis) return res.status(404).json({ msg: 'Análise não encontrada.' });
 
-        const titles = await db.all(
-            'SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ?',
+        // Primeiro, verificar quantos títulos existem no total
+        const totalCount = await db.get(
+            'SELECT COUNT(*) as total FROM generated_titles WHERE video_analysis_id = ?',
             [analysisId]
         );
+        console.log(`[Histórico] Total de títulos no banco para análise ${analysisId}: ${totalCount?.total || 0}`);
+        
+        const titles = await db.all(
+            'SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ? ORDER BY id ASC',
+            [analysisId]
+        );
+        
+        // Log para debug: verificar quantos títulos foram carregados e de quais modelos
+        console.log(`[Histórico] Carregando análise ${analysisId}: ${titles.length} títulos encontrados (esperado: ${totalCount?.total || 0})`);
+        const titlesByModel = {};
+        titles.forEach(t => {
+            const model = t.model || 'Desconhecido';
+            titlesByModel[model] = (titlesByModel[model] || 0) + 1;
+        });
+        console.log(`[Histórico] Títulos por modelo:`, titlesByModel);
+        
+        // Se houver discrepância, logar detalhes
+        if (titles.length !== (totalCount?.total || 0)) {
+            console.error(`[Histórico] ⚠️ DISCREPÂNCIA: ${titles.length} títulos carregados, mas ${totalCount?.total || 0} existem no banco!`);
+        }
 
         // Calcular receita e RPM baseado no nicho
         const rpm = getRPMByNiche(analysis.detected_niche);
@@ -25452,8 +25826,8 @@ app.post('/api/library/titles', authenticateToken, async (req, res) => {
 // Buscar títulos da biblioteca
 app.get('/api/library/titles', authenticateToken, async (req, res) => {
     const userId = req.user.id;
-    const { niche, subniche, minViews, minCtr, favorite, search } = req.query;
-    console.log(`[Biblioteca Titles] Requisição recebida para userId: ${userId}`, { niche, subniche, minViews, favorite, search });
+    const { niche, subniche, minViews, minCtr, favorite, search, page = 1, limit = 6 } = req.query;
+    console.log(`[Biblioteca Titles] Requisição recebida para userId: ${userId}`, { niche, subniche, minViews, favorite, search, page, limit });
 
     try {
         if (!db) {
@@ -25461,40 +25835,78 @@ app.get('/api/library/titles', authenticateToken, async (req, res) => {
             return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
         }
 
-        let query = 'SELECT * FROM viral_titles_library WHERE user_id = ?';
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 6;
+        const offset = (pageNum - 1) * limitNum;
+
+        let baseQuery = 'SELECT * FROM viral_titles_library WHERE user_id = ?';
         const params = [userId];
+        const countParams = [userId];
 
         if (niche) {
-            query += ' AND niche = ?';
+            baseQuery += ' AND niche = ?';
             params.push(niche);
+            countParams.push(niche);
         }
         if (subniche) {
-            query += ' AND subniche = ?';
+            baseQuery += ' AND subniche = ?';
             params.push(subniche);
+            countParams.push(subniche);
         }
         if (minViews) {
-            query += ' AND original_views >= ?';
+            baseQuery += ' AND original_views >= ?';
             params.push(parseInt(minViews));
+            countParams.push(parseInt(minViews));
         }
         if (minCtr) {
-            query += ' AND original_ctr >= ?';
+            baseQuery += ' AND original_ctr >= ?';
             params.push(parseFloat(minCtr));
+            countParams.push(parseFloat(minCtr));
         }
         if (favorite === 'true') {
-            query += ' AND is_favorite = 1';
+            baseQuery += ' AND is_favorite = 1';
         }
         if (search) {
-            query += ' AND title LIKE ?';
+            baseQuery += ' AND title LIKE ?';
             params.push(`%${search}%`);
+            countParams.push(`%${search}%`);
         }
 
-        query += ' ORDER BY created_at DESC LIMIT 100';
+        // Contar total de registros - usar countParams que já foi construído acima
+        let countQuery = 'SELECT COUNT(*) as total FROM viral_titles_library WHERE user_id = ?';
+        
+        if (niche) {
+            countQuery += ' AND niche = ?';
+        }
+        if (subniche) {
+            countQuery += ' AND subniche = ?';
+        }
+        if (minViews) {
+            countQuery += ' AND original_views >= ?';
+        }
+        if (minCtr) {
+            countQuery += ' AND original_ctr >= ?';
+        }
+        if (favorite === 'true') {
+            countQuery += ' AND is_favorite = 1';
+        }
+        if (search) {
+            countQuery += ' AND title LIKE ?';
+        }
+        
+        const countResult = await db.get(countQuery, countParams);
+        const total = countResult?.total || 0;
+        const totalPages = Math.ceil(total / limitNum);
 
-        console.log(`[Biblioteca Titles] Executando query:`, query.substring(0, 100));
+        // Query com paginação
+        const query = baseQuery + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limitNum, offset);
+
+        console.log(`[Biblioteca Titles] Executando query com paginação: página ${pageNum}, limite ${limitNum}`);
         let titles = [];
         try {
             titles = await db.all(query, params);
-            console.log(`[Biblioteca Titles] Títulos encontrados:`, titles.length);
+            console.log(`[Biblioteca Titles] Títulos encontrados: ${titles.length} de ${total} total`);
         } catch (dbErr) {
             console.error('[Biblioteca Titles] Erro ao buscar títulos:', dbErr);
             titles = [];
@@ -25502,7 +25914,17 @@ app.get('/api/library/titles', authenticateToken, async (req, res) => {
 
         // Garantir que titles é sempre um array
         const titlesArray = Array.isArray(titles) ? titles : [];
-        res.status(200).json(titlesArray);
+        res.status(200).json({
+            data: titlesArray,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total: total,
+                totalPages: totalPages,
+                hasNext: pageNum < totalPages,
+                hasPrev: pageNum > 1
+            }
+        });
     } catch (err) {
         console.error('[ERRO NA ROTA /api/library/titles]:', err);
         // Sempre retornar JSON válido (array vazio), nunca HTML
@@ -28236,7 +28658,7 @@ app.get('/api/video/status/:operationId', authenticateToken, async (req, res) =>
         // Se o vídeo foi concluído, salvar no banco de dados
         if (operationData.status === 'completed' && operationData.videoUri) {
             try {
-                // Verificar se já existe a tabela
+                // A tabela já deve existir (criada na inicialização), mas garantimos que existe
                 await db.exec(`
                     CREATE TABLE IF NOT EXISTS generated_videos (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30296,15 +30718,37 @@ app.post('/api/translate/batch', authenticateToken, async (req, res) => {
 console.log('✅ Serviço de Tradução Online configurado (MyMemory + LibreTranslate)');
 
 
-// Iniciar servidor imediatamente (não bloqueia no banco de dados)
-// O servidor pode iniciar antes do banco estar pronto - as rotas verificarão o banco quando necessário
-startServer();
+// Aguardar banco de dados estar pronto antes de iniciar servidor
+// Mas com timeout para não travar indefinidamente
+const DB_INIT_TIMEOUT = 10000; // 10 segundos máximo
+const startTime = Date.now();
 
-// Verificar se o banco ficou pronto após o servidor iniciar (opcional, para log)
-setTimeout(() => {
-    if (global.dbReady && db) {
-        console.log('✅ Banco de dados confirmado como pronto após inicialização do servidor');
+function waitForDatabase() {
+    return new Promise((resolve) => {
+        if (global.dbReady && db) {
+            resolve(true);
+            return;
+        }
+        
+        const checkInterval = setInterval(() => {
+            if (global.dbReady && db) {
+                clearInterval(checkInterval);
+                resolve(true);
+            } else if (Date.now() - startTime > DB_INIT_TIMEOUT) {
+                clearInterval(checkInterval);
+                console.warn('⚠️  Timeout aguardando banco de dados. Iniciando servidor mesmo assim...');
+                resolve(false);
+            }
+        }, 100);
+    });
+}
+
+// Aguardar banco estar pronto (com timeout)
+waitForDatabase().then((dbReady) => {
+    if (dbReady) {
+        console.log('✅ Banco de dados confirmado como pronto. Iniciando servidor...');
     } else {
-        console.log('⚠️  Banco de dados ainda não está pronto - servidor iniciado mesmo assim');
+        console.warn('⚠️  Iniciando servidor sem confirmação do banco de dados');
     }
-}, 1000);
+    startServer();
+});

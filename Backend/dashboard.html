@@ -214,6 +214,212 @@
             animation: pulse-credits 2s ease-in-out infinite;
         }
         
+        /* --- SCROLLBAR CUSTOMIZADO --- */
+        .custom-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(245, 158, 11, 0.3) transparent;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(245, 158, 11, 0.5);
+        }
+        
+        /* --- ESTILOS PARA PASTAS E HISTÓRICO --- */
+        .folder-link.active {
+            background: rgba(245, 158, 11, 0.1) !important;
+            border-color: rgba(245, 158, 11, 0.5) !important;
+        }
+        
+        .folder-link.active i {
+            color: #f59e0b !important;
+        }
+        
+        .folder-link.active span {
+            color: #fbbf24 !important;
+            font-weight: 600;
+        }
+        
+        /* Hover effect para linhas da tabela */
+        #history-table-body tr:hover {
+            background-color: rgba(245, 158, 11, 0.05) !important;
+        }
+        
+        /* Estilos para biblioteca de títulos */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        /* Cards da biblioteca com hover effect */
+        #biblioteca-titles-list > div:hover {
+            transform: translateY(-2px);
+            transition: transform 0.2s ease;
+        }
+        
+        /* Toast Centralizado */
+        #global-toast {
+            animation: toastSlideIn 0.3s ease-out;
+        }
+        
+        @keyframes toastSlideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -60%) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        /* Alinhamento do botão de adicionar pasta */
+        #new-folder-form {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        #new-folder-form > div {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            gap: 0.5rem;
+            box-sizing: border-box;
+        }
+        
+        #new-folder-form input {
+            flex: 1;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        
+        #new-folder-form button {
+            flex-shrink: 0;
+            min-width: 48px;
+            width: 48px;
+            height: 42px;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* --- CORREÇÃO DE OVERFLOW DA TABELA --- */
+        #history-table {
+            table-layout: auto;
+        }
+        
+        #history-table th,
+        #history-table td {
+            white-space: nowrap;
+        }
+        
+        #history-table th:first-child,
+        #history-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background-color: rgba(17, 24, 39, 0.95);
+        }
+        
+        #history-table thead th:first-child {
+            background-color: rgba(31, 41, 55, 0.95);
+        }
+        
+        #history-table tbody tr:hover td:first-child {
+            background-color: rgba(245, 158, 11, 0.05);
+        }
+        
+        /* Garantir que a coluna de ações sempre seja visível */
+        #history-table th:last-child,
+        #history-table td:last-child {
+            position: sticky;
+            right: 0;
+            z-index: 10;
+            background-color: rgba(17, 24, 39, 0.95);
+        }
+        
+        #history-table thead th:last-child {
+            background-color: rgba(31, 41, 55, 0.95);
+        }
+        
+        #history-table tbody tr:hover td:last-child {
+            background-color: rgba(245, 158, 11, 0.05);
+        }
+        
+        /* Ajustar largura das colunas para evitar overflow */
+        #history-table {
+            width: 100%;
+        }
+        
+        #history-table th:nth-child(2),
+        #history-table td:nth-child(2) {
+            max-width: 300px;
+            min-width: 200px;
+        }
+        
+        #history-table th:nth-child(3),
+        #history-table td:nth-child(3) {
+            max-width: 220px;
+            min-width: 150px;
+        }
+        
+        #history-table th:nth-child(4),
+        #history-table td:nth-child(4) {
+            max-width: 160px;
+            min-width: 140px;
+        }
+        
+        #history-table th:nth-child(5),
+        #history-table td:nth-child(5) {
+            width: 80px;
+            min-width: 80px;
+        }
+        
+        /* Em telas menores, permitir scroll horizontal apenas se necessário */
+        @media (max-width: 1024px) {
+            #history-table th:nth-child(2),
+            #history-table td:nth-child(2) {
+                max-width: 200px;
+                min-width: 150px;
+            }
+            
+            #history-table th:nth-child(3),
+            #history-table td:nth-child(3) {
+                max-width: 180px;
+                min-width: 120px;
+            }
+        }
+        
         /* Modal customizado */
         .custom-modal-overlay {
             position: fixed;
@@ -1298,55 +1504,87 @@
                 </div>
             </div>
 
-            <!-- VISÃO 4: Pastas e Histórico (Layout UX Revisado) -->
+            <!-- VISÃO 4: Pastas e Histórico (Layout UX Profissional) -->
             <div id="view-historico" style="display: none;">
                 <header class="mb-8">
+                    <div class="flex items-center space-x-3 mb-2">
+                        <div class="p-3 bg-gradient-to-br from-amber-600 to-amber-700 rounded-lg">
+                            <i data-lucide="folder-open" class="w-6 h-6 text-white"></i>
+                        </div>
+                        <div>
                     <h1 class="text-3xl md:text-4xl font-bold text-white">Pastas e Histórico</h1>
-                    <p class="text-lg text-gray-400">Crie pastas (canais) e reveja suas análises salvas.</p>
+                            <p class="text-sm text-gray-400 mt-1">Organize suas análises em pastas e acesse seu histórico completo</p>
+                        </div>
+                    </div>
                 </header>
                 
                 <div id="historico-success-message" class="success-message mb-6"></div>
                 <div id="historico-error-message" class="error-message mb-6"></div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                     
-                    <div class="md:col-span-1 space-y-4">
-                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-                            <h2 class="text-xl font-semibold text-white mb-4">Minhas Pastas (Canais)</h2>
-                            <form id="new-folder-form" class="flex space-x-2">
-                                <input type="text" id="new-folder-name" placeholder="Nome do novo canal..." class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" required>
-                                <button type="submit" class="py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
+                    <!-- Sidebar: Pastas -->
+                    <div class="lg:col-span-1">
+                        <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-xl p-6 shadow-xl">
+                            <div class="flex items-center space-x-2 mb-6">
+                                <i data-lucide="folder" class="w-5 h-5 text-amber-500"></i>
+                                <h2 class="text-lg font-bold text-white">Minhas Pastas</h2>
+                            </div>
+                            
+                            <form id="new-folder-form" class="mb-6 w-full">
+                                <div class="flex items-center w-full">
+                                    <input type="text" id="new-folder-name" placeholder="Nome do novo canal..." class="flex-1 px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all mr-2" required>
+                                    <button type="submit" class="w-11 h-11 rounded-lg transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50 font-bold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black hover:shadow-amber-500/50 flex-shrink-0">
                                     <i data-lucide="plus" class="w-5 h-5"></i>
                                 </button>
+                                </div>
                             </form>
-                            <ul id="folder-list" class="mt-4 space-y-2">
+                            
+                            <div class="space-y-1 max-h-[600px] overflow-y-auto custom-scrollbar">
+                                <button id="folder-all" class="folder-link w-full text-left px-4 py-3 rounded-lg transition-all duration-200 hover:bg-gray-800/50 hover:border-amber-500/30 border border-transparent active" data-folder-id="" data-folder-name="Histórico Geral">
+                                    <div class="flex items-center space-x-3">
+                                        <i data-lucide="archive" class="w-4 h-4 text-gray-400"></i>
+                                        <span class="text-gray-200 font-medium">Histórico Geral</span>
+                                    </div>
+                                </button>
+                                <ul id="folder-list" class="space-y-1">
                                 <!-- Lista de pastas/canais -->
                             </ul>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="md:col-span-2">
-                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-                            <div class="flex justify-between items-center mb-4">
-                                <h2 class="text-xl font-semibold text-white" id="history-title">Histórico Geral</h2>
+                    <!-- Conteúdo Principal: Histórico -->
+                    <div class="lg:col-span-3">
+                        <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-xl p-6 shadow-xl">
+                            <!-- Header do Histórico -->
+                            <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+                                <div>
+                                    <h2 class="text-xl font-bold text-white mb-1" id="history-title">Histórico Geral</h2>
+                                    <p class="text-sm text-gray-400" id="history-subtitle">Todas as suas análises em um só lugar</p>
+                                </div>
                                 <div class="flex items-center space-x-2">
-                                    <button id="delete-selected-history" class="py-1 px-3 rounded-lg bg-red-800 hover:bg-red-700 text-white text-xs font-bold flex items-center space-x-1.5 hidden">
-                                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                                    <button id="delete-selected-history" class="py-2 px-4 rounded-lg bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 text-sm font-semibold flex items-center space-x-2 transition-all hidden">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
                                         <span>Excluir Selecionados</span>
                                     </button>
-                                    <button id="clear-history-filter" class="text-sm text-amber-500 hover:text-amber-400" style="display: none;">
-                                        Ver Histórico Geral
+                                    <button id="clear-history-filter" class="text-sm text-amber-500 hover:text-amber-400 font-medium flex items-center space-x-1 transition-colors" style="display: none;">
+                                        <i data-lucide="x" class="w-4 h-4"></i>
+                                        <span>Limpar Filtros</span>
                                     </button>
                                 </div>
                             </div>
                             
-                            <!-- Filtros -->
-                            <div class="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <input type="text" id="history-search" placeholder="Buscar por título..." class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                                <select id="history-niche-filter" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <!-- Filtros Melhorados -->
+                            <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div class="relative">
+                                    <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500"></i>
+                                    <input type="text" id="history-search" placeholder="Buscar por título..." class="w-full pl-10 pr-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
+                                </div>
+                                <select id="history-niche-filter" class="px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
                                     <option value="">Todos os Nichos</option>
                                 </select>
-                                <select id="history-date-filter" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                <select id="history-date-filter" class="px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
                                     <option value="">Todas as Datas</option>
                                     <option value="today">Hoje</option>
                                     <option value="week">Esta Semana</option>
@@ -1355,26 +1593,41 @@
                                 </select>
                             </div>
                             
-                            <div class="overflow-x-auto rounded-lg border border-gray-800">
+                            <!-- Tabela Melhorada - Sem Overflow -->
+                            <div class="rounded-lg border border-gray-700/50 bg-gray-800/30 overflow-hidden">
+                                <div class="overflow-x-auto max-w-full">
                                 <table id="history-table" class="w-full text-left border-collapse">
                                     <thead>
-                                        <tr>
-                                            <th class="p-3 w-4 border-b border-gray-700 bg-gray-800"><input type="checkbox" id="select-all-history" class="bg-gray-700 border-gray-600 rounded"></th>
-                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Título Original</th>
-                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Nicho</th>
-                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Data</th>
-                                            <th class="p-3 border-b border-gray-700 bg-gray-800 text-amber-500 uppercase text-xs tracking-wider">Ações</th>
+                                            <tr class="bg-gray-800/50">
+                                                <th class="p-3 w-12 border-b border-gray-700">
+                                                    <input type="checkbox" id="select-all-history" class="bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2">
+                                                </th>
+                                                <th class="p-3 border-b border-gray-700 text-amber-500 uppercase text-xs tracking-wider font-bold">Título Original</th>
+                                                <th class="p-3 border-b border-gray-700 text-amber-500 uppercase text-xs tracking-wider font-bold">Nicho</th>
+                                                <th class="p-3 border-b border-gray-700 text-amber-500 uppercase text-xs tracking-wider font-bold">Data e Hora</th>
+                                                <th class="p-3 border-b border-gray-700 text-amber-500 uppercase text-xs tracking-wider font-bold text-center w-20">Ações</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="history-table-body">
+                                        <tbody id="history-table-body" class="divide-y divide-gray-700/50">
                                         <!-- Histórico carregado aqui -->
                                     </tbody>
                                 </table>
+                                </div>
                             </div>
                             
-                            <!-- Paginação -->
-                            <div id="history-pagination" class="mt-4 flex items-center justify-between" style="display: none;">
-                                <div class="text-sm text-gray-400" id="history-pagination-info"></div>
+                            <!-- Paginação Melhorada com Seletor -->
+                            <div id="history-pagination" class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4" style="display: none;">
+                                <div class="flex items-center space-x-4">
+                                    <div class="text-sm text-gray-400 font-medium" id="history-pagination-info"></div>
+                                    <div class="flex items-center space-x-2">
+                                        <label for="history-limit" class="text-sm text-gray-400">Itens por página:</label>
+                                        <select id="history-limit" class="px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
+                                            <option value="10">10</option>
+                                            <option value="50" selected>50</option>
+                                            <option value="100">100</option>
+                                        </select>
+                                    </div>
+                                </div>
                                 <div class="flex items-center space-x-2" id="history-pagination-controls"></div>
                             </div>
                         </div>
@@ -1630,36 +1883,52 @@
                 <div id="biblioteca-error-message" class="error-message mb-6"></div>
                 <div id="biblioteca-success-message" class="success-message mb-6"></div>
 
-                <div class="mb-6 flex space-x-4 border-b border-gray-800">
-                    <button id="biblioteca-tab-titles" class="px-4 py-2 font-semibold text-amber-500 border-b-2 border-amber-500">
-                        Títulos Virais
+                <!-- Tabs Melhoradas -->
+                <div class="mb-6 flex space-x-1 border-b border-gray-800 bg-gray-900/50 rounded-t-lg p-1">
+                    <button id="biblioteca-tab-titles" class="px-6 py-3 font-semibold text-amber-500 border-b-2 border-amber-500 transition-all hover:bg-gray-800/50 rounded-t">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="file-text" class="w-4 h-4"></i>
+                            <span>Títulos Virais</span>
+                        </div>
                     </button>
-                    <button id="biblioteca-tab-thumbnails" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
-                        Thumbnails Virais
+                    <button id="biblioteca-tab-thumbnails" class="px-6 py-3 font-semibold text-gray-400 hover:text-white transition-all hover:bg-gray-800/50 rounded-t">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="image" class="w-4 h-4"></i>
+                            <span>Thumbnails Virais</span>
+                        </div>
                     </button>
-                    <button id="biblioteca-tab-agents" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
-                        Agentes de Roteiro
+                    <button id="biblioteca-tab-agents" class="px-6 py-3 font-semibold text-gray-400 hover:text-white transition-all hover:bg-gray-800/50 rounded-t">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="bot" class="w-4 h-4"></i>
+                            <span>Agentes de Roteiro</span>
+                        </div>
                     </button>
-                    <button id="biblioteca-tab-scripts" class="px-4 py-2 font-semibold text-gray-400 hover:text-white">
-                        Roteiros Gerados
+                    <button id="biblioteca-tab-scripts" class="px-6 py-3 font-semibold text-gray-400 hover:text-white transition-all hover:bg-gray-800/50 rounded-t">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="scroll-text" class="w-4 h-4"></i>
+                            <span>Roteiros Gerados</span>
+                        </div>
                     </button>
                 </div>
 
-                <!-- Filtros -->
-                <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
+                <!-- Filtros Melhorados -->
+                <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-xl p-6 mb-6 shadow-xl">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <input type="text" id="biblioteca-search" placeholder="Buscar..." class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
-                        <select id="biblioteca-niche-filter" class="styled-select px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                        <div class="relative">
+                            <i data-lucide="search" class="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500"></i>
+                            <input type="text" id="biblioteca-search" placeholder="Buscar títulos..." class="w-full pl-10 pr-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
+                        </div>
+                        <select id="biblioteca-niche-filter" class="styled-select px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
                             <option value="">Todos os Nichos</option>
                         </select>
-                        <select id="biblioteca-views-filter" class="styled-select px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                        <select id="biblioteca-views-filter" class="styled-select px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
                             <option value="">Todas as Views</option>
                             <option value="1000000">1M+ views</option>
                             <option value="5000000">5M+ views</option>
                             <option value="10000000">10M+ views</option>
                         </select>
-                        <button id="biblioteca-favorites-only" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 flex items-center justify-center space-x-2">
-                            <i data-lucide="heart"></i>
+                        <button id="biblioteca-favorites-only" class="px-4 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 transition-all flex items-center justify-center space-x-2">
+                            <i data-lucide="heart" class="w-4 h-4"></i>
                             <span>Apenas Favoritos</span>
                         </button>
                     </div>
@@ -1667,8 +1936,43 @@
 
                 <!-- Lista de Títulos -->
                 <div id="biblioteca-titles-section" class="space-y-4">
-                    <div class="grid grid-cols-1 gap-4" id="biblioteca-titles-list">
-                        <p class="text-gray-400">Carregando títulos...</p>
+                    <!-- Controles de seleção em lote -->
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="select-all-titles" class="w-5 h-5 bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2">
+                            <label for="select-all-titles" class="text-gray-300 font-medium">Selecionar Todos</label>
+                            <span id="selected-titles-count" class="text-amber-500 font-semibold hidden">(<span id="selected-count-number">0</span> selecionados)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="delete-selected-titles" onclick="deleteSelectedTitles()" class="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 text-sm font-semibold rounded-lg transition-all flex items-center space-x-2 hidden">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                <span>Excluir Selecionados</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="biblioteca-titles-list">
+                        <div class="col-span-full text-center py-8">
+                            <i data-lucide="loader" class="w-8 h-8 mx-auto mb-2 animate-spin text-amber-500"></i>
+                            <p class="text-gray-400">Carregando títulos...</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Paginação -->
+                    <div id="biblioteca-titles-pagination" class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4" style="display: none;">
+                        <div class="flex items-center space-x-4">
+                            <div class="text-sm text-gray-400 font-medium" id="biblioteca-titles-pagination-info"></div>
+                            <div class="flex items-center space-x-2">
+                                <label for="biblioteca-titles-limit" class="text-sm text-gray-400">Itens por página:</label>
+                                <select id="biblioteca-titles-limit" class="px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
+                                    <option value="6" selected>6</option>
+                                    <option value="12">12</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2" id="biblioteca-titles-pagination-controls"></div>
                     </div>
                 </div>
 
@@ -2948,8 +3252,11 @@
                         <div id="manual-mode-settings" class="hidden">
                             <div class="flex items-center gap-4">
                                 <label for="scene-words-per-scene" class="block text-sm font-medium text-gray-300">Gerar a cada</label>
-                                <input type="number" id="scene-words-per-scene" value="100" min="50" max="500" step="10" class="w-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                                <span class="text-sm text-gray-300">palavras</span>
+                                <input type="number" id="scene-words-per-scene" value="50" min="25" max="500" step="5" class="w-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                <select id="scene-unit-select" class="w-32 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <option value="words">palavras</option>
+                                    <option value="seconds">segundos</option>
+                                </select>
                             </div>
                         </div>
 
@@ -5630,24 +5937,64 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
+            // Sistema de Toast Centralizado
+            function showToast(message, type = 'success', duration = 4000) {
+                // Função helper para escape HTML
+                const escapeHtml = (text) => {
+                    if (!text) return '';
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                };
+                
+                // Remover toast anterior se existir
+                const existingToast = document.getElementById('global-toast');
+                if (existingToast) {
+                    existingToast.remove();
+                }
+                
+                // Criar novo toast
+                const toast = document.createElement('div');
+                toast.id = 'global-toast';
+                toast.className = `fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[99999] min-w-[300px] max-w-[500px] rounded-xl shadow-2xl p-4 flex items-center space-x-3 animate-fade-in ${
+                    type === 'success' 
+                        ? 'bg-gradient-to-r from-green-600/95 to-green-700/95 border border-green-500/50' 
+                        : 'bg-gradient-to-r from-red-600/95 to-red-700/95 border border-red-500/50'
+                }`;
+                
+                const icon = type === 'success' ? 'check-circle' : 'alert-circle';
+                toast.innerHTML = `
+                    <i data-lucide="${icon}" class="w-6 h-6 ${type === 'success' ? 'text-green-100' : 'text-red-100'} flex-shrink-0"></i>
+                    <p class="text-white font-medium flex-1">${escapeHtml(message)}</p>
+                    <button onclick="this.closest('#global-toast').remove()" class="text-white/80 hover:text-white transition-colors">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                `;
+                
+                document.body.appendChild(toast);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                
+                // Auto-remover após duração
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.style.opacity = '0';
+                        toast.style.transition = 'opacity 0.3s ease-out';
+                        setTimeout(() => toast.remove(), 300);
+                    }
+                }, duration);
+            }
+            
             function showMessage(elementId, message, isError = false) {
+                // Usar toast centralizado em vez de mensagens no topo
+                showToast(message, isError ? 'error' : 'success');
+                
+                // Manter compatibilidade com código antigo que espera mensagens em elementos específicos
                 const msgBox = document.getElementById(elementId);
-                if (!msgBox) return;
-                
-                msgBox.innerHTML = message;
-                msgBox.style.display = 'block';
-                
-                const successId = isError ? elementId.replace('error', 'success') : '';
-                const errorId = !isError ? elementId.replace('success', 'error') : '';
-                
-                if (successId && document.getElementById(successId)) {
-                    document.getElementById(successId).style.display = 'none';
+                if (msgBox) {
+                    msgBox.innerHTML = message;
+                    msgBox.style.display = 'block';
+                    setTimeout(() => { msgBox.style.display = 'none'; }, 3000);
                 }
-                if (errorId && document.getElementById(errorId)) {
-                    document.getElementById(errorId).style.display = 'none';
-                }
-                
-                setTimeout(() => { msgBox.style.display = 'none'; }, 5000);
             }
             
             function hideMessage(elementId) {
@@ -10517,14 +10864,53 @@ Equipe La Casa Dark Core</textarea>
                 if (viewName === 'historico') {
                     loadHistoryNiches();
                     loadFolders().then(() => {
+                        // Atualizar estado ativo das pastas
+                        setTimeout(() => {
+                            document.querySelectorAll('.folder-link').forEach(btn => {
+                                btn.classList.remove('active', 'bg-amber-500/10', 'border-amber-500/50');
+                                btn.classList.add('border-transparent');
+                            });
+                        }, 100);
+                        
                         if (params.folderId) {
                             const folderName = userFolders.find(f => f.id == params.folderId)?.name || 'Desconhecida';
-                            historyTitle.innerText = `Histórico em: ${folderName}`;
-                            clearHistoryFilterBtn.style.display = 'inline';
+                            historyTitle.innerText = folderName;
+                            const historySubtitle = document.getElementById('history-subtitle');
+                            if (historySubtitle) {
+                                historySubtitle.innerText = `Análises da pasta ${folderName}`;
+                            }
+                            clearHistoryFilterBtn.style.display = 'flex';
+                            
+                            // Ativar pasta selecionada
+                            setTimeout(() => {
+                                const folderBtn = document.querySelector(`.folder-link[data-folder-id="${params.folderId}"]`);
+                                if (folderBtn) {
+                                    folderBtn.classList.add('active', 'bg-amber-500/10', 'border-amber-500/50');
+                                    folderBtn.classList.remove('border-transparent');
+                                }
+                            }, 150);
+                            
                             loadHistory(params.folderId, 1, currentHistoryLimit);
                         } else {
+                            historyTitle.innerText = 'Histórico Geral';
+                            const historySubtitle = document.getElementById('history-subtitle');
+                            if (historySubtitle) {
+                                historySubtitle.innerText = 'Todas as suas análises em um só lugar';
+                            }
+                            clearHistoryFilterBtn.style.display = 'none';
+                            
+                            // Ativar botão "Histórico Geral"
+                            setTimeout(() => {
+                                const folderAllBtn = document.getElementById('folder-all');
+                                if (folderAllBtn) {
+                                    folderAllBtn.classList.add('active', 'bg-amber-500/10', 'border-amber-500/50');
+                                    folderAllBtn.classList.remove('border-transparent');
+                                }
+                            }, 150);
+                            
                             loadHistory(null, 1, currentHistoryLimit);
                         }
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
                     });
                 }
                 if (viewName === 'canais') {
@@ -10545,7 +10931,7 @@ Equipe La Casa Dark Core</textarea>
                 }
                 if (viewName === 'biblioteca') {
                     loadBibliotecaNiches();
-                    loadBibliotecaTitles();
+                    loadBibliotecaTitles(1, currentBibliotecaLimit);
                     // Garantir que a tab de agentes está disponível
                     if (currentBibliotecaTab === 'agents') {
                         loadBibliotecaAgents();
@@ -11663,6 +12049,12 @@ Equipe La Casa Dark Core</textarea>
                     let titlesHtml = '<ul id="generated-titles-list" class="space-y-4">';
                     thumbTitleSelect.innerHTML = '';
                     
+                    // Log para debug: verificar quantos títulos serão exibidos
+                    console.log(`[Frontend] Exibindo ${data.titulosSugeridos?.length || 0} títulos na interface`);
+                    
+                    if (!data.titulosSugeridos || data.titulosSugeridos.length === 0) {
+                        titlesHtml += '<li class="bg-gray-800 p-4 rounded-lg border border-gray-700 text-gray-400 text-center">Nenhum título encontrado para esta análise.</li>';
+                    } else {
                     data.titulosSugeridos.forEach((titleObj, index) => {
                         let scoreColor = 'bg-gray-600 text-gray-200';
                         if (titleObj.pontuacao >= 8) scoreColor = 'bg-green-600 text-green-100';
@@ -11703,6 +12095,7 @@ Equipe La Casa Dark Core</textarea>
                         }
                         thumbTitleSelect.appendChild(option);
                     });
+                    }
                     titlesHtml += '</ul>';
                     
                     resultadosDiv.innerHTML = videoSummaryHtml + nicheHtml + titlesHtml;
@@ -12603,6 +12996,7 @@ Equipe La Casa Dark Core</textarea>
 
                     // Salvar o estado no backend
                     try {
+                        console.log(`[Biblioteca Frontend] Enviando requisição para marcar título ${titleId} como ${isChecked ? 'marcado' : 'desmarcado'}`);
                         const response = await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
                             method: 'PUT',
                             headers: {
@@ -12612,9 +13006,33 @@ Equipe La Casa Dark Core</textarea>
                             body: JSON.stringify({ is_checked: isChecked })
                         });
                         
-                        if (response.ok && isChecked) {
-                            // Se o título foi marcado, atualizar dashboard
+                        console.log(`[Biblioteca Frontend] Resposta recebida:`, response.status, response.statusText);
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (isChecked) {
+                                console.log('[Biblioteca] ✅ Título marcado e salvo na biblioteca');
+                                // Mostrar mensagem de sucesso
+                                const successMsg = document.getElementById('biblioteca-success-message');
+                                if (successMsg) {
+                                    successMsg.innerText = 'Título adicionado à biblioteca com sucesso!';
+                                    successMsg.style.display = 'block';
+                                    setTimeout(() => {
+                                        successMsg.style.display = 'none';
+                                    }, 3000);
+                                }
+                                // Se estiver na aba de biblioteca, recarregar
+                                if (currentBibliotecaTab === 'titles') {
+                                    setTimeout(() => loadBibliotecaTitles(1, currentBibliotecaLimit), 500);
+                                }
+                            } else {
+                                console.log('[Biblioteca] Título desmarcado');
+                            }
+                            // Atualizar dashboard se visível
                             refreshDashboardIfVisible();
+                        } else {
+                            const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                            throw new Error(errorData.msg || 'Erro ao salvar título');
                         }
                     } catch (err) {
                         console.error("Falha ao salvar o estado do título:", err);
@@ -13160,14 +13578,17 @@ Equipe La Casa Dark Core</textarea>
                     folderList.innerHTML = '';
                     userFolders.forEach(folder => {
                         folderList.innerHTML += `
-                            <li class="flex justify-between items-center p-2 rounded-lg hover:bg-gray-800 group">
-                                <a href="#" class="folder-link text-gray-300 flex-1" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
-                                    ${folder.name}
-                                </a>
-                                <button title="Excluir Pasta" class="delete-folder-btn p-1 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
+                            <button class="folder-link w-full text-left px-4 py-3 rounded-lg transition-all duration-200 hover:bg-gray-800/50 hover:border-amber-500/30 border border-transparent group" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3 flex-1">
+                                        <i data-lucide="folder" class="w-4 h-4 text-amber-500/70"></i>
+                                        <span class="text-gray-200 font-medium truncate">${folder.name}</span>
+                                    </div>
+                                    <button title="Excluir Pasta" class="delete-folder-btn p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all" data-folder-id="${folder.id}" data-folder-name="${folder.name}">
                                     <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
                                 </button>
-                            </li>`;
+                                </div>
+                            </button>`;
                     });
                     if (typeof lucide !== 'undefined') lucide.createIcons();
 
@@ -13177,8 +13598,16 @@ Equipe La Casa Dark Core</textarea>
             }
             
             let currentHistoryPage = 1;
-            let currentHistoryLimit = 50;
+            let currentHistoryLimit = 50; // Valor padrão
             let currentHistoryFolderId = null;
+            
+            // Inicializar seletor de limite ao carregar
+            document.addEventListener('DOMContentLoaded', () => {
+                const historyLimitSelect = document.getElementById('history-limit');
+                if (historyLimitSelect) {
+                    historyLimitSelect.value = currentHistoryLimit.toString();
+                }
+            });
             
             async function loadHistory(folderId = null, page = 1, limit = currentHistoryLimit) {
                 currentHistoryPage = page;
@@ -13216,23 +13645,78 @@ Equipe La Casa Dark Core</textarea>
                     
                     historyTableBody.innerHTML = '';
                     if (!Array.isArray(history) || history.length === 0) {
-                        historyTableBody.innerHTML = '<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-gray-500 py-4">Nenhuma análise encontrada.</td></tr>';
-                        document.getElementById('history-pagination').style.display = 'none';
+                        historyTableBody.innerHTML = `
+                            <tr>
+                                <td colspan="5" class="p-8 text-center">
+                                    <div class="flex flex-col items-center justify-center space-y-3">
+                                        <i data-lucide="inbox" class="w-12 h-12 text-gray-600"></i>
+                                        <p class="text-gray-400 font-medium">Nenhuma análise encontrada</p>
+                                        <p class="text-gray-500 text-sm">Comece analisando um vídeo para ver seu histórico aqui</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                        const paginationEl = document.getElementById('history-pagination');
+                        if (paginationEl) paginationEl.style.display = 'none';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
                         return;
                     }
                     
                     history.forEach(item => {
-                        const date = new Date(item.analyzed_at).toLocaleDateString('pt-BR');
+                        // Converter para fuso horário de Brasília/São Paulo (America/Sao_Paulo)
+                        const dateObj = new Date(item.analyzed_at);
+                        
+                        // Formatar data e hora no fuso de Brasília usando Intl.DateTimeFormat
+                        const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
+                            timeZone: 'America/Sao_Paulo',
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                        });
+                        
+                        const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
+                            timeZone: 'America/Sao_Paulo',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false
+                        });
+                        
+                        const date = dateFormatter.format(dateObj);
+                        const time = timeFormatter.format(dateObj);
+                        
+                        // Truncar título se muito longo
+                        const title = item.original_title || 'Sem título';
+                        const truncatedTitle = title.length > 50 ? title.substring(0, 50) + '...' : title;
+                        
+                        // Truncar nicho se muito longo
+                        const niche = item.detected_subniche || 'N/A';
+                        const truncatedNiche = niche.length > 30 ? niche.substring(0, 30) + '...' : niche;
+                        
                         historyTableBody.innerHTML += `
-                            <tr>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900"><input type="checkbox" class="history-checkbox bg-gray-700 border-gray-600 rounded" data-id="${item.id}"></td>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900 max-w-xs truncate">${item.original_title}</td>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900">${item.detected_subniche || 'N/A'}</td>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900">${date}</td>
-                                <td class="p-3 border-b border-gray-700 bg-gray-900 flex space-x-1">
-                                    <button title="Carregar Análise" class="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400 hover:text-amber-500 btn-history-action" data-action="load" data-id="${item.id}">
+                            <tr class="hover:bg-gray-800/30 transition-colors">
+                                <td class="p-3">
+                                    <input type="checkbox" class="history-checkbox bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2" data-id="${item.id}">
+                                </td>
+                                <td class="p-3">
+                                    <p class="text-gray-200 font-medium truncate" style="max-width: 250px;" title="${title}">${truncatedTitle}</p>
+                                </td>
+                                <td class="p-3">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 truncate" style="max-width: 200px;" title="${niche}">
+                                        ${truncatedNiche}
+                                    </span>
+                                </td>
+                                <td class="p-3">
+                                    <div class="flex flex-col whitespace-nowrap" style="min-width: 140px;">
+                                        <span class="text-gray-200 text-sm font-medium">${date}</span>
+                                        <span class="text-gray-400 text-xs">${time}</span>
+                                    </div>
+                                </td>
+                                <td class="p-3">
+                                    <div class="flex items-center justify-center" style="min-width: 80px;">
+                                        <button title="Carregar Análise" class="p-2 rounded-lg hover:bg-amber-500/20 transition-all text-gray-400 hover:text-amber-500 border border-transparent hover:border-amber-500/30 btn-history-action" data-action="load" data-id="${item.id}">
                                         <i data-lucide="upload" class="pointer-events-none w-4 h-4"></i>
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `;
@@ -13249,7 +13733,18 @@ Equipe La Casa Dark Core</textarea>
                     console.error('Erro ao carregar histórico:', err);
                     const errorMessage = err.message || 'Erro desconhecido ao carregar histórico.';
                     if (historyTableBody) {
-                        historyTableBody.innerHTML = `<tr><td colspan="5" class="p-3 border-b border-gray-700 bg-gray-900 text-center text-red-500 py-4">${errorMessage}</td></tr>`;
+                        historyTableBody.innerHTML = `
+                            <tr>
+                                <td colspan="5" class="p-8 text-center">
+                                    <div class="flex flex-col items-center justify-center space-y-3">
+                                        <i data-lucide="alert-circle" class="w-12 h-12 text-red-500"></i>
+                                        <p class="text-red-400 font-medium">Erro ao carregar histórico</p>
+                                        <p class="text-gray-500 text-sm">${errorMessage}</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
                     }
                     const paginationEl = document.getElementById('history-pagination');
                     if (paginationEl) paginationEl.style.display = 'none';
@@ -13285,7 +13780,15 @@ Equipe La Casa Dark Core</textarea>
                         <h2 class="text-2xl font-bold text-white mb-4">🎬 Vídeos Gerados</h2>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             ${videos.map(video => {
-                                const date = new Date(video.created_at).toLocaleDateString('pt-BR');
+                                // Converter para fuso horário de Brasília
+                                const videoDate = new Date(video.created_at);
+                                const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
+                                    timeZone: 'America/Sao_Paulo',
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric'
+                                });
+                                const date = dateFormatter.format(videoDate);
                                 const promptPreview = video.prompt ? (video.prompt.length > 50 ? video.prompt.substring(0, 50) + '...' : video.prompt) : 'Sem descrição';
                                 return `
                                     <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
@@ -13312,27 +13815,37 @@ Equipe La Casa Dark Core</textarea>
                 const paginationInfo = document.getElementById('history-pagination-info');
                 const paginationControls = document.getElementById('history-pagination-controls');
                 const paginationContainer = document.getElementById('history-pagination');
+                const historyLimitSelect = document.getElementById('history-limit');
                 
-                if (!pagination || !pagination.total || pagination.totalPages <= 1) {
+                // Sempre mostrar paginação se houver dados
+                if (pagination && pagination.total > 0) {
+                paginationContainer.style.display = 'flex';
+                
+                    // Atualizar seletor de limite
+                    if (historyLimitSelect) {
+                        const currentLimit = pagination.limit || currentHistoryLimit;
+                        if (currentLimit === 10) historyLimitSelect.value = '10';
+                        else if (currentLimit === 50) historyLimitSelect.value = '50';
+                        else if (currentLimit === 100) historyLimitSelect.value = '100';
+                    }
+                    
+                    // Info melhorada
+                const start = ((pagination.page - 1) * pagination.limit) + 1;
+                const end = Math.min(pagination.page * pagination.limit, pagination.total);
+                    paginationInfo.innerHTML = `<span class="text-gray-300">Mostrando <span class="text-amber-500 font-bold">${start}-${end}</span> de <span class="text-amber-500 font-bold">${pagination.total}</span> análises</span>`;
+                } else {
                     paginationContainer.style.display = 'none';
                     return;
                 }
                 
-                paginationContainer.style.display = 'flex';
-                
-                // Info
-                const start = ((pagination.page - 1) * pagination.limit) + 1;
-                const end = Math.min(pagination.page * pagination.limit, pagination.total);
-                paginationInfo.textContent = `Mostrando ${start}-${end} de ${pagination.total} análises`;
-                
-                // Controles
+                // Controles melhorados
                 paginationControls.innerHTML = '';
                 
                 // Botão Anterior
                 if (pagination.hasPrev) {
                     const prevBtn = document.createElement('button');
-                    prevBtn.className = 'px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 text-sm';
-                    prevBtn.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4 inline"></i> Anterior';
+                    prevBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                    prevBtn.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4"></i><span class="hidden sm:inline">Anterior</span>';
                     prevBtn.onclick = () => loadHistory(currentHistoryFolderId, pagination.page - 1, currentHistoryLimit);
                     paginationControls.appendChild(prevBtn);
                 }
@@ -13347,7 +13860,7 @@ Equipe La Casa Dark Core</textarea>
                 
                 for (let i = startPage; i <= endPage; i++) {
                     const pageBtn = document.createElement('button');
-                    pageBtn.className = `px-3 py-1 rounded-lg text-sm ${i === pagination.page ? 'bg-amber-600 text-black font-bold' : 'bg-gray-800 border border-gray-700 text-gray-200 hover:bg-gray-700'}`;
+                    pageBtn.className = `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${i === pagination.page ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black font-bold shadow-lg shadow-amber-500/30' : 'bg-gray-800/50 border border-gray-700 text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400'}`;
                     pageBtn.textContent = i;
                     pageBtn.onclick = () => loadHistory(currentHistoryFolderId, i, currentHistoryLimit);
                     paginationControls.appendChild(pageBtn);
@@ -13356,8 +13869,8 @@ Equipe La Casa Dark Core</textarea>
                 // Botão Próximo
                 if (pagination.hasNext) {
                     const nextBtn = document.createElement('button');
-                    nextBtn.className = 'px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:bg-gray-700 text-sm';
-                    nextBtn.innerHTML = 'Próximo <i data-lucide="chevron-right" class="w-4 h-4 inline"></i>';
+                    nextBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                    nextBtn.innerHTML = '<span class="hidden sm:inline">Próximo</span><i data-lucide="chevron-right" class="w-4 h-4"></i>';
                     nextBtn.onclick = () => loadHistory(currentHistoryFolderId, pagination.page + 1, currentHistoryLimit);
                     paginationControls.appendChild(nextBtn);
                 }
@@ -13411,7 +13924,23 @@ Equipe La Casa Dark Core</textarea>
                             loadFolders();
                             if (historyTitle.innerText.includes(folderName)) {
                                 historyTitle.innerText = 'Histórico Geral';
+                                const historySubtitle = document.getElementById('history-subtitle');
+                                if (historySubtitle) {
+                                    historySubtitle.innerText = 'Todas as suas análises em um só lugar';
+                                }
                                 clearHistoryFilterBtn.style.display = 'none';
+                                
+                                // Atualizar estado ativo
+                                document.querySelectorAll('.folder-link').forEach(btn => {
+                                    btn.classList.remove('active', 'bg-amber-500/10', 'border-amber-500/50');
+                                    btn.classList.add('border-transparent');
+                                });
+                                const folderAllBtn = document.getElementById('folder-all');
+                                if (folderAllBtn) {
+                                    folderAllBtn.classList.add('active', 'bg-amber-500/10', 'border-amber-500/50');
+                                    folderAllBtn.classList.remove('border-transparent');
+                                }
+                                
                                 loadHistory();
                             }
                         } catch (err) {
@@ -13426,9 +13955,24 @@ Equipe La Casa Dark Core</textarea>
                     e.preventDefault();
                     const folderId = link.dataset.folderId;
                     const folderName = link.dataset.folderName;
-                    historyTitle.innerText = `Histórico em: ${folderName}`;
-                    clearHistoryFilterBtn.style.display = 'inline';
-                    loadHistory(folderId, 1, currentHistoryLimit);
+                    
+                    // Atualizar título e subtítulo
+                    historyTitle.innerText = folderId ? folderName : 'Histórico Geral';
+                    const historySubtitle = document.getElementById('history-subtitle');
+                    if (historySubtitle) {
+                        historySubtitle.innerText = folderId ? `Análises da pasta ${folderName}` : 'Todas as suas análises em um só lugar';
+                    }
+                    
+                    // Atualizar estado ativo das pastas
+                    document.querySelectorAll('.folder-link').forEach(btn => {
+                        btn.classList.remove('active', 'bg-amber-500/10', 'border-amber-500/50');
+                        btn.classList.add('border-transparent');
+                    });
+                    link.classList.add('active', 'bg-amber-500/10', 'border-amber-500/50');
+                    link.classList.remove('border-transparent');
+                    
+                    clearHistoryFilterBtn.style.display = folderId ? 'flex' : 'none';
+                    loadHistory(folderId || null, 1, currentHistoryLimit);
                 }
             });
             
@@ -13497,8 +14041,20 @@ Equipe La Casa Dark Core</textarea>
             // Filtro de limite por página
             const historyLimitSelect = document.getElementById('history-limit');
             if (historyLimitSelect) {
+                // Definir valor inicial baseado no currentHistoryLimit
+                const setLimitValue = () => {
+                    if (currentHistoryLimit === 10) historyLimitSelect.value = '10';
+                    else if (currentHistoryLimit === 50) historyLimitSelect.value = '50';
+                    else if (currentHistoryLimit === 100) historyLimitSelect.value = '100';
+                    else historyLimitSelect.value = '50'; // Padrão
+                };
+                
+                // Definir valor inicial
+                setLimitValue();
+                
                 historyLimitSelect.addEventListener('change', (e) => {
                     const newLimit = parseInt(e.target.value);
+                    currentHistoryLimit = newLimit;
                     loadHistory(currentHistoryFolderId, 1, newLimit);
                 });
             }
@@ -13516,6 +14072,17 @@ Equipe La Casa Dark Core</textarea>
                             });
                             const data = await response.json();
                             if (!response.ok) throw new Error(data.msg || 'Falha ao carregar dados.');
+                            
+                            // Log para debug: verificar quantos títulos foram carregados
+                            console.log(`[Histórico Frontend] Carregando análise ${id}: ${data.titulosSugeridos?.length || 0} títulos recebidos`);
+                            if (data.titulosSugeridos && data.titulosSugeridos.length > 0) {
+                                const titlesByModel = {};
+                                data.titulosSugeridos.forEach(t => {
+                                    const model = t.model || 'Desconhecido';
+                                    titlesByModel[model] = (titlesByModel[model] || 0) + 1;
+                                });
+                                console.log(`[Histórico Frontend] Títulos por modelo:`, titlesByModel);
+                            }
                             
                             navigateToView('analisador');
                             
@@ -16271,8 +16838,14 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
 
-            async function loadBibliotecaTitles() {
-                console.log('[Biblioteca] Carregando títulos...');
+            let currentBibliotecaPage = 1;
+            let currentBibliotecaLimit = 6;
+            
+            async function loadBibliotecaTitles(page = currentBibliotecaPage, limit = currentBibliotecaLimit) {
+                currentBibliotecaPage = page;
+                currentBibliotecaLimit = limit;
+                
+                console.log('[Biblioteca] Carregando títulos...', { page, limit });
                 if (!userToken) {
                     console.error('[Biblioteca] Token de usuário não encontrado');
                     return;
@@ -16284,11 +16857,11 @@ Equipe La Casa Dark Core</textarea>
                     const favoritesBtn = document.getElementById('biblioteca-favorites-only');
                     const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
 
-                    let url = `${API_BASE}/api/library/titles?`;
-                    if (search) url += `search=${encodeURIComponent(search)}&`;
-                    if (niche) url += `niche=${encodeURIComponent(niche)}&`;
-                    if (minViews) url += `minViews=${minViews}&`;
-                    if (favorites) url += `favorite=${favorites}&`;
+                    let url = `${API_BASE}/api/library/titles?page=${page}&limit=${limit}`;
+                    if (search) url += `&search=${encodeURIComponent(search)}`;
+                    if (niche) url += `&niche=${encodeURIComponent(niche)}`;
+                    if (minViews) url += `&minViews=${minViews}`;
+                    if (favorites) url += `&favorite=${favorites}`;
 
                     console.log('[Biblioteca] URL:', url);
                     const response = await fetch(url, {
@@ -16299,39 +16872,171 @@ Equipe La Casa Dark Core</textarea>
                         const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
                         throw new Error(errorData.msg || `Falha ao carregar títulos: ${response.status}`);
                     }
-                    const titles = await response.json();
-                    console.log('[Biblioteca] Títulos recebidos:', titles.length);
+                    const result = await response.json();
+                    const titles = result.data || result; // Suportar formato antigo e novo
+                    const pagination = result.pagination || {};
+                    console.log('[Biblioteca] Títulos recebidos:', titles.length, 'Total:', pagination.total || titles.length);
 
                     const list = document.getElementById('biblioteca-titles-list');
                     if (list) {
                         if (titles.length > 0) {
-                            list.innerHTML = titles.map(title => `
-                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
-                                    <div class="flex-1">
-                                        <h3 class="text-white font-semibold mb-1">${escapeHtml(title.title || 'Sem título')}</h3>
-                                        <p class="text-gray-400 text-sm">${escapeHtml(title.niche || 'N/A')} • ${escapeHtml(title.subniche || 'N/A')} • ${formatNumber(parseInt(title.original_views || 0))} views • Score: ${title.viral_score || 'N/A'}/10</p>
+                            list.innerHTML = titles.map(title => {
+                                const views = parseInt(title.original_views || 0);
+                                const score = title.viral_score || 0;
+                                const scoreColor = score >= 8 ? 'text-green-400' : score >= 6 ? 'text-yellow-400' : 'text-gray-400';
+                                
+                                return `
+                                    <div class="bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700 rounded-xl p-6 hover:border-amber-500/50 transition-all shadow-lg hover:shadow-amber-500/10">
+                                        <div class="flex items-start gap-3 mb-4">
+                                            <input type="checkbox" class="title-library-checkbox w-5 h-5 bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2 flex-shrink-0 mt-1" data-title-id="${title.id}">
+                                            <div class="flex-1">
+                                                <h3 class="text-white font-bold text-lg mb-2 line-clamp-2" title="${escapeHtml(title.title || 'Sem título')}">${escapeHtml(title.title || 'Sem título')}</h3>
+                                                <div class="flex flex-wrap items-center gap-2 mb-3">
+                                                    ${title.niche ? `<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">${escapeHtml(title.niche)}</span>` : ''}
+                                                    ${title.subniche ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs text-gray-400 bg-gray-700/50">${escapeHtml(title.subniche)}</span>` : ''}
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2 flex-shrink-0">
+                                                <button onclick="toggleTitleFavorite(${title.id}, ${title.is_favorite || 0})" class="p-2 rounded-lg ${title.is_favorite ? 'text-red-500 bg-red-500/10' : 'text-gray-400 hover:text-red-500 hover:bg-red-500/10'} transition-all" title="${title.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                                                    <i data-lucide="heart" class="w-5 h-5 ${title.is_favorite ? 'fill-current' : ''}"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-2 gap-3 mb-4">
+                                            <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
+                                                <p class="text-xs text-gray-500 mb-1">Views Originais</p>
+                                                <p class="text-white font-bold text-sm">${formatNumber(views)}</p>
+                                            </div>
+                                            <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
+                                                <p class="text-xs text-gray-500 mb-1">Score Viral</p>
+                                                <p class="${scoreColor} font-bold text-sm">${score}/10</p>
+                                            </div>
+                                        </div>
+                                        
+                                        ${title.formula_type ? `
+                                            <div class="mt-3 pt-3 border-t border-gray-700">
+                                                <p class="text-xs text-gray-500 mb-1">Fórmula</p>
+                                                <p class="text-gray-300 text-xs line-clamp-2">${escapeHtml(title.formula_type)}</p>
+                                            </div>
+                                        ` : ''}
+                                        
+                                        <div class="mt-4 flex gap-2">
+                                            <button onclick="copyTitleToClipboard('${escapeHtml(title.title || '').replace(/'/g, "\\'")}')" class="flex-1 py-2 px-3 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-400 rounded-lg transition-all text-sm font-medium flex items-center justify-center gap-2">
+                                                <i data-lucide="copy" class="w-4 h-4"></i>
+                                                <span>Copiar</span>
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div class="flex items-center gap-2 ml-4">
-                                        <button onclick="toggleTitleFavorite(${title.id}, ${title.is_favorite || 0})" class="p-2 ${title.is_favorite ? 'text-red-600 fill-red-600' : 'text-gray-400'} hover:text-red-500 transition-colors" title="${title.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
-                                            <i data-lucide="heart" class="w-4 h-4 ${title.is_favorite ? 'fill-current' : ''}"></i>
-                                        </button>
-                                        <button onclick="deleteTitleFromLibrary(${title.id})" class="p-2 text-red-600 hover:text-red-500 transition-colors" title="Excluir título">
-                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('');
+                                `;
+                            }).join('');
                             if (typeof lucide !== 'undefined') lucide.createIcons();
                         } else {
-                            list.innerHTML = '<p class="text-gray-400">Nenhum título encontrado.</p>';
+                            list.innerHTML = `
+                                <div class="col-span-full text-center py-12">
+                                    <i data-lucide="inbox" class="w-16 h-16 mx-auto mb-4 text-gray-600"></i>
+                                    <p class="text-gray-400 font-medium text-lg mb-2">Nenhum título encontrado</p>
+                                    <p class="text-gray-500 text-sm">Marque títulos como escolhidos nas análises para vê-los aqui</p>
+                                </div>
+                            `;
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
                         }
+                        
+                        // Atualizar paginação
+                        updateBibliotecaPagination(pagination);
+                        
+                        // Adicionar event listeners para checkboxes
+                        document.querySelectorAll('.title-library-checkbox').forEach(checkbox => {
+                            checkbox.addEventListener('change', updateBibliotecaSelection);
+                        });
                     }
                 } catch (err) {
                     console.error('Erro ao carregar títulos:', err);
                     const list = document.getElementById('biblioteca-titles-list');
                     if (list) {
-                        list.innerHTML = `<p class="text-red-400">Erro ao carregar títulos: ${err.message}</p>`;
+                        list.innerHTML = `<p class="text-red-400 col-span-full text-center py-8">Erro ao carregar títulos: ${err.message}</p>`;
                     }
+                }
+            }
+            
+            // Função para atualizar seleção em lote
+            function updateBibliotecaSelection() {
+                const checkboxes = document.querySelectorAll('.title-library-checkbox:checked');
+                const count = checkboxes.length;
+                const countSpan = document.getElementById('selected-count-number');
+                const countContainer = document.getElementById('selected-titles-count');
+                const deleteBtn = document.getElementById('delete-selected-titles');
+                
+                if (countSpan) countSpan.textContent = count;
+                if (countContainer) countContainer.classList.toggle('hidden', count === 0);
+                if (deleteBtn) deleteBtn.classList.toggle('hidden', count === 0);
+            }
+            
+            // Função para atualizar paginação
+            function updateBibliotecaPagination(pagination) {
+                const paginationContainer = document.getElementById('biblioteca-titles-pagination');
+                const paginationInfo = document.getElementById('biblioteca-titles-pagination-info');
+                const paginationControls = document.getElementById('biblioteca-titles-pagination-controls');
+                const limitSelect = document.getElementById('biblioteca-titles-limit');
+                
+                if (!pagination || !pagination.total || pagination.totalPages <= 1) {
+                    if (paginationContainer) paginationContainer.style.display = 'none';
+                    return;
+                }
+                
+                if (paginationContainer) paginationContainer.style.display = 'flex';
+                
+                // Atualizar seletor de limite
+                if (limitSelect) {
+                    limitSelect.value = pagination.limit || currentBibliotecaLimit;
+                }
+                
+                // Info
+                if (paginationInfo) {
+                    const start = ((pagination.page - 1) * pagination.limit) + 1;
+                    const end = Math.min(pagination.page * pagination.limit, pagination.total);
+                    paginationInfo.innerHTML = `<span class="text-gray-300">Mostrando <span class="text-amber-500 font-bold">${start}-${end}</span> de <span class="text-amber-500 font-bold">${pagination.total}</span> títulos</span>`;
+                }
+                
+                // Controles
+                if (paginationControls) {
+                    paginationControls.innerHTML = '';
+                    
+                    // Botão Anterior
+                    if (pagination.hasPrev) {
+                        const prevBtn = document.createElement('button');
+                        prevBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                        prevBtn.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4"></i><span class="hidden sm:inline">Anterior</span>';
+                        prevBtn.onclick = () => loadBibliotecaTitles(pagination.page - 1, currentBibliotecaLimit);
+                        paginationControls.appendChild(prevBtn);
+                    }
+                    
+                    // Números de página
+                    const maxPages = 5;
+                    let startPage = Math.max(1, pagination.page - Math.floor(maxPages / 2));
+                    let endPage = Math.min(pagination.totalPages, startPage + maxPages - 1);
+                    if (endPage - startPage < maxPages - 1) {
+                        startPage = Math.max(1, endPage - maxPages + 1);
+                    }
+                    
+                    for (let i = startPage; i <= endPage; i++) {
+                        const pageBtn = document.createElement('button');
+                        pageBtn.className = `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${i === pagination.page ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black font-bold shadow-lg shadow-amber-500/30' : 'bg-gray-800/50 border border-gray-700 text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400'}`;
+                        pageBtn.textContent = i;
+                        pageBtn.onclick = () => loadBibliotecaTitles(i, currentBibliotecaLimit);
+                        paginationControls.appendChild(pageBtn);
+                    }
+                    
+                    // Botão Próximo
+                    if (pagination.hasNext) {
+                        const nextBtn = document.createElement('button');
+                        nextBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                        nextBtn.innerHTML = '<span class="hidden sm:inline">Próximo</span><i data-lucide="chevron-right" class="w-4 h-4"></i>';
+                        nextBtn.onclick = () => loadBibliotecaTitles(pagination.page + 1, currentBibliotecaLimit);
+                        paginationControls.appendChild(nextBtn);
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
                 }
             }
 
@@ -18154,9 +18859,11 @@ Equipe La Casa Dark Core</textarea>
                         body: JSON.stringify({ isFavorite: !currentState })
                     });
                     if (!response.ok) throw new Error('Falha ao atualizar favorito.');
-                    await loadBibliotecaTitles();
+                    await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
+                    showToast('Favorito atualizado com sucesso!', 'success');
                 } catch (err) {
                     console.error('Erro ao atualizar favorito:', err);
+                    showToast('Erro ao atualizar favorito.', 'error');
                 }
             };
 
@@ -18179,6 +18886,30 @@ Equipe La Casa Dark Core</textarea>
                 }
             };
 
+            // Função para copiar título para clipboard
+            window.copyTitleToClipboard = async function(titleText) {
+                try {
+                    await navigator.clipboard.writeText(titleText);
+                    showToast('Título copiado para a área de transferência!', 'success');
+                } catch (err) {
+                    console.error('Erro ao copiar título:', err);
+                    // Fallback: usar método antigo
+                    const textarea = document.createElement('textarea');
+                    textarea.value = titleText;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    try {
+                        document.execCommand('copy');
+                        showToast('Título copiado para a área de transferência!', 'success');
+                    } catch (fallbackErr) {
+                        showToast('Erro ao copiar título. Tente selecionar e copiar manualmente.', 'error');
+                    }
+                    document.body.removeChild(textarea);
+                }
+            };
+
             window.deleteTitleFromLibrary = async function(id) {
                 if (!confirm('Tem certeza que deseja excluir este título da biblioteca? Esta ação não pode ser desfeita.')) {
                     return;
@@ -18192,10 +18923,50 @@ Equipe La Casa Dark Core</textarea>
                         const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
                         throw new Error(errorData.msg || 'Falha ao excluir título.');
                     }
-                    await loadBibliotecaTitles();
-                    showMessage('biblioteca-success-message', 'Título excluído da biblioteca com sucesso!');
+                    await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
+                    showToast('Título excluído da biblioteca com sucesso!', 'success');
                 } catch (err) {
-                    showMessage('biblioteca-error-message', err.message, true);
+                    console.error('Erro ao excluir título:', err);
+                    showToast(err.message || 'Erro ao excluir título.', 'error');
+                }
+            };
+            
+            // Excluir títulos selecionados em lote (tornar global)
+            window.deleteSelectedTitles = async function() {
+                const checkboxes = document.querySelectorAll('.title-library-checkbox:checked');
+                const selectedIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.titleId));
+                
+                if (selectedIds.length === 0) {
+                    showToast('Nenhum título selecionado.', 'error');
+                    return;
+                }
+                
+                if (!confirm(`Tem certeza que deseja excluir ${selectedIds.length} título(s) da biblioteca? Esta ação não pode ser desfeita.`)) {
+                    return;
+                }
+                
+                try {
+                    // Excluir em paralelo
+                    const deletePromises = selectedIds.map(id => 
+                        fetch(`${API_BASE}/api/library/titles/${id}`, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        })
+                    );
+                    
+                    const results = await Promise.allSettled(deletePromises);
+                    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+                    const failCount = results.length - successCount;
+                    
+                    if (successCount > 0) {
+                        await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
+                        showToast(`${successCount} título(s) excluído(s) com sucesso!${failCount > 0 ? ` (${failCount} falharam)` : ''}`, 'success');
+                    } else {
+                        showToast('Erro ao excluir títulos selecionados.', 'error');
+                    }
+                } catch (err) {
+                    console.error('Erro ao excluir títulos:', err);
+                    showToast('Erro ao excluir títulos selecionados.', 'error');
                 }
             };
 
@@ -18293,10 +19064,37 @@ Equipe La Casa Dark Core</textarea>
             const bibliotecaNicheFilter = document.getElementById('biblioteca-niche-filter');
             const bibliotecaViewsFilter = document.getElementById('biblioteca-views-filter');
             const bibliotecaFavoritesOnly = document.getElementById('biblioteca-favorites-only');
+            const selectAllTitles = document.getElementById('select-all-titles');
+            const deleteSelectedTitlesBtn = document.getElementById('delete-selected-titles');
+            const bibliotecaTitlesLimit = document.getElementById('biblioteca-titles-limit');
+
+            // Event listeners para seleção em lote
+            if (selectAllTitles) {
+                selectAllTitles.addEventListener('change', (e) => {
+                    const checkboxes = document.querySelectorAll('.title-library-checkbox');
+                    checkboxes.forEach(checkbox => checkbox.checked = e.target.checked);
+                    updateBibliotecaSelection();
+                });
+            }
+
+            if (deleteSelectedTitlesBtn) {
+                deleteSelectedTitlesBtn.addEventListener('click', () => {
+                    deleteSelectedTitles();
+                });
+            }
+
+            // Event listener para limite de paginação
+            if (bibliotecaTitlesLimit) {
+                bibliotecaTitlesLimit.addEventListener('change', (e) => {
+                    const newLimit = parseInt(e.target.value);
+                    currentBibliotecaLimit = newLimit;
+                    loadBibliotecaTitles(1, newLimit);
+                });
+            }
 
             if (bibliotecaSearch) {
                 bibliotecaSearch.addEventListener('input', () => {
-                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
                     else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
@@ -18304,7 +19102,7 @@ Equipe La Casa Dark Core</textarea>
 
             if (bibliotecaNicheFilter) {
                 bibliotecaNicheFilter.addEventListener('change', () => {
-                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
                     else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
@@ -18312,7 +19110,7 @@ Equipe La Casa Dark Core</textarea>
 
             if (bibliotecaViewsFilter) {
                 bibliotecaViewsFilter.addEventListener('change', () => {
-                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
                     else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
@@ -18323,7 +19121,7 @@ Equipe La Casa Dark Core</textarea>
                     this.classList.toggle('active');
                     this.classList.toggle('bg-amber-600');
                     this.classList.toggle('text-white');
-                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles();
+                    if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
                     else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
@@ -18568,6 +19366,7 @@ Equipe La Casa Dark Core</textarea>
                 const scriptText = document.getElementById('scene-script-text');
                 const modeSelect = document.getElementById('scene-generation-mode');
                 const wordsPerScene = document.getElementById('scene-words-per-scene');
+                const unitSelect = document.getElementById('scene-unit-select');
                 const estimateBox = document.getElementById('estimated-scenes-count');
                 
                 if (!scriptText || !modeSelect || !estimateBox) return;
@@ -18581,9 +19380,19 @@ Equipe La Casa Dark Core</textarea>
                     // Modo automático: 1 cena a cada ~90 palavras
                     estimatedScenes = Math.max(1, Math.round(words / 90));
                 } else {
-                    // Modo manual: baseado no campo "Gerar a cada X palavras"
-                    const wordsPer = parseInt(wordsPerScene?.value || 100);
-                    estimatedScenes = Math.max(1, Math.round(words / wordsPer));
+                    // Modo manual: baseado no campo "Gerar a cada X palavras/segundos"
+                    const unit = unitSelect?.value || 'words';
+                    const value = parseInt(wordsPerScene?.value || 50);
+                    
+                    if (unit === 'seconds') {
+                        // Calcular baseado em segundos: assumir ~150 palavras por minuto de narração (2.5 palavras/segundo)
+                        const wordsPerSecond = 2.5;
+                        const wordsPerInterval = value * wordsPerSecond;
+                        estimatedScenes = Math.max(1, Math.round(words / wordsPerInterval));
+                    } else {
+                        // Baseado em palavras
+                        estimatedScenes = Math.max(1, Math.round(words / value));
+                    }
                 }
                 
                 estimateBox.textContent = `${estimatedScenes} cena${estimatedScenes !== 1 ? 's' : ''}`;
@@ -18619,7 +19428,52 @@ Equipe La Casa Dark Core</textarea>
             
             // Atualizar estimativa quando mudar palavras por cena
             if (sceneWordsPerScene) {
-                sceneWordsPerScene.addEventListener('input', calculateSceneEstimate);
+                sceneWordsPerScene.addEventListener('input', () => {
+                    // Validar valor mínimo baseado na unidade
+                    const unitSelect = document.getElementById('scene-unit-select');
+                    const unit = unitSelect?.value || 'words';
+                    const value = parseInt(sceneWordsPerScene.value);
+                    
+                    if (unit === 'seconds') {
+                        if (value < 8) {
+                            sceneWordsPerScene.value = 8;
+                        }
+                    } else {
+                        if (value < 25) {
+                            sceneWordsPerScene.value = 25;
+                        }
+                    }
+                    
+                    calculateSceneEstimate();
+                });
+            }
+            
+            // Atualizar validação quando a unidade mudar
+            const sceneUnitSelect = document.getElementById('scene-unit-select');
+            if (sceneUnitSelect) {
+                sceneUnitSelect.addEventListener('change', () => {
+                    const unit = sceneUnitSelect.value;
+                    const value = parseInt(sceneWordsPerScene?.value || 50);
+                    
+                    // Ajustar valor mínimo e máximo baseado na unidade
+                    if (unit === 'seconds') {
+                        sceneWordsPerScene.min = 8;
+                        sceneWordsPerScene.max = 300;
+                        sceneWordsPerScene.step = 1;
+                        if (value < 8) {
+                            sceneWordsPerScene.value = 8;
+                        }
+                    } else {
+                        sceneWordsPerScene.min = 25;
+                        sceneWordsPerScene.max = 500;
+                        sceneWordsPerScene.step = 5;
+                        if (value < 25) {
+                            sceneWordsPerScene.value = 25;
+                        }
+                    }
+                    
+                    calculateSceneEstimate();
+                });
             }
             
             // Funções do modal de agentes
@@ -21182,6 +22036,7 @@ Equipe La Casa Dark Core</textarea>
                     const style = document.getElementById('scene-style-select')?.value;
                     const mode = document.getElementById('scene-generation-mode')?.value;
                     const wordsPerScene = document.getElementById('scene-words-per-scene')?.value;
+                    const unitSelect = document.getElementById('scene-unit-select')?.value || 'words';
                     const characters = document.getElementById('scene-characters')?.value.trim();
                     
                     if (!script || !model) {
@@ -21231,7 +22086,14 @@ Equipe La Casa Dark Core</textarea>
                         const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
                         let estimatedScenes = 0;
                         if (mode === 'manual' && wordsPerScene) {
-                            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
+                            if (unitSelect === 'seconds') {
+                                // Calcular baseado em segundos: ~2.5 palavras por segundo
+                                const wordsPerSecond = 2.5;
+                                const wordsPerInterval = parseInt(wordsPerScene) * wordsPerSecond;
+                                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                            } else {
+                                estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
+                            }
                         } else {
                             estimatedScenes = Math.max(1, Math.round(wordCount / 90));
                         }
@@ -21284,6 +22146,7 @@ Equipe La Casa Dark Core</textarea>
                                 style,
                                 mode,
                                 wordsPerScene: mode === 'manual' ? parseInt(wordsPerScene) : null,
+                                unit: mode === 'manual' ? (unitSelect || 'words') : null, // 'words' ou 'seconds'
                                 characters: characters || null,
                                 imageModel: 'imageFx',
                                 selectedModel: model, // Sempre enviar o modelo selecionado para salvar no histórico
@@ -22179,8 +23042,49 @@ Equipe La Casa Dark Core</textarea>
             let ttsJobId = null;
             let ttsPollInterval = null;
             
+            // Cache de vozes por provedor
+            const voicesCache = {
+                voice_premium: null,
+                genaipro: null,
+                laozhang: null,
+                openai: null,
+                gemini: null
+            };
+            
+            // Pré-carregar vozes premium em background
+            async function preloadPremiumVoices() {
+                const token = safeLocalStorageGet('core_token');
+                if (!token) {
+                    console.log('[TTS] Token não encontrado, pulando pré-carregamento de vozes premium');
+                    return;
+                }
+                
+                // Pré-carregar vozes premium em background (sem bloquear UI)
+                console.log('[TTS] Pré-carregando vozes premium...');
+                try {
+                    const response = await fetch(`${API_BASE}/api/tts/voices?provider=voice_premium`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+                            voicesCache.voice_premium = data.data;
+                            voicesCache.genaipro = data.data; // Mesmo provedor
+                            console.log(`[TTS] ✅ ${data.data.length} vozes premium pré-carregadas com sucesso`);
+                        }
+                    } else {
+                        console.log('[TTS] Não foi possível pré-carregar vozes premium (pode não estar configurado)');
+                    }
+                } catch (error) {
+                    console.log('[TTS] Erro ao pré-carregar vozes premium (não crítico):', error.message);
+                }
+            }
+            
             // Carregar vozes quando a view é exibida
-            async function loadTtsVoices() {
+            async function loadTtsVoices(useCache = true) {
                 const voiceSelect = document.getElementById('tts-voice-select');
                 const providerSelect = document.getElementById('tts-provider-select');
                 
@@ -22197,6 +23101,34 @@ Equipe La Casa Dark Core</textarea>
                 const provider = providerSelect.value || 'laozhang';
                 const providerName = getProviderFriendlyName(provider);
                 
+                // Verificar cache primeiro para vozes premium
+                if (useCache && (provider === 'voice_premium' || provider === 'genaipro')) {
+                    const cachedVoices = voicesCache.voice_premium || voicesCache.genaipro;
+                    if (cachedVoices && cachedVoices.length > 0) {
+                        console.log(`[TTS] Usando ${cachedVoices.length} vozes premium do cache`);
+                        voiceSelect.innerHTML = '<option value="">Selecione uma voz...</option>';
+                        cachedVoices.forEach(voice => {
+                            const option = document.createElement('option');
+                            const voiceId = voice.id || voice.voice_id || voice.name || '';
+                            option.value = voiceId;
+                            option.textContent = voice.label || voice.name || voice.voice_name || voiceId || 'Voz';
+                            option.setAttribute('data-voice-id', voiceId);
+                            voiceSelect.appendChild(option);
+                        });
+                        // Atualizar cache em background (sem bloquear UI)
+                        loadTtsVoicesFromServer(provider, token, providerName, true);
+                        return;
+                    }
+                }
+                
+                // Carregar do servidor
+                await loadTtsVoicesFromServer(provider, token, providerName, false);
+            }
+            
+            // Função auxiliar para carregar vozes do servidor
+            async function loadTtsVoicesFromServer(provider, token, providerName, background = false) {
+                const voiceSelect = document.getElementById('tts-voice-select');
+                
                 try {
                     const response = await fetch(`${API_BASE}/api/tts/voices?provider=${provider}`, {
                         headers: {
@@ -22206,41 +23138,72 @@ Equipe La Casa Dark Core</textarea>
                     
                     if (response.ok) {
                         const data = await response.json();
-                        voiceSelect.innerHTML = '<option value="">Selecione uma voz...</option>';
                         
-                        console.log('[TTS] Vozes recebidas:', data);
+                        if (!background) {
+                            voiceSelect.innerHTML = '<option value="">Selecione uma voz...</option>';
+                        }
+                        
+                        console.log(`[TTS] Vozes recebidas do servidor (${provider}):`, data);
                         
                         if (data.data && Array.isArray(data.data)) {
                             if (data.data.length === 0) {
-                                voiceSelect.innerHTML = '<option value="">Nenhuma voz disponível</option>';
-                                showMessage('tts-error-message', `Nenhuma voz disponível. Verifique se a chave de API do ${providerName} está configurada corretamente.`, true);
+                                if (!background) {
+                                    voiceSelect.innerHTML = '<option value="">Nenhuma voz disponível</option>';
+                                    showMessage('tts-error-message', `Nenhuma voz disponível. Verifique se a chave de API do ${providerName} está configurada corretamente.`, true);
+                                }
                             } else {
-                                data.data.forEach(voice => {
-                                    const option = document.createElement('option');
-                                    // Usar o ID (voice_id) como value para a API, mas mostrar o label amigável
-                                    const voiceId = voice.id || voice.voice_id || voice.name || '';
-                                    option.value = voiceId;
-                                    option.textContent = voice.label || voice.name || voice.voice_name || voiceId || 'Voz';
-                                    option.setAttribute('data-voice-id', voiceId);
-                                    voiceSelect.appendChild(option);
-                                });
-                                console.log(`[TTS] ${data.data.length} vozes carregadas com sucesso`);
+                                // Salvar no cache se for premium
+                                if (provider === 'voice_premium' || provider === 'genaipro') {
+                                    voicesCache.voice_premium = data.data;
+                                    voicesCache.genaipro = data.data;
+                                } else {
+                                    voicesCache[provider] = data.data;
+                                }
+                                
+                                if (!background) {
+                                    data.data.forEach(voice => {
+                                        const option = document.createElement('option');
+                                        const voiceId = voice.id || voice.voice_id || voice.name || '';
+                                        option.value = voiceId;
+                                        option.textContent = voice.label || voice.name || voice.voice_name || voiceId || 'Voz';
+                                        option.setAttribute('data-voice-id', voiceId);
+                                        voiceSelect.appendChild(option);
+                                    });
+                                    console.log(`[TTS] ${data.data.length} vozes carregadas com sucesso`);
+                                } else {
+                                    // Atualizar select se ainda não foi preenchido
+                                    if (voiceSelect.options.length <= 1) {
+                                        data.data.forEach(voice => {
+                                            const option = document.createElement('option');
+                                            const voiceId = voice.id || voice.voice_id || voice.name || '';
+                                            option.value = voiceId;
+                                            option.textContent = voice.label || voice.name || voice.voice_name || voiceId || 'Voz';
+                                            option.setAttribute('data-voice-id', voiceId);
+                                            voiceSelect.appendChild(option);
+                                        });
+                                    }
+                                }
                             }
                         } else {
-                            console.warn('[TTS] Formato de resposta inesperado:', data);
-                            voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
+                            if (!background) {
+                                console.warn('[TTS] Formato de resposta inesperado:', data);
+                                voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
+                            }
                         }
                     } else {
-                        // Se a resposta não foi OK, tentar ler a mensagem de erro
-                        const errorData = await response.json().catch(() => ({ message: 'Erro ao carregar vozes' }));
-                        console.error('[TTS] Erro ao carregar vozes:', errorData);
-                        voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
-                        showMessage('tts-error-message', errorData.message || `Erro ao carregar vozes. Verifique se a chave de API do ${providerName} está configurada no painel admin.`, true);
+                        if (!background) {
+                            const errorData = await response.json().catch(() => ({ message: 'Erro ao carregar vozes' }));
+                            console.error('[TTS] Erro ao carregar vozes:', errorData);
+                            voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
+                            showMessage('tts-error-message', errorData.message || `Erro ao carregar vozes. Verifique se a chave de API do ${providerName} está configurada no painel admin.`, true);
+                        }
                     }
                 } catch (error) {
-                    console.error('Erro ao carregar vozes:', error);
-                    voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
-                    showMessage('tts-error-message', `Erro ao carregar vozes (${providerName}): ${error.message || 'Erro desconhecido'}`, true);
+                    if (!background) {
+                        console.error('Erro ao carregar vozes:', error);
+                        voiceSelect.innerHTML = '<option value="">Erro ao carregar vozes</option>';
+                        showMessage('tts-error-message', `Erro ao carregar vozes (${providerName}): ${error.message || 'Erro desconhecido'}`, true);
+                    }
                 }
             }
             
@@ -22282,11 +23245,17 @@ Equipe La Casa Dark Core</textarea>
                 if (typeof lucide !== 'undefined') lucide.createIcons();
                 
                 try {
+                    // Obter token de forma segura
+                    const userToken = safeLocalStorageGet('core_token');
+                    if (!userToken || userToken === 'undefined') {
+                        throw new Error('Token de autenticação não encontrado. Por favor, faça login novamente.');
+                    }
+                    
                     const response = await fetch(`${API_BASE}/api/tts/preview`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
+                            'Authorization': `Bearer ${userToken}`
                         },
                         body: JSON.stringify({
                             voice: voice,
