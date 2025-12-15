@@ -13158,6 +13158,625 @@ function getStyleSpecificPrompt(style, includePhrases) {
     return styleSuffixes[mappedStyle] || styleSuffixes['photorealistic'];
 }
 
+// Função helper para gerar âncora visual global baseada no estilo escolhido
+function getGlobalVisualAnchor(style) {
+    const defaultStyle = style || 'photorealistic';
+    
+    // Estilos que usam a âncora de diorama (estilo atual fixo)
+    const dioramaStyles = ['cinematic-diorama'];
+    
+    // Se for diorama, usar a âncora fixa atual
+    if (dioramaStyles.includes(defaultStyle)) {
+        return `
+🧩 GLOBAL VISUAL IDENTITY — LOCKED:
+
+The entire story exists inside a cinematic narrative diorama.
+All environments are handcrafted miniature scale models,
+the world feels like a physical maquette filmed up close.
+
+All characters, including close-ups and portraits,
+must appear as stylized sculpted figures,
+never as real human faces.
+
+All faces must retain a sculpted, physical miniature appearance.
+No natural photographic skin softness.
+Faces should look like crafted figures, not real people,
+even in close-up shots.
+
+Consistent semi-stylized realism across all scenes,
+no photorealistic skin, no natural human softness.
+
+Matte materials, handcrafted textures,
+subtle imperfections, physical model feel.
+
+Cinematic depth of field,
+controlled perspective,
+subtle tilt-shift to reinforce miniature scale.
+
+Every frame must look like a frozen cinematic moment
+from the same miniature world.
+
+⚠️ This text NEVER changes. NEVER.
+⚠️ If a scene looks like it could be a real photograph, it's wrong.
+⚠️ It must look like a filmed miniature, not a filmed person.
+
+🚫 NEGATIVE PROMPT — ÚLTIMO REFORÇO:
+photorealistic humans,
+hyper-detailed skin,
+real-world full scale environments,
+life-size architecture,
+photographic realism,
+cinema movie still look,
+video game graphics,
+cartoon style,
+anime style,
+plastic or glossy materials,
+stop-motion puppets,
+toy-like exaggeration,
+full-scale real world,
+wide open real locations,
+global illumination,
+neutral camera angles,
+real human skin texture,
+natural photographic portrait,
+beauty photography lighting,
+hyper-smooth faces,
+ultra-real close-up photography,
+photographic portrait,
+beauty photography,
+natural skin translucency,
+cinema realism close-up
+
+⚠️ If any of these appear visually, the scene has failed.
+
+WHAT CAN VARY (WITHOUT BREAKING STYLE):
+✅ Lighting (warm / cold)
+✅ Time of day
+✅ Emotion
+✅ Action
+✅ Narrative framing
+
+WHAT NEVER VARIES:
+❌ Scale
+❌ Character type (always stylized sculpted figures)
+❌ Material (always matte, handcrafted)
+❌ Camera language (always story-driven)
+❌ Realism level (always semi-stylized, never photorealistic)
+
+SCENE VALIDATION CHECKLIST (ALL MUST BE YES):
+- Does it look like a physical miniature?
+- Could it fit on a table?
+- Do people look like sculpted figures, not actors?
+- Do close-ups look like stylized sculptures, not real faces?
+- Does light look controlled, not randomly natural?
+- Does it look like a frame from the same film as all others?
+
+If any answer is NO → regenerate the scene.
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "as if filmed inside a handcrafted scale model"
+- "the environment feels like a physical miniature set"
+- "miniature world with cinematic lighting"
+`;
+    }
+    
+    // Para outros estilos, usar a descrição do estilo específico
+    const stylePrompt = getStyleSpecificPrompt(defaultStyle, true);
+    
+    // Criar âncora visual baseada no estilo
+    const styleAnchors = {
+        'photorealistic': `
+📸 GLOBAL VISUAL IDENTITY — PHOTOREALISTIC:
+
+All scenes must maintain photorealistic quality with ultra-high-definition detail.
+Real-world photography aesthetic, professional camera quality.
+Natural human features, realistic skin textures, authentic environments.
+Professional photography lighting, real-world depth of field.
+Every frame must look like a professional photograph.
+
+⚠️ CRITICAL: Maintain photorealistic quality throughout all scenes.
+⚠️ Use real-world proportions, natural lighting, authentic textures.
+
+🚫 NEGATIVE PROMPT:
+cartoon style, anime style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized, artistic interpretation, miniature, diorama,
+toy-like, exaggerated features, non-realistic proportions
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "professional photography, ultra-high-definition"
+- "real-world photography, authentic detail"
+- "photorealistic quality, natural lighting"
+`,
+        'cinematic': `
+🎬 GLOBAL VISUAL IDENTITY — CINEMATIC:
+
+All scenes must maintain cinematic Hollywood-style quality.
+Dramatic lighting, film-like composition, emotional depth.
+Professional cinematography, movie still aesthetic.
+Epic composition, dramatic shadows, controlled color palette.
+Every frame must look like a frame from a Hollywood film.
+
+⚠️ CRITICAL: Maintain cinematic quality throughout all scenes.
+⚠️ Use dramatic lighting, film composition, emotional storytelling.
+
+🚫 NEGATIVE PROMPT:
+documentary style, natural lighting, flat composition, cartoon style,
+anime style, illustration, drawing, artwork, digital art, render, 3D, CGI,
+stylized, artistic interpretation, miniature, diorama, toy-like
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "cinematic composition, dramatic lighting"
+- "Hollywood-style cinematography, film-like quality"
+- "dramatic film aesthetic, emotional depth"
+`,
+        'documentary': `
+📹 GLOBAL VISUAL IDENTITY — DOCUMENTARY:
+
+All scenes must maintain documentary-style authenticity.
+Natural lighting, authentic moments, journalistic approach.
+Real-world photography, candid moments, authentic human experiences.
+Natural color grading, realistic environments, genuine emotions.
+Every frame must look like a documentary photograph.
+
+⚠️ CRITICAL: Maintain documentary authenticity throughout all scenes.
+⚠️ Use natural lighting, authentic moments, journalistic approach.
+
+🚫 NEGATIVE PROMPT:
+cinematic style, dramatic lighting, staged scenes, cartoon style,
+anime style, illustration, drawing, artwork, digital art, render, 3D, CGI,
+stylized, artistic interpretation, miniature, diorama, toy-like, exaggerated
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "documentary photography, authentic moment"
+- "journalistic approach, natural lighting"
+- "real-world authenticity, candid photography"
+`,
+        'anime': `
+🌸 GLOBAL VISUAL IDENTITY — ANIME:
+
+All scenes must maintain anime-style aesthetic.
+Japanese animation style, vibrant colors, expressive characters.
+Manga-inspired visuals, cel-shaded appearance, detailed backgrounds.
+Anime composition, expressive character design, vibrant palette.
+Every frame must look like an anime frame.
+
+⚠️ CRITICAL: Maintain anime style throughout all scenes.
+⚠️ Use vibrant colors, expressive characters, anime composition.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+cartoon style (Western), illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "anime style, Japanese animation"
+- "manga-inspired, vibrant colors"
+- "cel-shaded anime aesthetic, expressive characters"
+`,
+        'cartoon': `
+🎨 GLOBAL VISUAL IDENTITY — CARTOON:
+
+All scenes must maintain cartoon-style aesthetic.
+Colorful, expressive, playful, hand-drawn aesthetic.
+Vibrant palette, animated style, expressive characters.
+Playful composition, colorful backgrounds, animated quality.
+Every frame must look like a cartoon frame.
+
+⚠️ CRITICAL: Maintain cartoon style throughout all scenes.
+⚠️ Use vibrant colors, expressive design, playful aesthetic.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, illustration, drawing, artwork, digital art, render, 3D, CGI,
+stylized realism, miniature, diorama, realistic proportions
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "cartoon style, colorful and expressive"
+- "animated aesthetic, playful design"
+- "hand-drawn cartoon style, vibrant palette"
+`,
+        'cartoon-premium': `
+✨ GLOBAL VISUAL IDENTITY — PREMIUM CARTOON:
+
+All scenes must maintain premium cartoon-style aesthetic.
+High-quality animation, sophisticated color palette, professional lighting.
+Detailed character design, rich colors, professional animation studio quality.
+Premium animation composition, sophisticated design, professional quality.
+Every frame must look like a premium animation frame.
+
+⚠️ CRITICAL: Maintain premium cartoon style throughout all scenes.
+⚠️ Use sophisticated colors, professional animation quality, detailed design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, simple cartoon, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "premium cartoon style, high-quality animation"
+- "professional animation studio quality, sophisticated design"
+- "premium animation aesthetic, detailed character design"
+`,
+        'fantasy': `
+✨ GLOBAL VISUAL IDENTITY — FANTASY:
+
+All scenes must maintain fantasy-style aesthetic.
+Magical atmosphere, epic scale, mystical lighting, enchanted elements.
+Otherworldly visuals, detailed fantasy illustration, magical composition.
+Epic fantasy composition, mystical elements, enchanted atmosphere.
+Every frame must look like a fantasy illustration.
+
+⚠️ CRITICAL: Maintain fantasy style throughout all scenes.
+⚠️ Use magical elements, mystical lighting, epic scale.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, real-world
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "fantasy art, magical atmosphere"
+- "epic fantasy scale, mystical lighting"
+- "enchanted fantasy aesthetic, otherworldly visuals"
+`,
+        'stick-figure': `
+👤 GLOBAL VISUAL IDENTITY — STICK FIGURE:
+
+All scenes must maintain stick figure-style aesthetic.
+Minimalist line art, simple black lines on white background.
+Clean and minimal, simple composition, minimalist design.
+Basic line art composition, minimal elements, clean aesthetic.
+Every frame must look like a stick figure drawing.
+
+⚠️ CRITICAL: Maintain stick figure style throughout all scenes.
+⚠️ Use simple lines, minimal design, clean composition.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, detailed illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, complex design
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "stick figure style, minimalist line art"
+- "simple black lines, clean and minimal"
+- "minimalist stick figure aesthetic, simple design"
+`,
+        'whiteboard': `
+📝 GLOBAL VISUAL IDENTITY — WHITEBOARD:
+
+All scenes must maintain whiteboard animation-style aesthetic.
+Clean white background, hand-drawn illustrations, educational style.
+Clear and simple, minimalist aesthetic, educational composition.
+Whiteboard composition, hand-drawn elements, clean design.
+Every frame must look like a whiteboard illustration.
+
+⚠️ CRITICAL: Maintain whiteboard style throughout all scenes.
+⚠️ Use clean white background, hand-drawn elements, simple design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, complex backgrounds
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "whiteboard animation style, clean white background"
+- "hand-drawn illustrations, educational aesthetic"
+- "whiteboard style, clear and simple design"
+`,
+        'tech-minimalist': `
+💻 GLOBAL VISUAL IDENTITY — TECH MINIMALIST:
+
+All scenes must maintain tech minimalist-style aesthetic.
+Clean design, modern aesthetic, geometric shapes, minimal color palette.
+Futuristic, sleek, minimalist design, modern composition.
+Tech composition, geometric elements, minimal design.
+Every frame must look like a tech minimalist design.
+
+⚠️ CRITICAL: Maintain tech minimalist style throughout all scenes.
+⚠️ Use clean design, geometric shapes, minimal palette.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, complex design
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "tech minimalist, clean design"
+- "modern aesthetic, geometric shapes"
+- "futuristic minimalist aesthetic, sleek design"
+`,
+        'spiritual-minimalist': `
+🧘 GLOBAL VISUAL IDENTITY — SPIRITUAL MINIMALIST:
+
+All scenes must maintain spiritual minimalist-style aesthetic.
+Serene atmosphere, soft lighting, peaceful composition, meditative quality.
+Zen aesthetic, soft illumination, peaceful design, meditative composition.
+Spiritual composition, serene elements, peaceful aesthetic.
+Every frame must look like a spiritual minimalist design.
+
+⚠️ CRITICAL: Maintain spiritual minimalist style throughout all scenes.
+⚠️ Use serene atmosphere, soft lighting, peaceful design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, dramatic lighting
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "spiritual minimalist, serene atmosphere"
+- "meditative aesthetic, soft lighting"
+- "zen aesthetic, peaceful composition"
+`,
+        'viral-vibrant': `
+🔥 GLOBAL VISUAL IDENTITY — VIRAL VIBRANT:
+
+All scenes must maintain viral vibrant-style aesthetic.
+High contrast, saturated colors, bold composition, eye-catching design.
+Social media optimized, vibrant and energetic, bold visual impact.
+Viral composition, high contrast, saturated palette, energetic design.
+Every frame must look like a viral social media image.
+
+⚠️ CRITICAL: Maintain viral vibrant style throughout all scenes.
+⚠️ Use high contrast, saturated colors, bold composition.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, muted colors
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "viral vibrant style, high contrast"
+- "saturated colors, bold composition"
+- "social media optimized, vibrant and energetic"
+`,
+        'modern-documentary': `
+📺 GLOBAL VISUAL IDENTITY — MODERN DOCUMENTARY:
+
+All scenes must maintain modern documentary-style aesthetic.
+Dynamic contemporary lighting, authentic moments, modern color grading.
+Modern cinematography, contemporary approach, authentic visual style.
+Modern documentary composition, contemporary elements, authentic design.
+Every frame must look like a modern documentary frame.
+
+⚠️ CRITICAL: Maintain modern documentary style throughout all scenes.
+⚠️ Use contemporary lighting, authentic moments, modern approach.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, classic documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, vintage aesthetic
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "modern documentary style, dynamic contemporary"
+- "authentic moments, modern color grading"
+- "contemporary cinematography, modern aesthetic"
+`,
+        'analog-horror': `
+👻 GLOBAL VISUAL IDENTITY — ANALOG HORROR:
+
+All scenes must maintain analog horror-style aesthetic.
+VHS quality grain, retro horror aesthetic, low-fi texture, analog degradation.
+Vintage feel, retro horror composition, analog quality, vintage aesthetic.
+Analog horror composition, VHS quality, retro elements, vintage design.
+Every frame must look like an analog horror frame.
+
+⚠️ CRITICAL: Maintain analog horror style throughout all scenes.
+⚠️ Use VHS quality, retro aesthetic, analog degradation.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, high quality
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "analog horror style, VHS quality"
+- "retro horror aesthetic, low-fi texture"
+- "analog degradation, vintage feel"
+`,
+        'dark-theater': `
+🎪 GLOBAL VISUAL IDENTITY — DARK THEATER:
+
+All scenes must maintain dark theater-style aesthetic.
+Dramatic stage lighting, intense shadows, theatrical illumination.
+Theatrical composition, dramatic lighting, stage aesthetic, intense design.
+Dark theater composition, dramatic shadows, theatrical elements.
+Every frame must look like a dark theater stage.
+
+⚠️ CRITICAL: Maintain dark theater style throughout all scenes.
+⚠️ Use dramatic stage lighting, intense shadows, theatrical design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, natural lighting
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "dark theater style, dramatic stage lighting"
+- "intense shadows, theatrical illumination"
+- "theatrical composition, dramatic lighting"
+`,
+        'naturalist-drama': `
+🎭 GLOBAL VISUAL IDENTITY — NATURALIST DRAMA:
+
+All scenes must maintain naturalist drama-style aesthetic.
+Realistic emotional lighting, authentic human moments, natural color palette.
+Realistic composition, emotional depth, authentic design, natural aesthetic.
+Naturalist drama composition, realistic elements, emotional design.
+Every frame must look like a naturalist drama frame.
+
+⚠️ CRITICAL: Maintain naturalist drama style throughout all scenes.
+⚠️ Use realistic lighting, authentic moments, natural palette.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, dramatic lighting
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "naturalist drama style, realistic emotional"
+- "authentic human moments, natural color palette"
+- "realistic composition, emotional depth"
+`,
+        'spiritual-neorealism': `
+🌟 GLOBAL VISUAL IDENTITY — SPIRITUAL NEOREALISM:
+
+All scenes must maintain spiritual neorealism-style aesthetic.
+Transcendent realistic lighting, mystical atmosphere, spiritual color grading.
+Transcendent composition, mystical elements, spiritual design, transcendent aesthetic.
+Spiritual neorealism composition, transcendent elements, mystical design.
+Every frame must look like a spiritual neorealism frame.
+
+⚠️ CRITICAL: Maintain spiritual neorealism style throughout all scenes.
+⚠️ Use transcendent lighting, mystical atmosphere, spiritual design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, mundane aesthetic
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "spiritual neorealism style, transcendent realistic"
+- "mystical atmosphere, spiritual color grading"
+- "transcendent composition, mystical elements"
+`,
+        'psychological-surrealism': `
+🌀 GLOBAL VISUAL IDENTITY — PSYCHOLOGICAL SURREALISM:
+
+All scenes must maintain psychological surrealism-style aesthetic.
+Dreamlike lighting, abstract reality, surreal color palette.
+Surreal composition, dreamlike elements, abstract design, surreal aesthetic.
+Psychological surrealism composition, dreamlike elements, abstract design.
+Every frame must look like a psychological surrealism frame.
+
+⚠️ CRITICAL: Maintain psychological surrealism style throughout all scenes.
+⚠️ Use dreamlike lighting, abstract reality, surreal design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, realistic reality
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "psychological surrealism style, dreamlike lighting"
+- "abstract reality, surreal color palette"
+- "surreal composition, dreamlike elements"
+`,
+        'fragmented-memory': `
+🧩 GLOBAL VISUAL IDENTITY — FRAGMENTED MEMORY:
+
+All scenes must maintain fragmented memory-style aesthetic.
+Collage aesthetic, fragmented composition, layered lighting.
+Fragmented composition, collage elements, layered design, fragmented aesthetic.
+Fragmented memory composition, collage elements, layered design.
+Every frame must look like a fragmented memory frame.
+
+⚠️ CRITICAL: Maintain fragmented memory style throughout all scenes.
+⚠️ Use collage aesthetic, fragmented composition, layered design.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, unified composition
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "fragmented memory style, collage aesthetic"
+- "fragmented composition, layered lighting"
+- "collage elements, fragmented design"
+`,
+        'fragmented-narrative': `
+📖 GLOBAL VISUAL IDENTITY — FRAGMENTED NARRATIVE:
+
+All scenes must maintain fragmented narrative-style aesthetic.
+Fragmented narrative style, collage composition, layered visual narrative.
+Fragmented composition, collage elements, layered narrative, fragmented aesthetic.
+Fragmented narrative composition, collage elements, layered design.
+Every frame must look like a fragmented narrative frame.
+
+⚠️ CRITICAL: Maintain fragmented narrative style throughout all scenes.
+⚠️ Use fragmented composition, collage elements, layered narrative.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, unified narrative
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "fragmented narrative style, collage composition"
+- "layered visual narrative, fragmented design"
+- "collage elements, fragmented narrative"
+`,
+        'dream-real': `
+💭 GLOBAL VISUAL IDENTITY — DREAM-REAL:
+
+All scenes must maintain dream-real-style aesthetic.
+Liminal space lighting, ethereal atmosphere, dream-reality blend.
+Liminal composition, ethereal elements, dream-reality design, liminal aesthetic.
+Dream-real composition, ethereal elements, liminal design.
+Every frame must look like a dream-real frame.
+
+⚠️ CRITICAL: Maintain dream-real style throughout all scenes.
+⚠️ Use liminal lighting, ethereal atmosphere, dream-reality blend.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, realistic reality
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "dream-real style, liminal space lighting"
+- "ethereal atmosphere, dream-reality blend"
+- "liminal composition, ethereal elements"
+`,
+        'vhs-nostalgic': `
+📼 GLOBAL VISUAL IDENTITY — VHS NOSTALGIC:
+
+All scenes must maintain VHS nostalgic-style aesthetic.
+Retro 80s/90s quality, vintage grain, analog texture, nostalgic aesthetic.
+Vintage composition, retro elements, nostalgic design, vintage aesthetic.
+VHS nostalgic composition, retro elements, vintage design.
+Every frame must look like a VHS nostalgic frame.
+
+⚠️ CRITICAL: Maintain VHS nostalgic style throughout all scenes.
+⚠️ Use retro quality, vintage grain, analog texture.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, high quality
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "VHS nostalgic style, retro 80s/90s"
+- "vintage grain, analog texture"
+- "retro aesthetic, nostalgic design"
+`,
+        'cinematic-narrative': `
+🎭 GLOBAL VISUAL IDENTITY — CINEMATIC NARRATIVE:
+
+All scenes must maintain cinematic narrative-style aesthetic.
+Story-driven lighting, emotional depth, narrative composition, dramatic shadows.
+Storytelling composition, emotional elements, narrative design, storytelling aesthetic.
+Cinematic narrative composition, story-driven elements, emotional design.
+Every frame must look like a cinematic narrative frame.
+
+⚠️ CRITICAL: Maintain cinematic narrative style throughout all scenes.
+⚠️ Use story-driven lighting, emotional depth, narrative composition.
+
+🚫 NEGATIVE PROMPT:
+photorealistic, realistic photography, documentary style, cinematic style,
+anime style, cartoon style, illustration, drawing, artwork, digital art,
+render, 3D, CGI, stylized realism, miniature, diorama, flat composition
+
+REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
+- "cinematic narrative style, story-driven lighting"
+- "emotional depth, narrative composition"
+- "storytelling composition, emotional elements"
+`
+    };
+    
+    // Retornar a âncora específica do estilo ou a padrão (photorealistic)
+    return styleAnchors[defaultStyle] || styleAnchors['photorealistic'];
+}
+
 // Função helper para gerar descrição SEO otimizada com emojis
 function generateOptimizedSEODescription(title, subniche, language) {
     const emojiMap = {
@@ -15382,8 +16001,9 @@ REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
             'vhs-nostalgic': 'VHS nostalgic aesthetic, retro 80s/90s quality, vintage grain, analog texture.'
         };
         
+        // Modificador adicional opcional para refinar ainda mais o estilo
         const styleModifier = style && style !== 'none' && styleModifiers[style] 
-            ? `\n\n🎭 MODIFICADOR DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ IMPORTANTE: Este modificador apenas ajusta iluminação, contraste e paleta. A base visual (personagens, escala, câmera) permanece inalterada conforme a Âncora Global.` 
+            ? `\n\n🎨 REFINAMENTO DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ Este refinamento complementa a Âncora Visual Global acima, ajustando detalhes de iluminação, contraste e paleta de cores.` 
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
@@ -15438,8 +16058,8 @@ ${script}
 """
 
 INSTRUÇÕES:
-1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual que NUNCA muda.
-2. 🎭 Se um estilo foi selecionado, aplique apenas os modificadores de iluminação/contraste/paleta. A base visual (personagens, escala, câmera) permanece conforme a Âncora Global.
+1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual definida pelo estilo escolhido (${selectedStyle}).
+2. 🎨 O estilo "${selectedStyle}" foi selecionado pelo usuário. TODOS os prompts devem seguir este estilo visual consistentemente.
 3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
 4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
 5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
@@ -15798,8 +16418,11 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
         }
 
         // ============================================
-        // CAMADA 1: ÂNCORA VISUAL GLOBAL (VERSÃO DEFINITIVA FINAL)
+        // CAMADA 1: ÂNCORA VISUAL GLOBAL (DINÂMICA BASEADA NO ESTILO)
         // ============================================
+        // A âncora visual agora é gerada dinamicamente baseada no estilo escolhido pelo usuário
+        const selectedStyle = style || 'photorealistic';
+        const GLOBAL_VISUAL_ANCHOR = getGlobalVisualAnchor(selectedStyle);
         // REGRA DE OURO: Se uma cena parecer que poderia ser uma foto real, ela está errada.
         // Ela precisa parecer uma miniatura filmada, não uma pessoa filmada.
         // Este texto nunca muda. Nunca.
@@ -15927,8 +16550,9 @@ REINFORCEMENT PHRASES (INCLUDE ONE PER SCENE, ALTERNATING):
             'vhs-nostalgic': 'VHS nostalgic aesthetic, retro 80s/90s quality, vintage grain, analog texture.'
         };
         
+        // Modificador adicional opcional para refinar ainda mais o estilo
         const styleModifier = style && style !== 'none' && styleModifiers[style] 
-            ? `\n\n🎭 MODIFICADOR DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ IMPORTANTE: Este modificador apenas ajusta iluminação, contraste e paleta. A base visual (personagens, escala, câmera) permanece inalterada conforme a Âncora Global.` 
+            ? `\n\n🎨 REFINAMENTO DE ESTILO (${style}):\n${styleModifiers[style]}\n\n⚠️ Este refinamento complementa a Âncora Visual Global acima, ajustando detalhes de iluminação, contraste e paleta de cores.` 
             : '';
         const imageModelInstruction = imageModel ? ` Os prompts devem ser otimizados para ${imageModel}.` : '';
         const charactersInstruction = characters ? `\n\nPERSONAGENS CONSISTENTES:\n${characters}\n\nIMPORTANTE: Use essas descrições de personagens de forma consistente em todas as cenas onde eles aparecerem.` : '';
@@ -15983,19 +16607,15 @@ ${script}
 """
 
 INSTRUÇÕES:
-1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual que NUNCA muda.
-2. 🎭 Se um estilo foi selecionado, aplique apenas os modificadores de iluminação/contraste/paleta. A base visual (personagens, escala, câmera) permanece conforme a Âncora Global.
+1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual definida pelo estilo escolhido (${selectedStyle}).
+2. 🎨 O estilo "${selectedStyle}" foi selecionado pelo usuário. TODOS os prompts devem seguir este estilo visual consistentemente.
 3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
 4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
 5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
 6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
 7. Use termos técnicos de fotografia/cinematografia quando apropriado${imageModelInstruction}${charactersInstruction}
-8. ⚠️ CRÍTICO: Cada prompt_text DEVE incluir os elementos da Âncora Visual Global. Não gere cenas com estética diferente (stop-motion, realismo fotográfico, cartoon, game, etc.). Todas as cenas devem pertencer ao mesmo mundo visual.
-9. 🔧 REFORÇO DE ESCALA: Cada prompt_text DEVE incluir UMA das frases de reforço (alternando entre cenas):
-   - "as if filmed inside a handcrafted scale model"
-   - "the environment feels like a physical miniature set"
-   - "miniature world with cinematic lighting"
-   Alternar entre essas três frases para evitar repetição óbvia, mas sempre incluir uma delas para reforçar a escala de miniatura.
+8. ⚠️ CRÍTICO: Cada prompt_text DEVE seguir o estilo "${selectedStyle}" consistentemente. Todas as cenas devem pertencer ao mesmo mundo visual definido pela Âncora Visual Global.
+9. 🔧 REFORÇO DE ESTILO: Cada prompt_text DEVE incluir elementos específicos do estilo "${selectedStyle}" conforme definido na Âncora Visual Global acima. Use as frases de reforço apropriadas para o estilo escolhido.
 
 FORMATO DE RESPOSTA (JSON):
 {

@@ -10827,6 +10827,9 @@ Equipe La Casa Dark Core</textarea>
                     const adminView = document.getElementById('view-admin');
                     if (adminView) adminView.style.display = 'none';
                     
+                    // Pré-carregar vozes premium em background
+                    preloadPremiumVoices();
+                    
                     // Carregar vozes quando acessar o gerador
                     setTimeout(() => {
                         loadTtsVoices();
@@ -23081,6 +23084,13 @@ Equipe La Casa Dark Core</textarea>
                 } catch (error) {
                     console.log('[TTS] Erro ao pré-carregar vozes premium (não crítico):', error.message);
                 }
+            }
+            
+            // Pré-carregar vozes premium quando a página carrega (após 2 segundos para não sobrecarregar)
+            if (userToken) {
+                setTimeout(() => {
+                    preloadPremiumVoices();
+                }, 2000);
             }
             
             // Carregar vozes quando a view é exibida
