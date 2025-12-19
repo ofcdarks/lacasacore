@@ -1287,6 +1287,131 @@
                         <!-- O Sumário do Vídeo + Análise + Títulos serão inseridos aqui -->
                     </div>
                     
+                    <!-- Gerenciador de Thumbnails de Referência -->
+                    <div id="thumbnail-references-manager" class="mt-8" style="display: none;">
+                        <hr class="border-gray-700 mb-6">
+                        <h3 class="text-xl font-semibold text-white mb-4">📚 Biblioteca de Thumbnails de Referência</h3>
+                        <p class="text-sm text-gray-400 mb-6">Faça upload de thumbnails do seu canal para que a IA sempre replique o estilo visual nas novas gerações.</p>
+                        
+                        <!-- Formulário de Upload -->
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                            <h4 class="text-lg font-semibold text-white mb-4">Adicionar Thumbnail de Referência</h4>
+                            <p class="text-xs text-amber-400 mb-4">💡 Os campos serão preenchidos automaticamente com os dados da análise atual</p>
+                            <form id="thumbnail-reference-upload-form" class="space-y-4">
+                                <div>
+                                    <label for="ref-thumbnail-file" class="block text-sm font-medium mb-2">Imagem da Thumbnail</label>
+                                    <input type="file" id="ref-thumbnail-file" accept="image/*" required class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <p class="text-xs text-gray-400 mt-1">Formatos suportados: JPG, PNG, WebP (máx. 5MB)</p>
+                                </div>
+                                
+                                <div>
+                                    <label for="ref-folder-select" class="block text-sm font-medium mb-2">Pasta (Opcional)</label>
+                                    <select id="ref-folder-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                        <option value="">Nenhuma pasta</option>
+                                        <!-- Pastas serão carregadas aqui -->
+                                    </select>
+                                    <p class="text-xs text-gray-400 mt-1">Associe esta thumbnail a uma pasta específica</p>
+                                </div>
+                                
+                                <div>
+                                    <label for="ref-channel-name" class="block text-sm font-medium mb-2">Nome do Canal (Opcional)</label>
+                                    <input type="text" id="ref-channel-name" placeholder="Ex: Meu Canal" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                </div>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label for="ref-niche" class="block text-sm font-medium mb-2">Nicho</label>
+                                        <input type="text" id="ref-niche" placeholder="Ex: História" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    </div>
+                                    <div>
+                                        <label for="ref-subniche" class="block text-sm font-medium mb-2">Subnicho</label>
+                                        <input type="text" id="ref-subniche" placeholder="Ex: História Antiga" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-400">A thumbnail será usada para gerar novas thumbnails deste nicho/subnicho específico</p>
+                                
+                                <div>
+                                    <label for="ref-description" class="block text-sm font-medium mb-2">Descrição (Opcional)</label>
+                                    <textarea id="ref-description" rows="2" placeholder="Descreva o estilo ou características desta thumbnail..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                                </div>
+                                
+                                <button type="submit" id="btn-upload-reference" class="w-full py-3 px-4 rounded-lg font-bold bg-amber-600 hover:bg-amber-500 text-black flex items-center justify-center space-x-2">
+                                    <span>Upload Thumbnail</span>
+                                    <div class="btn-spinner hidden"></div>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Lista de Thumbnails de Referência -->
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="text-lg font-semibold text-white">Thumbnails Salvas</h4>
+                                <div class="flex items-center gap-3">
+                                    <div class="flex flex-col">
+                                        <label for="analyze-model-select" class="text-xs text-gray-400 mb-1">Modelo de IA para Análise:</label>
+                                        <select id="analyze-model-select" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                            <option value="auto">Escolher Automaticamente</option>
+                                            <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                            <option value="gpt-4o">GPT-4o (2025)</option>
+                                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
+                                        </select>
+                                    </div>
+                            <button id="btn-analyze-style" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold">
+                                🔄 Analisar Estilo e Criar Prompt Padrão
+                            </button>
+                        </div>
+                    </div>
+                            <div id="thumbnail-references-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                                <!-- Thumbnails serão listadas aqui via JS -->
+                                <p class="text-gray-400 text-sm col-span-full">Carregando thumbnails...</p>
+                            </div>
+                            <div id="style-prompt-info" class="mt-4 p-4 bg-amber-900/30 border border-amber-700 rounded-lg hidden">
+                                <p class="text-amber-200 text-sm font-semibold mb-2">✅ Prompts Padrão Ativos (3 variações)</p>
+                                <p class="text-amber-300 text-xs mb-3">O estilo visual das thumbnails de referência foi analisado e 3 prompts padrão foram criados. Selecione qual usar nas gerações.</p>
+                                
+                                <!-- Seleção de Prompt -->
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium text-amber-200 mb-2">Selecione o Prompt Padrão a Usar:</label>
+                                    <div class="flex gap-2 mb-3">
+                                        <button id="select-prompt-1" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-xs prompt-select-btn" data-prompt-num="1">
+                                            Prompt 1
+                                        </button>
+                                        <button id="select-prompt-2" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs prompt-select-btn" data-prompt-num="2">
+                                            Prompt 2
+                                        </button>
+                                        <button id="select-prompt-3" class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs prompt-select-btn" data-prompt-num="3">
+                                            Prompt 3
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tabs para exibir os 3 prompts -->
+                                <div class="mb-3">
+                                    <div class="flex border-b border-amber-700/50 mb-2">
+                                        <button class="prompt-tab px-3 py-1 text-xs font-medium text-amber-300 border-b-2 border-amber-500 active" data-tab="prompt-1">Prompt 1</button>
+                                        <button class="prompt-tab px-3 py-1 text-xs font-medium text-gray-400 border-b-2 border-transparent" data-tab="prompt-2">Prompt 2</button>
+                                        <button class="prompt-tab px-3 py-1 text-xs font-medium text-gray-400 border-b-2 border-transparent" data-tab="prompt-3">Prompt 3</button>
+                                    </div>
+                                    
+                                    <div id="prompt-1-content" class="prompt-content">
+                                        <textarea id="standard-prompt-display-1" readonly rows="6" class="w-full px-3 py-2 bg-gray-900/50 border border-amber-700/50 rounded text-xs text-gray-200 resize-none" placeholder="Prompt 1 aparecerá aqui..."></textarea>
+                                    </div>
+                                    <div id="prompt-2-content" class="prompt-content hidden">
+                                        <textarea id="standard-prompt-display-2" readonly rows="6" class="w-full px-3 py-2 bg-gray-900/50 border border-amber-700/50 rounded text-xs text-gray-200 resize-none" placeholder="Prompt 2 aparecerá aqui..."></textarea>
+                                    </div>
+                                    <div id="prompt-3-content" class="prompt-content hidden">
+                                        <textarea id="standard-prompt-display-3" readonly rows="6" class="w-full px-3 py-2 bg-gray-900/50 border border-amber-700/50 rounded text-xs text-gray-200 resize-none" placeholder="Prompt 3 aparecerá aqui..."></textarea>
+                                    </div>
+                                </div>
+                                
+                                <button id="btn-reanalyze-style" class="px-3 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-xs">
+                                    Re-analisar Estilo
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
                     <!-- Gerador de Thumbnail (Layout UX Revisado) -->
                     <div id="thumbnail-generator" class="mt-8" style="display: none;">
                         <hr class="border-gray-700 mb-6">
@@ -1326,6 +1451,18 @@
                                 <option value="rule12">1️⃣2️⃣ Regra da Coerência com o Título</option>
                             </select>
                             <p class="text-xs text-gray-400 mt-1">A IA analisará o título e escolherá a melhor regra automaticamente. Você pode forçar uma regra específica se desejar.</p>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="theme-detection-select" class="block text-sm font-medium mb-2">Detecção de Tema (Ambientação)</label>
+                            <select id="theme-detection-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
+                                <option value="auto" selected>Automática pelo Título (Recomendado)</option>
+                            </select>
+                            <p class="text-xs text-gray-400 mt-1">Selecione um tema manual para forçar a ambientação ou deixe em "Automática" para detectar pelo título.</p>
+                            <div class="mt-2 flex gap-2">
+                                <button id="btn-seed-themes" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs">Popular Biblioteca com 20 Temas</button>
+                                <span id="seed-status" class="text-xs text-gray-400"></span>
+                            </div>
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1386,6 +1523,14 @@
                         </div>
                         
                         <div class="mb-4">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="use-standard-prompt" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500 focus:ring-2">
+                                <span class="text-sm font-medium text-white">Usar Prompt Padrão do Estilo do Canal/Nicho</span>
+                            </label>
+                            <p class="text-xs text-gray-400 mt-1 ml-6">Marque esta opção para usar o prompt padrão analisado das thumbnails de referência. O prompt padrão será aplicado automaticamente nas gerações.</p>
+                        </div>
+                        
+                        <div class="mb-4">
                             <label for="thumb-custom-prompt" class="block text-sm font-medium mb-2">6. Prompt Personalizado (Opcional)</label>
                             <textarea id="thumb-custom-prompt" rows="4" placeholder="Digite aqui instruções específicas para a geração da thumbnail. Deixe vazio para usar o prompt padrão." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"></textarea>
                             <p class="text-xs text-gray-400 mt-1">Use este campo para personalizar como a IA deve gerar as thumbnails. Ex: "Foco em cores vibrantes", "Estilo minimalista", etc.</p>
@@ -1398,7 +1543,7 @@
                             </label>
                         </div>
                         
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <button type="button" id="btn-generate-thumbs" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
                                 <span>Gerar 2 Ideias</span>
                                 <div class="btn-spinner hidden"></div>
@@ -1408,7 +1553,12 @@
                                 <span>Gerar Mais 2 Ideias</span>
                                 <div class="btn-spinner hidden"></div>
                             </button>
+                            <button type="button" id="btn-generate-by-title-integrated" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
+                                <span>Gerar por Título</span>
+                                <div class="btn-spinner hidden"></div>
+                            </button>
                         </div>
+                        <div id="gen-by-title-results" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6" style="display: none;"></div>
                     </div>
 
 
@@ -3436,25 +3586,45 @@
 
                         <div>
                             <label for="key-claude" class="block text-sm font-medium mb-2">Claude AI API Key (Preferencial)</label>
-                            <input type="password" id="key-claude" placeholder="Cole a sua chave (sk-ant-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <div class="relative">
+                                <input type="password" id="key-claude" placeholder="Cole a sua chave (sk-ant-...)" class="w-full px-4 py-3 pr-12 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                                <button type="button" id="toggle-key-claude" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors" disabled>
+                                    <i data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                             <p id="key-claude-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
                             <label for="key-gemini" class="block text-sm font-medium mb-2">Gemini API Key</label>
-                            <input type="password" id="key-gemini" placeholder="Cole a sua chave (AI...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <div class="relative">
+                                <input type="password" id="key-gemini" placeholder="Cole a sua chave (AI...)" class="w-full px-4 py-3 pr-12 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                                <button type="button" id="toggle-key-gemini" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors" disabled>
+                                    <i data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                             <p id="key-gemini-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
                             <label for="key-openai" class="block text-sm font-medium mb-2">OpenAI (GPT) API Key</label>
-                            <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                            <div class="relative">
+                                <input type="password" id="key-openai" placeholder="Cole a sua chave (sk-...)" class="w-full px-4 py-3 pr-12 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" disabled>
+                                <button type="button" id="toggle-key-openai" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors" disabled>
+                                    <i data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                             <p id="key-openai-locked" class="hidden text-xs text-amber-400 mt-1">🔒 Disponível apenas para planos MASTER ou ANUAIS</p>
                         </div>
 
                         <div>
                             <label for="key-youtube" class="block text-sm font-medium mb-2">YouTube Data API v3 Key</label>
-                            <input type="password" id="key-youtube" placeholder="Cole a sua chave do YouTube Data API v3 (AIza...)" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                            <div class="relative">
+                                <input type="password" id="key-youtube" placeholder="Cole a sua chave do YouTube Data API v3 (AIza...)" class="w-full px-4 py-3 pr-12 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                <button type="button" id="toggle-key-youtube" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors">
+                                    <i data-lucide="eye" class="w-5 h-5"></i>
+                                </button>
+                            </div>
                             <p class="text-xs text-gray-400 mt-1">Necessária para buscar dados de vídeos do YouTube. Obtenha em: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-amber-500 hover:text-amber-400 underline">Google Cloud Console</a></p>
                         </div>
 
@@ -5371,7 +5541,7 @@ Equipe La Casa Dark Core</textarea>
 
     <!-- Modal Personalizado para Mensagens -->
     <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-[100]" style="display: none;">
-        <div id="custom-modal-box" class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all animate-fade-in">
+        <div id="custom-modal-box" class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all animate-fade-in overflow-y-auto">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center space-x-3">
                     <div id="custom-modal-icon-container" class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
@@ -5384,7 +5554,7 @@ Equipe La Casa Dark Core</textarea>
                 </button>
             </div>
             <div class="mb-6">
-                <p id="custom-modal-message" class="text-gray-300 leading-relaxed"></p>
+                <div id="custom-modal-message" class="text-gray-300 leading-relaxed"></div>
             </div>
             <div class="flex justify-end">
                 <button id="custom-modal-ok" class="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors shadow-lg">
@@ -5604,15 +5774,145 @@ Equipe La Casa Dark Core</textarea>
             };
 
             // --- FUNÇÕES GLOBAIS DE MENSAGEM (Genéricas) ---
-            // Função para mostrar modal personalizado
+            // Função para mostrar modal personalizado com HTML
+            function showCustomModalHTML(title, htmlContent, type = 'info') {
+                const modal = document.getElementById('custom-modal');
+                const modalTitle = modal?.querySelector('#custom-modal-title') || document.getElementById('custom-modal-title');
+                const modalMessage = modal?.querySelector('#custom-modal-message') || document.getElementById('custom-modal-message');
+                const modalClose = modal?.querySelector('#custom-modal-close') || document.getElementById('custom-modal-close');
+                const modalOk = modal?.querySelector('#custom-modal-ok') || document.getElementById('custom-modal-ok');
+                const modalBox = modal?.querySelector('#custom-modal-box') || document.getElementById('custom-modal-box');
+                const modalIconContainer = modal?.querySelector('#custom-modal-icon-container') || document.getElementById('custom-modal-icon-container');
+
+                if (!modal || !modalTitle || !modalMessage) {
+                    console.error('[Modal HTML] Elementos não encontrados', { 
+                        modal: !!modal, 
+                        modalTitle: !!modalTitle, 
+                        modalMessage: !!modalMessage 
+                    });
+                    alert(title + '\n\n' + htmlContent.replace(/<[^>]*>/g, '')); // Fallback sem HTML
+                    return;
+                }
+
+                console.log('[Modal HTML] Configurando modal:', { title, htmlLength: htmlContent.length, type });
+
+                // Configurar título
+                if (modalTitle) modalTitle.textContent = title;
+                
+                // Limpar e inserir HTML
+                if (modalMessage) {
+                    // Remover todos os filhos
+                    while (modalMessage.firstChild) {
+                        modalMessage.removeChild(modalMessage.firstChild);
+                    }
+                    // Inserir novo HTML
+                    modalMessage.innerHTML = htmlContent;
+                    
+                    // Verificar se foi inserido
+                    console.log('[Modal HTML] HTML inserido:', {
+                        innerHTMLLength: modalMessage.innerHTML.length,
+                        childrenCount: modalMessage.children.length,
+                        firstChild: modalMessage.firstElementChild ? modalMessage.firstElementChild.tagName : 'none'
+                    });
+                } else {
+                    console.error('[Modal HTML] modalMessage não encontrado!');
+                    return;
+                }
+                
+                // Expandir modal se necessário para conteúdo maior
+                if (modalBox) {
+                    modalBox.style.maxWidth = '600px';
+                    modalBox.style.maxHeight = '90vh';
+                }
+                
+                // Configurar cores baseado no tipo
+                if (type === 'error') {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'alert-circle');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-red-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all overflow-y-auto';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-colors';
+                    }
+                } else if (type === 'success') {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'check-circle');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-green-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all overflow-y-auto';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors';
+                    }
+                } else {
+                    if (modalIconContainer) {
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center';
+                        const icon = modalIconContainer.querySelector('i[data-lucide]');
+                        if (icon) icon.setAttribute('data-lucide', 'info');
+                    }
+                    if (modalBox) {
+                        modalBox.className = 'bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all overflow-y-auto';
+                    }
+                    if (modalOk) {
+                        modalOk.className = 'px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors';
+                    }
+                }
+
+                // Mostrar modal APÓS configurar tudo
+                if (modal) {
+                    // Forçar reflow para garantir que o conteúdo seja renderizado
+                    modal.offsetHeight;
+                    modal.style.display = 'flex';
+                    
+                    // Atualizar ícones após um delay para garantir que o HTML foi inserido e renderizado
+                    setTimeout(() => {
+                        if (typeof lucide !== 'undefined') {
+                            lucide.createIcons();
+                            console.log('[Modal HTML] Ícones do Lucide atualizados');
+                        }
+                        // Verificar se o conteúdo está visível
+                        const visible = modalMessage.offsetHeight > 0 || modalMessage.scrollHeight > 0;
+                        console.log('[Modal HTML] Conteúdo visível?', visible, 'Height:', modalMessage.offsetHeight);
+                    }, 250);
+                }
+
+                // Fechar modal ao clicar em OK ou X
+                const closeModal = () => {
+                    modal.style.display = 'none';
+                    // Resetar maxWidth
+                    if (modalBox) modalBox.style.maxWidth = '520px';
+                };
+
+                if (modalClose) {
+                    modalClose.onclick = closeModal;
+                }
+                if (modalOk) {
+                    modalOk.onclick = closeModal;
+                }
+
+                // Fechar ao clicar fora do modal
+                modal.onclick = (e) => {
+                    if (e.target === modal) {
+                        closeModal();
+                    }
+                };
+            }
+            
+            // Função para mostrar modal personalizado (texto simples)
             function showCustomModal(title, message, type = 'info') {
                 const modal = document.getElementById('custom-modal');
-                const modalTitle = document.getElementById('custom-modal-title');
-                const modalMessage = document.getElementById('custom-modal-message');
-                const modalClose = document.getElementById('custom-modal-close');
-                const modalOk = document.getElementById('custom-modal-ok');
-                const modalBox = document.getElementById('custom-modal-box');
-                const modalIconContainer = document.getElementById('custom-modal-icon-container');
+                const modalTitle = modal?.querySelector('#custom-modal-title') || document.getElementById('custom-modal-title');
+                const modalMessage = modal?.querySelector('#custom-modal-message') || document.getElementById('custom-modal-message');
+                const modalClose = modal?.querySelector('#custom-modal-close') || document.getElementById('custom-modal-close');
+                const modalOk = modal?.querySelector('#custom-modal-ok') || document.getElementById('custom-modal-ok');
+                const modalBox = modal?.querySelector('#custom-modal-box') || document.getElementById('custom-modal-box');
+                const modalIconContainer = modal?.querySelector('#custom-modal-icon-container') || document.getElementById('custom-modal-icon-container');
 
                 if (!modal || !modalTitle || !modalMessage) {
                     console.error('[Modal] Elementos não encontrados');
@@ -5621,8 +5921,32 @@ Equipe La Casa Dark Core</textarea>
                 }
 
                 // Configurar título e mensagem
-                modalTitle.textContent = title;
-                modalMessage.textContent = message;
+                modalTitle.textContent = title || 'Aviso';
+                
+                // Converter quebras de linha (\n) em <br> e manter HTML se presente
+                let formattedMessage = (message && String(message).trim().length > 0) ? message : null;
+                
+                // Mensagens padrão por tipo quando o conteúdo está vazio
+                if (!formattedMessage) {
+                    formattedMessage = ({
+                        'success': 'Operação concluída com sucesso.',
+                        'error': 'Ocorreu um erro. Verifique os dados e tente novamente.',
+                        'warning': 'Ação realizada com observações. Reveja os detalhes e prossiga.',
+                        'info': 'Nenhuma informação detalhada disponível no momento.'
+                    })[type] || 'Informação.';
+                }
+                // Se contém HTML (tags), usar innerHTML, senão converter \n em <br>
+                if (formattedMessage.includes('<') && formattedMessage.includes('>')) {
+                    modalMessage.innerHTML = formattedMessage;
+                } else {
+                    // Converter quebras de linha em <br> e escapar HTML
+                    formattedMessage = formattedMessage
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\n/g, '<br>');
+                    modalMessage.innerHTML = formattedMessage;
+                }
 
                 // Configurar cores baseado no tipo
                 if (type === 'error') {
@@ -6399,6 +6723,9 @@ Equipe La Casa Dark Core</textarea>
                         const claudeInput = document.getElementById('key-claude');
                         const geminiInput = document.getElementById('key-gemini');
                         const openaiInput = document.getElementById('key-openai');
+                        const claudeToggle = document.getElementById('toggle-key-claude');
+                        const geminiToggle = document.getElementById('toggle-key-gemini');
+                        const openaiToggle = document.getElementById('toggle-key-openai');
                         const claudeLocked = document.getElementById('key-claude-locked');
                         const geminiLocked = document.getElementById('key-gemini-locked');
                         const openaiLocked = document.getElementById('key-openai-locked');
@@ -6424,6 +6751,19 @@ Equipe La Casa Dark Core</textarea>
                                     openaiInput.disabled = true;
                                     openaiInput.classList.add('opacity-50', 'cursor-not-allowed');
                                 }
+                                // Bloquear toggles
+                                if (claudeToggle) {
+                                    claudeToggle.disabled = true;
+                                    claudeToggle.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (geminiToggle) {
+                                    geminiToggle.disabled = true;
+                                    geminiToggle.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (openaiToggle) {
+                                    openaiToggle.disabled = true;
+                                    openaiToggle.classList.add('opacity-50', 'cursor-not-allowed');
+                                }
                                 if (apiKeysPremiumMessage) apiKeysPremiumMessage.classList.remove('hidden');
                                 if (claudeLocked) claudeLocked.classList.remove('hidden');
                                 if (geminiLocked) geminiLocked.classList.remove('hidden');
@@ -6445,6 +6785,19 @@ Equipe La Casa Dark Core</textarea>
                                 if (openaiInput) {
                                     openaiInput.disabled = false;
                                     openaiInput.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                // Desbloquear toggles
+                                if (claudeToggle) {
+                                    claudeToggle.disabled = false;
+                                    claudeToggle.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (geminiToggle) {
+                                    geminiToggle.disabled = false;
+                                    geminiToggle.classList.remove('opacity-50', 'cursor-not-allowed');
+                                }
+                                if (openaiToggle) {
+                                    openaiToggle.disabled = false;
+                                    openaiToggle.classList.remove('opacity-50', 'cursor-not-allowed');
                                 }
                                 if (apiKeysPremiumMessage) apiKeysPremiumMessage.classList.add('hidden');
                                 if (claudeLocked) claudeLocked.classList.add('hidden');
@@ -10822,6 +11175,10 @@ Equipe La Casa Dark Core</textarea>
                     initAdminTabs();
                 }
                 
+                if (viewName === 'configuracoes') {
+                    loadAPIKeysStatus();
+                }
+                
                 if (viewName === 'gerador-voz') {
                     // Garantir que apenas o gerador de voz seja exibido
                     const adminView = document.getElementById('view-admin');
@@ -10838,8 +11195,9 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 if (viewName === 'configuracoes') {
-                    // Carregar preferências do usuário
+                    // Carregar preferências do usuário e status das chaves
                     loadUserPreferences();
+                    loadAPIKeysStatus();
                 }
                 if (viewName === 'gerador-video') {
                     console.log('[Dashboard] ========== NAVEGANDO PARA GERADOR DE VÍDEO ==========');
@@ -13070,8 +13428,94 @@ Equipe La Casa Dark Core</textarea>
                 const includePhrases = thumbPhrasesSelect.value === 'true';
                 const style = thumbStyleSelect.value;
                 const selectedRule = document.getElementById('thumb-rule-select')?.value || 'auto';
+                const useStandardPrompt = document.getElementById('use-standard-prompt')?.checked || false;
                 const customPrompt = document.getElementById('thumb-custom-prompt')?.value?.trim() || null;
                 const noPhrases = document.getElementById('thumb-no-phrases')?.checked || false;
+                
+                // Se checkbox de usar prompt padrão estiver marcado, buscar e usar o prompt padrão
+                let finalCustomPrompt = customPrompt;
+                if (useStandardPrompt) {
+                    try {
+                        // Buscar prompt padrão para o nicho/subnicho atual
+                        const currentNiche = currentAnalysisData?.niche || null;
+                        const currentSubniche = currentAnalysisData?.subniche || null;
+                        const currentFolderId = folderSelect?.value || null;
+                        
+                        let promptUrl = `${API_BASE}/api/thumbnail-style-prompts?`;
+                        if (currentNiche) promptUrl += `niche=${encodeURIComponent(currentNiche)}&`;
+                        if (currentSubniche) promptUrl += `subniche=${encodeURIComponent(currentSubniche)}&`;
+                        if (currentFolderId) promptUrl += `folder_id=${encodeURIComponent(currentFolderId)}&`;
+                        
+                        console.log('[Thumbnail Gen] Buscando prompt padrão:', {
+                            url: promptUrl,
+                            niche: currentNiche,
+                            subniche: currentSubniche,
+                            folderId: currentFolderId
+                        });
+                        
+                        const promptResponse = await fetch(promptUrl, {
+                            headers: { 'Authorization': `Bearer ${userToken}` }
+                        });
+                        
+                        if (promptResponse.ok) {
+                            const promptData = await promptResponse.json();
+                            console.log('[Thumbnail Gen] Resposta do prompt padrão:', promptData);
+                            
+                            // Verificar se há prompt padrão disponível
+                            if (promptData.prompt && promptData.prompt.standard_prompt) {
+                                let standardPrompt = promptData.prompt.standard_prompt;
+                                console.log('[Thumbnail Gen] Prompt padrão encontrado:', standardPrompt.substring(0, 100) + '...');
+                                
+                                // Adaptar o prompt padrão ao título selecionado (sem criar prompt novo)
+                                if (selectedTitle && selectedTitle.trim()) {
+                                    const titleText = selectedTitle.trim();
+                                    const replacements = [
+                                        /\[\s*T[ÍI]TULO\s*\]/gi,
+                                        /\{\s*TITLE\s*\}/gi,
+                                        /<\s*TITLE\s*>/gi,
+                                        /\{\{\s*title\s*\}\}/gi,
+                                        /\[TITLE\]/g
+                                    ];
+                                    for (const rx of replacements) {
+                                        if (rx.test(standardPrompt)) {
+                                            standardPrompt = standardPrompt.replace(rx, `"${titleText}"`);
+                                        }
+                                    }
+                                    // Não prefixar "Título:" na descrição; manter o prompt de estilo limpo
+                                }
+                                
+                                // Se houver prompt personalizado, combinar ambos, senão usar só o padrão
+                                if (customPrompt && customPrompt.trim()) {
+                                    finalCustomPrompt = `${standardPrompt}\n\n${customPrompt}`;
+                                    console.log('[Thumbnail Gen] Combinando prompt padrão com prompt personalizado');
+                                } else {
+                                    finalCustomPrompt = standardPrompt;
+                                    console.log('[Thumbnail Gen] Usando APENAS prompt padrão do estilo do canal/nicho');
+                                }
+                            } else {
+                                console.warn('[Thumbnail Gen] Nenhum prompt padrão encontrado para este nicho/subnicho');
+                                if (!customPrompt) {
+                                    showCustomModal(
+                                        '⚠️ Prompt Padrão Não Encontrado',
+                                        `Não foi encontrado um prompt padrão para:\n\n` +
+                                        `• Nicho: ${currentNiche || 'Não especificado'}\n` +
+                                        `• Subnicho: ${currentSubniche || 'Não especificado'}\n\n` +
+                                        `💡 Para usar o prompt padrão:\n` +
+                                        `1. Adicione thumbnails de referência para este nicho/subnicho\n` +
+                                        `2. Clique em "Analisar Estilo e Criar Prompt Padrão"\n` +
+                                        `3. Marque o checkbox novamente\n\n` +
+                                        `🔄 Continuando sem prompt padrão...`,
+                                        'warning'
+                                    );
+                                }
+                            }
+                        } else {
+                            console.warn('[Thumbnail Gen] Erro ao buscar prompt padrão:', promptResponse.status);
+                        }
+                    } catch (err) {
+                        console.warn('[Thumbnail Gen] Erro ao buscar prompt padrão:', err);
+                    }
+                }
 
                 if (thumbLoadingSpinner) thumbLoadingSpinner.style.display = 'flex';
                 if (thumbResultadosDiv) {
@@ -13096,6 +13540,14 @@ Equipe La Casa Dark Core</textarea>
                     
                     const endpoint = useLaozhang ? '/api/analyze/thumbnail/laozhang' : '/api/analyze/thumbnail';
                     
+                    // Log para debug
+                    console.log('[Thumbnail Gen] Enviando requisição:', {
+                        useStandardPrompt,
+                        hasCustomPrompt: !!customPrompt,
+                        finalCustomPromptLength: finalCustomPrompt ? finalCustomPrompt.length : 0,
+                        finalCustomPromptPreview: finalCustomPrompt ? finalCustomPrompt.substring(0, 200) + '...' : 'null'
+                    });
+                    
                     const response = await fetch(`${API_BASE}${endpoint}`, {
                         method: 'POST',
                         headers: {
@@ -13113,7 +13565,7 @@ Equipe La Casa Dark Core</textarea>
                             includePhrases: noPhrases ? false : includePhrases,
                             style: style,
                             thumbnailRule: selectedRule,
-                            customPrompt: customPrompt
+                            customPrompt: finalCustomPrompt
                         })
                     });
 
@@ -13127,9 +13579,14 @@ Equipe La Casa Dark Core</textarea>
                         
                         data.forEach((idea, index) => {
                             const uniqueId = `thumb-idea-${Date.now()}-${index}`;
-                            const tagsString = (idea.seoTags || []).join(', ');
                             
-                            let phrasesOptions = (idea.frasesDeGancho || []).map(phrase => `<option value="${phrase}">${phrase}</option>`).join('');
+                            // Garantir que seoTags seja sempre um array
+                            const seoTagsArray = Array.isArray(idea.seoTags) ? idea.seoTags : (idea.seoTags ? [idea.seoTags] : []);
+                            const tagsString = seoTagsArray.join(', ');
+                            
+                            // Garantir que frasesDeGancho seja sempre um array
+                            const frasesArray = Array.isArray(idea.frasesDeGancho) ? idea.frasesDeGancho : (idea.frasesDeGancho ? [idea.frasesDeGancho] : []);
+                            let phrasesOptions = frasesArray.map(phrase => `<option value="${phrase}">${phrase}</option>`).join('');
                             if (!phrasesOptions) {
                                 phrasesOptions = '<option value="">Sem frases</option>';
                             }
@@ -13138,6 +13595,12 @@ Equipe La Casa Dark Core</textarea>
                             const currentNiche = currentAnalysisData?.niche || '';
                             const currentSubniche = currentAnalysisData?.subniche || '';
                             const currentStyle = document.getElementById('input-style')?.value || '';
+
+                            const styleLock = 'Keep composition, palette, typography and lighting consistent with channel references. Do not change layout. Maintain gold title at bottom with subtle glow.';
+                            let promptForImage = (idea.descricaoThumbnail || '').replace(/\[FRASE DE GANCHO AQUI\]/gi, frasesArray && frasesArray[0] ? frasesArray[0] : '');
+                            if (useStandardPrompt) {
+                                promptForImage += `\n\n${styleLock}`;
+                            }
 
                             let thumbHtml = `
                                 <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 space-y-4" id="${uniqueId}" data-niche="${currentNiche}" data-subniche="${currentSubniche}" data-style="${currentStyle}">
@@ -13178,15 +13641,15 @@ Equipe La Casa Dark Core</textarea>
                                         <div>
                                             <div class="flex justify-between items-center mb-1">
                                             <label class="text-sm font-medium text-amber-400">Descrição para IA de Imagem</label>
-                                                <button title="Copiar Prompt" class="btn-copy-prompt p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-prompt-text="${(idea.descricaoThumbnail || '').replace(/\[FRASE DE GANCHO AQUI\]/gi, idea.frasesDeGancho && idea.frasesDeGancho[0] ? idea.frasesDeGancho[0] : '')}">
+                                                <button title="Copiar Prompt" class="btn-copy-prompt p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-prompt-text="${promptForImage}">
                                                     <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                                 </button>
                                             </div>
-                                            <p class="image-prompt-text text-sm text-gray-300 mt-1 p-2 bg-gray-900 border border-gray-700 rounded-md whitespace-pre-wrap" data-original-prompt="${idea.descricaoThumbnail || ''}">${(idea.descricaoThumbnail || '').replace(/\[FRASE DE GANCHO AQUI\]/gi, idea.frasesDeGancho && idea.frasesDeGancho[0] ? idea.frasesDeGancho[0] : '')}</p>
+                                            <p class="image-prompt-text text-sm text-gray-300 mt-1 p-2 bg-gray-900 border border-gray-700 rounded-md whitespace-pre-wrap" data-original-prompt="${promptForImage}">${promptForImage}</p>
                                         </div>
                                     </div>
 
-                                    <button type="button" class="btn-gen-imagefx mt-4 py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-sm w-full" data-prompt="${(idea.descricaoThumbnail || '').replace(/\[FRASE DE GANCHO AQUI\]/gi, idea.frasesDeGancho && idea.frasesDeGancho[0] ? idea.frasesDeGancho[0] : '')}">
+                                    <button type="button" class="btn-gen-imagefx mt-4 py-2 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-sm w-full" data-prompt="${promptForImage}" data-using-standard="${useStandardPrompt ? 'true' : 'false'}">
                                         <span class="btn-text">Gerar Imagem com ImageFX</span>
                                         <div class="btn-spinner hidden"></div>
                                     </button>
@@ -13214,11 +13677,864 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
+            document.getElementById('btn-generate-by-title-integrated')?.addEventListener('click', async () => {
+                const title = thumbTitleSelect?.value || '';
+                if (!title || !title.trim()) { showCustomModal('Título obrigatório', 'Selecione ou digite o título no Gerador.', 'info'); return; }
+                const languageText = thumbLanguageSelect?.value || 'Português';
+                const langMap = { 'Português': 'pt-BR', 'Espanhol': 'es-ES', 'Inglês': 'en-US' };
+                const languageCode = langMap[languageText] || 'pt-BR';
+                const artStyle = thumbStyleSelect?.value || 'photorealistic';
+                const token = safeLocalStorageGet('core_token') || localStorage.getItem('core_token');
+                const currentNiche = currentAnalysisData?.niche || null;
+                const currentSubniche = currentAnalysisData?.subniche || null;
+                const folderId = document.getElementById('folder-select')?.value || null;
+                const themeKey = themeDetectionSelect && themeDetectionSelect.value !== 'auto' ? themeDetectionSelect.value : undefined;
+                const panel = document.getElementById('gen-by-title-results');
+                try {
+                    if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+                    showLoadingModal('Gerando por título com estilo travado...', 'image');
+                    const resp = await fetch(`${API_BASE}/api/generate/imagefx/by-title`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ title, niche: currentNiche, subniche: currentSubniche, folder_id: folderId, language: languageCode, style: artStyle, variations: 2, prompt_ai: 'none', theme_key: themeKey })
+                    });
+                    const data = await resp.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    if (!resp.ok) throw new Error(data.msg || 'Falha ao gerar por título');
+                    const imgs = Array.isArray(data.images) ? data.images : [];
+                    if (imgs.length === 0) { showCustomModal('Aviso', 'Nenhuma imagem retornada.', 'warning'); return; }
+                    if (panel) {
+                        panel.innerHTML = imgs.map((obj, i) => `
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                                <p class="text-xs text-gray-400 mb-2">Variação ${i + 1}</p>
+                                <img src="${obj.imageUrl}" class="rounded-lg w-full mb-3" style="max-height: 380px; object-fit: contain;">
+                                <div class="flex gap-2">
+                                    <a download="thumb-${i + 1}.png" href="${obj.imageUrl}" class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-black rounded-lg text-xs">Baixar</a>
+                                    <span class="px-3 py-2 rounded-lg text-xs ${obj.savedToLibrary ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-200'}">${obj.savedToLibrary ? 'Salvo!' : 'Não salvo'}</span>
+                                </div>
+                            </div>
+                        `).join('');
+                        panel.style.display = 'grid';
+                    }
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    showCustomModal('Erro', err.message || 'Falha ao gerar por título.', 'error');
+                }
+            });
+            
+            // --- Gerar por Título (segue prompt padrão) ---
+            document.getElementById('btn-generate-by-title')?.addEventListener('click', async () => {
+                const title = document.getElementById('gen-title-input')?.value.trim();
+                const variantRaw = document.getElementById('gen-prompt-variant')?.value || 'auto';
+                const variations = parseInt(document.getElementById('gen-variations')?.value || '1', 10);
+                const promptAi = document.getElementById('gen-prompt-ai')?.value || 'none';
+                const headlineLang = document.getElementById('gen-headline-lang')?.value || 'pt-BR';
+                const artStyle = document.getElementById('gen-art-style')?.value || (document.getElementById('scene-style-select')?.value || 'photorealistic');
+                const panel = document.getElementById('gen-by-title-results');
+                try {
+                    if (!title) { showCustomModal('Título obrigatório', 'Digite o título para gerar as thumbnails.', 'info'); return; }
+                    const token = localStorage.getItem('core_token');
+                    const currentNiche = currentAnalysisData?.niche || null;
+                    const currentSubniche = currentAnalysisData?.subniche || null;
+                    const folderId = document.getElementById('folder-select')?.value || null;
+                    const variant = variantRaw === 'auto' ? undefined : parseInt(variantRaw, 10);
+                    panel.innerHTML = '';
+                    showLoadingModal('Gerando thumbnails pelo título...', 'image');
+                    const resp = await fetch(`${API_BASE}/api/generate/imagefx/by-title`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ title, niche: currentNiche, subniche: currentSubniche, folder_id: folderId, prompt_variant: variant, language: headlineLang, style: artStyle, variations, prompt_ai: promptAi })
+                    });
+                    const data = await resp.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    if (!resp.ok) throw new Error(data.msg || 'Erro ao gerar por título');
+                    const imgs = Array.isArray(data.images) ? data.images : [];
+                    if (imgs.length === 0) { showCustomModal('Aviso', 'Nenhuma imagem retornada.', 'warning'); return; }
+                    panel.innerHTML = imgs.map((obj, i) => `
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-3">
+                            <p class="text-xs text-gray-400 mb-2">Variação ${i + 1}</p>
+                            <img src="${obj.imageUrl}" class="rounded-lg w-full mb-3" style="max-height: 380px; object-fit: contain;">
+                            <div class="flex gap-2">
+                                <a download="thumb-${i + 1}.png" href="${obj.imageUrl}" class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-black rounded-lg text-xs">Baixar</a>
+                                <span class="px-3 py-2 rounded-lg text-xs ${obj.savedToLibrary ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-200'}">${obj.savedToLibrary ? 'Salvo!' : 'Não salvo'}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                    console.log('[ByTitle] Prompt usado:', (data.promptUsed || '').substring(0, 300) + '...');
+                    // Integra com Gerador de Ideias de Thumbnail
+                    try {
+                        const titleInput = document.getElementById('thumb-title-select');
+                        if (titleInput) {
+                            // Garantir opção e selecionar
+                            let exists = false;
+                            for (let i = 0; i < titleInput.options.length; i++) {
+                                if (titleInput.options[i].value === title) { titleInput.selectedIndex = i; exists = true; break; }
+                            }
+                            if (!exists) {
+                                const opt = document.createElement('option');
+                                opt.value = title; opt.text = title; titleInput.appendChild(opt);
+                                titleInput.selectedIndex = titleInput.options.length - 1;
+                            }
+                        }
+                        const langMap = { 'pt-BR': 'pt', 'es-ES': 'es', 'en-US': 'en' };
+                        const langSel = document.getElementById('thumb-language');
+                        if (langSel) {
+                            const code = langMap[headlineLang] || 'pt';
+                            for (let i = 0; i < langSel.options.length; i++) {
+                                const txt = langSel.options[i].text.toLowerCase();
+                                if ((code === 'pt' && txt.includes('portugu')) || (code === 'es' && txt.includes('espa')) || (code === 'en' && txt.includes('english'))) {
+                                    langSel.selectedIndex = i; break;
+                                }
+                            }
+                        }
+                        const styleSel = document.getElementById('thumb-style');
+                        if (styleSel) {
+                            for (let i = 0; i < styleSel.options.length; i++) {
+                                if (styleSel.options[i].value === artStyle) { styleSel.selectedIndex = i; break; }
+                            }
+                        }
+                        const useStd = document.getElementById('use-standard-prompt');
+                        if (useStd) useStd.checked = true;
+                        const genBtn = document.getElementById('btn-generate-thumbs');
+                        if (genBtn) genBtn.click();
+                        const genDiv = document.getElementById('thumbnail-generator');
+                        if (genDiv) genDiv.style.display = 'block';
+                    } catch (e) {
+                        console.warn('[ByTitle] Integração com Gerador falhou:', e.message);
+                    }
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    showCustomModal('Erro', err.message || 'Falha ao gerar por título.', 'error');
+                }
+            });
+            
             if (btnGenerateThumbs) {
                 btnGenerateThumbs.addEventListener('click', handleThumbnailGeneration);
             }
             if (btnGenerateMoreThumbs) {
                 btnGenerateMoreThumbs.addEventListener('click', handleThumbnailGeneration);
+            }
+
+            // --- Gerenciamento de Thumbnails de Referência ---
+            const thumbnailRefManager = document.getElementById('thumbnail-references-manager');
+            const thumbnailRefUploadForm = document.getElementById('thumbnail-reference-upload-form');
+            const thumbnailRefList = document.getElementById('thumbnail-references-list');
+            const thumbnailGenerator = document.getElementById('thumbnail-generator');
+            const refFolderSelect = document.getElementById('ref-folder-select');
+            const refNicheInput = document.getElementById('ref-niche');
+            const refSubnicheInput = document.getElementById('ref-subniche');
+            const themeDetectionSelect = document.getElementById('theme-detection-select');
+            const seedThemesBtn = document.getElementById('btn-seed-themes');
+            const seedStatus = document.getElementById('seed-status');
+
+            async function loadAmbientationThemes() {
+                try {
+                    const token = safeLocalStorageGet('core_token');
+                    const res = await fetch(`${API_BASE}/api/ambientations`, { headers: { 'Authorization': `Bearer ${token}` } });
+                    const list = await res.json();
+                    if (Array.isArray(list) && themeDetectionSelect) {
+                        themeDetectionSelect.innerHTML = '<option value="auto" selected>Automática pelo Título (Recomendado)</option>';
+                        list.forEach(item => {
+                            const opt = document.createElement('option');
+                            opt.value = item.theme_key || String(item.id);
+                            opt.textContent = `${item.theme_key || 'tema'} — ${item.keywords || ''}`;
+                            themeDetectionSelect.appendChild(opt);
+                        });
+                    }
+                } catch (e) {
+                    console.warn('[Ambientations] Falha ao carregar temas:', e.message);
+                }
+            }
+
+            seedThemesBtn?.addEventListener('click', async () => {
+                try {
+                    seedStatus.textContent = 'Populando biblioteca...';
+                    const token = safeLocalStorageGet('core_token');
+                    const res = await fetch(`${API_BASE}/api/ambientations/seed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.msg || 'Erro ao popular biblioteca');
+                    seedStatus.textContent = 'Biblioteca populada com 20 temas.';
+                    await loadAmbientationThemes();
+                } catch (e) {
+                    seedStatus.textContent = 'Falha ao popular biblioteca.';
+                } finally {
+                    setTimeout(() => { seedStatus.textContent = ''; }, 3000);
+                }
+            });
+
+            loadAmbientationThemes();
+            
+            // Preencher campos automaticamente quando a análise for concluída
+            function updateThumbnailRefFields() {
+                if (currentAnalysisData && currentAnalysisData.niche && refNicheInput) {
+                    refNicheInput.value = currentAnalysisData.niche;
+                }
+                if (currentAnalysisData && currentAnalysisData.subniche && refSubnicheInput) {
+                    refSubnicheInput.value = currentAnalysisData.subniche;
+                }
+                // Sincronizar pasta quando folderSelect mudar
+                if (folderSelect && refFolderSelect) {
+                    refFolderSelect.value = folderSelect.value || '';
+                }
+            }
+            
+            // Carregar pastas no select de referência
+            function loadFoldersIntoRefSelect() {
+                if (!refFolderSelect) return;
+                const currentValue = refFolderSelect.value;
+                refFolderSelect.innerHTML = '<option value="">Nenhuma pasta</option>';
+                if (userFolders && userFolders.length > 0) {
+                    userFolders.forEach(folder => {
+                        const option = document.createElement('option');
+                        option.value = folder.id;
+                        option.textContent = folder.name;
+                        refFolderSelect.appendChild(option);
+                    });
+                    if (currentValue) {
+                        refFolderSelect.value = currentValue;
+                    }
+                }
+            }
+            
+            // Sincronizar seleção de pasta
+            if (folderSelect && refFolderSelect) {
+                folderSelect.addEventListener('change', () => {
+                    if (refFolderSelect) {
+                        refFolderSelect.value = folderSelect.value || '';
+                    }
+                });
+            }
+            
+            // Carregar pastas quando userFolders for atualizado
+            if (userFolders && userFolders.length > 0) {
+                loadFoldersIntoRefSelect();
+            }
+            
+            // Observar mudanças em currentAnalysisData para atualizar campos
+            let lastAnalysisData = JSON.stringify(currentAnalysisData);
+            setInterval(() => {
+                const current = JSON.stringify(currentAnalysisData);
+                if (current !== lastAnalysisData) {
+                    lastAnalysisData = current;
+                    updateThumbnailRefFields();
+                }
+            }, 500);
+            
+            // Mostrar gerenciador quando o gerador de thumbnails estiver visível
+            if (thumbnailGenerator) {
+                const observer = new MutationObserver(() => {
+                    if (thumbnailGenerator.style.display !== 'none') {
+                        if (thumbnailRefManager) thumbnailRefManager.style.display = 'block';
+                        loadThumbnailReferences();
+                        updateThumbnailRefFields();
+                        loadFoldersIntoRefSelect();
+                    } else {
+                        if (thumbnailRefManager) thumbnailRefManager.style.display = 'none';
+                    }
+                });
+                observer.observe(thumbnailGenerator, { attributes: true, attributeFilter: ['style'] });
+            }
+            
+            // Função para carregar thumbnails de referência
+            async function loadThumbnailReferences() {
+                if (!thumbnailRefList) return;
+                
+                try {
+                    thumbnailRefList.innerHTML = '<p class="text-gray-400 text-sm col-span-full">Carregando...</p>';
+                    
+                    // Obter valores atuais de niche/subniche
+                    const currentNiche = refNicheInput ? refNicheInput.value.trim() : null;
+                    const currentSubniche = refSubnicheInput ? refSubnicheInput.value.trim() : null;
+                    const currentFolderId = refFolderSelect ? refFolderSelect.value : null;
+                    
+                    let url = `${API_BASE}/api/thumbnail-references?`;
+                    if (currentNiche) url += `niche=${encodeURIComponent(currentNiche)}&`;
+                    if (currentSubniche) url += `subniche=${encodeURIComponent(currentSubniche)}&`;
+                    if (currentFolderId) url += `folder_id=${encodeURIComponent(currentFolderId)}&`;
+                    
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    }).catch(err => {
+                        console.error('[Thumbnail Ref] Erro de rede ao carregar:', err);
+                        throw new Error(`Erro de conexão: ${err.message}. Verifique sua conexão com a internet.`);
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text().catch(() => 'Erro desconhecido');
+                        let errorMsg = 'Erro ao carregar thumbnails';
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            errorMsg = errorData.msg || errorMsg;
+                        } catch (e) {
+                            errorMsg = response.status === 404 ? 'Endpoint não encontrado' : 
+                                       response.status === 500 ? 'Erro no servidor' : 
+                                       response.status === 401 ? 'Não autorizado' : 
+                                       `Erro ${response.status}: ${errorText}`;
+                        }
+                        throw new Error(errorMsg);
+                    }
+                    
+                    const data = await response.json().catch(err => {
+                        console.error('[Thumbnail Ref] Erro ao parsear resposta:', err);
+                        throw new Error('Erro ao processar resposta do servidor');
+                    });
+                    const references = data.references || [];
+                    
+                    if (references.length === 0) {
+                        thumbnailRefList.innerHTML = '<p class="text-gray-400 text-sm col-span-full">Nenhuma thumbnail de referência salva ainda.</p>';
+                        document.getElementById('style-prompt-info')?.classList.add('hidden');
+                        return;
+                    }
+                    
+                    thumbnailRefList.innerHTML = references.map(ref => `
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 relative group">
+                            <img src="${ref.thumbnail_base64 || ''}" alt="Thumbnail de referência" class="w-full h-32 object-cover rounded mb-3">
+                            <div class="text-sm">
+                                ${ref.channel_name ? `<p class="text-white font-semibold">${ref.channel_name}</p>` : ''}
+                                ${ref.niche ? `<p class="text-gray-300">Nicho: ${ref.niche}</p>` : ''}
+                                ${ref.subniche ? `<p class="text-gray-400">Subnicho: ${ref.subniche}</p>` : ''}
+                                ${ref.description ? `<p class="text-gray-400 text-xs mt-2">${ref.description}</p>` : ''}
+                                <p class="text-gray-500 text-xs mt-2">${new Date(ref.created_at).toLocaleDateString('pt-BR')}</p>
+                            </div>
+                            <button onclick="deleteThumbnailReference(${ref.id})" class="absolute top-2 right-2 p-2 bg-red-600 hover:bg-red-500 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    `).join('');
+                    
+                    // Verificar se existe prompt padrão para este nicho/subnicho
+                    await checkStandardPrompt(currentNiche, currentSubniche, currentFolderId);
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('[Thumbnail Ref] Erro ao carregar:', err);
+                    const errorMessage = err.message || 'Erro desconhecido ao carregar thumbnails';
+                    
+                    // Determinar tipo de erro e mensagem apropriada
+                    let userMessage = 'Erro ao carregar thumbnails de referência.';
+                    let suggestions = [];
+                    
+                    if (errorMessage.includes('conexão') || errorMessage.includes('connection') || errorMessage.includes('network') || errorMessage.includes('fetch') || errorMessage.includes('Failed to fetch')) {
+                        userMessage = 'Erro de conexão ao carregar thumbnails.';
+                        suggestions.push('Verifique sua conexão com a internet');
+                        suggestions.push('Verifique se o servidor está rodando');
+                        suggestions.push('Tente recarregar a página');
+                    } else if (errorMessage.includes('401') || errorMessage.includes('Não autorizado')) {
+                        userMessage = 'Sessão expirada.';
+                        suggestions.push('Faça login novamente');
+                    } else if (errorMessage.includes('404') || errorMessage.includes('não encontrado')) {
+                        userMessage = 'Endpoint não encontrado.';
+                        suggestions.push('Recarregue a página');
+                        suggestions.push('Verifique se o servidor está atualizado');
+                    } else if (errorMessage.includes('500') || errorMessage.includes('servidor')) {
+                        userMessage = 'Erro no servidor.';
+                        suggestions.push('Tente novamente em alguns segundos');
+                        suggestions.push('Se o problema persistir, contate o suporte');
+                    }
+                    
+                    thumbnailRefList.innerHTML = `
+                        <div class="col-span-full bg-red-900/30 border border-red-700 rounded-lg p-4">
+                            <p class="text-red-400 font-semibold mb-2">❌ ${userMessage}</p>
+                            <p class="text-red-300 text-sm mb-2">Detalhes: ${errorMessage}</p>
+                            ${suggestions.length > 0 ? `
+                                <div class="mt-3">
+                                    <p class="text-red-300 text-xs font-semibold mb-1">💡 Tente:</p>
+                                    <ul class="text-red-300 text-xs list-disc list-inside">
+                                        ${suggestions.map(s => `<li>${s}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            <button onclick="loadThumbnailReferences()" class="mt-3 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-semibold">
+                                🔄 Tentar Novamente
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Função para deletar thumbnail de referência
+            window.deleteThumbnailReference = async function(id) {
+                // Usar showCustomConfirm que retorna Promise
+                const confirmed = await showCustomConfirm('Tem certeza que deseja deletar esta thumbnail de referência?', 'Confirmar Exclusão');
+                if (!confirmed) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/thumbnail-references/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) throw new Error('Erro ao deletar thumbnail');
+                    
+                    loadThumbnailReferences();
+                    showCustomModal('Sucesso', 'Thumbnail de referência deletada com sucesso!', 'success');
+                } catch (err) {
+                    console.error('[Thumbnail Ref] Erro ao deletar:', err);
+                    showCustomModal('Erro', 'Erro ao deletar thumbnail de referência: ' + err.message, 'error');
+                }
+            };
+            
+            // Função para verificar prompt padrão
+            async function checkStandardPrompt(niche, subniche, folderId) {
+                try {
+                    let url = `${API_BASE}/api/thumbnail-style-prompts?`;
+                    if (niche) url += `niche=${encodeURIComponent(niche)}&`;
+                    if (subniche) url += `subniche=${encodeURIComponent(subniche)}&`;
+                    if (folderId) url += `folder_id=${encodeURIComponent(folderId)}&`;
+                    
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    const stylePromptInfo = document.getElementById('style-prompt-info');
+                    const promptDisplay1 = document.getElementById('standard-prompt-display-1');
+                    const promptDisplay2 = document.getElementById('standard-prompt-display-2');
+                    const promptDisplay3 = document.getElementById('standard-prompt-display-3');
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.prompts && stylePromptInfo) {
+                            stylePromptInfo.classList.remove('hidden');
+                            
+                            // Preencher os 3 prompts
+                            if (promptDisplay1 && data.prompts.prompt_1) {
+                                promptDisplay1.value = data.prompts.prompt_1;
+                            }
+                            if (promptDisplay2 && data.prompts.prompt_2) {
+                                promptDisplay2.value = data.prompts.prompt_2;
+                            }
+                            if (promptDisplay3 && data.prompts.prompt_3) {
+                                promptDisplay3.value = data.prompts.prompt_3;
+                            }
+                            
+                            // Atualizar botões de seleção
+                            const selectedPrompt = data.prompt_selected || 1;
+                            updatePromptSelectionButtons(selectedPrompt);
+                            
+                            // Ativar tab do prompt selecionado
+                            showPromptTab(`prompt-${selectedPrompt}`);
+                        } else if (stylePromptInfo) {
+                            stylePromptInfo.classList.add('hidden');
+                        }
+                    } else {
+                        if (stylePromptInfo) stylePromptInfo.classList.add('hidden');
+                    }
+                } catch (err) {
+                    console.error('[Style Prompt] Erro ao verificar prompt padrão:', err);
+                    document.getElementById('style-prompt-info')?.classList.add('hidden');
+                }
+            }
+            
+            // Função para analisar estilo e criar prompt padrão
+            async function analyzeThumbnailStyle(forceReanalyze = false) {
+                const currentNiche = refNicheInput ? refNicheInput.value.trim() : null;
+                const currentSubniche = refSubnicheInput ? refSubnicheInput.value.trim() : null;
+                const currentFolderId = refFolderSelect ? refFolderSelect.value : null;
+                
+                if (!currentNiche && !currentSubniche) {
+                    showCustomModal(
+                        '⚠️ Informação Necessária',
+                        `Para analisar o estilo das thumbnails, é necessário informar:\n\n` +
+                        `📋 Campos obrigatórios:\n` +
+                        `• Nicho (obrigatório)\n` +
+                        `• Subnicho (obrigatório)\n\n` +
+                        `💡 Estes campos são necessários para associar corretamente o estilo visual ao seu canal/nicho.\n\n` +
+                        `✅ Preencha pelo menos o nicho ou subnicho e tente novamente.`,
+                        'warning'
+                    );
+                    return;
+                }
+                
+                const btn = document.getElementById(forceReanalyze ? 'btn-reanalyze-style' : 'btn-analyze-style');
+                if (!btn) {
+                    console.error('[Style Analysis] Botão não encontrado');
+                    return;
+                }
+                
+                const originalText = btn.textContent;
+                
+                // Buscar informações do modelo selecionado
+                const selectedModel = document.getElementById('analyze-model-select')?.value || 'auto';
+                const modelName = selectedModel === 'auto' 
+                    ? 'modelo automático (será escolhido automaticamente)' 
+                    : selectedModel === 'claude-3-7-sonnet-20250219' 
+                        ? 'Claude 3.7 Sonnet'
+                        : selectedModel === 'gpt-4o'
+                            ? 'GPT-4o'
+                            : selectedModel === 'gemini-2.5-pro'
+                                ? 'Gemini 2.5 Pro'
+                                : selectedModel;
+                
+                // Contar thumbnails de referência
+                const thumbnailCount = document.querySelectorAll('#thumbnail-references-list .thumbnail-ref-item').length;
+                
+                // Mostrar mensagem de início detalhada
+                showCustomModal(
+                    '🔄 Análise em Andamento',
+                    `📊 Analisando o estilo visual das thumbnails de referência...\n\n` +
+                    `📋 Detalhes da análise:\n` +
+                    `• Nicho: ${currentNiche || 'Não especificado'}\n` +
+                    `• Subnicho: ${currentSubniche || 'Não especificado'}\n` +
+                    `• Thumbnails encontradas: ${thumbnailCount}\n` +
+                    `• Modelo de IA: ${modelName}\n\n` +
+                    `⏳ Processando... Isso pode levar de 10 a 30 segundos.\n\n` +
+                    `💡 O sistema está analisando as thumbnails de referência e criando 3 prompts padrão diferentes que replicarão fielmente o estilo visual do seu canal/nicho.`,
+                    'info'
+                );
+                
+                setButtonLoading(btn, true);
+                btn.disabled = true;
+                btn.textContent = 'Analisando...';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/thumbnail-references/analyze-style`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            niche: currentNiche || null,
+                            subniche: currentSubniche || null,
+                            folder_id: currentFolderId || null,
+                            force_reanalyze: forceReanalyze,
+                            model: document.getElementById('analyze-model-select')?.value || 'auto'
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.msg || 'Erro ao analisar estilo');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Fechar modal de loading e mostrar sucesso
+                    const modal = document.getElementById('custom-modal');
+                    if (modal) modal.style.display = 'none';
+                    
+                    showCustomModal(
+                        '✅ Análise Concluída com Sucesso!',
+                        `🎨 Estilo visual analisado e 3 prompts padrão criados!\n\n` +
+                        `📊 Resultado da análise:\n` +
+                        `• Nicho analisado: "${currentNiche || 'geral'}"\n` +
+                        `• Subnicho analisado: "${currentSubniche || 'geral'}"\n` +
+                        `• Thumbnails processadas: ${thumbnailCount}\n` +
+                        `• Modelo utilizado: ${modelName}\n\n` +
+                        `✨ Próximos passos:\n` +
+                        `1. Selecione qual dos 3 prompts padrão usar (Prompt 1, 2 ou 3)\n` +
+                        `2. Marque o checkbox "Usar Prompt Padrão do Estilo do Canal/Nicho" no gerador de thumbnails\n` +
+                        `3. Todas as futuras gerações seguirão automaticamente este estilo visual\n\n` +
+                        `💡 Dica: Você pode re-analisar a qualquer momento para atualizar os prompts padrão.`,
+                        'success'
+                    );
+                    
+                    // Atualizar informações
+                    await checkStandardPrompt(currentNiche, currentSubniche, currentFolderId);
+                } catch (err) {
+                    console.error('[Style Analysis] Erro:', err);
+                    
+                    // Fechar modal de loading e mostrar erro
+                    const modal = document.getElementById('custom-modal');
+                    if (modal) modal.style.display = 'none';
+                    
+                    // Extrair informações úteis do erro
+                    let errorDetails = err.message || 'Erro desconhecido';
+                    let suggestions = [];
+                    
+                    if (errorDetails.includes('API') || errorDetails.includes('key') || errorDetails.includes('chave')) {
+                        suggestions.push('• Verifique se as chaves de API estão configuradas corretamente nas Configurações');
+                        suggestions.push('• Certifique-se de que a chave do modelo selecionado está ativa e válida');
+                    } else if (errorDetails.includes('thumbnail') || errorDetails.includes('referência')) {
+                        suggestions.push('• Certifique-se de que há pelo menos uma thumbnail de referência salva');
+                        suggestions.push('• Verifique se as thumbnails estão associadas ao nicho/subnicho correto');
+                    } else if (errorDetails.includes('network') || errorDetails.includes('fetch') || errorDetails.includes('conexão')) {
+                        suggestions.push('• Verifique sua conexão com a internet');
+                        suggestions.push('• Tente novamente em alguns segundos');
+                    } else {
+                        suggestions.push('• Há thumbnails de referência salvas para este nicho/subnicho');
+                        suggestions.push('• As APIs estão configuradas corretamente');
+                        suggestions.push('• A conexão com o servidor está funcionando');
+                    }
+                    
+                    showCustomModal(
+                        '❌ Erro na Análise do Estilo',
+                        `Não foi possível analisar o estilo visual das thumbnails de referência.\n\n` +
+                        `🔍 Detalhes do erro:\n` +
+                        `• ${errorDetails}\n\n` +
+                        `💡 O que verificar:\n` +
+                        suggestions.join('\n') + `\n\n` +
+                        `🔄 Se o problema persistir, tente:\n` +
+                        `• Selecionar um modelo de IA diferente\n` +
+                        `• Re-analisar o estilo novamente\n` +
+                        `• Verificar os logs do console para mais detalhes`,
+                        'error'
+                    );
+                } finally {
+                    setButtonLoading(btn, false);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            }
+            
+            // Função auxiliar para atualizar botões de seleção de prompt
+            function updatePromptSelectionButtons(selectedNum) {
+                [1, 2, 3].forEach(num => {
+                    const btn = document.getElementById(`select-prompt-${num}`);
+                    if (btn) {
+                        if (num === selectedNum) {
+                            btn.classList.remove('bg-gray-700', 'hover:bg-gray-600');
+                            btn.classList.add('bg-amber-700', 'hover:bg-amber-600');
+                        } else {
+                            btn.classList.remove('bg-amber-700', 'hover:bg-amber-600');
+                            btn.classList.add('bg-gray-700', 'hover:bg-gray-600');
+                        }
+                    }
+                });
+            }
+            
+            // Função para mostrar tab de prompt
+            function showPromptTab(tabName) {
+                // Esconder todos os conteúdos
+                document.querySelectorAll('.prompt-content').forEach(content => {
+                    content.classList.add('hidden');
+                });
+                // Remover active de todas as tabs
+                document.querySelectorAll('.prompt-tab').forEach(tab => {
+                    tab.classList.remove('active', 'border-amber-500', 'text-amber-300');
+                    tab.classList.add('border-transparent', 'text-gray-400');
+                });
+                // Mostrar conteúdo selecionado
+                const content = document.getElementById(`${tabName}-content`);
+                const tab = document.querySelector(`.prompt-tab[data-tab="${tabName}"]`);
+                if (content) content.classList.remove('hidden');
+                if (tab) {
+                    tab.classList.add('active', 'border-amber-500', 'text-amber-300');
+                    tab.classList.remove('border-transparent', 'text-gray-400');
+                }
+            }
+            
+            // Event listeners para tabs e seleção de prompts
+            document.addEventListener('click', async (e) => {
+                // Tabs de prompts
+                if (e.target.classList.contains('prompt-tab')) {
+                    const tabName = e.target.getAttribute('data-tab');
+                    showPromptTab(tabName);
+                }
+                
+                // Botões de seleção de prompt
+                if (e.target.classList.contains('prompt-select-btn')) {
+                    const promptNum = parseInt(e.target.getAttribute('data-prompt-num'));
+                    const currentNiche = refNicheInput ? refNicheInput.value.trim() : null;
+                    const currentSubniche = refSubnicheInput ? refSubnicheInput.value.trim() : null;
+                    const currentFolderId = refFolderSelect ? refFolderSelect.value : null;
+                    
+                    try {
+                        const response = await fetch(`${API_BASE}/api/thumbnail-style-prompts/select`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({
+                                niche: currentNiche || null,
+                                subniche: currentSubniche || null,
+                                folder_id: currentFolderId || null,
+                                prompt_number: promptNum
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            updatePromptSelectionButtons(promptNum);
+                            showPromptTab(`prompt-${promptNum}`);
+                            showCustomModal(
+                                '✅ Prompt Selecionado!',
+                                `O Prompt ${promptNum} foi selecionado como padrão para as gerações de thumbnails.\n\n` +
+                                `📋 Informações:\n` +
+                                `• Prompt ativo: Prompt ${promptNum}\n` +
+                                `• Este prompt será usado quando você marcar "Usar Prompt Padrão do Estilo do Canal/Nicho"\n\n` +
+                                `💡 Você pode alternar entre os 3 prompts a qualquer momento clicando nos botões "Prompt 1", "Prompt 2" ou "Prompt 3".`,
+                                'success'
+                            );
+                        } else {
+                            let errorData;
+                            try {
+                                errorData = await response.json();
+                            } catch (e) {
+                                errorData = { msg: `Erro ${response.status}: ${response.statusText}` };
+                            }
+                            
+                            // Se for 404, significa que não há prompt padrão criado ainda
+                            if (response.status === 404 || errorData.msg?.includes('Nenhum prompt padrão encontrado')) {
+                                throw new Error('PROMPT_NAO_ENCONTRADO');
+                            } else {
+                                throw new Error(errorData.msg || 'Erro ao selecionar prompt');
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Prompt Select] Erro:', err);
+                        
+                        if (err.message === 'PROMPT_NAO_ENCONTRADO') {
+                            showCustomModal(
+                                '⚠️ Prompt Padrão Não Encontrado',
+                                `Não foi encontrado um prompt padrão para:\n\n` +
+                                `📋 Informações:\n` +
+                                `• Nicho: ${currentNiche || 'Não especificado'}\n` +
+                                `• Subnicho: ${currentSubniche || 'Não especificado'}\n` +
+                                `• Pasta: ${currentFolderId || 'Nenhuma'}\n\n` +
+                                `💡 Para usar os prompts padrão:\n` +
+                                `1. Adicione thumbnails de referência para este nicho/subnicho\n` +
+                                `2. Clique em "Analisar Estilo e Criar Prompt Padrão"\n` +
+                                `3. Aguarde a análise ser concluída (3 prompts serão gerados)\n` +
+                                `4. Depois, você poderá selecionar qual dos 3 prompts usar\n\n` +
+                                `🔄 Após criar os prompts padrão, você poderá selecioná-los aqui.`,
+                                'warning'
+                            );
+                        } else {
+                            showCustomModal(
+                                '❌ Erro ao Selecionar Prompt',
+                                `Não foi possível selecionar o Prompt ${promptNum} como padrão.\n\n` +
+                                `🔍 Detalhes do erro:\n` +
+                                `• ${err.message}\n\n` +
+                                `💡 Tente novamente. Se o problema persistir, verifique sua conexão com o servidor.`,
+                                'error'
+                            );
+                        }
+                    }
+                }
+            });
+            
+            // Event listeners para análise de estilo (adicionar quando os elementos existirem)
+            function attachStyleAnalysisListeners() {
+                const btnAnalyzeStyle = document.getElementById('btn-analyze-style');
+                const btnReanalyzeStyle = document.getElementById('btn-reanalyze-style');
+                
+                if (btnAnalyzeStyle && !btnAnalyzeStyle.hasAttribute('data-listener-attached')) {
+                    btnAnalyzeStyle.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        console.log('[Style Analysis] Botão clicado - iniciando análise...');
+                        analyzeThumbnailStyle(false);
+                    });
+                    btnAnalyzeStyle.setAttribute('data-listener-attached', 'true');
+                    console.log('[Style Analysis] Listener adicionado ao btn-analyze-style');
+                }
+                
+                if (btnReanalyzeStyle && !btnReanalyzeStyle.hasAttribute('data-listener-attached')) {
+                    btnReanalyzeStyle.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        console.log('[Style Analysis] Botão re-análise clicado...');
+                        analyzeThumbnailStyle(true);
+                    });
+                    btnReanalyzeStyle.setAttribute('data-listener-attached', 'true');
+                    console.log('[Style Analysis] Listener adicionado ao btn-reanalyze-style');
+                }
+            }
+            
+            // Tentar anexar listeners imediatamente e também quando a seção for exibida
+            attachStyleAnalysisListeners();
+            
+            // Re-anexar quando o gerenciador de thumbnails for exibido
+            if (thumbnailRefManager) {
+                const managerObserver = new MutationObserver(() => {
+                    if (thumbnailRefManager.style.display !== 'none') {
+                        setTimeout(attachStyleAnalysisListeners, 100);
+                    }
+                });
+                managerObserver.observe(thumbnailRefManager, { attributes: true, attributeFilter: ['style'] });
+            }
+            
+            // Upload de thumbnail de referência
+            if (thumbnailRefUploadForm) {
+                thumbnailRefUploadForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const fileInput = document.getElementById('ref-thumbnail-file');
+                    const folderId = refFolderSelect ? refFolderSelect.value : null;
+                    const channelName = document.getElementById('ref-channel-name').value.trim();
+                    const niche = document.getElementById('ref-niche').value.trim();
+                    const subniche = document.getElementById('ref-subniche').value.trim();
+                    const description = document.getElementById('ref-description').value.trim();
+                    
+                    if (!fileInput.files || !fileInput.files[0]) {
+                        alert('Por favor, selecione uma imagem.');
+                        return;
+                    }
+                    
+                    const file = fileInput.files[0];
+                    if (file.size > 5 * 1024 * 1024) {
+                        showCustomModal(
+                            '⚠️ Arquivo Muito Grande',
+                            `A imagem selecionada excede o tamanho máximo permitido.\n\n` +
+                            `📊 Informações:\n` +
+                            `• Tamanho do arquivo: ${(file.size / 1024 / 1024).toFixed(2)} MB\n` +
+                            `• Tamanho máximo permitido: 5 MB\n\n` +
+                            `💡 Solução:\n` +
+                            `• Redimensione a imagem ou use uma versão menor\n` +
+                            `• A imagem será redimensionada automaticamente para 16:9 (1280x720px) após o upload\n\n` +
+                            `🔄 Selecione uma imagem menor e tente novamente.`,
+                            'warning'
+                        );
+                        return;
+                    }
+                    
+                    const btn = document.getElementById('btn-upload-reference');
+                    setButtonLoading(btn, true);
+                    
+                    try {
+                        // Converter para base64
+                        const reader = new FileReader();
+                        const base64 = await new Promise((resolve, reject) => {
+                            reader.onload = () => resolve(reader.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(file);
+                        });
+                        
+                        const response = await fetch(`${API_BASE}/api/thumbnail-references/upload`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${userToken}`
+                            },
+                            body: JSON.stringify({
+                                thumbnail_base64: base64,
+                                folder_id: folderId || null,
+                                channel_name: channelName || null,
+                                niche: niche || null,
+                                subniche: subniche || null,
+                                description: description || null
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.msg || 'Erro ao fazer upload');
+                        }
+                        
+                        // Limpar formulário
+                        thumbnailRefUploadForm.reset();
+                        
+                        // Recarregar lista
+                        loadThumbnailReferences();
+                        
+                        showCustomModal(
+                            '✅ Thumbnail Salva com Sucesso!',
+                            `A thumbnail de referência foi adicionada à biblioteca.\n\n` +
+                            `📋 Informações salvas:\n` +
+                            `• Nicho: ${niche || 'Não especificado'}\n` +
+                            `• Subnicho: ${subniche || 'Não especificado'}\n` +
+                            `• Canal: ${channelName || 'Não especificado'}\n` +
+                            `• Descrição: ${description || 'Não fornecida'}\n\n` +
+                            `💡 Próximo passo:\n` +
+                            `Clique em "Analisar Estilo e Criar Prompt Padrão" para gerar prompts que replicarão o estilo visual desta thumbnail.`,
+                            'success'
+                        );
+                    } catch (err) {
+                        console.error('[Thumbnail Ref] Erro no upload:', err);
+                        alert('Erro ao fazer upload: ' + err.message);
+                    } finally {
+                        setButtonLoading(btn, false);
+                    }
+                });
             }
 
             // Event listener for hook phrase selection
@@ -13362,6 +14678,7 @@ Equipe La Casa Dark Core</textarea>
                 
                 // Obter o prompt atual do botão
                 let promptDesc = targetButton.getAttribute('data-prompt');
+                const usingStandard = (targetButton.getAttribute('data-using-standard') === 'true');
                 
                 // CRÍTICO: Garantir que a frase de gancho está sempre incluída no prompt
                 if (selectedPhrase && selectedPhrase.trim() !== '' && promptDesc) {
@@ -13400,33 +14717,31 @@ Equipe La Casa Dark Core</textarea>
                         }
                     }
                     
-                    // Se ainda não foi substituído e o prompt não menciona a frase, adicionar a frase ao prompt
-                    if (!replaced && !promptDesc.toLowerCase().includes(selectedPhrase.toLowerCase())) {
-                        // Adicionar a frase de forma inteligente: procurar onde mencionar texto e adicionar a frase
-                        // Se o prompt menciona "text", "typography", "design", etc., adicionar a frase lá
-                        const textMentions = [
-                            /(with.*?text.*?that.*?says?)/gi,
-                            /(featuring.*?text.*?that.*?reads?)/gi,
-                            /(displaying.*?text.*?that.*?says?)/gi,
-                            /(showing.*?text.*?that.*?says?)/gi,
-                            /(professional.*?text.*?design)/gi,
-                            /(photoshop.*?text)/gi
-                        ];
-                        
-                        let textMentionFound = false;
-                        for (const mention of textMentions) {
-                            if (mention.test(promptDesc)) {
-                                // Substituir a menção genérica pela frase específica
-                                promptDesc = promptDesc.replace(mention, `$1 "${selectedPhrase}"`);
-                                textMentionFound = true;
-                                break;
+                    // Se estiver usando prompt padrão, não inserir bloco de tipografia; só substitui placeholders.
+                    // Caso contrário (prompt gerado), manter lógica anterior de inserção inteligente.
+                    if (!usingStandard) {
+                        if (!replaced && !promptDesc.toLowerCase().includes(selectedPhrase.toLowerCase())) {
+                            const textMentions = [
+                                /(with.*?text.*?that.*?says?)/gi,
+                                /(featuring.*?text.*?that.*?reads?)/gi,
+                                /(displaying.*?text.*?that.*?says?)/gi,
+                                /(showing.*?text.*?that.*?says?)/gi,
+                                /(professional.*?text.*?design)/gi,
+                                /(photoshop.*?text)/gi
+                            ];
+                            
+                            let textMentionFound = false;
+                            for (const mention of textMentions) {
+                                if (mention.test(promptDesc)) {
+                                    promptDesc = promptDesc.replace(mention, `$1 "${selectedPhrase}"`);
+                                    textMentionFound = true;
+                                    break;
+                                }
                             }
-                        }
-                        
-                        // Se não encontrou menção de texto, adicionar no final da descrição visual
-                        if (!textMentionFound) {
-                            // Adicionar a frase como texto profissional no prompt
-                            promptDesc += `, with professional Photoshop-quality text design displaying "${selectedPhrase}" in large, bold, vibrant typography with professional layer effects including drop shadow, stroke, outer glow, and bevel & emboss, positioned strategically in the composition`;
+                            
+                            if (!textMentionFound) {
+                                promptDesc += `, with professional Photoshop-quality text design displaying "${selectedPhrase}" in large, bold, vibrant typography with professional layer effects including drop shadow, stroke, outer glow, and bevel & emboss, positioned strategically in the composition`;
+                            }
                         }
                     }
                     
@@ -14720,6 +16035,50 @@ Equipe La Casa Dark Core</textarea>
 
             // --- LÓGICA DE CONFIGURAÇÕES (API KEYS) ---
             
+            // Função para carregar status das chaves salvas
+            async function loadAPIKeysStatus() {
+                try {
+                    const userToken = localStorage.getItem('core_token');
+                    if (!userToken) return;
+                    
+                    const response = await fetch(`${API_BASE}/api/keys/status`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) return;
+                    
+                    const status = await response.json();
+                    
+                    // Atualizar placeholders dos campos com versões mascaradas
+                    const claudeInput = document.getElementById('key-claude');
+                    const geminiInput = document.getElementById('key-gemini');
+                    const openaiInput = document.getElementById('key-openai');
+                    const youtubeInput = document.getElementById('key-youtube');
+                    
+                    if (status.claude?.exists && claudeInput && !claudeInput.value) {
+                        claudeInput.placeholder = `Chave salva: ${status.claude.masked}`;
+                        claudeInput.setAttribute('data-has-saved-key', 'true');
+                    }
+                    
+                    if (status.gemini?.exists && geminiInput && !geminiInput.value) {
+                        geminiInput.placeholder = `Chave salva: ${status.gemini.masked}`;
+                        geminiInput.setAttribute('data-has-saved-key', 'true');
+                    }
+                    
+                    if (status.openai?.exists && openaiInput && !openaiInput.value) {
+                        openaiInput.placeholder = `Chave salva: ${status.openai.masked}`;
+                        openaiInput.setAttribute('data-has-saved-key', 'true');
+                    }
+                    
+                    if (status.youtube?.exists && youtubeInput && !youtubeInput.value) {
+                        youtubeInput.placeholder = `Chave salva: ${status.youtube.masked}`;
+                        youtubeInput.setAttribute('data-has-saved-key', 'true');
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar status das chaves:', err);
+                }
+            }
+            
             async function saveKey(serviceName, apiKey) {
                 if (!apiKey) return Promise.resolve(null);
                 const response = await fetch(`${API_BASE}/api/keys/save`, {
@@ -14813,18 +16172,38 @@ Equipe La Casa Dark Core</textarea>
                             showMessage('config-success-message', "Configurações salvas com sucesso!");
                             updatePreferenceStatus(useCreditsPref);
                             
-                            // Limpar apenas campos que não estão bloqueados
+                            // Limpar apenas campos que foram preenchidos (salvos com sucesso)
+                            // Não limpar se o campo estava vazio (significa que não foi alterado)
                             const claudeInput = document.getElementById('key-claude');
                             const geminiInput = document.getElementById('key-gemini');
                             const openaiInput = document.getElementById('key-openai');
+                            const youtubeInput = document.getElementById('key-youtube');
                             
-                            if (claudeInput && !claudeInput.disabled) claudeInput.value = '';
-                            if (geminiInput && !geminiInput.disabled) geminiInput.value = '';
-                            if (openaiInput && !openaiInput.disabled) openaiInput.value = '';
+                            // Limpar apenas se havia valor e foi salvo com sucesso
+                            if (claudeKey && claudeInput && !claudeInput.disabled) {
+                                claudeInput.value = '';
+                                claudeInput.removeAttribute('data-has-saved-key');
+                            }
+                            if (geminiKey && geminiInput && !geminiInput.disabled) {
+                                geminiInput.value = '';
+                                geminiInput.removeAttribute('data-has-saved-key');
+                            }
+                            if (openaiKey && openaiInput && !openaiInput.disabled) {
+                                openaiInput.value = '';
+                                openaiInput.removeAttribute('data-has-saved-key');
+                            }
+                            if (youtubeKey && youtubeInput) {
+                                youtubeInput.value = '';
+                                youtubeInput.removeAttribute('data-has-saved-key');
+                            }
                             
-                            document.getElementById('key-youtube').value = '';
                             const metaInput = document.getElementById('key-metaai');
-                            if (metaInput) metaInput.value = '';
+                            if (metaAiCookies && metaInput) metaInput.value = '';
+                            
+                            // Recarregar status das chaves para atualizar placeholders
+                            setTimeout(() => {
+                                loadAPIKeysStatus();
+                            }, 500);
                         }
                     } catch (err) {
                         showMessage('config-error-message', err.message, true);
@@ -14857,11 +16236,67 @@ Equipe La Casa Dark Core</textarea>
                 }
             });
 
+            // Toggles para mostrar/ocultar senhas dos campos de API
+            document.getElementById('toggle-key-claude')?.addEventListener('click', () => {
+                const input = document.getElementById('key-claude');
+                const button = document.getElementById('toggle-key-claude');
+                if (input) {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    const icon = button.querySelector('i[data-lucide]');
+                    if (icon) {
+                        icon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                }
+            });
+
+            document.getElementById('toggle-key-gemini')?.addEventListener('click', () => {
+                const input = document.getElementById('key-gemini');
+                const button = document.getElementById('toggle-key-gemini');
+                if (input) {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    const icon = button.querySelector('i[data-lucide]');
+                    if (icon) {
+                        icon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                }
+            });
+
+            document.getElementById('toggle-key-openai')?.addEventListener('click', () => {
+                const input = document.getElementById('key-openai');
+                const button = document.getElementById('toggle-key-openai');
+                if (input) {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    const icon = button.querySelector('i[data-lucide]');
+                    if (icon) {
+                        icon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                }
+            });
+
+            document.getElementById('toggle-key-youtube')?.addEventListener('click', () => {
+                const input = document.getElementById('key-youtube');
+                const button = document.getElementById('toggle-key-youtube');
+                if (input) {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    const icon = button.querySelector('i[data-lucide]');
+                    if (icon) {
+                        icon.setAttribute('data-lucide', isPassword ? 'eye-off' : 'eye');
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }
+                }
+            });
+
             const validateButton = document.getElementById('btn-validate-all');
             if (validateButton) {
                 validateButton.addEventListener('click', async () => {
                     setButtonLoading(validateButton, true);
-                    showMessage('config-success-message', "A validar chaves guardadas... (Isto pode demorar um momento)");
 
                     try {
                         const response = await fetch(`${API_BASE}/api/keys/validate-all`, {
@@ -14872,20 +16307,85 @@ Equipe La Casa Dark Core</textarea>
                         const data = await response.json();
                         if (!response.ok) throw new Error(data.msg || 'Erro desconhecido do servidor.');
 
-                        let resultsHtml = "<strong>Resultados da Validação:</strong><ul class='list-disc pl-5 mt-2'>";
+                        // Formatar resultados da validação com HTML
+                        let resultsHtml = '';
+                        let allValid = true;
+                        let hasResults = false;
+                        let validCount = 0;
+                        let invalidCount = 0;
+
                         data.results.forEach(result => {
+                            hasResults = true;
+                            const serviceName = result.service.charAt(0).toUpperCase() + result.service.slice(1);
+                            
                             if (result.success) {
-                                resultsHtml += `<li class='valid'>${result.service}: Válida</li>`;
+                                validCount++;
+                                resultsHtml += '<div class="bg-green-900/30 border border-green-500/50 rounded-lg p-4 mb-3">';
+                                resultsHtml += '<div class="flex items-center gap-3">';
+                                resultsHtml += '<div class="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">';
+                                resultsHtml += '<i data-lucide="check-circle" class="w-5 h-5 text-green-400"></i>';
+                                resultsHtml += '</div>';
+                                resultsHtml += '<div class="flex-1">';
+                                resultsHtml += '<div class="text-green-400 font-semibold text-lg">' + serviceName + '</div>';
+                                resultsHtml += '<div class="text-green-300 text-sm mt-1">✓ Chave válida e funcional</div>';
+                                if (result.message) {
+                                    resultsHtml += '<div class="text-green-200 text-xs mt-2">' + result.message + '</div>';
+                                }
+                                if (result.warning) {
+                                    resultsHtml += '<div class="text-yellow-300 text-xs mt-2 flex items-start gap-1">';
+                                    resultsHtml += '<i data-lucide="alert-triangle" class="w-3 h-3 mt-0.5 flex-shrink-0"></i>';
+                                    resultsHtml += '<span>' + result.warning + '</span></div>';
+                                }
+                                resultsHtml += '</div></div></div>';
                             } else {
-                                resultsHtml += `<li class='invalid'>${result.service}: Inválida (${result.error})</li>`;
+                                allValid = false;
+                                invalidCount++;
+                                resultsHtml += '<div class="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-3">';
+                                resultsHtml += '<div class="flex items-center gap-3">';
+                                resultsHtml += '<div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">';
+                                resultsHtml += '<i data-lucide="x-circle" class="w-5 h-5 text-red-400"></i>';
+                                resultsHtml += '</div>';
+                                resultsHtml += '<div class="flex-1">';
+                                resultsHtml += '<div class="text-red-400 font-semibold text-lg">' + serviceName + '</div>';
+                                resultsHtml += '<div class="text-red-300 text-sm mt-1">✗ Chave inválida</div>';
+                                if (result.error) {
+                                    resultsHtml += '<div class="text-red-200 text-xs mt-2">' + result.error + '</div>';
+                                }
+                                resultsHtml += '</div></div></div>';
                             }
                         });
-                        resultsHtml += "</ul>";
+
+                        if (!hasResults) {
+                            resultsHtml = '<div class="text-gray-300 text-center py-4">Nenhuma chave de API encontrada para validação.</div>';
+                        }
+
+                        // Usar modal centralizado para mostrar resultados com HTML
+                        const modalType = allValid && hasResults ? 'success' : (invalidCount > 0 ? 'error' : 'info');
+                        let modalTitle = 'Resultados da Validação';
+                        if (allValid && hasResults) {
+                            modalTitle = '✓ Validação Concluída (' + validCount + ' válida' + (validCount > 1 ? 's' : '') + ')';
+                        } else if (invalidCount > 0) {
+                            modalTitle = '⚠ Validação com Problemas (' + validCount + ' válida' + (validCount !== 1 ? 's' : '') + ', ' + invalidCount + ' inválida' + (invalidCount !== 1 ? 's' : '') + ')';
+                        }
                         
-                        showMessage('config-success-message', resultsHtml);
+                        console.log('[Validação] Mostrando modal:', {
+                            title: modalTitle,
+                            type: modalType,
+                            htmlLength: resultsHtml.length,
+                            htmlPreview: resultsHtml.substring(0, 300),
+                            validCount: validCount,
+                            invalidCount: invalidCount
+                        });
+                        
+                        // Garantir que temos conteúdo HTML
+                        if (!resultsHtml || resultsHtml.trim() === '') {
+                            resultsHtml = '<div class="text-red-400">Erro: Nenhum resultado foi gerado.</div>';
+                        }
+                        
+                        showCustomModalHTML(modalTitle, resultsHtml, modalType);
 
                     } catch (err) {
-                        showMessage('config-error-message', err.message, true);
+                        showCustomModal('Erro na Validação', err.message, 'error');
                     } finally {
                         setButtonLoading(validateButton, false);
                     }

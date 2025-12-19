@@ -68,6 +68,101 @@ const JWT_SECRET = process.env.JWT_SECRET || 'seu-segredo-jwt-super-secreto-troc
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'abc123def456ghi789jkl012mno345pqr'; // 32 caracteres
 const ALGORITHM = 'aes-256-cbc';
 
+async function ensureAmbientationsTable() {
+    await db.run(`CREATE TABLE IF NOT EXISTS niche_ambientations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        niche TEXT,
+        theme_key TEXT,
+        keywords TEXT,
+        ambiente TEXT,
+        elementos TEXT,
+        acessorios TEXT,
+        subject TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await db.run(`CREATE INDEX IF NOT EXISTS idx_niche_ambientations_user ON niche_ambientations(user_id)`);
+    await db.run(`CREATE INDEX IF NOT EXISTS idx_niche_ambientations_user_niche ON niche_ambientations(user_id, niche)`);
+    try { await db.run('ALTER TABLE niche_ambientations ADD COLUMN acessorios TEXT'); } catch (e) {}
+}
+
+async function detectAmbientationFromTitle(userId, title, niche) {
+    await ensureAmbientationsTable();
+    const rows = await db.all('SELECT id, niche, theme_key, keywords, ambiente, elementos, acessorios, subject FROM niche_ambientations WHERE user_id = ? AND (niche IS NULL OR niche = ?)', [userId, niche || null]);
+    if (!rows || rows.length === 0) return null;
+    const lower = String(title || '').toLowerCase();
+    let best = null;
+    let bestScore = 0;
+    for (const r of rows) {
+        const kw = String(r.keywords || '').toLowerCase().split(/[,;\s]+/).filter(Boolean);
+        if (kw.length === 0) continue;
+        let score = 0;
+        for (const k of kw) { if (k && lower.includes(k)) score++; }
+        if (score > bestScore) { bestScore = score; best = r; }
+    }
+    return bestScore > 0 ? best : null;
+}
+
+async function saveAmbientationSnapshot(userId, niche, themeKey, title, ambienteArr, elementosArr, subject, acessorios) {
+    await ensureAmbientationsTable();
+    const kw = Array.from(new Set(String(title || '').toLowerCase().split(/[^a-záéíóúãõâêîôûç0-9]+/i).filter(w => w && w.length > 2))).slice(0, 10).join(',');
+    try {
+        await db.run(
+            `INSERT INTO niche_ambientations (user_id, niche, theme_key, keywords, ambiente, elementos, acessorios, subject, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [userId, niche || null, themeKey || null, kw, (ambienteArr || []).join(', '), (elementosArr || []).join(', '), acessorios || null, subject || null]
+        );
+    } catch (e) {
+        await db.run(
+            `INSERT INTO niche_ambientations (user_id, niche, theme_key, keywords, ambiente, elementos, subject, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [userId, niche || null, themeKey || null, kw, (ambienteArr || []).join(', '), (elementosArr || []).join(', '), subject || null]
+        );
+    }
+}
+
+async function seedDefaultAmbientations(userId) {
+    await ensureAmbientationsTable();
+    const seeds = [
+        { theme_key: 'egito_antigo', keywords: 'egito,faraó,pirâmide,deserto,templo', subject: 'Egyptian pharaoh with nemes headdress and gold jewelry', acessorios: 'gold necklaces and ceremonial regalia', ambiente: 'pyramids and desert storms', elementos: 'hieroglyphs, torches, soldiers' },
+        { theme_key: 'neandertais', keywords: 'neandertal,pré-história,extinção,idade da pedra', subject: 'rugged Neanderthal with thick brow ridges, deep-set eyes, and weathered skin', acessorios: 'primitive fur and animal hides, no metal or feathers', ambiente: 'icy mountains and burning forests during the Ice Age', elementos: 'tribes walking, volcanic ash, mammoth silhouettes, aurora borealis' },
+        { theme_key: 'imperio_inca', keywords: 'inca,machu picchu,atahualpa,andes', subject: 'Inca leader with feathered headdress and ornate jewelry', ambiente: 'andes mountains, Inca temples, terraces', elementos: 'Machu Picchu, priests, offerings' },
+        { theme_key: 'imperio_asteca', keywords: 'azteca,tenochtitlan,sacrifício,selva', subject: 'Aztec warrior with plumes and ritual paint', ambiente: 'jungle, Aztec pyramids, ritual smoke', elementos: 'temples, sculptures, sacrifices' },
+        { theme_key: 'maias', keywords: 'maia,guatemala,calendário,glyphs', subject: 'Mayan king with ceremonial mask', ambiente: 'dense jungle, stone temples', elementos: 'calendars, glyphs, priests' },
+        { theme_key: 'vikings', keywords: 'viking,noruega,invasão,mar', subject: 'Viking warrior with axe and thick beard', ambiente: 'stormy seas, burning ships, icy fjords', elementos: 'longships, shields, ravens' },
+        { theme_key: 'grecia_antiga', keywords: 'grécia,atenas,olimpio,filósofo', subject: 'Greek general or philosopher', ambiente: 'doric temples, thundered hills', elementos: 'statues, palaces, columns' },
+        { theme_key: 'roma_antiga', keywords: 'romanos,império,coliseu,roma', subject: 'Roman centurion', ambiente: 'Colosseum ruins, banners', elementos: 'gladius, shields, aqueducts' },
+        { theme_key: 'medieval_cem_anos', keywords: 'medieval,cavaleiros,batalha,castelo', subject: 'Medieval knight', ambiente: 'burning castles, armored riders', elementos: 'lances, flags, catapults' },
+        { theme_key: 'guerra_civil_americana', keywords: 'civil americana,gettysburg,union,confederado', subject: 'Civil War soldier', ambiente: 'battlefields, smoke and powder', elementos: 'flags, cannons, horses' },
+        { theme_key: 'ww2', keywords: 'wwii,segunda guerra,d-day,nações', subject: 'WWII realistic soldier', ambiente: 'ruined city, tanks, rubble', elementos: 'planes, smoke, squads' },
+        { theme_key: 'imperio_persa', keywords: 'persa,ciro,aquemênida,deserto', subject: 'Persian king with royal jewels', ambiente: 'deserts, luxurious palaces', elementos: 'arches, cavalry, banners' },
+        { theme_key: 'china_imperial', keywords: 'china,dinastia,muralha,imperador', subject: 'Chinese emperor', ambiente: 'great wall, temples, mist', elementos: 'dragons, warriors, pagodas' },
+        { theme_key: 'japao_samurai', keywords: 'samurai,bushido,edo,katana', subject: 'Samurai in armor', ambiente: 'mountains, sakura, mist', elementos: 'katanas, buddhist temples' },
+        { theme_key: 'mesopotamia', keywords: 'mesopotâmia,babilônia,sumério,zigurates', subject: 'Sumerian/Babylonian king', ambiente: 'ziggurats, deserts, smoke', elementos: 'cuneiform tablets, deities' },
+        { theme_key: 'nativos_america_norte', keywords: 'nativo,índios,tribo,tótens', subject: 'Native American chief', ambiente: 'forests, mountains, camps', elementos: 'totems, arrows, paintings' },
+        { theme_key: 'descobrimento_conquista', keywords: 'descobrimento,columbus,navegador,astrolábio', subject: 'European navigator', ambiente: 'ships, storm, tropical coasts', elementos: 'maps, astrolabe' },
+        { theme_key: 'revolucao_industrial', keywords: 'industrial,vapor,fábricas,engrenagens', subject: 'Worker/engineer', ambiente: 'factories, black smoke, machinery', elementos: 'gears, boilers' },
+        { theme_key: 'renascimento_italiano', keywords: 'renascimento,florença,artista,filósofo', subject: 'Renaissance artist or philosopher', ambiente: 'Italian squares, artworks', elementos: 'paintings, statues' },
+        { theme_key: 'antiguidade_classica_oriental', keywords: 'orientais,confucionismo,templos,desertos', subject: 'Eastern warrior or philosopher', ambiente: 'temples, deserts, sacred mountains', elementos: 'ancient swords, scrolls' },
+    ];
+    for (const s of seeds) {
+        try {
+            await db.run(
+                `INSERT INTO niche_ambientations (user_id, niche, theme_key, keywords, ambiente, elementos, acessorios, subject, updated_at)
+                 VALUES (?, NULL, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                [userId, s.theme_key, s.keywords, s.ambiente, s.elementos, s.acessorios || null, s.subject]
+            );
+        } catch {
+            await db.run(
+                `INSERT INTO niche_ambientations (user_id, niche, theme_key, keywords, ambiente, elementos, subject, updated_at)
+                 VALUES (?, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                [userId, s.theme_key, s.keywords, s.ambiente, s.elementos, s.subject]
+            );
+        }
+    }
+}
+
 // --- GLOBALS ---
 let db;
 
@@ -558,23 +653,93 @@ function parseAIResponse(responseText, serviceName) {
 
 // --- FUNÇÕES AUXILIARES DE API (O DISTRIBUIDOR) ---
 
-async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
+async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalImages = []) {
     if (!apiKey) throw new Error("Chave de API do Utilizador (Gemini) não configurada.");
     
     const modelName = model; // Usar o nome do modelo diretamente do frontend
 
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
     
-    const parts = [{ text: prompt }];
+    const parts = [];
+    
+    // Adicionar imagem principal se fornecida
     if (imageUrl) {
         const { base64, mimeType } = await fetchImageAsBase64(imageUrl);
-        parts.unshift({
+        parts.push({
             inlineData: {
                 mimeType: mimeType,
                 data: base64
             }
         });
     }
+    
+    // Adicionar imagens adicionais (thumbnails de referência)
+    if (Array.isArray(additionalImages) && additionalImages.length > 0) {
+        for (const img of additionalImages) {
+            let base64, mimeType;
+            if (typeof img === 'string') {
+                // Se for base64 string direto
+                if (img.startsWith('data:image/')) {
+                    const imgParts = img.split(',');
+                    base64 = imgParts[1];
+                    // Extrair mimeType completo
+                    const mimeMatch = imgParts[0].match(/data:image\/([^;]+)/);
+                    if (mimeMatch && mimeMatch[1]) {
+                        const mimePart = mimeMatch[1].toLowerCase();
+                        // Normalizar para os tipos aceitos
+                        if (mimePart === 'jpeg' || mimePart === 'jpg') {
+                            mimeType = 'image/jpeg';
+                        } else if (mimePart === 'png') {
+                            mimeType = 'image/png';
+                        } else if (mimePart === 'gif') {
+                            mimeType = 'image/gif';
+                        } else if (mimePart === 'webp') {
+                            mimeType = 'image/webp';
+                        } else {
+                            mimeType = 'image/jpeg';
+                        }
+                    } else {
+                        mimeType = 'image/jpeg';
+                    }
+                } else {
+                    // Assumir que é base64 puro
+                    base64 = img;
+                    mimeType = 'image/jpeg';
+                }
+            } else if (img.base64) {
+                base64 = img.base64.startsWith('data:image/') ? img.base64.split(',')[1] : img.base64;
+                // Normalizar mimeType se fornecido
+                if (img.mimeType) {
+                    const mimeLower = img.mimeType.toLowerCase();
+                    if (mimeLower === 'jpeg' || mimeLower === 'jpg' || mimeLower === 'image/jpeg') {
+                        mimeType = 'image/jpeg';
+                    } else if (mimeLower === 'png' || mimeLower === 'image/png') {
+                        mimeType = 'image/png';
+                    } else if (mimeLower === 'gif' || mimeLower === 'image/gif') {
+                        mimeType = 'image/gif';
+                    } else if (mimeLower === 'webp' || mimeLower === 'image/webp') {
+                        mimeType = 'image/webp';
+                    } else {
+                        mimeType = 'image/jpeg';
+                    }
+                } else {
+                    mimeType = 'image/jpeg';
+                }
+            }
+            
+            if (base64 && mimeType) {
+                parts.push({
+                    inlineData: {
+                        mimeType: mimeType,
+                        data: base64
+                    }
+                });
+            }
+        }
+    }
+    
+    // Sempre adicionar o texto por último
+    parts.push({ text: prompt });
 
     // Detectar se é pedido de roteiro (texto puro) ou JSON
     const isScriptRequest = typeof prompt === 'string' && (
@@ -673,20 +838,45 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null) {
         }
     }
 }
-async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
+async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalImages = []) {
     if (!apiKey) throw new Error("Chave de API do Utilizador (OpenAI) não configurada.");
     
     const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
     
     const modelName = model; // Usar o nome do modelo diretamente do frontend
 
-    const content = [{ type: "text", text: prompt }];
+    const content = [];
+    
+    // Adicionar imagem principal se fornecida
     if (imageUrl) {
-        content.unshift({
+        content.push({
             type: "image_url",
             image_url: { "url": imageUrl, "detail": "high" }
         });
     }
+    
+    // Adicionar imagens adicionais (thumbnails de referência)
+    if (Array.isArray(additionalImages) && additionalImages.length > 0) {
+        for (const img of additionalImages) {
+            let imgUrl;
+            if (typeof img === 'string') {
+                // Se for base64 string, usar diretamente
+                imgUrl = img.startsWith('data:image/') ? img : `data:image/jpeg;base64,${img}`;
+            } else if (img.base64) {
+                imgUrl = img.base64.startsWith('data:image/') ? img.base64 : `data:image/jpeg;base64,${img.base64}`;
+            }
+            
+            if (imgUrl) {
+                content.push({
+                    type: "image_url",
+                    image_url: { "url": imgUrl, "detail": "high" }
+                });
+            }
+        }
+    }
+    
+    // Sempre adicionar o texto por último
+    content.push({ type: "text", text: prompt });
 
     // Detectar se é pedido de roteiro (texto puro) ou JSON
     const isScriptRequest = typeof prompt === 'string' && (
@@ -773,7 +963,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null) {
     }
 }
 
-async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeout = null) {
+async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeout = null, additionalImages = []) {
     if (!apiKey) throw new Error("Chave de API do Utilizador (Claude) não configurada.");
     
     const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -820,10 +1010,12 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
     
     console.log(`[Claude API] Modelo original: ${model}, Modelo mapeado: ${modelName}`);
 
-    const content = [{ type: "text", text: prompt }];
+    const content = [];
+    
+    // Adicionar imagem principal se fornecida
     if (imageUrl) {
         const { base64, mimeType } = await fetchImageAsBase64(imageUrl);
-        content.unshift({
+        content.push({
             type: "image",
             source: {
                 type: "base64",
@@ -832,6 +1024,77 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
             }
         });
     }
+    
+    // Adicionar imagens adicionais (thumbnails de referência)
+    if (Array.isArray(additionalImages) && additionalImages.length > 0) {
+        for (const img of additionalImages) {
+            let base64, mimeType;
+            if (typeof img === 'string') {
+                // Se for base64 string direto
+                if (img.startsWith('data:image/')) {
+                    const parts = img.split(',');
+                    base64 = parts[1];
+                    // Extrair mimeType completo (data:image/jpeg ou data:image/png, etc)
+                    const mimeMatch = parts[0].match(/data:image\/([^;]+)/);
+                    if (mimeMatch && mimeMatch[1]) {
+                        const mimePart = mimeMatch[1].toLowerCase();
+                        // Normalizar para os tipos aceitos pelo Claude API
+                        if (mimePart === 'jpeg' || mimePart === 'jpg') {
+                            mimeType = 'image/jpeg';
+                        } else if (mimePart === 'png') {
+                            mimeType = 'image/png';
+                        } else if (mimePart === 'gif') {
+                            mimeType = 'image/gif';
+                        } else if (mimePart === 'webp') {
+                            mimeType = 'image/webp';
+                        } else {
+                            // Default para jpeg se não reconhecer
+                            mimeType = 'image/jpeg';
+                        }
+                    } else {
+                        mimeType = 'image/jpeg';
+                    }
+                } else {
+                    // Assumir que é base64 puro
+                    base64 = img;
+                    mimeType = 'image/jpeg';
+                }
+            } else if (img.base64) {
+                base64 = img.base64.startsWith('data:image/') ? img.base64.split(',')[1] : img.base64;
+                // Normalizar mimeType se fornecido
+                if (img.mimeType) {
+                    const mimeLower = img.mimeType.toLowerCase();
+                    if (mimeLower === 'jpeg' || mimeLower === 'jpg' || mimeLower === 'image/jpeg') {
+                        mimeType = 'image/jpeg';
+                    } else if (mimeLower === 'png' || mimeLower === 'image/png') {
+                        mimeType = 'image/png';
+                    } else if (mimeLower === 'gif' || mimeLower === 'image/gif') {
+                        mimeType = 'image/gif';
+                    } else if (mimeLower === 'webp' || mimeLower === 'image/webp') {
+                        mimeType = 'image/webp';
+                    } else {
+                        mimeType = 'image/jpeg';
+                    }
+                } else {
+                    mimeType = 'image/jpeg';
+                }
+            }
+            
+            if (base64 && mimeType) {
+                content.push({
+                    type: "image",
+                    source: {
+                        type: "base64",
+                        media_type: mimeType,
+                        data: base64
+                    }
+                });
+            }
+        }
+    }
+    
+    // Sempre adicionar o texto por último
+    content.push({ type: "text", text: prompt });
 
     // Detectar se é pedido de roteiro (texto puro) ou JSON
     const isScriptRequest = typeof prompt === 'string' && (
@@ -1833,14 +2096,24 @@ ROTEIRO COMPLETO:
 
 async function validateGeminiKey(apiKey) {
     try {
+        // Validação de formato básica
+        if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 20) {
+            return { success: false, error: 'Chave de API inválida: formato incorreto ou muito curta.' };
+        }
+
         // Tentar primeiro com API do Gemini (generativelanguage.googleapis.com)
         // Para chaves de API do Gemini diretas
         try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout de 10 segundos
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
             if (response.status === 200) {
                 const data = await response.json();
                 if (data.models && data.models.length > 0) {
-                    return { success: true, type: 'gemini-api' };
+                    return { success: true, type: 'gemini-api', message: 'Chave de API do Gemini válida e funcional.' };
                 }
             }
             const error = await response.json().catch(() => ({}));
@@ -1852,7 +2125,10 @@ async function validateGeminiKey(apiKey) {
                 return { success: false, error: error.error?.message || 'Chave inválida ou sem modelos acessíveis.' };
             }
         } catch (geminiErr) {
-            console.log('[Validação Gemini] Erro ao validar como API direta, tentando Google Cloud...');
+            if (geminiErr.name === 'AbortError') {
+                return { success: false, error: 'Timeout: A validação demorou muito. Verifique sua conexão.' };
+            }
+            console.log('[Validação Gemini] Erro ao validar como API direta, tentando Google Cloud...', geminiErr.message);
         }
         
         // Tentar validar como chave do Google Cloud
@@ -1863,7 +2139,12 @@ async function validateGeminiKey(apiKey) {
         try {
             // Validar usando Google Cloud Text-to-Speech API (que já estamos usando)
             // Se a chave funcionar para TTS, ela é válida para serviços do Google Cloud
-            const ttsResponse = await fetch(`https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(apiKey)}&languageCode=pt-BR`);
+            const ttsController = new AbortController();
+            const ttsTimeoutId = setTimeout(() => ttsController.abort(), 10000);
+            const ttsResponse = await fetch(`https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(apiKey)}&languageCode=pt-BR`, {
+                signal: ttsController.signal
+            });
+            clearTimeout(ttsTimeoutId);
             
             if (ttsResponse.status === 200) {
                 const ttsData = await ttsResponse.json();
@@ -1908,19 +2189,57 @@ async function validateGeminiKey(apiKey) {
 
 async function validateOpenAIKey(apiKey) {
     try {
+        // Validação de formato básica - OpenAI keys geralmente começam com sk-
+        if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 20) {
+            return { success: false, error: 'Chave de API inválida: formato incorreto ou muito curta.' };
+        }
+        
+        if (!apiKey.trim().startsWith('sk-')) {
+            return { success: false, error: 'Formato inválido: chaves OpenAI devem começar com "sk-".' };
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout de 10 segundos
         const response = await fetch('https://api.openai.com/v1/models', {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            signal: controller.signal
         });
-        if (response.status === 200) return { success: true };
-        const error = await response.json();
-        return { success: false, error: error.error?.message || 'Chave inválida' };
+        clearTimeout(timeoutId);
+        
+        if (response.status === 200) {
+            const data = await response.json();
+            if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+                return { success: true, message: 'Chave OpenAI válida e funcional.' };
+            }
+            return { success: true, message: 'Chave OpenAI válida.' };
+        }
+        
+        const error = await response.json().catch(() => ({}));
+        if (response.status === 401 || response.status === 403) {
+            return { success: false, error: error.error?.message || 'Chave inválida ou sem permissão.' };
+        }
+        return { success: false, error: error.error?.message || `Erro na validação (status ${response.status})` };
     } catch (err) {
-        return { success: false, error: err.message };
+        if (err.name === 'AbortError') {
+            return { success: false, error: 'Timeout: A validação demorou muito. Verifique sua conexão.' };
+        }
+        return { success: false, error: err.message || 'Erro ao conectar com a API OpenAI.' };
     }
 }
 
 async function validateClaudeKey(apiKey) {
     try {
+        // Validação de formato básica - Claude keys geralmente começam com sk-ant-
+        if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 20) {
+            return { success: false, error: 'Chave de API inválida: formato incorreto ou muito curta.' };
+        }
+        
+        if (!apiKey.trim().startsWith('sk-ant-')) {
+            return { success: false, error: 'Formato inválido: chaves Claude devem começar com "sk-ant-".' };
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout de 10 segundos
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 
@@ -1932,54 +2251,87 @@ async function validateClaudeKey(apiKey) {
                 model: "claude-3-5-haiku-20241022", // Usar um modelo válido mais recente para validação
                 max_tokens: 10,
                 messages: [{ role: "user", content: "Test" }]
-            })
+            }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
         
         const data = await response.json();
 
         if (response.status === 200) {
-            return { success: true };
+            return { success: true, message: 'Chave Claude válida e funcional.' };
         } 
         else if (response.status === 401 || response.status === 403) {
-            return { success: false, error: data.error?.type || 'Chave inválida (auth)' };
+            return { success: false, error: data.error?.message || data.error?.type || 'Chave inválida ou sem permissão.' };
         } 
         else if (response.status === 400 && data.error?.type === 'invalid_request_error') {
             // Claude pode retornar 400 para 'invalid_request_error' mesmo com chave válida se o prompt for muito curto,
             // mas a chave em si é válida. Consideramos sucesso para validação da chave.
-            return { success: true }; 
+            return { success: true, message: 'Chave Claude válida.' }; 
         }
         else {
-            return { success: false, error: data.error?.type || `Erro ${response.status}` };
+            return { success: false, error: data.error?.message || data.error?.type || `Erro na validação (status ${response.status})` };
         }
     } catch (err) {
-        return { success: false, error: err.message };
+        if (err.name === 'AbortError') {
+            return { success: false, error: 'Timeout: A validação demorou muito. Verifique sua conexão.' };
+        }
+        return { success: false, error: err.message || 'Erro ao conectar com a API Claude.' };
     }
 }
 
 async function validateYouTubeKey(apiKey) {
     try {
+        // Validação de formato básica - YouTube API keys geralmente começam com AIza
+        if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 20) {
+            return { success: false, error: 'Chave de API inválida: formato incorreto ou muito curta.' };
+        }
+        
+        if (!apiKey.trim().startsWith('AIza')) {
+            return { success: false, error: 'Formato inválido: chaves YouTube Data API devem começar com "AIza".' };
+        }
+
         // Testar a chave fazendo uma requisição simples de busca
-        const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=test&type=video&key=${apiKey}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout de 10 segundos
+        const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&q=test&type=video&key=${encodeURIComponent(apiKey)}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
         
         if (response.status === 200) {
-            return { success: true };
+            const data = await response.json();
+            if (data.items || data.pageInfo) {
+                return { success: true, message: 'Chave YouTube Data API válida e funcional.' };
+            }
+            return { success: true, message: 'Chave YouTube Data API válida.' };
         }
         
         // Verificar erros específicos
         const data = await response.json();
         
         if (response.status === 400 && data.error?.errors?.[0]?.reason === 'keyInvalid') {
-            return { success: false, error: 'Chave de API inválida' };
+            return { success: false, error: 'Chave de API inválida ou malformada.' };
         }
         
-        if (response.status === 403 && data.error?.errors?.[0]?.reason === 'quotaExceeded') {
-            // Se a cota foi excedida, a chave é válida mas sem créditos
-            return { success: true };
+        if (response.status === 403) {
+            const reason = data.error?.errors?.[0]?.reason;
+            if (reason === 'quotaExceeded') {
+                // Se a cota foi excedida, a chave é válida mas sem créditos
+                return { success: true, message: 'Chave válida, mas cota excedida.', warning: 'A cota diária da API foi excedida.' };
+            } else if (reason === 'accessNotConfigured') {
+                return { success: false, error: 'YouTube Data API v3 não está habilitada no Google Cloud Console.' };
+            } else if (reason === 'forbidden') {
+                return { success: false, error: 'Chave sem permissão para acessar a API YouTube.' };
+            }
         }
         
-        return { success: false, error: data.error?.message || 'Chave inválida' };
+        return { success: false, error: data.error?.message || data.error?.errors?.[0]?.message || 'Chave inválida ou com problemas de acesso.' };
     } catch (err) {
-        return { success: false, error: err.message };
+        if (err.name === 'AbortError') {
+            return { success: false, error: 'Timeout: A validação demorou muito. Verifique sua conexão.' };
+        }
+        return { success: false, error: err.message || 'Erro ao conectar com a API YouTube.' };
     }
 }
 
@@ -3886,6 +4238,38 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (video_analysis_id) REFERENCES analyzed_videos (id) ON DELETE CASCADE
             );
+            
+            CREATE TABLE IF NOT EXISTS thumbnail_references (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                thumbnail_base64 TEXT NOT NULL,
+                folder_id INTEGER,
+                channel_name TEXT,
+                niche TEXT,
+                subniche TEXT,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (folder_id) REFERENCES analysis_folders (id) ON DELETE SET NULL
+            );
+        `);
+        
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS thumbnail_style_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                niche TEXT,
+                subniche TEXT,
+                folder_id INTEGER,
+                standard_prompt TEXT NOT NULL,
+                analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (folder_id) REFERENCES analysis_folders (id) ON DELETE SET NULL
+            );
+            
+            -- Criar índice para melhorar performance nas buscas
+            CREATE INDEX IF NOT EXISTS idx_thumbnail_style_prompts_user_niche ON thumbnail_style_prompts(user_id, niche, subniche, folder_id);
         `);
         
         await db.exec(`
@@ -4020,6 +4404,34 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             // Ignorar se já existe
             if (!/duplicate column name/i.test(err.message)) {
                 console.error('[MIGRATION] Erro ao adicionar coluna updated_at:', err);
+            }
+        }
+        
+        // Migração: adicionar colunas para 3 prompts no thumbnail_style_prompts
+        try {
+            const thumbnailStylePromptsInfo = await db.all("PRAGMA table_info(thumbnail_style_prompts)");
+            const thumbnailStylePromptsColumns = {
+                prompt_1: 'TEXT',
+                prompt_2: 'TEXT',
+                prompt_3: 'TEXT',
+                prompt_selected: 'INTEGER DEFAULT 1'
+            };
+            for (const [col, type] of Object.entries(thumbnailStylePromptsColumns)) {
+                if (!thumbnailStylePromptsInfo.some(c => c.name === col)) {
+                    console.log(`MIGRATION: Adicionando coluna "${col}" à tabela "thumbnail_style_prompts"...`);
+                    await db.exec(`ALTER TABLE thumbnail_style_prompts ADD COLUMN ${col} ${type}`);
+                }
+            }
+            // Migrar dados existentes: se standard_prompt existe mas prompt_1 não, copiar
+            const hasPrompt1 = thumbnailStylePromptsInfo.some(c => c.name === 'prompt_1');
+            const hasStandardPrompt = thumbnailStylePromptsInfo.some(c => c.name === 'standard_prompt');
+            if (!hasPrompt1 && hasStandardPrompt) {
+                console.log('MIGRATION: Migrando dados de standard_prompt para prompt_1...');
+                await db.exec(`UPDATE thumbnail_style_prompts SET prompt_1 = standard_prompt, prompt_selected = 1 WHERE prompt_1 IS NULL`);
+            }
+        } catch (err) {
+            if (!/duplicate column name/i.test(err.message)) {
+                console.error('[MIGRATION] Erro ao adicionar colunas de prompts:', err);
             }
         }
         
@@ -11799,13 +12211,44 @@ app.post('/api/keys/save', authenticateToken, async (req, res) => {
 app.get('/api/keys/status', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     try {
-        const keys = await db.all('SELECT service_name FROM user_api_keys WHERE user_id = ?', [userId]);
-        const status = {
-            gemini: keys.some(k => k.service_name === 'gemini'),
-            openai: keys.some(k => k.service_name === 'openai'),
-            claude: keys.some(k => k.service_name === 'claude'),
-            imagefx: keys.some(k => k.service_name === 'imagefx'),
+        const keys = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+        
+        // Função para mascarar chave
+        const maskKey = (key, serviceName) => {
+            if (!key) return '';
+            try {
+                const decrypted = decrypt(key);
+                if (!decrypted) return '';
+                
+                // Mostrar primeiros 4 caracteres e últimos 4 caracteres
+                if (decrypted.length > 12) {
+                    const prefix = decrypted.substring(0, 4);
+                    const suffix = decrypted.substring(decrypted.length - 4);
+                    return `${prefix}${'•'.repeat(Math.min(decrypted.length - 8, 20))}${suffix}`;
+                }
+                return '••••••••';
+            } catch (err) {
+                // Se falhar ao descriptografar, ainda mostrar que existe
+                return '••••••••';
+            }
         };
+        
+        const status = {};
+        keys.forEach(k => {
+            status[k.service_name] = {
+                exists: true,
+                masked: maskKey(k.api_key, k.service_name)
+            };
+        });
+        
+        // Incluir todos os serviços possíveis
+        const allServices = ['gemini', 'openai', 'claude', 'imagefx', 'youtube'];
+        allServices.forEach(service => {
+            if (!status[service]) {
+                status[service] = { exists: false, masked: '' };
+            }
+        });
+        
         res.status(200).json(status);
     } catch (err) {
         console.error('Erro ao buscar status das chaves:', err);
@@ -14032,6 +14475,552 @@ function getThumbnailViralRules(selectedRule = 'auto', selectedTitle = '') {
     }
 }
 
+// === ROTAS PARA THUMBNAILS DE REFERÊNCIA ===
+
+// Upload de thumbnail de referência
+app.post('/api/thumbnail-references/upload', authenticateToken, async (req, res) => {
+    try {
+        const { thumbnail_base64, folder_id, channel_name, niche, subniche, description } = req.body;
+        const userId = req.user.id;
+
+        if (!thumbnail_base64) {
+            return res.status(400).json({ msg: 'Thumbnail em base64 é obrigatória.' });
+        }
+
+        // Validar formato base64
+        if (!thumbnail_base64.startsWith('data:image/')) {
+            return res.status(400).json({ msg: 'Formato de imagem inválido. Use base64 com data URI.' });
+        }
+
+        // Verificar se a coluna folder_id existe na tabela
+        let hasFolderId = false;
+        try {
+            const tableInfo = await db.all("PRAGMA table_info(thumbnail_references)");
+            hasFolderId = tableInfo.some(col => col.name === 'folder_id');
+            
+            // Se não existir, criar a coluna
+            if (!hasFolderId) {
+                await db.run('ALTER TABLE thumbnail_references ADD COLUMN folder_id INTEGER');
+                await db.run('CREATE INDEX IF NOT EXISTS idx_thumbnail_ref_folder ON thumbnail_references(folder_id)');
+                hasFolderId = true;
+            }
+        } catch (e) {
+            console.warn('[Thumbnail Ref] Erro ao verificar/criar coluna folder_id:', e.message);
+        }
+
+        // Validar se a pasta pertence ao usuário (se folder_id for fornecido)
+        if (folder_id && hasFolderId) {
+            try {
+                const folder = await db.get('SELECT id FROM analysis_folders WHERE id = ? AND user_id = ?', [folder_id, userId]);
+                if (!folder) {
+                    return res.status(400).json({ msg: 'Pasta não encontrada ou não pertence ao usuário.' });
+                }
+            } catch (e) {
+                console.warn('[Thumbnail Ref] Erro ao validar pasta:', e.message);
+            }
+        }
+
+        // Inserir com ou sem folder_id dependendo da estrutura da tabela
+        let result;
+        if (hasFolderId) {
+            result = await db.run(
+                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, folder_id, channel_name, niche, subniche, description)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, thumbnail_base64, folder_id || null, channel_name || null, niche || null, subniche || null, description || null]
+            );
+        } else {
+            result = await db.run(
+                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, channel_name, niche, subniche, description)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [userId, thumbnail_base64, channel_name || null, niche || null, subniche || null, description || null]
+            );
+        }
+
+        res.status(200).json({ 
+            msg: 'Thumbnail de referência salva com sucesso.',
+            id: result.lastID 
+        });
+    } catch (err) {
+        console.error('Erro ao salvar thumbnail de referência:', err);
+        res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
+// Listar thumbnails de referência
+app.get('/api/thumbnail-references', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { folder_id, channel_name, niche, subniche } = req.query;
+
+        // Verificar se a coluna folder_id existe, se não, usar query sem ela
+        let query = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, created_at FROM thumbnail_references WHERE user_id = ?';
+        const params = [userId];
+        
+        // Tentar adicionar folder_id se a coluna existir
+        try {
+            const tableInfo = await db.all("PRAGMA table_info(thumbnail_references)");
+            const hasFolderId = tableInfo.some(col => col.name === 'folder_id');
+            if (hasFolderId) {
+                query = 'SELECT id, thumbnail_base64, folder_id, channel_name, niche, subniche, description, created_at FROM thumbnail_references WHERE user_id = ?';
+            }
+        } catch (e) {
+            // Se der erro ao verificar, usar query sem folder_id
+            console.warn('[Thumbnail Ref] Erro ao verificar estrutura da tabela:', e.message);
+        }
+
+        if (folder_id) {
+            try {
+                const tableInfo = await db.all("PRAGMA table_info(thumbnail_references)");
+                const hasFolderId = tableInfo.some(col => col.name === 'folder_id');
+                if (hasFolderId) {
+                    query += ' AND (folder_id = ? OR folder_id IS NULL)';
+                    params.push(folder_id);
+                }
+            } catch (e) {
+                // Ignorar se coluna não existir
+            }
+        }
+        if (channel_name) {
+            query += ' AND channel_name = ?';
+            params.push(channel_name);
+        }
+        if (niche) {
+            query += ' AND niche = ?';
+            params.push(niche);
+        }
+        if (subniche) {
+            query += ' AND subniche = ?';
+            params.push(subniche);
+        }
+
+        query += ' ORDER BY created_at DESC';
+
+        const references = await db.all(query, params);
+
+        // Retornar com base64 para exibição na interface
+        res.status(200).json({ references });
+    } catch (err) {
+        console.error('Erro ao listar thumbnails de referência:', err);
+        res.status(500).json({ msg: 'Erro no servidor: ' + err.message });
+    }
+});
+
+// Obter thumbnail de referência específica (com base64)
+app.get('/api/thumbnail-references/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { id } = req.params;
+
+        const reference = await db.get(
+            'SELECT * FROM thumbnail_references WHERE id = ? AND user_id = ?',
+            [id, userId]
+        );
+
+        if (!reference) {
+            return res.status(404).json({ msg: 'Thumbnail de referência não encontrada.' });
+        }
+
+        res.status(200).json({ reference });
+    } catch (err) {
+        console.error('Erro ao buscar thumbnail de referência:', err);
+        res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
+// Analisar thumbnails de referência e gerar prompt padrão
+app.post('/api/thumbnail-references/analyze-style', authenticateToken, async (req, res) => {
+    try {
+        const { niche, subniche, folder_id, force_reanalyze, model } = req.body;
+        const userId = req.user.id;
+
+        // Buscar thumbnails de referência do nicho/subnicho
+        let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description FROM thumbnail_references WHERE user_id = ?';
+        const refParams = [userId];
+        
+        if (folder_id) {
+            refQuery += ' AND (folder_id = ? OR folder_id IS NULL)';
+            refParams.push(folder_id);
+        }
+        if (subniche) {
+            refQuery += ' AND (subniche = ? OR subniche IS NULL)';
+            refParams.push(subniche);
+        }
+        if (niche) {
+            refQuery += ' AND (niche = ? OR niche IS NULL)';
+            refParams.push(niche);
+        }
+        
+        refQuery += ' ORDER BY created_at DESC LIMIT 10';
+        
+        const thumbnailReferences = await db.all(refQuery, refParams);
+        
+        if (!thumbnailReferences || thumbnailReferences.length === 0) {
+            return res.status(400).json({ msg: 'Nenhuma thumbnail de referência encontrada para este nicho/subnicho.' });
+        }
+
+        // Verificar se já existe um prompt padrão e se não precisa re-analisar
+        if (!force_reanalyze) {
+            let existingPromptQuery = 'SELECT id, standard_prompt FROM thumbnail_style_prompts WHERE user_id = ?';
+            const existingPromptParams = [userId];
+            
+            if (folder_id) {
+                existingPromptQuery += ' AND (folder_id = ? OR folder_id IS NULL)';
+                existingPromptParams.push(folder_id);
+            }
+            if (subniche) {
+                existingPromptQuery += ' AND (subniche = ? OR subniche IS NULL)';
+                existingPromptParams.push(subniche);
+            }
+            if (niche) {
+                existingPromptQuery += ' AND (niche = ? OR niche IS NULL)';
+                existingPromptParams.push(niche);
+            }
+            
+            const existingPrompt = await db.get(existingPromptQuery, existingPromptParams);
+            if (existingPrompt) {
+                return res.status(200).json({ 
+                    prompt: existingPrompt.standard_prompt,
+                    message: 'Prompt padrão já existe. Use force_reanalyze=true para re-analisar.',
+                    id: existingPrompt.id
+                });
+            }
+        }
+
+        // Buscar API key para análise - usar modelo selecionado ou escolher automaticamente
+        let apiKey = null;
+        let service = null;
+        let modelToUse = null;
+        
+        if (model && model !== 'auto') {
+            // Usar modelo especificado pelo usuário
+            if (model.includes('claude') || model === 'claude-3-7-sonnet-20250219') {
+                service = 'claude';
+                modelToUse = 'claude-3-7-sonnet-20250219';
+            } else if (model.includes('gpt') || model === 'gpt-4o') {
+                service = 'openai';
+                modelToUse = 'gpt-4o';
+            } else if (model.includes('gemini') || model === 'gemini-2.5-pro') {
+                service = 'gemini';
+                modelToUse = 'gemini-2.5-pro';
+            }
+            
+            // Buscar API key para o serviço especificado
+            if (service) {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (keyData && keyData.api_key) {
+                    try {
+                        apiKey = decrypt(keyData.api_key);
+                    } catch (e) {
+                        // Se falhar, tentar automático
+                        service = null;
+                        modelToUse = null;
+                    }
+                } else {
+                    // Se não tiver a chave do modelo especificado, tentar automático
+                    service = null;
+                    modelToUse = null;
+                }
+            }
+        }
+        
+        // Se não especificado ou falhou, usar prioridade automática (claude > openai > gemini)
+        if (!apiKey) {
+            const services = ['claude', 'openai', 'gemini'];
+            for (const svc of services) {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+                if (keyData && keyData.api_key) {
+                    try {
+                        apiKey = decrypt(keyData.api_key);
+                        service = svc;
+                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        else if (svc === 'openai') modelToUse = 'gpt-4o';
+                        else modelToUse = 'gemini-2.5-pro';
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Nenhuma API key configurada. Configure pelo menos uma API (Claude, OpenAI ou Gemini) nas Configurações.' });
+        }
+
+        // Preparar imagens para análise
+        const additionalImages = thumbnailReferences.map(ref => ref.thumbnail_base64).filter(Boolean);
+        
+        // Criar prompt para análise de estilo - gerar 3 prompts diferentes e fiéis
+        const analysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE ESTILO VISUAL DE THUMBNAILS.
+
+Analise as ${thumbnailReferences.length} thumbnail(s) de referência fornecidas e identifique os ELEMENTOS VISUAIS COMUNS e o ESTILO PADRÃO usado.
+
+IMPORTANTE: Sua tarefa é criar TRÊS (3) PROMPTS PADRÕES DIFERENTES que descrevam o estilo visual destas thumbnails de forma FIEL, cada um com uma abordagem ligeiramente diferente, mas todos mantendo a identidade visual do canal/nicho.
+
+CRÍTICO - FIDELIDADE AO ESTILO:
+- Seja EXTREMAMENTE FIEL ao estilo visual das thumbnails de referência
+- Replique fielmente: composição, cores, tipografia, elementos visuais
+- Mantenha a identidade visual do canal/nicho
+- Cada prompt deve ser uma variação fiel, não uma reinvenção completa
+
+ANALISE OS SEGUINTES ELEMENTOS:
+1. Composição visual (layout, enquadramento, posicionamento de elementos)
+2. Paleta de cores dominante (cores principais, contrastes)
+3. Estilo de tipografia (fontes, tamanhos, efeitos, posicionamento)
+4. Elementos visuais recorrentes (objetos, símbolos, elementos decorativos)
+5. Iluminação e atmosfera (clara/escura, dramática/suave)
+6. Estilo geral (realista/cartoon/cinematográfico/minimalista)
+7. Regras de design específicas (regra dos terços, contraste, hierarquia visual)
+
+RESPONDA APENAS COM UM OBJETO JSON:
+{
+  "prompt_1": "Primeiro prompt detalhado em inglês que descreve o estilo visual padrão destas thumbnails de forma fiel, focando na composição e elementos principais. Seja específico e detalhado.",
+  "prompt_2": "Segundo prompt detalhado em inglês que descreve o mesmo estilo visual, mas com foco diferente (ex: cores e tipografia). Mantenha a fidelidade ao estilo original.",
+  "prompt_3": "Terceiro prompt detalhado em inglês que descreve o mesmo estilo visual, mas com ênfase em outros aspectos (ex: iluminação e atmosfera). Continue sendo fiel ao estilo original."
+}
+
+IMPORTANTE: Os 3 prompts devem ser variações fiéis do mesmo estilo, não estilos completamente diferentes. Todos devem manter a identidade visual do canal/nicho.`;
+
+        // Chamar API para análise
+        let analysisResponse;
+        if (service === 'claude') {
+            analysisResponse = await callClaudeAPI(analysisPrompt, apiKey, modelToUse, null, null, additionalImages);
+        } else if (service === 'openai') {
+            analysisResponse = await callOpenAIAPI(analysisPrompt, apiKey, modelToUse, null, additionalImages);
+        } else {
+            analysisResponse = await callGeminiAPI(analysisPrompt, apiKey, modelToUse, null, additionalImages);
+        }
+        
+        const analysisText = typeof analysisResponse === 'string' ? analysisResponse : (analysisResponse.titles || JSON.stringify(analysisResponse));
+        const parsedAnalysis = parseAIResponse(analysisText, service);
+        
+        // Validar que os 3 prompts foram gerados
+        if (!parsedAnalysis.prompt_1 || !parsedAnalysis.prompt_2 || !parsedAnalysis.prompt_3) {
+            // Fallback: se não tiver os 3, tentar usar standard_prompt e criar variações
+            if (parsedAnalysis.standard_prompt) {
+                parsedAnalysis.prompt_1 = parsedAnalysis.standard_prompt;
+                parsedAnalysis.prompt_2 = parsedAnalysis.standard_prompt;
+                parsedAnalysis.prompt_3 = parsedAnalysis.standard_prompt;
+            } else {
+                throw new Error('A IA não retornou os 3 prompts esperados.');
+            }
+        }
+        
+        const prompt1 = parsedAnalysis.prompt_1;
+        const prompt2 = parsedAnalysis.prompt_2;
+        const prompt3 = parsedAnalysis.prompt_3;
+
+        // Verificar se já existe um prompt padrão para atualizar
+        // Construir query que trata NULLs corretamente
+        let checkQuery = 'SELECT id FROM thumbnail_style_prompts WHERE user_id = ?';
+        const checkParams = [userId];
+        
+        if (niche) {
+            checkQuery += ' AND niche = ?';
+            checkParams.push(niche);
+        } else {
+            checkQuery += ' AND niche IS NULL';
+        }
+        
+        if (subniche) {
+            checkQuery += ' AND subniche = ?';
+            checkParams.push(subniche);
+        } else {
+            checkQuery += ' AND subniche IS NULL';
+        }
+        
+        if (folder_id) {
+            checkQuery += ' AND folder_id = ?';
+            checkParams.push(folder_id);
+        } else {
+            checkQuery += ' AND folder_id IS NULL';
+        }
+        
+        const existingPrompt = await db.get(checkQuery, checkParams);
+        
+        let result;
+        if (existingPrompt) {
+            // Atualizar existente com os 3 prompts
+            // Manter prompt_selected se já existir, caso contrário usar 1
+            result = await db.run(
+                `UPDATE thumbnail_style_prompts 
+                 SET prompt_1 = ?, prompt_2 = ?, prompt_3 = ?, 
+                     standard_prompt = ?, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [prompt1, prompt2, prompt3, prompt1, existingPrompt.id]
+            );
+            
+            // Se prompt_selected não existir ou for NULL, definir como 1
+            await db.run(
+                `UPDATE thumbnail_style_prompts 
+                 SET prompt_selected = 1 
+                 WHERE id = ? AND (prompt_selected IS NULL OR prompt_selected = 0)`,
+                [existingPrompt.id]
+            );
+        } else {
+            // Inserir novo com os 3 prompts
+            result = await db.run(
+                `INSERT INTO thumbnail_style_prompts (user_id, niche, subniche, folder_id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
+                [userId, niche || null, subniche || null, folder_id || null, prompt1, prompt2, prompt3, prompt1]
+            );
+        }
+
+        // Buscar o registro atualizado para retornar todos os dados
+        const updatedRecord = await db.get('SELECT * FROM thumbnail_style_prompts WHERE id = ?', [existingPrompt ? existingPrompt.id : result.lastID]);
+
+        res.status(200).json({ 
+            msg: 'Estilo analisado e 3 prompts salvos com sucesso.',
+            prompts: {
+                prompt_1: updatedRecord.prompt_1 || prompt1,
+                prompt_2: updatedRecord.prompt_2 || prompt2,
+                prompt_3: updatedRecord.prompt_3 || prompt3
+            },
+            prompt_selected: updatedRecord.prompt_selected || 1,
+            id: updatedRecord.id
+        });
+    } catch (err) {
+        console.error('Erro ao analisar estilo das thumbnails:', err);
+        res.status(500).json({ msg: 'Erro no servidor: ' + err.message });
+    }
+});
+
+// Obter prompts padrão para um nicho/subnicho
+app.get('/api/thumbnail-style-prompts', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { niche, subniche, folder_id } = req.query;
+
+        let query = 'SELECT id, niche, subniche, folder_id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected, analyzed_at, updated_at FROM thumbnail_style_prompts WHERE user_id = ?';
+        const params = [userId];
+
+        if (folder_id) {
+            query += ' AND (folder_id = ? OR folder_id IS NULL)';
+            params.push(folder_id);
+        }
+        if (subniche) {
+            query += ' AND (subniche = ? OR subniche IS NULL)';
+            params.push(subniche);
+        }
+        if (niche) {
+            query += ' AND (niche = ? OR niche IS NULL)';
+            params.push(niche);
+        }
+
+        query += ' ORDER BY updated_at DESC LIMIT 1';
+
+        const promptData = await db.get(query, params);
+
+        if (!promptData) {
+            // Retornar 200 com dados vazios ao invés de 404 para não gerar erro no frontend
+            return res.status(200).json({ prompt: null, prompts: null });
+        }
+
+        // Determinar qual prompt usar (prompt_selected ou fallback para prompt_1 ou standard_prompt)
+        const selectedPromptNum = promptData.prompt_selected || 1;
+        let selectedPrompt = null;
+        if (promptData.prompt_1 || promptData.prompt_2 || promptData.prompt_3) {
+            if (selectedPromptNum === 1 && promptData.prompt_1) selectedPrompt = promptData.prompt_1;
+            else if (selectedPromptNum === 2 && promptData.prompt_2) selectedPrompt = promptData.prompt_2;
+            else if (selectedPromptNum === 3 && promptData.prompt_3) selectedPrompt = promptData.prompt_3;
+            else selectedPrompt = promptData.prompt_1 || promptData.prompt_2 || promptData.prompt_3;
+        } else {
+            selectedPrompt = promptData.standard_prompt;
+        }
+
+        res.status(200).json({ 
+            prompt: {
+                ...promptData,
+                standard_prompt: selectedPrompt
+            },
+            prompts: {
+                prompt_1: promptData.prompt_1 || promptData.standard_prompt,
+                prompt_2: promptData.prompt_2 || promptData.standard_prompt,
+                prompt_3: promptData.prompt_3 || promptData.standard_prompt
+            },
+            prompt_selected: selectedPromptNum
+        });
+    } catch (err) {
+        console.error('Erro ao buscar prompt padrão:', err);
+        res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
+// Selecionar qual dos 3 prompts usar como padrão
+app.post('/api/thumbnail-style-prompts/select', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { niche, subniche, folder_id, prompt_number } = req.body;
+
+        if (!prompt_number || (prompt_number !== 1 && prompt_number !== 2 && prompt_number !== 3)) {
+            return res.status(400).json({ msg: 'prompt_number deve ser 1, 2 ou 3.' });
+        }
+
+        // Buscar o registro (mesma lógica do GET)
+        let query = 'SELECT id FROM thumbnail_style_prompts WHERE user_id = ?';
+        const params = [userId];
+
+        if (folder_id !== undefined && folder_id !== null && folder_id !== '') {
+            query += ' AND (folder_id = ? OR folder_id IS NULL)';
+            params.push(folder_id);
+        }
+
+        if (subniche) {
+            query += ' AND (subniche = ? OR subniche IS NULL)';
+            params.push(subniche);
+        }
+
+        if (niche) {
+            query += ' AND (niche = ? OR niche IS NULL)';
+            params.push(niche);
+        }
+
+        query += ' ORDER BY updated_at DESC LIMIT 1';
+
+        const promptData = await db.get(query, params);
+
+        if (!promptData) {
+            return res.status(404).json({ msg: 'Nenhum prompt padrão encontrado para este nicho/subnicho.' });
+        }
+
+        // Atualizar prompt_selected
+        await db.run(
+            'UPDATE thumbnail_style_prompts SET prompt_selected = ? WHERE id = ?',
+            [prompt_number, promptData.id]
+        );
+
+        res.status(200).json({ 
+            msg: `Prompt ${prompt_number} selecionado como padrão.`,
+            prompt_selected: prompt_number
+        });
+    } catch (err) {
+        console.error('Erro ao selecionar prompt padrão:', err);
+        res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
+// Deletar thumbnail de referência
+app.delete('/api/thumbnail-references/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { id } = req.params;
+
+        const result = await db.run(
+            'DELETE FROM thumbnail_references WHERE id = ? AND user_id = ?',
+            [id, userId]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ msg: 'Thumbnail de referência não encontrada.' });
+        }
+
+        res.status(200).json({ msg: 'Thumbnail de referência deletada com sucesso.' });
+    } catch (err) {
+        console.error('Erro ao deletar thumbnail de referência:', err);
+        res.status(500).json({ msg: 'Erro no servidor.' });
+    }
+});
+
 app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
     let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule } = req.body;
     const userId = req.user.id;
@@ -14135,6 +15124,43 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             console.warn(`[Análise-Thumb] Não foi possível buscar análise original: ${err.message}`);
         }
         
+        // --- 2.6. Buscar thumbnails de referência do canal/nicho ---
+        let thumbnailReferences = [];
+        try {
+            // Buscar thumbnails de referência que correspondam ao canal/nicho
+            let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description FROM thumbnail_references WHERE user_id = ?';
+            const refParams = [userId];
+            
+            // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
+            // Priorizar subniche, depois niche, depois qualquer thumbnail do usuário
+            if (subniche || niche) {
+                refQuery += ' AND (';
+                const conditions = [];
+                if (subniche) {
+                    conditions.push('subniche = ?');
+                    refParams.push(subniche);
+                }
+                if (niche) {
+                    conditions.push('niche = ?');
+                    refParams.push(niche);
+                }
+                // Também incluir thumbnails sem filtro específico (NULL)
+                conditions.push('(subniche IS NULL AND niche IS NULL)');
+                refQuery += conditions.join(' OR ') + ')';
+            }
+            
+            refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
+            
+            const refs = await db.all(refQuery, refParams);
+            thumbnailReferences = refs || [];
+            
+            if (thumbnailReferences.length > 0) {
+                console.log(`[Análise-Thumb] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o canal/nicho`);
+            }
+        } catch (err) {
+            console.warn(`[Análise-Thumb] Erro ao buscar thumbnails de referência: ${err.message}`);
+        }
+        
         // --- 3. Criar o prompt multimodal (PROMPT REFINADO ou CUSTOMIZADO) ---
         let thumbPrompt;
         
@@ -14144,15 +15170,109 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            ${thumbnailReferences.length > 0 ? `
+            🎨 THUMBNAILS DE REFERÊNCIA DO CANAL/NICHO (IMPORTANTE - ESTILO DO CANAL):
+            ${thumbnailReferences.map((ref, idx) => `[IMAGEM ${idx + 1} DE REFERÊNCIA DO CANAL: A thumbnail de referência ${idx + 1} do canal está anexada${ref.description ? ` (Descrição: ${ref.description})` : ''}]`).join('\n            ')}
+            
+            ⚠️⚠️⚠️ CRÍTICO - USE AS THUMBNAILS DE REFERÊNCIA DO CANAL COMO ESTILO PRINCIPAL ⚠️⚠️⚠️:
+            - Analise cuidadosamente TODAS as ${thumbnailReferences.length} thumbnail(s) de referência do canal que estão anexadas acima.
+            - Estas thumbnails representam o ESTILO VISUAL OFICIAL do canal/nicho "${subniche}".
+            - A IDEIA 1 DEVE replicar fielmente o estilo visual dessas thumbnails de referência do canal (composição, cores, tipografia, elementos visuais, posicionamento de texto, etc.).
+            - Identifique os elementos comuns entre as thumbnails de referência: tipo de composição, paleta de cores, estilo de texto, posicionamento de elementos, iluminação, etc.
+            - Replique EXATAMENTE esse estilo visual na IDEIA 1, mantendo a identidade visual do canal.
+            - A IDEIA 2 pode ser mais criativa, mas ainda deve respeitar a identidade visual do canal baseada nas thumbnails de referência.
+            - Se as thumbnails de referência do canal usarem textos em dourado, composição dividida, close-up dramático ou outros elementos específicos, REPLIQUE-OS FIELMENTE na IDEIA 1.
+            ` : ''}
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
             SUBNICHO (Público-Alvo): "${subniche}"
             ESTILO DE ARTE DESEJADO: "${style}"
             IDIOMA DO CONTEÚDO: "${language}"
 
-            PROMPT PERSONALIZADO DO USUÁRIO:
+            🎨🎨🎨 PROMPT PADRÃO DO ESTILO DO CANAL/NICHO (USAR APENAS O ESTILO VISUAL - NÃO O CONTEÚDO) 🎨🎨🎨:
             ${customPrompt}
+            
+            ⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO VISUAL - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:
+            - O PROMPT PADRÃO acima define APENAS o ESTILO VISUAL (composição, cores, tipografia, elementos, iluminação, atmosfera).
+            - O CONTEÚDO das thumbnails deve ser SOBRE O TÍTULO "${selectedTitle}" que o usuário escolheu.
+            - NÃO use o conteúdo do prompt padrão. Use APENAS o estilo visual dele.
+            - NÃO crie um prompt novo. APLIQUE o estilo do prompt padrão ao título "${selectedTitle}".
+            
+            PROCESSO OBRIGATÓRIO:
+            1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:
+               - Tipo de composição (ex: "close-up dramático", "composição dividida", "cena épica")
+               - Paleta de cores (ex: "dourado e azul escuro", "tons terrosos", "vermelho e preto")
+               - Estilo de tipografia (ex: "textos dourados serifados com bevel/emboss", "fonte bold com outline preto")
+               - Elementos visuais recorrentes (ex: "pirâmides ao fundo", "navios", "fogo", "tempestades", "silhuetas")
+               - Iluminação e atmosfera (ex: "iluminação dramática", "céu tempestuoso", "chiaroscuro", "luz dourada")
+               - Estilo geral (ex: "cinematográfico", "documental", "épico", "realista")
+            
+            2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo deve ser sobre "${selectedTitle}".
+            
+            3. APLIQUE o estilo extraído ao criar thumbnails sobre o título "${selectedTitle}":
+               - Use a mesma composição (ex: se o estilo é "close-up", faça close-up mas do assunto relacionado a "${selectedTitle}")
+               - Use a mesma paleta de cores
+               - Use o mesmo estilo de tipografia
+               - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo visual)
+               - Use a mesma iluminação e atmosfera
+               - Mantenha o estilo geral
+            
+            4. RESULTADO: Thumbnails sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.
+            
+            EXEMPLO:
+            - Se o prompt padrão diz "close-up de líder indígena com textos dourados" mas o título é sobre tecnologia inca:
+              → Use "close-up" (estilo) + "textos dourados" (estilo) + "tecnologia inca" (conteúdo do título)
+              → RESULTADO: "close-up de tecnologia inca com textos dourados"
+            
+            ⚠️ NÃO REPLIQUE O PROMPT PADRÃO. APLIQUE APENAS O ESTILO AO TÍTULO ESCOLHIDO.
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎨 IDENTIFICAÇÃO E REPLICAÇÃO DE ESTILOS ÉPICOS/CINEMATOGRÁFICOS:
+            
+            Analise a IMAGEM DE REFERÊNCIA e identifique qual estilo visual ela utiliza. Se identificar algum dos estilos abaixo, REPLIQUE-O FIELMENTE na IDEIA 1, apenas melhorando a qualidade:
+            
+            📐 ESTILO 1: COMPOSIÇÃO DIVIDIDA (ESQUERDA/DIREITA):
+            - Imagem dividida verticalmente em duas metades contrastantes
+            - Lado esquerdo: geralmente cenas de paz/grandiosidade (cidades antigas, paisagens douradas, céu claro)
+            - Lado direito: geralmente cenas de conflito/ameaça (tempestades, navios, exércitos, céu escuro)
+            - Figura central ou próxima ao centro conectando os dois lados
+            - Contraste dramático entre luz (esquerda) e escuridão (direita)
+            - Texto grande em dourado (#FFD700) na parte inferior, fonte serifada ornamentada com efeito emboss/bevel
+            - Exemplos: Atahualpa (cidade dourada vs navios tempestuosos), Malinche (mapa vs batalha naval)
+            
+            📐 ESTILO 2: CLOSE-UP DRAMÁTICO COM BACKGROUND ÉPICO:
+            - Figura histórica em close-up ocupando 40-60% da imagem (rosto e parte superior do corpo)
+            - Expressão intensa e direta para a câmera
+            - Background dividido ou com elementos épicos (pirâmides, navios, batalhas, fogo)
+            - Iluminação dramática com chiaroscuro (luz forte vs sombras profundas)
+            - Texto grande em dourado na parte inferior
+            - Exemplos: Faraó com pirâmides ao fundo, líder indígena com cidade antiga
+            
+            📐 ESTILO 3: CENA ÉPICA COM ELEMENTOS DE DESTRUIÇÃO:
+            - Cena de batalha ou conflito histórico
+            - Elementos de fogo, fumaça, tempestades
+            - Navios em chamas, exércitos, destruição
+            - Céu tempestuoso com nuvens escuras
+            - Figuras em primeiro plano com expressões dramáticas
+            - Texto grande em dourado/amarelo com outline preto
+            - Exemplos: Batalhas navais, conquistas, segredos dos faraós
+            
+            📐 ESTILO 4: FIGURA HISTÓRICA COM ELEMENTOS SIMBÓLICOS:
+            - Figura histórica em destaque (faraó, líder, conquistador)
+            - Trajes elaborados e autênticos (coroas, armaduras, roupas tradicionais)
+            - Elementos simbólicos ao redor (pirâmides, navios, mapas, hieróglifos)
+            - Composição vertical ou horizontal com figura dominante
+            - Texto grande em dourado com fonte serifada ornamentada
+            - Exemplos: Faraó com pirâmides, líder indígena com coroa elaborada
+            
+            ⚠️ REGRAS PARA REPLICAÇÃO FIEL:
+            1. Se a thumbnail original usar COMPOSIÇÃO DIVIDIDA, mantenha EXATAMENTE essa estrutura (mesma divisão, mesmo contraste, mesma posição dos elementos)
+            2. Se a thumbnail original usar CLOSE-UP DRAMÁTICO, mantenha o mesmo enquadramento e proporção da figura
+            3. Se a thumbnail original usar TEXTOS EM DOURADO, mantenha a mesma cor (#FFD700), fonte serifada e efeitos (emboss, bevel, glow)
+            4. Se a thumbnail original usar ELEMENTOS ÉPICOS (pirâmides, navios, fogo), mantenha os mesmos elementos na mesma posição
+            5. Se a thumbnail original usar CONTRASTE LUZ/ESQUERIDÃO, mantenha o mesmo esquema de iluminação
+            6. Se a thumbnail original usar FIGURAS HISTÓRICAS, mantenha o mesmo tipo de figura, trajes e expressão
+            7. Apenas MELHORE: nitidez 8K, contraste mais forte, cores mais saturadas, iluminação mais dramática, texto com efeitos Photoshop mais refinados
             
             ${(() => {
                 const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
@@ -14174,10 +15294,26 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             Crie DUAS (2) ideias distintas para uma nova thumbnail baseadas no prompt personalizado acima.
             
             ⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+            ${hasStandardPrompt ? `
+            ⚠️⚠️⚠️ ATENÇÃO CRÍTICA: PROMPT PADRÃO ESTÁ ATIVO - USAR APENAS O ESTILO VISUAL ⚠️⚠️⚠️
+            - O PROMPT PADRÃO acima é APENAS ESTILO VISUAL (como criar), NÃO é o conteúdo (o que criar).
+            - O CONTEÚDO das thumbnails DEVE ser sobre o título "${selectedTitle}" que o usuário escolheu.
+            - Ambas as IDEIAS devem APLICAR o estilo visual do prompt padrão ao título "${selectedTitle}".
+            - NÃO use o conteúdo/tema do prompt padrão. Use APENAS os elementos de estilo (composição, cores, tipografia, iluminação, atmosfera).
+            - EXTRAIA o estilo do prompt padrão e APLIQUE ao tema de "${selectedTitle}".
+
+            ` : ''}
             - **IDEIA 1 (RÉPLICA E MELHORIA DA THUMBNAIL ORIGINAL DO VÍDEO):** 
               * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+              ${hasStandardPrompt ? `* APLIQUE O ESTILO DO PROMPT PADRÃO: Use os elementos de estilo do prompt padrão (composição, cores, tipografia, iluminação) mantendo o conteúdo relacionado ao título "${selectedTitle}".\n` : ''}
               * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+              * IDENTIFIQUE O ESTILO VISUAL ESPECÍFICO da thumbnail original (composição dividida, close-up dramático, cena épica, figura histórica, etc.) usando a seção "🎨 IDENTIFICAÇÃO E REPLICAÇÃO DE ESTILOS ÉPICOS/CINEMATOGRÁFICOS" acima.
+              ${hasStandardPrompt ? `* INTEGRE O ESTILO DO PROMPT PADRÃO: Mantenha a estrutura da thumbnail original, mas aplique os elementos de estilo do prompt padrão (cores, tipografia, iluminação, atmosfera).\n` : ''}
               * Replique a estrutura da thumbnail original quase 1:1: mantenha EXATAMENTE a mesma composição, ângulo de câmera, enquadramento, posição dos personagens/objetos, paleta de cores, quantidade de texto, posição do texto, elementos visuais principais e storytelling.
+              * Se a thumbnail usar COMPOSIÇÃO DIVIDIDA: mantenha EXATAMENTE a mesma divisão vertical, mesmo contraste luz/escuridão, mesma posição dos elementos em cada lado.
+              * Se a thumbnail usar TEXTOS EM DOURADO: mantenha a mesma cor (#FFD700), fonte serifada ornamentada, efeitos emboss/bevel, mesma posição e tamanho.
+              * Se a thumbnail usar ELEMENTOS ÉPICOS (pirâmides, navios, fogo, tempestades): mantenha os mesmos elementos na mesma posição e proporção.
+              * Se a thumbnail usar FIGURAS HISTÓRICAS: mantenha o mesmo tipo de figura, trajes, expressão e enquadramento.
               * PRESERVE o poder viral da thumbnail original que gerou milhões de views.
               * Apenas ELEVE A QUALIDADE: mais nitidez (8K), contraste reforçado, iluminação cinematográfica profissional, correções de cor profissionais, tratamento de pele profissional, brilho nos olhos, textura realista, limpeza de ruídos, adicione luzes/sombras profissionais, aplique efeitos de texto Photoshop com valores específicos (stroke, drop shadow, outer glow, bevel & emboss).
               * NÃO altere o storytelling principal, apenas entregue a versão definitiva com acabamento premium.
@@ -14264,6 +15400,8 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
                 `}
             4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
+
+${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL (composição, cores, tipografia, elementos visuais, iluminação, atmosfera).\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}".\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n` : ''}
             
             CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
             - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
@@ -14310,6 +15448,11 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
                - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
                - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+               
+               🏆 ESTILO ÉPICO - TEXTOS EM DOURADO (Para thumbnails históricas/épicas):
+               - Se a thumbnail original usar textos em dourado, DESCREVA EXATAMENTE assim:
+               - "Large, bold, ornate serif font text in golden yellow (#FFD700) with professional Photoshop layer effects: thick black stroke (8-10px width, position outside), professional bevel and emboss effect (style: emboss, technique: smooth, depth 150%, size 8px, softness 3px, highlight mode: screen with opacity 75%, shadow mode: multiply with opacity 50%), white drop shadow (distance 12px, spread 6px, size 15px, opacity 85%, angle 135°), subtle outer glow in golden yellow (spread 10px, size 20px, opacity 60%), positioned at the bottom center of the image, occupying 30-35% of the image height, professional ornate serif typography (Trajan Pro, Cinzel, or similar historical/regal font style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, looks like it was designed by a professional graphic designer for a historical epic movie poster"
+               - "Golden embossed text with metallic finish, professional 3D effect, regal and majestic appearance, historical epic typography style"
             
             3. FONTES PROFISSIONAIS:
                - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
@@ -14429,12 +15572,72 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo VIRAL está anexada - analise cuidadosamente o que tornou esta thumbnail viral e gerou milhões de views]${formulaContext}
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            ${thumbnailReferences.length > 0 ? `
+            🎨 THUMBNAILS DE REFERÊNCIA DO CANAL/NICHO (IMPORTANTE - ESTILO DO CANAL):
+            ${thumbnailReferences.map((ref, idx) => `[IMAGEM ${idx + 1} DE REFERÊNCIA DO CANAL: A thumbnail de referência ${idx + 1} do canal está anexada${ref.description ? ` (Descrição: ${ref.description})` : ''}]`).join('\n            ')}
+            
+            ⚠️⚠️⚠️ CRÍTICO - USE AS THUMBNAILS DE REFERÊNCIA DO CANAL COMO ESTILO PRINCIPAL ⚠️⚠️⚠️:
+            - Analise cuidadosamente TODAS as ${thumbnailReferences.length} thumbnail(s) de referência do canal que estão anexadas acima.
+            - Estas thumbnails representam o ESTILO VISUAL OFICIAL do canal/nicho "${subniche}".
+            - A IDEIA 1 DEVE replicar fielmente o estilo visual dessas thumbnails de referência do canal (composição, cores, tipografia, elementos visuais, posicionamento de texto, etc.).
+            - Identifique os elementos comuns entre as thumbnails de referência: tipo de composição, paleta de cores, estilo de texto, posicionamento de elementos, iluminação, etc.
+            - Replique EXATAMENTE esse estilo visual na IDEIA 1, mantendo a identidade visual do canal.
+            - A IDEIA 2 pode ser mais criativa, mas ainda deve respeitar a identidade visual do canal baseada nas thumbnails de referência.
+            - Se as thumbnails de referência do canal usarem textos em dourado, composição dividida, close-up dramático ou outros elementos específicos, REPLIQUE-OS FIELMENTE na IDEIA 1.
+            ` : ''}
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
             SUBNICHO (Público-Alvo): "${subniche}"
             ESTILO DE ARTE DESEJADO: "${style}"
             IDIOMA DO CONTEÚDO: "${language}"
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎨 IDENTIFICAÇÃO E REPLICAÇÃO DE ESTILOS ÉPICOS/CINEMATOGRÁFICOS:
+            
+            Analise a IMAGEM DE REFERÊNCIA e identifique qual estilo visual ela utiliza. Se identificar algum dos estilos abaixo, REPLIQUE-O FIELMENTE na IDEIA 1, apenas melhorando a qualidade:
+            
+            📐 ESTILO 1: COMPOSIÇÃO DIVIDIDA (ESQUERDA/DIREITA):
+            - Imagem dividida verticalmente em duas metades contrastantes
+            - Lado esquerdo: geralmente cenas de paz/grandiosidade (cidades antigas, paisagens douradas, céu claro)
+            - Lado direito: geralmente cenas de conflito/ameaça (tempestades, navios, exércitos, céu escuro)
+            - Figura central ou próxima ao centro conectando os dois lados
+            - Contraste dramático entre luz (esquerda) e escuridão (direita)
+            - Texto grande em dourado (#FFD700) na parte inferior, fonte serifada ornamentada com efeito emboss/bevel
+            - Exemplos: Atahualpa (cidade dourada vs navios tempestuosos), Malinche (mapa vs batalha naval)
+            
+            📐 ESTILO 2: CLOSE-UP DRAMÁTICO COM BACKGROUND ÉPICO:
+            - Figura histórica em close-up ocupando 40-60% da imagem (rosto e parte superior do corpo)
+            - Expressão intensa e direta para a câmera
+            - Background dividido ou com elementos épicos (pirâmides, navios, batalhas, fogo)
+            - Iluminação dramática com chiaroscuro (luz forte vs sombras profundas)
+            - Texto grande em dourado na parte inferior
+            - Exemplos: Faraó com pirâmides ao fundo, líder indígena com cidade antiga
+            
+            📐 ESTILO 3: CENA ÉPICA COM ELEMENTOS DE DESTRUIÇÃO:
+            - Cena de batalha ou conflito histórico
+            - Elementos de fogo, fumaça, tempestades
+            - Navios em chamas, exércitos, destruição
+            - Céu tempestuoso com nuvens escuras
+            - Figuras em primeiro plano com expressões dramáticas
+            - Texto grande em dourado/amarelo com outline preto
+            - Exemplos: Batalhas navais, conquistas, segredos dos faraós
+            
+            📐 ESTILO 4: FIGURA HISTÓRICA COM ELEMENTOS SIMBÓLICOS:
+            - Figura histórica em destaque (faraó, líder, conquistador)
+            - Trajes elaborados e autênticos (coroas, armaduras, roupas tradicionais)
+            - Elementos simbólicos ao redor (pirâmides, navios, mapas, hieróglifos)
+            - Composição vertical ou horizontal com figura dominante
+            - Texto grande em dourado com fonte serifada ornamentada
+            - Exemplos: Faraó com pirâmides, líder indígena com coroa elaborada
+            
+            ⚠️ REGRAS PARA REPLICAÇÃO FIEL:
+            1. Se a thumbnail original usar COMPOSIÇÃO DIVIDIDA, mantenha EXATAMENTE essa estrutura (mesma divisão, mesmo contraste, mesma posição dos elementos)
+            2. Se a thumbnail original usar CLOSE-UP DRAMÁTICO, mantenha o mesmo enquadramento e proporção da figura
+            3. Se a thumbnail original usar TEXTOS EM DOURADO, mantenha a mesma cor (#FFD700), fonte serifada e efeitos (emboss, bevel, glow)
+            4. Se a thumbnail original usar ELEMENTOS ÉPICOS (pirâmides, navios, fogo), mantenha os mesmos elementos na mesma posição
+            5. Se a thumbnail original usar CONTRASTE LUZ/ESQUERIDÃO, mantenha o mesmo esquema de iluminação
+            6. Se a thumbnail original usar FIGURAS HISTÓRICAS, mantenha o mesmo tipo de figura, trajes e expressão
+            7. Apenas MELHORE: nitidez 8K, contraste mais forte, cores mais saturadas, iluminação mais dramática, texto com efeitos Photoshop mais refinados
             
             ${(() => {
                 const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
@@ -14593,6 +15796,11 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
                - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
                - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+               
+               🏆 ESTILO ÉPICO - TEXTOS EM DOURADO (Para thumbnails históricas/épicas):
+               - Se a thumbnail original usar textos em dourado, DESCREVA EXATAMENTE assim:
+               - "Large, bold, ornate serif font text in golden yellow (#FFD700) with professional Photoshop layer effects: thick black stroke (8-10px width, position outside), professional bevel and emboss effect (style: emboss, technique: smooth, depth 150%, size 8px, softness 3px, highlight mode: screen with opacity 75%, shadow mode: multiply with opacity 50%), white drop shadow (distance 12px, spread 6px, size 15px, opacity 85%, angle 135°), subtle outer glow in golden yellow (spread 10px, size 20px, opacity 60%), positioned at the bottom center of the image, occupying 30-35% of the image height, professional ornate serif typography (Trajan Pro, Cinzel, or similar historical/regal font style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, looks like it was designed by a professional graphic designer for a historical epic movie poster"
+               - "Golden embossed text with metallic finish, professional 3D effect, regal and majestic appearance, historical epic typography style"
             
             3. FONTES PROFISSIONAIS:
                - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
@@ -14693,12 +15901,72 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo VIRAL está anexada - analise cuidadosamente o que tornou esta thumbnail viral e gerou milhões de views]${formulaContext}
 
             IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+            ${thumbnailReferences.length > 0 ? `
+            🎨 THUMBNAILS DE REFERÊNCIA DO CANAL/NICHO (IMPORTANTE - ESTILO DO CANAL):
+            ${thumbnailReferences.map((ref, idx) => `[IMAGEM ${idx + 1} DE REFERÊNCIA DO CANAL: A thumbnail de referência ${idx + 1} do canal está anexada${ref.description ? ` (Descrição: ${ref.description})` : ''}]`).join('\n            ')}
+            
+            ⚠️⚠️⚠️ CRÍTICO - USE AS THUMBNAILS DE REFERÊNCIA DO CANAL COMO ESTILO PRINCIPAL ⚠️⚠️⚠️:
+            - Analise cuidadosamente TODAS as ${thumbnailReferences.length} thumbnail(s) de referência do canal que estão anexadas acima.
+            - Estas thumbnails representam o ESTILO VISUAL OFICIAL do canal/nicho "${subniche}".
+            - A IDEIA 1 DEVE replicar fielmente o estilo visual dessas thumbnails de referência do canal (composição, cores, tipografia, elementos visuais, posicionamento de texto, etc.).
+            - Identifique os elementos comuns entre as thumbnails de referência: tipo de composição, paleta de cores, estilo de texto, posicionamento de elementos, iluminação, etc.
+            - Replique EXATAMENTE esse estilo visual na IDEIA 1, mantendo a identidade visual do canal.
+            - A IDEIA 2 pode ser mais criativa, mas ainda deve respeitar a identidade visual do canal baseada nas thumbnails de referência.
+            - Se as thumbnails de referência do canal usarem textos em dourado, composição dividida, close-up dramático ou outros elementos específicos, REPLIQUE-OS FIELMENTE na IDEIA 1.
+            ` : ''}
             TÍTULO DO VÍDEO (para contexto): "${selectedTitle}"
             SUBNICHO (Público-Alvo): "${subniche}"
             ESTILO DE ARTE DESEJADO: "${style}"
             IDIOMA DO CONTEÚDO: "${language}"
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎨 IDENTIFICAÇÃO E REPLICAÇÃO DE ESTILOS ÉPICOS/CINEMATOGRÁFICOS:
+            
+            Analise a IMAGEM DE REFERÊNCIA e identifique qual estilo visual ela utiliza. Se identificar algum dos estilos abaixo, REPLIQUE-O FIELMENTE na IDEIA 1, apenas melhorando a qualidade:
+            
+            📐 ESTILO 1: COMPOSIÇÃO DIVIDIDA (ESQUERDA/DIREITA):
+            - Imagem dividida verticalmente em duas metades contrastantes
+            - Lado esquerdo: geralmente cenas de paz/grandiosidade (cidades antigas, paisagens douradas, céu claro)
+            - Lado direito: geralmente cenas de conflito/ameaça (tempestades, navios, exércitos, céu escuro)
+            - Figura central ou próxima ao centro conectando os dois lados
+            - Contraste dramático entre luz (esquerda) e escuridão (direita)
+            - Texto grande em dourado (#FFD700) na parte inferior, fonte serifada ornamentada com efeito emboss/bevel
+            - Exemplos: Atahualpa (cidade dourada vs navios tempestuosos), Malinche (mapa vs batalha naval)
+            
+            📐 ESTILO 2: CLOSE-UP DRAMÁTICO COM BACKGROUND ÉPICO:
+            - Figura histórica em close-up ocupando 40-60% da imagem (rosto e parte superior do corpo)
+            - Expressão intensa e direta para a câmera
+            - Background dividido ou com elementos épicos (pirâmides, navios, batalhas, fogo)
+            - Iluminação dramática com chiaroscuro (luz forte vs sombras profundas)
+            - Texto grande em dourado na parte inferior
+            - Exemplos: Faraó com pirâmides ao fundo, líder indígena com cidade antiga
+            
+            📐 ESTILO 3: CENA ÉPICA COM ELEMENTOS DE DESTRUIÇÃO:
+            - Cena de batalha ou conflito histórico
+            - Elementos de fogo, fumaça, tempestades
+            - Navios em chamas, exércitos, destruição
+            - Céu tempestuoso com nuvens escuras
+            - Figuras em primeiro plano com expressões dramáticas
+            - Texto grande em dourado/amarelo com outline preto
+            - Exemplos: Batalhas navais, conquistas, segredos dos faraós
+            
+            📐 ESTILO 4: FIGURA HISTÓRICA COM ELEMENTOS SIMBÓLICOS:
+            - Figura histórica em destaque (faraó, líder, conquistador)
+            - Trajes elaborados e autênticos (coroas, armaduras, roupas tradicionais)
+            - Elementos simbólicos ao redor (pirâmides, navios, mapas, hieróglifos)
+            - Composição vertical ou horizontal com figura dominante
+            - Texto grande em dourado com fonte serifada ornamentada
+            - Exemplos: Faraó com pirâmides, líder indígena com coroa elaborada
+            
+            ⚠️ REGRAS PARA REPLICAÇÃO FIEL:
+            1. Se a thumbnail original usar COMPOSIÇÃO DIVIDIDA, mantenha EXATAMENTE essa estrutura (mesma divisão, mesmo contraste, mesma posição dos elementos)
+            2. Se a thumbnail original usar CLOSE-UP DRAMÁTICO, mantenha o mesmo enquadramento e proporção da figura
+            3. Se a thumbnail original usar TEXTOS EM DOURADO, mantenha a mesma cor (#FFD700), fonte serifada e efeitos (emboss, bevel, glow)
+            4. Se a thumbnail original usar ELEMENTOS ÉPICOS (pirâmides, navios, fogo), mantenha os mesmos elementos na mesma posição
+            5. Se a thumbnail original usar CONTRASTE LUZ/ESQUERIDÃO, mantenha o mesmo esquema de iluminação
+            6. Se a thumbnail original usar FIGURAS HISTÓRICAS, mantenha o mesmo tipo de figura, trajes e expressão
+            7. Apenas MELHORE: nitidez 8K, contraste mais forte, cores mais saturadas, iluminação mais dramática, texto com efeitos Photoshop mais refinados
             
             ${(() => {
                 const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
@@ -14850,6 +16118,11 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
                - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
                - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+               
+               🏆 ESTILO ÉPICO - TEXTOS EM DOURADO (Para thumbnails históricas/épicas):
+               - Se a thumbnail original usar textos em dourado, DESCREVA EXATAMENTE assim:
+               - "Large, bold, ornate serif font text in golden yellow (#FFD700) with professional Photoshop layer effects: thick black stroke (8-10px width, position outside), professional bevel and emboss effect (style: emboss, technique: smooth, depth 150%, size 8px, softness 3px, highlight mode: screen with opacity 75%, shadow mode: multiply with opacity 50%), white drop shadow (distance 12px, spread 6px, size 15px, opacity 85%, angle 135°), subtle outer glow in golden yellow (spread 10px, size 20px, opacity 60%), positioned at the bottom center of the image, occupying 30-35% of the image height, professional ornate serif typography (Trajan Pro, Cinzel, or similar historical/regal font style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, looks like it was designed by a professional graphic designer for a historical epic movie poster"
+               - "Golden embossed text with metallic finish, professional 3D effect, regal and majestic appearance, historical epic typography style"
             
             3. FONTES PROFISSIONAIS:
                - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
@@ -14929,6 +16202,53 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             IDIOMA DO CONTEÚDO: "${language}"
 
             ⚠️ ATENÇÃO CRÍTICA: As thumbnails DEVEM parecer FOTOGRAFIAS REAIS, não ilustrações, desenhos ou renderizações. A descriçãoThumbnail deve descrever uma FOTO REAL tirada por um fotógrafo profissional em um local real, com pessoas reais e objetos reais.
+            
+            🎨 IDENTIFICAÇÃO E REPLICAÇÃO DE ESTILOS ÉPICOS/CINEMATOGRÁFICOS:
+            
+            Analise a IMAGEM DE REFERÊNCIA e identifique qual estilo visual ela utiliza. Se identificar algum dos estilos abaixo, REPLIQUE-O FIELMENTE na IDEIA 1, apenas melhorando a qualidade:
+            
+            📐 ESTILO 1: COMPOSIÇÃO DIVIDIDA (ESQUERDA/DIREITA):
+            - Imagem dividida verticalmente em duas metades contrastantes
+            - Lado esquerdo: geralmente cenas de paz/grandiosidade (cidades antigas, paisagens douradas, céu claro)
+            - Lado direito: geralmente cenas de conflito/ameaça (tempestades, navios, exércitos, céu escuro)
+            - Figura central ou próxima ao centro conectando os dois lados
+            - Contraste dramático entre luz (esquerda) e escuridão (direita)
+            - Texto grande em dourado (#FFD700) na parte inferior, fonte serifada ornamentada com efeito emboss/bevel
+            - Exemplos: Atahualpa (cidade dourada vs navios tempestuosos), Malinche (mapa vs batalha naval)
+            
+            📐 ESTILO 2: CLOSE-UP DRAMÁTICO COM BACKGROUND ÉPICO:
+            - Figura histórica em close-up ocupando 40-60% da imagem (rosto e parte superior do corpo)
+            - Expressão intensa e direta para a câmera
+            - Background dividido ou com elementos épicos (pirâmides, navios, batalhas, fogo)
+            - Iluminação dramática com chiaroscuro (luz forte vs sombras profundas)
+            - Texto grande em dourado na parte inferior
+            - Exemplos: Faraó com pirâmides ao fundo, líder indígena com cidade antiga
+            
+            📐 ESTILO 3: CENA ÉPICA COM ELEMENTOS DE DESTRUIÇÃO:
+            - Cena de batalha ou conflito histórico
+            - Elementos de fogo, fumaça, tempestades
+            - Navios em chamas, exércitos, destruição
+            - Céu tempestuoso com nuvens escuras
+            - Figuras em primeiro plano com expressões dramáticas
+            - Texto grande em dourado/amarelo com outline preto
+            - Exemplos: Batalhas navais, conquistas, segredos dos faraós
+            
+            📐 ESTILO 4: FIGURA HISTÓRICA COM ELEMENTOS SIMBÓLICOS:
+            - Figura histórica em destaque (faraó, líder, conquistador)
+            - Trajes elaborados e autênticos (coroas, armaduras, roupas tradicionais)
+            - Elementos simbólicos ao redor (pirâmides, navios, mapas, hieróglifos)
+            - Composição vertical ou horizontal com figura dominante
+            - Texto grande em dourado com fonte serifada ornamentada
+            - Exemplos: Faraó com pirâmides, líder indígena com coroa elaborada
+            
+            ⚠️ REGRAS PARA REPLICAÇÃO FIEL:
+            1. Se a thumbnail original usar COMPOSIÇÃO DIVIDIDA, mantenha EXATAMENTE essa estrutura (mesma divisão, mesmo contraste, mesma posição dos elementos)
+            2. Se a thumbnail original usar CLOSE-UP DRAMÁTICO, mantenha o mesmo enquadramento e proporção da figura
+            3. Se a thumbnail original usar TEXTOS EM DOURADO, mantenha a mesma cor (#FFD700), fonte serifada e efeitos (emboss, bevel, glow)
+            4. Se a thumbnail original usar ELEMENTOS ÉPICOS (pirâmides, navios, fogo), mantenha os mesmos elementos na mesma posição
+            5. Se a thumbnail original usar CONTRASTE LUZ/ESQUERIDÃO, mantenha o mesmo esquema de iluminação
+            6. Se a thumbnail original usar FIGURAS HISTÓRICAS, mantenha o mesmo tipo de figura, trajes e expressão
+            7. Apenas MELHORE: nitidez 8K, contraste mais forte, cores mais saturadas, iluminação mais dramática, texto com efeitos Photoshop mais refinados
             
             ${(() => {
                 const ruleData = getThumbnailViralRules(thumbnailRule || 'auto', selectedTitle);
@@ -15084,6 +16404,11 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                - "Bright red (#FF0000) text with yellow stroke (5px), white drop shadow, and professional gradient overlay from yellow to orange"
                - "Lime green (#00FF00) text with black stroke (8px), white glow effect, and professional inner shadow"
                - IMPORTANTE: Descreva como efeitos de camada do Photoshop (layer effects), não apenas "outline" ou "shadow"
+               
+               🏆 ESTILO ÉPICO - TEXTOS EM DOURADO (Para thumbnails históricas/épicas):
+               - Se a thumbnail original usar textos em dourado, DESCREVA EXATAMENTE assim:
+               - "Large, bold, ornate serif font text in golden yellow (#FFD700) with professional Photoshop layer effects: thick black stroke (8-10px width, position outside), professional bevel and emboss effect (style: emboss, technique: smooth, depth 150%, size 8px, softness 3px, highlight mode: screen with opacity 75%, shadow mode: multiply with opacity 50%), white drop shadow (distance 12px, spread 6px, size 15px, opacity 85%, angle 135°), subtle outer glow in golden yellow (spread 10px, size 20px, opacity 60%), positioned at the bottom center of the image, occupying 30-35% of the image height, professional ornate serif typography (Trajan Pro, Cinzel, or similar historical/regal font style), thick chunky letters with perfect kerning, professional text rendering with anti-aliasing and crisp edges, looks like it was designed by a professional graphic designer for a historical epic movie poster"
+               - "Golden embossed text with metallic finish, professional 3D effect, regal and majestic appearance, historical epic typography style"
             
             3. FONTES PROFISSIONAIS:
                - "Professional bold sans-serif font (Impact, Bebas Neue, Montserrat Black, or similar premium font)"
@@ -15186,7 +16511,19 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
                 response = { titles: response };
             } else {
-                response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
+                // Preparar imagens adicionais (thumbnails de referência)
+                const additionalImages = thumbnailReferences.map(ref => ref.thumbnail_base64).filter(Boolean);
+                
+                // Chamar API apropriada com múltiplas imagens
+                if (service === 'claude') {
+                    response = await callClaudeAPI(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl, null, additionalImages);
+                } else if (service === 'openai') {
+                    response = await callOpenAIAPI(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl, additionalImages);
+                } else if (service === 'gemini') {
+                    response = await callGeminiAPI(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl, additionalImages);
+                } else {
+                    response = await apiCallFunction(thumbPrompt, decryptedKey, model, videoDetails.thumbnailUrl);
+                }
             }
             parsedData = parseAIResponse(response.titles, successfulService);
             
@@ -15254,6 +16591,23 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         }
 
         // --- 5. Validar e processar dados antes de enviar ---
+
+        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) UMA VEZ
+        const themeKeyManual = req.body.theme_key || null;
+        let dbMatchLocal = null;
+        if (themeKeyManual) {
+            await ensureAmbientationsTable();
+            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
+        }
+        if (!dbMatchLocal) {
+            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
+        }
+        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
+        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
+        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
+        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : '';
         
         // Validar e corrigir tags (limite de 300 caracteres) e frases de gancho (idioma correto)
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
@@ -15325,6 +16679,19 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                         return frase;
                     });
                 }
+                
+                // Modularizar a descricaoThumbnail sem operações assíncronas dentro do map
+                const baseTemplate = `Generate a historical cinematic thumbnail depicting {PERSONAGEM} wearing {ACESSORIOS} against {AMBIENTE}. Position the subject in the foreground taking up 60% of the frame with an epic background showing {ELEMENTOS_DE_FUNDO}. Use high contrast lighting with gold or cold tones depending on theme and a dramatic sky with storm clouds or environmental effects. The title should be in bold, imposing gold text with a subtle glow effect. The overall mood should be cinematic, realistic and historically significant with ultra-high detail.`;
+                let built = baseTemplate
+                    .replace('{PERSONAGEM}', personagemCalc)
+                    .replace('{ACESSORIOS}', acessoriosCalc || 'authentic period accessories')
+                    .replace('{AMBIENTE}', ambientacaoCalc)
+                    .replace('{ELEMENTOS_DE_FUNDO}', elementosDeFundoCalc || 'contextual historical elements');
+                if (includePhrases) {
+                    built += `\nProfessional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI], with multiple layer effects (stroke, drop shadow, outer glow, bevel and emboss), perfect kerning, anti-aliasing, large bold serif gold typography at bottom.`;
+                }
+                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. Exclude logos, watermarks, badges, channel names or corner marks.`;
+                idea.descricaoThumbnail = built;
                 
                 // Calcular score viral baseado no algoritmo do YouTube
                 const viralScore = calculateThumbnailViralScore(idea.descricaoThumbnail, index, parsedData.ideias.length);
@@ -15535,11 +16902,71 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
             console.warn(`[Análise-Thumb Laozhang] Não foi possível buscar análise original: ${err.message}`);
         }
         
+        // --- Buscar thumbnails de referência do canal/nicho ---
+        let thumbnailReferences = [];
+        try {
+            // Buscar thumbnails de referência que correspondam ao canal/nicho
+            let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description FROM thumbnail_references WHERE user_id = ?';
+            const refParams = [userId];
+            
+            // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
+            if (subniche || niche) {
+                refQuery += ' AND (';
+                const conditions = [];
+                if (subniche) {
+                    conditions.push('subniche = ?');
+                    refParams.push(subniche);
+                }
+                if (niche) {
+                    conditions.push('niche = ?');
+                    refParams.push(niche);
+                }
+                // Também incluir thumbnails sem filtro específico (NULL)
+                conditions.push('(subniche IS NULL AND niche IS NULL)');
+                refQuery += conditions.join(' OR ') + ')';
+            }
+            
+            refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
+            
+            const refs = await db.all(refQuery, refParams);
+            thumbnailReferences = refs || [];
+            
+            if (thumbnailReferences.length > 0) {
+                console.log(`[Análise-Thumb Laozhang] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o canal/nicho`);
+            }
+        } catch (err) {
+            console.warn(`[Análise-Thumb Laozhang] Erro ao buscar thumbnails de referência: ${err.message}`);
+        }
+        
         const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
         
-        const thumbPrompt = customPrompt && customPrompt.trim() ? customPrompt : `
+        // Se customPrompt foi fornecido (prompt padrão do estilo), integrá-lo ao prompt do sistema
+        // em vez de substituí-lo completamente, para manter a estrutura JSON necessária
+        const hasStandardPrompt = customPrompt && customPrompt.trim();
+        console.log(`[Thumbnail Laozhang] customPrompt recebido: ${hasStandardPrompt ? 'SIM (' + customPrompt.length + ' caracteres, usado APENAS como estilo visual)' : 'NÃO'}`);
+        if (hasStandardPrompt) {
+            console.log(`[Thumbnail Laozhang] Estilo visual bloqueado a partir do prompt padrão (preview 200 chars): ${customPrompt.substring(0, 200)}...`);
+        }
+        
+        const thumbPrompt = `
 Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}
 
+${hasStandardPrompt ? `\n🎨🎨🎨 PROMPT PADRÃO DO ESTILO DO CANAL/NICHO (USAR APENAS O ESTILO VISUAL - NÃO O CONTEÚDO) 🎨🎨🎨:\n${customPrompt}\n\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO VISUAL - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\n- O PROMPT PADRÃO acima define APENAS o ESTILO VISUAL (composição, cores, tipografia, elementos, iluminação, atmosfera).\n- O CONTEÚDO das thumbnails deve ser SOBRE O TÍTULO "${selectedTitle}" que o usuário escolheu.\n- NÃO use o conteúdo do prompt padrão. Use APENAS o estilo visual dele.\n- NÃO crie um prompt novo. APLIQUE o estilo do prompt padrão ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (ex: "close-up dramático", "composição dividida", "cena épica")\n   - Paleta de cores (ex: "dourado e azul escuro", "tons terrosos", "vermelho e preto")\n   - Estilo de tipografia (ex: "textos dourados serifados com bevel/emboss", "fonte bold com outline preto")\n   - Elementos visuais recorrentes (ex: "pirâmides ao fundo", "navios", "fogo", "tempestades", "silhuetas")\n   - Iluminação e atmosfera (ex: "iluminação dramática", "céu tempestuoso", "chiaroscuro", "luz dourada")\n   - Estilo geral (ex: "cinematográfico", "documental", "épico", "realista")\n\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo deve ser sobre "${selectedTitle}".\n\n3. APLIQUE o estilo extraído ao criar thumbnails sobre o título "${selectedTitle}":\n   - Use a mesma composição (ex: se o estilo é "close-up", faça close-up mas do assunto relacionado a "${selectedTitle}")\n   - Use a mesma paleta de cores\n   - Use o mesmo estilo de tipografia\n   - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo visual)\n   - Use a mesma iluminação e atmosfera\n   - Mantenha o estilo geral\n\n4. RESULTADO: Thumbnails sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO:\n- Se o prompt padrão diz "close-up de líder indígena com textos dourados" mas o título é sobre tecnologia inca:\n  → Use "close-up" (estilo) + "textos dourados" (estilo) + "tecnologia inca" (conteúdo do título)\n  → RESULTADO: "close-up de tecnologia inca com textos dourados"\n\n⚠️ NÃO REPLIQUE O PROMPT PADRÃO. APLIQUE APENAS O ESTILO AO TÍTULO ESCOLHIDO.\n` : ''}
+
+IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
+${thumbnailReferences.length > 0 ? `
+🎨 THUMBNAILS DE REFERÊNCIA DO CANAL/NICHO (IMPORTANTE - ESTILO DO CANAL):
+${thumbnailReferences.map((ref, idx) => `[IMAGEM ${idx + 1} DE REFERÊNCIA DO CANAL: A thumbnail de referência ${idx + 1} do canal está anexada${ref.description ? ` (Descrição: ${ref.description})` : ''}]`).join('\n')}
+
+⚠️⚠️⚠️ CRÍTICO - USE AS THUMBNAILS DE REFERÊNCIA DO CANAL COMO ESTILO PRINCIPAL ⚠️⚠️⚠️:
+- Analise cuidadosamente TODAS as ${thumbnailReferences.length} thumbnail(s) de referência do canal que estão anexadas acima.
+- Estas thumbnails representam o ESTILO VISUAL OFICIAL do canal/nicho "${subniche}".
+- A IDEIA 1 DEVE replicar fielmente o estilo visual dessas thumbnails de referência do canal (composição, cores, tipografia, elementos visuais, posicionamento de texto, etc.).
+- Identifique os elementos comuns entre as thumbnails de referência: tipo de composição, paleta de cores, estilo de texto, posicionamento de elementos, iluminação, etc.
+- Replique EXATAMENTE esse estilo visual na IDEIA 1, mantendo a identidade visual do canal.
+- A IDEIA 2 pode ser mais criativa, mas ainda deve respeitar a identidade visual do canal baseada nas thumbnails de referência.
+- Se as thumbnails de referência do canal usarem textos em dourado, composição dividida, close-up dramático ou outros elementos específicos, REPLIQUE-OS FIELMENTE na IDEIA 1.
+` : ''}
 TÍTULO DO VÍDEO: "${selectedTitle}"
 SUBNICHO: "${subniche}"
 ESTILO DE ARTE: "${style}"
@@ -15562,9 +16989,20 @@ SUA TAREFA:
 Crie DUAS (2) ideias distintas para thumbnail:
 
 ⚠️⚠️⚠️ CRÍTICO - ORDEM DAS IDEIAS ⚠️⚠️⚠️
+${hasStandardPrompt ? `
+⚠️⚠️⚠️ ATENÇÃO CRÍTICA: PROMPT PADRÃO ESTÁ ATIVO - USAR APENAS O ESTILO VISUAL ⚠️⚠️⚠️
+- O PROMPT PADRÃO acima é APENAS ESTILO VISUAL (como criar), NÃO é o conteúdo (o que criar).
+- O CONTEÚDO das thumbnails DEVE ser sobre o título "${selectedTitle}" que o usuário escolheu.
+- Ambas as IDEIAS devem APLICAR o estilo visual do prompt padrão ao título "${selectedTitle}".
+- NÃO use o conteúdo/tema do prompt padrão. Use APENAS os elementos de estilo (composição, cores, tipografia, iluminação, atmosfera).
+- EXTRAIA o estilo do prompt padrão e APLIQUE ao tema de "${selectedTitle}".
+
+` : ''}
 - **IDEIA 1 (RÉPLICA E MELHORIA DA THUMBNAIL ORIGINAL DO VÍDEO):** 
   * OBRIGATÓRIO: Esta ideia DEVE replicar e melhorar a thumbnail ORIGINAL do vídeo ao qual foram feitos os títulos.
+  ${hasStandardPrompt ? `* APLIQUE O ESTILO DO PROMPT PADRÃO: Use os elementos de estilo do prompt padrão (composição, cores, tipografia, iluminação) mantendo o conteúdo relacionado ao título "${selectedTitle}".\n` : ''}
   * Analise cuidadosamente a IMAGEM DE REFERÊNCIA (thumbnail original do vídeo) que está anexada.
+  ${hasStandardPrompt ? `* INTEGRE O ESTILO DO PROMPT PADRÃO: Mantenha a estrutura da thumbnail original, mas aplique os elementos de estilo do prompt padrão (cores, tipografia, iluminação, atmosfera) ao título "${selectedTitle}".\n` : ''}
   * Replique a estrutura da thumbnail de referência quase 1:1: mantenha EXATAMENTE a mesma composição, ângulo de câmera, enquadramento, posição dos personagens/objetos, paleta de cores, quantidade de texto, posição do texto, elementos visuais principais e storytelling.
   * PRESERVE o poder viral da thumbnail original que gerou milhões de views.
   * Apenas ELEVE A QUALIDADE: mais nitidez (8K), contraste reforçado, iluminação cinematográfica profissional, correções de cor profissionais, tratamento de pele profissional, brilho nos olhos, textura realista, limpeza de ruídos, adicione luzes/sombras profissionais, aplique efeitos de texto Photoshop com valores específicos.
@@ -15573,8 +17011,10 @@ Crie DUAS (2) ideias distintas para thumbnail:
 
 - **IDEIA 2 (THUMBNAIL MELHORADA E OTIMIZADA):** 
   * Esta é uma versão COMPLETAMENTE NOVA, melhorada e otimizada para CTR alto (30%+).
+  ${hasStandardPrompt ? `* APLIQUE O ESTILO DO PROMPT PADRÃO: Crie uma thumbnail NOVA sobre o título "${selectedTitle}" usando os elementos de estilo do prompt padrão (composição, cores, tipografia, iluminação, atmosfera).\n` : ''}
   * Crie um conceito totalmente novo com foco em CTR máximo: novo enquadramento, nova composição, novos elementos que gerem curiosidade extrema.
   * Use gatilhos agressivos (perigo, segredo revelado, números gigantes, setas, antes/depois, close dramático) e cores super contrastantes.
+  ${hasStandardPrompt ? `* MANTENHA O ESTILO DO CANAL: Use os elementos visuais do prompt padrão (ex: textos dourados, close-up dramático, composição dividida, etc.) mas adaptados ao título "${selectedTitle}".\n` : ''}
   * Construa um storytelling diferente, alinhado ao título "${selectedTitle}", que prometa algo ainda mais irresistível que a versão original.
   * O texto deve ser redesenhado para máxima legibilidade mobile, com layer styles profissionais e valores precisos.
   * Esta versão deve ser AINDA MELHOR que a original, com técnicas avançadas de viralização.
@@ -15622,7 +17062,11 @@ PARA CADA UMA DAS 2 IDEIAS, GERE:
                 Se alguma resposta for NÃO, CORRIJA as frases antes de retornar o JSON.
                 `}
 
-4. **"descricaoThumbnail"**: Prompt EXTREMAMENTE DETALHADO em INGLÊS para IA de geração de imagem. ${!includePhrases ? 'NÃO inclua placeholder para texto. Apenas elementos visuais.' : 'DEVE incluir placeholder "[FRASE DE GANCHO AQUI]" com descrição profissional de texto Photoshop (layer effects, stroke, drop shadow, outer glow, bevel & emboss, tipografia profissional, valores específicos).'} DEVE começar com: "${getStyleSpecificPrompt(style, includePhrases)}" e aplicar as regras de thumbnail viral identificadas acima de forma EXPLÍCITA.
+4. **"descricaoThumbnail"**: Prompt EXTREMAMENTE DETALHADO em INGLÊS para IA de geração de imagem. ${!includePhrases ? 'NÃO inclua placeholder para texto. Apenas elementos visuais.' : 'DEVE incluir placeholder "[FRASE DE GANCHO AQUI]" com descrição profissional de texto Photoshop (layer effects, stroke, drop shadow, outer glow, bevel & emboss, tipografia profissional, valores específicos).'} 
+
+${hasStandardPrompt ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (close-up, composição dividida, cena épica, etc.)\n   - Paleta de cores (dourado, azul escuro, vermelho, preto, etc.)\n   - Estilo de tipografia (dourado serifado, bevel/emboss, outline preto, etc.)\n   - Elementos visuais recorrentes (pirâmides, navios, fogo, tempestades, silhuetas, etc.)\n   - Iluminação e atmosfera (dramática, stormy, chiaroscuro, luz dourada, etc.)\n   - Estilo geral (cinematográfico, documental, épico, realista, etc.)\n\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}":\n   - Use a mesma composição mas com elementos relacionados a "${selectedTitle}"\n   - Use a mesma paleta de cores\n   - Use o mesmo estilo de tipografia\n   - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo)\n   - Use a mesma iluminação e atmosfera\n   - Mantenha o estilo geral\n\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados, iluminação dramática, céu tempestuoso"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados, iluminação dramática, céu tempestuoso"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n` : ''}
+
+DEVE começar com: "${getStyleSpecificPrompt(style, includePhrases)}" ${hasStandardPrompt ? `e APLICAR o estilo visual do PROMPT PADRÃO acima ao título "${selectedTitle}", mantendo todos os elementos de estilo (composição, cores, tipografia, iluminação, atmosfera) mas adaptando o conteúdo ao tema do título.` : 'e aplicar as regras de thumbnail viral identificadas acima de forma EXPLÍCITA.'}
 
 Retorne APENAS JSON válido:
 {
@@ -15657,7 +17101,20 @@ Retorne APENAS JSON válido:
             // callLaozhangAPI retorna string diretamente
             response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         } else {
-            response = await apiCallFunction(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl);
+            // Preparar imagens adicionais (thumbnails de referência)
+            const additionalImages = thumbnailReferences.map(ref => ref.thumbnail_base64).filter(Boolean);
+            
+            // Chamar API apropriada com múltiplas imagens
+            if (serviceToUse === 'claude') {
+                response = await callClaudeAPI(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl, null, additionalImages);
+            } else if (serviceToUse === 'openai') {
+                response = await callOpenAIAPI(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl, additionalImages);
+            } else if (serviceToUse === 'gemini') {
+                response = await callGeminiAPI(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl, additionalImages);
+            } else {
+                response = await apiCallFunction(thumbPrompt, apiKeyToUse, modelForAPI, videoDetails.thumbnailUrl);
+            }
+            
             // APIs próprias retornam objeto com propriedade titles
             if (response && typeof response === 'object' && response.titles) {
                 response = response.titles;
@@ -15725,6 +17182,23 @@ Retorne APENAS JSON válido:
         }
 
         // Validar e processar dados antes de enviar (mesma lógica da rota principal)
+        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) UMA VEZ
+        const themeKeyManual = req.body.theme_key || null;
+        let dbMatchLocal = null;
+        if (themeKeyManual) {
+            await ensureAmbientationsTable();
+            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
+        }
+        if (!dbMatchLocal) {
+            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
+        }
+        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
+        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
+        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
+        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : '';
+
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
             parsedData.ideias = parsedData.ideias.map((idea, index) => {
                 // Validar tags - limitar a 300 caracteres
@@ -15774,6 +17248,19 @@ Retorne APENAS JSON válido:
                     });
                 }
                 
+                // Modularizar a descricaoThumbnail: aplicar estilo fixo e ambientação dinâmica pelo título
+                const baseTemplate = `Generate a historical cinematic thumbnail depicting {PERSONAGEM} wearing {ACESSORIOS} against {AMBIENTE}. Position the subject in the foreground taking up 60% of the frame with an epic background showing {ELEMENTOS_DE_FUNDO}. Use high contrast lighting with gold or cold tones depending on theme and a dramatic sky with storm clouds or environmental effects. The title should be in bold, imposing gold text with a subtle glow effect. The overall mood should be cinematic, realistic and historically significant with ultra-high detail.`;
+                let built = baseTemplate
+                    .replace('{PERSONAGEM}', personagemCalc)
+                    .replace('{ACESSORIOS}', acessoriosCalc || 'authentic period accessories')
+                    .replace('{AMBIENTE}', ambientacaoCalc)
+                    .replace('{ELEMENTOS_DE_FUNDO}', elementosDeFundoCalc || 'contextual historical elements');
+                if (includePhrases) {
+                    built += `\nProfessional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI], with multiple layer effects (stroke, drop shadow, outer glow, bevel and emboss), perfect kerning, anti-aliasing, large bold serif gold typography at bottom.`;
+                }
+                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. Exclude logos, watermarks, badges, channel names or corner marks.`;
+                idea.descricaoThumbnail = built;
+
                 // Calcular score viral baseado no algoritmo do YouTube
                 const viralScore = calculateThumbnailViralScore(idea.descricaoThumbnail, index, parsedData.ideias.length);
                 idea.viralScore = viralScore;
@@ -17914,6 +19401,324 @@ PROMPT REWRITTEN:`;
     }
 });
 
+// === ROTA: GERAR THUMBNAIL POR TÍTULO (SEGUINDO PROMPT PADRÃO) ===
+app.post('/api/generate/imagefx/by-title', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { title, niche, subniche, folder_id, prompt_variant, language = 'pt-BR', style = 'photorealistic', variations = 1, prompt_ai = 'none', theme_key } = req.body || {};
+    try {
+        if (!title || !title.trim()) return res.status(400).json({ msg: 'Título é obrigatório.' });
+        // Buscar prompt padrão (variação selecionada)
+        let query = 'SELECT id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected FROM thumbnail_style_prompts WHERE user_id = ?';
+        const params = [userId];
+        if (folder_id) { query += ' AND (folder_id = ? OR folder_id IS NULL)'; params.push(folder_id); }
+        if (subniche) { query += ' AND (subniche = ? OR subniche IS NULL)'; params.push(subniche); }
+        if (niche) { query += ' AND (niche = ? OR niche IS NULL)'; params.push(niche); }
+        query += ' ORDER BY updated_at DESC LIMIT 1';
+        const promptData = await db.get(query, params);
+        if (!promptData) return res.status(400).json({ msg: 'Prompt padrão não encontrado para este nicho/subnicho.' });
+        const selectedNum = prompt_variant || promptData.prompt_selected || 1;
+        let basePrompt = null;
+        if (selectedNum === 1 && promptData.prompt_1) basePrompt = promptData.prompt_1;
+        else if (selectedNum === 2 && promptData.prompt_2) basePrompt = promptData.prompt_2;
+        else if (selectedNum === 3 && promptData.prompt_3) basePrompt = promptData.prompt_3;
+        else basePrompt = promptData.standard_prompt || promptData.prompt_1 || promptData.prompt_2 || promptData.prompt_3;
+        if (!basePrompt) return res.status(400).json({ msg: 'Prompt padrão vazio.' });
+        // Adaptar ao título sem reescrever o padrão
+        const titleText = title.trim();
+        const placeholders = [/\\[\\s*T[ÍI]TULO\\s*\\]/gi, /\\{\\s*TITLE\\s*\\}/gi, /<\\s*TITLE\\s*>/gi, /\\{\\{\\s*title\\s*\\}\\}/gi, /\\[TITLE\\]/g];
+        let hadPlaceholder = false;
+        for (const rx of placeholders) {
+            if (rx.test(basePrompt)) {
+                basePrompt = basePrompt.replace(rx, `\"${titleText}\"`);
+                hadPlaceholder = true;
+            }
+        }
+        // Não injetar o título completo no prompt visual; vamos criar HEADLINE/SUBHEADLINE
+        if (!hadPlaceholder) {
+            // Apenas mantém o basePrompt sem inserir "Title: ..."
+        }
+        // Remover instruções de cenário rígidas do prompt base para permitir variação por título
+        try {
+            const scenePatterns = [
+                /background should.*?\\./gi,
+                /background.*?(sky|mountain|desert|forest|jungle|city|ships|pyramids|ruins).*?\\./gi,
+                /setting:.*?\\./gi,
+                /scene shows.*?\\./gi
+            ];
+            for (const p of scenePatterns) {
+                basePrompt = basePrompt.replace(p, '').replace(/\\n{2,}/g, '\\n');
+            }
+        } catch {}
+        // Extração leve de cenário (IA opcional + heurísticas)
+        const words = titleText.split(/\\s+/).map(w => w.trim()).filter(Boolean);
+        const eraTerms = ['antiguidade','medieval','renascimento','colônia','império','revolução','século','era','dinastia'];
+        const placeTerms = ['roma','egito','azteca','inca','maya','espanha','méxico','peru','andino','atlântico','pacífico','deserto','selva','floresta'];
+        const detectedEra = words.find(w => eraTerms.includes(w.toLowerCase()));
+        const detectedPlace = words.find(w => placeTerms.includes(w.toLowerCase()));
+        let scenarioHints = [];
+        if (detectedEra) scenarioHints.push(`historical era: ${detectedEra}`);
+        if (detectedPlace) scenarioHints.push(`setting: ${detectedPlace}`);
+        // Mapeamento de cenários por cultura/tema para elementos visuais característicos
+        const sceneMap = [
+            { keys: ['azteca','aztecas','mexica','tenochtitlan'], elements: ['aztec pyramids', 'feathered headdress', 'jaguar warrior motifs', 'Spanish ships on horizon', 'smoke of battle', 'ancient temples'] },
+            { keys: ['inca','incas','atahualpa','machu','andino','peru'], elements: ['andes mountains', 'Machu Picchu ruins', 'stone terraces', 'lamas', 'conquistador silhouettes', 'stormy sky'] },
+            { keys: ['maya','mayas','mayan','chichen','yucatan'], elements: ['step pyramids', 'jungle canopy', 'stone glyphs', 'misty forest', 'sun shafts through foliage'] },
+            { keys: ['roma','romanos','roman'], elements: ['colosseum', 'roman columns', 'laurel wreath', 'legion standards', 'marble statues'] },
+            { keys: ['egito','egypt','faraó','pharaoh','pyramids','giza'], elements: ['desert dunes', 'pyramids of giza', 'hieroglyph walls', 'golden sun', 'ancient statues'] }
+        ];
+        const tLower = titleText.toLowerCase();
+        let sceneElements = [];
+        for (const entry of sceneMap) {
+            if (entry.keys.some(k => tLower.includes(k))) {
+                sceneElements = entry.elements;
+                break;
+            }
+        }
+        // Regras adicionais para Neandertais/DNA
+        if (/(neandertal|neanderthal|neandertais)/i.test(titleText)) {
+            sceneElements = ['ice age landscape', 'stormy blue-gray sky', 'cave entrance', 'primitive tools', 'human skull silhouette', 'double helix DNA overlay', 'scientific lab glow'];
+        }
+        // Evitar elementos conflitantes quando tema não é mesoamericano
+        let avoidElements = [];
+        if (!/(azteca|aztecas|mexica|tenochtitlan)/i.test(titleText)) {
+            avoidElements.push('mesoamerican pyramids', 'feathered headdress', 'jaguar warrior motif', 'spanish ships on horizon');
+        }
+        // Remover sujeito fixo do prompt base (líder com cocar etc.) para permitir troca por título
+        try {
+            const subjectPatterns = [
+                /indigenous leader.*?\\./gi,
+                /feathered headdress.*?\\./gi,
+                /jaguar warrior.*?\\./gi,
+                /conquistador silhouettes.*?\\./gi
+            ];
+            for (const p of subjectPatterns) {
+                basePrompt = basePrompt.replace(p, '').replace(/\\n{2,}/g, '\\n');
+            }
+            const hardRemovals = [
+                /feather(?:ed)?\\s+headdress/gi,
+                /headdress/gi,
+                /jaguar\\s+warrior/gi,
+                /conquistador(s)?/gi,
+                /spanish\\s+ships?/gi,
+                /mesoamerican/gi,
+                /aztec(as)?/gi,
+                /pyramids?/gi,
+                /logo/gi,
+                /watermark/gi,
+                /badge/gi,
+                /branding/gi
+            ];
+            for (const p of hardRemovals) {
+                basePrompt = basePrompt.replace(p, '');
+            }
+            basePrompt = basePrompt.replace(/\\s{2,}/g, ' ').trim();
+        } catch {}
+        // Definir SUJEITO principal conforme título
+        let subjectDescription = null;
+        if (/(neandertal|neanderthal|neandertais)/i.test(titleText)) {
+            subjectDescription = 'stoic Neanderthal male in fur cloak holding stone tools, rugged facial features, scientific overlay subtly present';
+        } else if (/(dna|genetic|genética)/i.test(titleText)) {
+            subjectDescription = 'scientific composition with double helix DNA as secondary element; keep human silhouette subtle';
+        } else if (/(roma|romanos|roman)/i.test(titleText)) {
+            subjectDescription = 'Roman figure with laurel wreath and toga, classical lighting';
+        } else if (/(egito|egypt|pharaoh|faraó)/i.test(titleText)) {
+            subjectDescription = 'ancient Egyptian figure with royal collar, desert lighting';
+        }
+        // IA opcional para enriquecer hints (não reescrever prompt)
+        try {
+            if (prompt_ai && prompt_ai !== 'none') {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, prompt_ai]);
+                if (keyData) {
+                    const decryptedKey = decrypt(keyData.api_key);
+                    const model = prompt_ai === 'gemini' ? 'gemini-2.0-flash' : (prompt_ai === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-20241022');
+                    const ask = `From the title "${titleText}", extract 3 short scenario hints (setting, era, key elements) that can vary while keeping composition locked. Return as lines: hint: value`;
+                    let resp;
+                    if (prompt_ai === 'gemini') resp = await callGeminiAPI(ask, decryptedKey, model);
+                    else if (prompt_ai === 'openai') resp = await callOpenAIAPI(ask, decryptedKey, model);
+                    else resp = await callClaudeAPI(ask, decryptedKey, model);
+                    const text = typeof resp === 'string' ? resp : (resp.text || resp.titles || '');
+                    const lines = String(text).split(/\\n+/).map(s => s.trim()).filter(Boolean).slice(0, 5);
+                    scenarioHints.push(...lines);
+                }
+            }
+        } catch (e) {
+            console.warn('[ByTitle] IA de cenário opcional falhou:', e.message);
+        }
+        const styleLock = 'Keep composition, subject placement, palette, typography and lighting exactly as in channel references. Do not change layout. Maintain gold title text at bottom with dramatic lighting. Do not render any literal text from these instructions.';
+        let finalPrompt = `${basePrompt}`;
+        // HEADLINE/SUBHEADLINE derivadas do título
+        const extractHeadline = (raw) => {
+            let head = raw.split(':')[0].trim();
+            // Limitar tamanho e capitalizar
+            head = head.replace(/^[\\s\\-–]+|[\\s\\-–]+$/g, '');
+            return head;
+        };
+        const extractSub = (raw) => {
+            const paren = raw.match(/\\(([^\\)]+)\\)/);
+            if (paren && paren[1]) return paren[1].trim();
+            const parts = raw.split(':');
+            if (parts[1]) {
+                // pegar núcleo forte (2–5 palavras)
+                let sub = parts[1]
+                    .replace(/\\b(sobre|acerca|de|da|do|dos|das|su[a]?|el|la|los|las|the|a)\\b/gi, '')
+                    .replace(/[\"']/g, '')
+                    .trim();
+                // Se ainda muito longo, encurtar
+                const words = sub.split(/\\s+/).filter(Boolean);
+                if (words.length > 6) sub = words.slice(0, 6).join(' ');
+                return sub || parts[1].trim();
+            }
+            return '';
+        };
+        const headlineText = extractHeadline(titleText);
+        const subText = extractSub(titleText);
+        const theme = (() => {
+            const s = titleText.toLowerCase();
+            if (s.includes('faraó') || s.includes('egito') || s.includes('egip') || s.includes('pirâmide') || s.includes('piramide')) return 'egito';
+            if (s.includes('neandertal') || s.includes('neanderthal') || s.includes('neandertais') || s.includes('neandertales')) return 'prehistoria';
+            if (s.includes('inca') || s.includes('atahualpa') || s.includes('moctezuma') || s.includes('azteca') || s.includes('aztecas') || s.includes('mexica')) return 'america_pre_colombiana';
+            if (s.includes('viking') || s.includes('vikings')) return 'viking';
+            if (s.includes('roma') || s.includes('romano') || s.includes('romanos') || s.includes('roman')) return 'roma';
+            if (s.includes('segunda guerra') || s.includes('world war') || s.includes('guerra mundial')) return 'ww2';
+            if (s.includes('cristandade') || s.includes('cristão') || s.includes('cristian') || s.includes('cathedral') || s.includes('catedral')) return 'cristandade';
+            return 'default';
+        })();
+        const themes = {
+            egito: { AMBIENTE: ['desert dunes', 'pyramids', 'pharaoh temples', 'golden sun'], ELEMENTOS: ['hieroglyph walls', 'golden crown', 'architect tools'] },
+            prehistoria: { AMBIENTE: ['frozen mountains', 'glacial valleys', 'burning forests'], ELEMENTOS: ['fur clothing', 'primitive tools', 'ice age forests'] },
+            america_pre_colombiana: { AMBIENTE: ['jungles', 'stepped pyramids', 'volcanic eruptions'], ELEMENTOS: ['feather headdress', 'obsidian blade', 'conquistador silhouettes'] },
+            viking: { AMBIENTE: ['stormy oceans', 'burning ships', 'icy fjords'], ELEMENTOS: ['longships', 'axes', 'ravens'] },
+            roma: { AMBIENTE: ['colosseum', 'roman columns', 'marble statues'], ELEMENTOS: ['legion standards', 'laurel wreath', 'toga textures'] },
+            ww2: { AMBIENTE: ['ruined cities', 'smoke', 'searchlights'], ELEMENTOS: ['tanks', 'helmets', 'barbed wire'] },
+            cristandade: { AMBIENTE: ['gothic cathedrals', 'stained glass light', 'stone plazas'], ELEMENTOS: ['crosses', 'incense smoke', 'candles'] },
+            default: { AMBIENTE: ['dramatic scenery', 'smoke', 'conflict'], ELEMENTOS: ['contextual props'] }
+        };
+        let dbMatch = null;
+        if (theme_key) {
+            await ensureAmbientationsTable();
+            dbMatch = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, theme_key]);
+        }
+        if (!dbMatch) {
+            dbMatch = await detectAmbientationFromTitle(userId, titleText, niche);
+        }
+        if (dbMatch) {
+            sceneElements = String(dbMatch.ambiente || '').split(',').map(s => s.trim()).filter(Boolean);
+            scenarioHints = String(dbMatch.elementos || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (!subjectDescription && dbMatch.subject) subjectDescription = dbMatch.subject;
+        } else if (themes[theme]) {
+            sceneElements = themes[theme].AMBIENTE;
+            scenarioHints = themes[theme].ELEMENTOS;
+            if (!subjectDescription) {
+                if (theme === 'prehistoria') subjectDescription = 'realistic Neanderthal with fur cloak and stone tools';
+                else if (theme === 'egito') subjectDescription = 'ancient Egyptian figure with royal collar';
+                else if (theme === 'america_pre_colombiana') subjectDescription = 'Mesoamerican leader with traditional attire';
+                else if (theme === 'viking') subjectDescription = 'Viking warrior with fur and axe';
+                else if (theme === 'roma') subjectDescription = 'Roman figure with laurel wreath and toga';
+                else if (theme === 'ww2') subjectDescription = 'civilian silhouette amid wartime ruins';
+                else if (theme === 'cristandade') subjectDescription = 'historical figure near cathedral light';
+            }
+        }
+        const personagem = subjectDescription || 'historical figure with authentic attire';
+        const ambientacao = (sceneElements && sceneElements.length) ? sceneElements.join(', ') : 'landscapes and architecture matching the title theme';
+        const elementosIconicos = [scenarioHints.join('; '), avoidElements.length ? `avoid: ${avoidElements.join(', ')}` : ''].filter(Boolean).join('; ');
+        const elementosDeFundo = scenarioHints.join(', ');
+        const acessoriosPreset = (dbMatch && dbMatch.acessorios) ? String(dbMatch.acessorios) : (
+            theme === 'prehistoria' ? 'primitive fur and animal hides, no metal or feathers' :
+            theme === 'egito' ? 'gold necklaces and ceremonial regalia' :
+            theme === 'viking' ? 'fur, leather armor, iron helmet' : ''
+        );
+        // Modularização do prompt padrão: preencher placeholders ou ajustar blocos de cenário/elementos
+        let adaptedPrompt = `${basePrompt}`;
+        const phMap = { PERSONAGEM: personagem, ACESSORIOS: acessoriosPreset, AMBIENTE: ambientacao, ELEMENTOS_DE_FUNDO: elementosDeFundo };
+        let placeholdersFound = false;
+        for (const [key, val] of Object.entries(phMap)) {
+            const rx = new RegExp(`\\{${key}\\}`, 'gi');
+            if (rx.test(adaptedPrompt)) { placeholdersFound = true; adaptedPrompt = adaptedPrompt.replace(rx, val); }
+        }
+        if (!placeholdersFound) {
+            const bgRx = /(background[^\.]*?)(:|should|with) [^\.]*\./i;
+            if (bgRx.test(adaptedPrompt)) adaptedPrompt = adaptedPrompt.replace(bgRx, `$1: ${ambientacao}.`);
+            const incRx = /(include[^\.]*elements[^\.]*?)(:|such as) [^\.]*\./i;
+            if (incRx.test(adaptedPrompt)) adaptedPrompt = adaptedPrompt.replace(incRx, `$1: ${elementosIconicos}.`);
+            if (!bgRx.test(adaptedPrompt)) adaptedPrompt += `\\n\\nBackground: ${ambientacao}.`;
+            if (!incRx.test(adaptedPrompt)) adaptedPrompt += `\\nInclude elements: ${elementosDeFundo}.`;
+        }
+        const headlineLine = `Headline: \\\"${headlineText}\\\" (translate to ${language}) in gold all-caps serif with subtle glow; do not render the word 'Headline'.`;
+        const subheadlineLine = subText ? `Subheadline: \\\"${subText}\\\" (translate to ${language}) below, smaller, high contrast; do not render the word 'Subheadline'.` : '';
+        const negativeBlock = `Exclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships, jaguar motifs, and any aztec elements. Exclude any logos, watermarks, channel badges or branding marks. Do not render channel names or corner marks.`;
+        finalPrompt = `${adaptedPrompt}\\n\\n${headlineLine}\\n${subheadlineLine}\\n\\n${negativeBlock}\\n\\n${styleLock}`;
+        // Reutilizar rota de geração
+        const images = [];
+        for (let i = 0; i < Math.max(1, Math.min(variations, 4)); i++) {
+            const genResp = await fetch(`http://localhost:${PORT}/api/generate/imagefx`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': req.headers['authorization'] || '' },
+                body: JSON.stringify({ prompt: finalPrompt, niche, subniche, style, saveToLibrary: true })
+            });
+            const genData = await genResp.json();
+            if (!genResp.ok) throw new Error(genData.msg || 'Erro ao gerar imagem');
+            images.push({
+                imageUrl: genData.imageUrl || genData.image || genData.result || null,
+                savedToLibrary: !!genData.savedToLibrary,
+                libraryId: genData.libraryId || null
+            });
+        }
+        try { await saveAmbientationSnapshot(userId, niche, theme, titleText, sceneElements, scenarioHints, subjectDescription); } catch {}
+        return res.json({ success: true, promptUsed: finalPrompt, images });
+    } catch (err) {
+        console.error('[ByTitle] Erro:', err);
+        return res.status(500).json({ msg: err.message || 'Erro ao gerar por título.' });
+    }
+});
+
+app.get('/api/ambientations/detect', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const title = String(req.query.title || '');
+        const niche = req.query.niche || null;
+        const match = await detectAmbientationFromTitle(userId, title, niche);
+        if (!match) return res.json({ found: false });
+        return res.json({ found: true, data: match });
+    } catch (err) {
+        return res.status(500).json({ msg: 'Falha ao detectar ambientação.' });
+    }
+});
+
+app.post('/api/ambientations', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { niche, theme_key, keywords, ambiente, elementos, subject } = req.body || {};
+        await ensureAmbientationsTable();
+        await db.run(
+            `INSERT INTO niche_ambientations (user_id, niche, theme_key, keywords, ambiente, elementos, subject, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [userId, niche || null, theme_key || null, String(keywords || ''), String(ambiente || ''), String(elementos || ''), String(subject || '')]
+        );
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ msg: 'Falha ao salvar ambientação.' });
+    }
+});
+
+app.post('/api/ambientations/seed', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        await seedDefaultAmbientations(userId);
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ msg: 'Falha ao popular temas padrão.' });
+    }
+});
+
+app.get('/api/ambientations', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const rows = await db.all('SELECT id, niche, theme_key, keywords, ambiente, elementos, subject FROM niche_ambientations WHERE user_id = ?', [userId]);
+        return res.json(rows || []);
+    } catch (err) {
+        return res.status(500).json({ msg: 'Falha ao listar ambientações.' });
+    }
+});
 // === FUNÇÕES DE TRANSCRIÇÃO COM WHISPER ===
 
 /**
