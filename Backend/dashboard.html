@@ -1243,6 +1243,9 @@
                                         <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
+                                <p class="text-xs text-gray-400 mt-1">
+                                    <span id="model-info-text">Modo único: 5 títulos</span>
+                                </p>
                             </div>
                             
                             <!-- Idioma dos Títulos -->
@@ -1412,153 +1415,99 @@
                     </div>
                     
                     
-                    <!-- Gerador de Thumbnail (Layout UX Revisado) -->
+                    <!-- Gerador de Thumbnail Simplificado e Sincronizado -->
                     <div id="thumbnail-generator" class="mt-8" style="display: none;">
                         <hr class="border-gray-700 mb-6">
-                        <h3 class="text-xl font-semibold text-white mb-4">Gerador de Ideias de Thumbnail</h3>
+                        <h3 class="text-xl font-semibold text-white mb-4">🎨 Gerador de Thumbnail Completa</h3>
+                        <p class="text-sm text-gray-400 mb-6">Digite o título e o sistema gerará automaticamente: thumbnail pronta, headline de impacto, descrição SEO e tags principais, tudo baseado no estilo das suas thumbnails de referência.</p>
                         
-                        <div class="mb-4">
-                            <label for="thumb-title-select" class="block text-sm font-medium mb-2">1. Usar o Título</label>
-                            <select id="thumb-title-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                <!-- Options serão populadas via JS -->
-                            </select>
-                        </div>
-                        
-                        <div class="mb-4">
-                            <label for="thumb-model-select" class="block text-sm font-medium mb-2">2. Modelo de IA</label>
-                            <select id="thumb-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
-                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
-                            </select>
-                        </div>
-                        
-                        <div class="mb-4">
-                            <label for="thumb-rule-select" class="block text-sm font-medium mb-2">Regra de Thumbnail Viral (IA escolherá automaticamente se não selecionar)</label>
-                            <select id="thumb-rule-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                <option value="auto" selected>🤖 IA Escolhe Automaticamente (Recomendado)</option>
-                                <option value="rule1">1️⃣ Regra da Clareza Imediata (1 segundo)</option>
-                                <option value="rule2">2️⃣ Regra do Assunto Único</option>
-                                <option value="rule3">3️⃣ Regra do Rosto Grande</option>
-                                <option value="rule4">4️⃣ Regra do Contraste Brutal</option>
-                                <option value="rule5">5️⃣ Regra da Cor Estratégica</option>
-                                <option value="rule6">6️⃣ Regra dos Terços</option>
-                                <option value="rule7">7️⃣ Regra do Texto Ultra Curto</option>
-                                <option value="rule8">8️⃣ Regra do Zoom Emocional</option>
-                                <option value="rule9">9️⃣ Regra do Mistério</option>
-                                <option value="rule10">🔟 Regra dos Pontos de Fuga</option>
-                                <option value="rule11">1️⃣1️⃣ Regra do Espaço Negativo</option>
-                                <option value="rule12">1️⃣2️⃣ Regra da Coerência com o Título</option>
-                            </select>
-                            <p class="text-xs text-gray-400 mt-1">A IA analisará o título e escolherá a melhor regra automaticamente. Você pode forçar uma regra específica se desejar.</p>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="theme-detection-select" class="block text-sm font-medium mb-2">Detecção de Tema (Ambientação)</label>
-                            <select id="theme-detection-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200">
-                                <option value="auto" selected>Automática pelo Título (Recomendado)</option>
-                            </select>
-                            <p class="text-xs text-gray-400 mt-1">Selecione um tema manual para forçar a ambientação ou deixe em "Automática" para detectar pelo título.</p>
-                            <div class="mt-2 flex gap-2">
-                                <button id="btn-seed-themes" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs">Popular Biblioteca com 20 Temas</button>
-                                <span id="seed-status" class="text-xs text-gray-400"></span>
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                            <div class="mb-4">
+                                <label for="thumb-title-input" class="block text-sm font-medium mb-2">Título do Vídeo</label>
+                                <input type="text" id="thumb-title-input" placeholder="Ex: A CIDADE FLUTUANTE dos Astecas: 3 TÉCNICAS GENIAIS que Arqueólogos Ainda Não Conseguem Explicar" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                <p class="text-xs text-gray-400 mt-1">O sistema adaptará automaticamente o estilo das thumbnails de referência para este título.</p>
                             </div>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            <div>
-                                <label for="thumb-language" class="block text-sm font-medium mb-2">3. Idioma</label>
-                                <select id="thumb-language" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                    <option value="Português" selected>Português</option>
-                                    <option value="Inglês">Inglês</option>
-                                    <option value="Espanhol">Espanhol</option>
+                            
+                            <div class="mb-4">
+                                <label for="thumb-prompt-variant-simple" class="block text-sm font-medium mb-2">Prompt Padrão a Usar</label>
+                                <select id="thumb-prompt-variant-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <option value="1" selected>Prompt 1</option>
+                                    <option value="2">Prompt 2</option>
+                                    <option value="3">Prompt 3</option>
                                 </select>
+                                <p class="text-xs text-gray-400 mt-1">Selecione qual dos 3 prompts padrão usar para gerar a thumbnail</p>
                             </div>
-
-                            <div>
-                                <label for="thumb-phrases" class="block text-sm font-medium mb-2">4. Frases</label>
-                                <select id="thumb-phrases" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                    <option value="true" selected>Com Frases</option>
-                                    <option value="false">Sem Frases</option>
-                                </select>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div>
+                                    <label for="thumb-ai-model-simple" class="block text-sm font-medium mb-2">Modelo de IA</label>
+                                    <select id="thumb-ai-model-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                        <option value="gpt-4o" selected>GPT-4o (2025)</option>
+                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="thumb-language-simple" class="block text-sm font-medium mb-2">Idioma</label>
+                                    <select id="thumb-language-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                        <option value="pt-BR" selected>Português</option>
+                                        <option value="en-US">Inglês</option>
+                                        <option value="es-ES">Espanhol</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="thumb-style-simple" class="block text-sm font-medium mb-2">Estilo de Arte</label>
+                                    <select id="thumb-style-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                        <optgroup label="🎨 Estilos Realistas">
+                                            <option value="photorealistic" selected>📸 Foto Realista - Ultra HD, detalhes perfeitos</option>
+                                            <option value="cinematic">🎬 Cinematográfico - Estilo Hollywood, dramático</option>
+                                            <option value="documentary">📹 Documentário - Natural, autêntico</option>
+                                            <option value="cinematic-narrative">🎭 Narrativa Cinematográfica - Storytelling visual</option>
+                                        </optgroup>
+                                        <optgroup label="🎨 Estilos Artísticos">
+                                            <option value="anime">🌸 Anime - Estilo japonês animado</option>
+                                            <option value="cartoon">🎨 Desenho Animado - Colorido e expressivo</option>
+                                            <option value="cartoon-premium">✨ Cartoon Premium - Alta qualidade animada</option>
+                                            <option value="fantasy">✨ Fantasia - Mágico e épico</option>
+                                        </optgroup>
+                                        <optgroup label="🎨 Estilos Minimalistas">
+                                            <option value="stick-figure">👤 Desenho de Palitos - Simples e minimalista</option>
+                                            <option value="whiteboard">📝 Quadro Branco - Explicativo e limpo</option>
+                                            <option value="tech-minimalist">💻 Tech Minimalista - Moderno e clean</option>
+                                            <option value="spiritual-minimalist">🧘 Narrativa Espiritual Minimalista - Sereno</option>
+                                        </optgroup>
+                                        <optgroup label="🎨 Estilos Vibrantes">
+                                            <option value="viral-vibrant">🔥 Viral Vibrante - Alto contraste, cores intensas</option>
+                                            <option value="modern-documentary">📺 Documentário Moderno - Dinâmico e atual</option>
+                                        </optgroup>
+                                        <optgroup label="🎨 Estilos Dramáticos">
+                                            <option value="analog-horror">👻 Terror Analógico - Estética VHS, sombrio</option>
+                                            <option value="dark-theater">🎪 Teatro Sombrio - Dramático e intenso</option>
+                                            <option value="naturalist-drama">🎭 Drama Naturalista - Realista e emocional</option>
+                                        </optgroup>
+                                        <optgroup label="🎨 Estilos Experimentais 2025">
+                                            <option value="cinematic-diorama">🎭 Diorama Cinematográfico Narrativo - Miniatura/maquete com iluminação cinematográfica</option>
+                                            <option value="spiritual-neorealism">🌟 Neo-Realismo Espiritual - Transcendente</option>
+                                            <option value="psychological-surrealism">🌀 Surrealismo Psicológico - Onírico</option>
+                                            <option value="fragmented-memory">🧩 Memória Fragmentada - Narrativa quebrada</option>
+                                            <option value="fragmented-narrative">📖 Narrativa Fragmentada - Estilo colagem</option>
+                                            <option value="dream-real">💭 Sonho-Real - Limiar entre sonho e realidade</option>
+                                            <option value="vhs-nostalgic">📼 VHS Nostálgico - Estética anos 80/90</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
                             </div>
-
-                            <div>
-                                <label for="thumb-style" class="block text-sm font-medium mb-2">5. Estilo de Arte</label>
-                                <select id="thumb-style" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                    <optgroup label="🎨 Estilos Realistas">
-                                        <option value="photorealistic" selected>📸 Foto Realista - Ultra HD, detalhes perfeitos</option>
-                                        <option value="cinematic">🎬 Cinematográfico - Estilo Hollywood, dramático</option>
-                                        <option value="documentary">📹 Documentário - Natural, autêntico</option>
-                                        <option value="cinematic-narrative">🎭 Narrativa Cinematográfica - Storytelling visual</option>
-                                        <option value="cinematic-diorama">🎭 Diorama Cinematográfico Narrativo - Miniatura/maquete com iluminação cinematográfica</option>
-                                    </optgroup>
-                                    <optgroup label="🎨 Estilos Artísticos">
-                                        <option value="anime">🌸 Anime - Estilo japonês animado</option>
-                                        <option value="cartoon">🎨 Desenho Animado - Colorido e expressivo</option>
-                                        <option value="cartoon-premium">✨ Cartoon Premium - Alta qualidade animada</option>
-                                        <option value="fantasy">✨ Fantasia - Mágico e épico</option>
-                                    </optgroup>
-                                    <optgroup label="🎨 Estilos Minimalistas">
-                                        <option value="tech-minimalist">💻 Tech Minimalista - Design limpo e moderno</option>
-                                        <option value="spiritual-minimalist">🧘 Espiritual Minimalista - Sereno e zen</option>
-                                        <option value="stick-figure">👤 Desenho de Palitos - Minimalista, linhas simples</option>
-                                        <option value="whiteboard">📋 Quadro Branco - Educativo e limpo</option>
-                                    </optgroup>
-                                    <optgroup label="🎨 Estilos Especiais">
-                                        <option value="viral-vibrant">🔥 Viral Vibrante - Alto contraste, cores saturadas</option>
-                                        <option value="modern-documentary">📺 Documentário Moderno - Dinâmico e contemporâneo</option>
-                                        <option value="analog-horror">🎞️ Terror Analógico - Qualidade VHS, textura granulada</option>
-                                        <option value="dark-theater">🎭 Teatro Sombrio - Iluminação dramática de palco</option>
-                                        <option value="naturalist-drama">🎬 Drama Naturalista - Realista e emocional</option>
-                                        <option value="spiritual-neorealism">✨ Neo-realismo Espiritual - Realismo transcendente</option>
-                                        <option value="psychological-surrealism">🌀 Surrealismo Psicológico - Imagens oníricas</option>
-                                        <option value="fragmented-memory">🧩 Memória Fragmentada - Estética de colagem</option>
-                                        <option value="fragmented-narrative">📖 Narrativa Fragmentada - Estilo colagem</option>
-                                        <option value="dream-real">💭 Sonho-Real - Espaço liminar entre sonho e realidade</option>
-                                        <option value="vhs-nostalgic">📼 VHS Nostálgico - Estética retro anos 80/90</option>
-                                    </optgroup>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div class="mb-4">
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" id="use-standard-prompt" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500 focus:ring-2">
-                                <span class="text-sm font-medium text-white">Usar Prompt Padrão do Estilo do Canal/Nicho</span>
-                            </label>
-                            <p class="text-xs text-gray-400 mt-1 ml-6">Marque esta opção para usar o prompt padrão analisado das thumbnails de referência. O prompt padrão será aplicado automaticamente nas gerações.</p>
-                        </div>
-                        
-                        <div class="mb-4">
-                            <label for="thumb-custom-prompt" class="block text-sm font-medium mb-2">6. Prompt Personalizado (Opcional)</label>
-                            <textarea id="thumb-custom-prompt" rows="4" placeholder="Digite aqui instruções específicas para a geração da thumbnail. Deixe vazio para usar o prompt padrão." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"></textarea>
-                            <p class="text-xs text-gray-400 mt-1">Use este campo para personalizar como a IA deve gerar as thumbnails. Ex: "Foco em cores vibrantes", "Estilo minimalista", etc.</p>
-                        </div>
-                        
-                        <div class="mb-6">
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" id="thumb-no-phrases" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
-                                <span class="text-sm text-gray-300">Gerar thumbnail sem frase de gancho (apenas imagem, sem texto)</span>
-                            </label>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <button type="button" id="btn-generate-thumbs" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
-                                <span>Gerar 2 Ideias</span>
+                            
+                            <button type="button" id="btn-generate-complete-thumbnail" class="w-full py-4 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black text-lg">
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
+                                <span>✨ Gerar Thumbnail Completa</span>
                                 <div class="btn-spinner hidden"></div>
                             </button>
-                            <button type="button" id="btn-generate-more-thumbs" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white">
-                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                                <span>Gerar Mais 2 Ideias</span>
-                                <div class="btn-spinner hidden"></div>
-                            </button>
-                            <button type="button" id="btn-generate-by-title-integrated" class="py-3 px-4 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black">
-                                <span>Gerar por Título</span>
-                                <div class="btn-spinner hidden"></div>
-                            </button>
+                            <p class="text-xs text-gray-400 mt-3 text-center">O sistema gerará 2 variações da thumbnail com headline, SEO e tags prontos</p>
                         </div>
-                        <div id="gen-by-title-results" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6" style="display: none;"></div>
+                        
+                        <!-- Área de resultados -->
+                        <div id="complete-thumbnail-results" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6" style="display: none;"></div>
                     </div>
 
 
@@ -2664,11 +2613,11 @@
                             Baixar Selecionadas
                         </button>
                         <button id="batch-animate-selected-images-btn" class="flex-1 text-center py-2 px-4 rounded-lg font-semibold bg-purple-600 text-white hover:bg-purple-500">
-                            Animar Selecionadas (Meta.ai)
+                            Animar Selecionadas (Parallax)
                         </button>
                     </div>
                     <div class="mt-2">
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Prompt de Animação (Meta.ai)</label>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Prompt de Animação (Parallax)</label>
                         <input type="text" id="meta-animation-prompt-input" placeholder="Descreva sua animação..." class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
                     </div>
                     <button id="batch-clear-all-images-btn" class="w-full text-center py-2 px-4 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-500">
@@ -2744,7 +2693,7 @@
                                                     <i data-lucide="x" class="w-4 h-4"></i>
                                                 </button>
                                                 <button class="batch-animate-image-btn w-full text-center py-2 px-4 rounded-lg font-semibold text-white bg-purple-600 hover:bg-purple-700 mt-2" data-img-index="${index}" data-scene-number="${img.sceneNumber || index + 1}">
-                                                    Animar (Meta.ai)
+                                                    Animar (Parallax)
                                                 </button>
                                                 <div id="batch-animate-result-${index}" class="mt-2" style="display:none;"></div>
                                             </div>
@@ -3636,14 +3585,6 @@
                             <textarea id="key-imagefx" rows="4" placeholder="Cole o JSON dos cookies aqui..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" style="font-family: monospace;"></textarea>
                         </div>
 
-                        <div class="mt-4">
-                            <label for="key-metaai" class="block text-sm font-medium mb-2">Meta.ai Cookies (JSON)</label>
-                            <textarea id="key-metaai" rows="4" placeholder="Cole o JSON dos cookies do Meta.ai aqui..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" style="font-family: monospace;"></textarea>
-                            <div class="flex gap-2 mt-2">
-                                <button type="button" id="btn-validate-metaai" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Validar Cookies</button>
-                                <span id="metaai-status" class="text-sm text-gray-300"></span>
-                            </div>
-                        </div>
 
                         <hr class="border-gray-700">
 
@@ -5728,6 +5669,50 @@ Equipe La Casa Dark Core</textarea>
                 model: null,
                 generatedTitles: []
             };
+
+            // Salvar títulos gerados na biblioteca (tanto GPT quanto Claude/Gemini)
+            async function saveTitlesToLibrary(titles = [], meta = {}) {
+                try {
+                    if (!Array.isArray(titles) || titles.length === 0) return;
+                    const token = localStorage.getItem('core_token');
+                    if (!token) return;
+
+                    const niche = meta.niche || null;
+                    const subniche = meta.subniche || null;
+                    const views = meta.views || null;
+                    const formula = meta.formula || null;
+                    const keywords = meta.keywords || null;
+
+                    // Enviar em série para evitar sobrecarga
+                    for (const t of titles) {
+                        const titleText = t?.titulo || t?.title || (typeof t === 'string' ? t : null);
+                        if (!titleText) continue;
+                        const body = {
+                            title: titleText,
+                            niche,
+                            subniche,
+                            originalViews: views,
+                            formulaType: formula || t?.formulaTitulo || null,
+                            keywords: keywords || t?.keywords || null,
+                            viralScore: t?.viralScore || t?.score || null
+                        };
+                        try {
+                            await fetch(`${API_BASE}/api/library/titles`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}`
+                                },
+                                body: JSON.stringify(body)
+                            });
+                        } catch (err) {
+                            console.warn('[Biblioteca] Falha ao salvar título:', err?.message || err);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[Biblioteca] Erro ao salvar títulos:', err);
+                }
+            }
             
             let userFolders = [];
             
@@ -11150,6 +11135,15 @@ Equipe La Casa Dark Core</textarea>
                     activeView.classList.add('active');
                 }
 
+                // Ao entrar na tela de Prompts de Cenas, carregar histórico imediatamente
+                if (viewName === 'prompts-imagens') {
+                    try {
+                        loadScenePromptsHistory();
+                    } catch (err) {
+                        console.warn('[Prompts] Falha ao carregar histórico ao entrar na view:', err);
+                    }
+                }
+
                 navLinks.forEach(navLink => {
                     if (navLink) {
                         navLink.classList.remove('bg-amber-600', 'text-black', 'font-bold');
@@ -11893,6 +11887,8 @@ Equipe La Casa Dark Core</textarea>
             const analisarButton = document.getElementById('analisar-button');
             const errorBox = document.getElementById('analisador-error'); 
             const folderSelect = document.getElementById('folder-select');
+            const modelSelect = document.getElementById('model-select');
+            const modelInfoText = document.getElementById('model-info-text');
             
             const thumbGeneratorDiv = document.getElementById('thumbnail-generator');
             const thumbTitleSelect = document.getElementById('thumb-title-select');
@@ -11905,6 +11901,19 @@ Equipe La Casa Dark Core</textarea>
 
             const thumbLoadingSpinner = document.getElementById('thumbnail-ideas-loading');
             const thumbResultadosDiv = document.getElementById('thumbnail-ideas-results');
+            
+            // Atualizar info do modelo quando mudar seleção
+            if (modelSelect && modelInfoText) {
+                modelSelect.addEventListener('change', (e) => {
+                    if (e.target.value === 'all') {
+                        modelInfoText.textContent = 'Multimodal: 5 títulos de cada IA (total: 15)';
+                        modelInfoText.classList.add('text-amber-400');
+                    } else {
+                        modelInfoText.textContent = 'Modo único: 5 títulos';
+                        modelInfoText.classList.remove('text-amber-400');
+                    }
+                });
+            }
             
 
             async function handleTitleAnalysis(event) {
@@ -11961,156 +11970,31 @@ Equipe La Casa Dark Core</textarea>
                     // Validar e normalizar o modelo selecionado
                     const modelIsString = typeof model === 'string';
                     const normalizedModel = modelIsString ? model.trim() : '';
-                    // Se o provedor principal estiver ativo, sempre usar a rota laozhang
-                    const endpoint = useLaozhang ? '/api/analyze/titles/laozhang' : '/api/analyze/titles';
-                    console.log(`[Title Analysis] Usando endpoint: ${endpoint} (laozhang: ${useLaozhang})`);
                     
-                    // Se model === 'all', fazer 3 requisições paralelas (Comparar Multimodal)
-                    if (model === 'all') {
-                        console.log('[Title Analysis] Modo Comparação Multimodal ativado - fazendo 3 requisições paralelas');
-                        
-                        const models = ['gpt-4o', 'claude-3-7-sonnet-20250219', 'gemini-2.5-pro'];
-                        const modelNames = {
-                            'gpt-4o': 'GPT-4o',
-                            'claude-3-7-sonnet-20250219': 'Claude 3.7 Sonnet',
-                            'gemini-2.5-pro': 'Gemini 2.5 Pro'
-                        };
-                        
-                        // Fazer 3 requisições em paralelo
-                        const promises = models.map(async (modelKey) => {
-                            try {
-                                console.log(`[Comparação] Iniciando requisição para: ${modelNames[modelKey]}`);
-                                // Se usar laozhang, enviar o modelo específico para que ele use o modelo correto
-                                const language = document.getElementById('language-select')?.value || 'Português';
-                        const requestBody = { videoUrl, model: modelKey, folderId: folderId || null, language };
-                                    
-                                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    // IMPORTANTE: Modo multimodal (all) NUNCA usa laozhang diretamente
+                    // porque laozhang não tem um modelo "all" - precisa de 3 requisições separadas
+                    // A rota /api/analyze/titles já tem a lógica correta para isso
+                    const isMultimodal = model === 'all';
+                    const endpoint = (!isMultimodal && useLaozhang) ? '/api/analyze/titles/laozhang' : '/api/analyze/titles';
+                    console.log(`[Title Analysis] Usando endpoint: ${endpoint} (laozhang: ${useLaozhang}, multimodal: ${isMultimodal})`);
+                    
+                    // Uma única requisição: se model === 'all', o backend retorna os 3 modelos (15 títulos)
+                    const requestModel = isMultimodal ? 'all' : normalizedModel;
+                    const language = document.getElementById('language-select')?.value || 'Português';
+                    
+                    const response = await fetch(`${API_BASE}${endpoint}`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}` 
                         },
-                        body: JSON.stringify(requestBody)
-                                });
-                                
-                                const text = await response.text();
-                                console.log(`[Comparação] Resposta de ${modelNames[modelKey]} - Status: ${response.status}, Length: ${text.length}`);
-                                
-                                if (!text || text.trim() === '') {
-                                    throw new Error(`Resposta vazia para ${modelNames[modelKey]}`);
-                                }
-                                
-                                const contentType = response.headers.get('content-type');
-                                let data;
-                                
-                                if (contentType && contentType.includes('application/json')) {
-                                    data = JSON.parse(text);
-                                } else {
-                                    throw new Error(`Resposta não é JSON para ${modelNames[modelKey]}`);
-                                }
-                                
-                                if (!response.ok) {
-                                    throw new Error(data.msg || `Erro ${response.status} para ${modelNames[modelKey]}`);
-                                }
-                                
-                                console.log(`[Comparação] Dados de ${modelNames[modelKey]}:`, {
-                                    niche: data.niche,
-                                    subniche: data.subniche,
-                                    titulosCount: data.titulosSugeridos?.length || 0
-                                });
-                                
-                                return {
-                                    model: modelKey,
-                                    modelName: modelNames[modelKey],
-                                    data: data,
-                                    success: true
-                                };
-                            } catch (error) {
-                                console.error(`[Title Analysis] Erro no modelo ${modelNames[modelKey]}:`, error);
-                                return {
-                                    model: modelKey,
-                                    modelName: modelNames[modelKey],
-                                    error: error.message,
-                                    success: false
-                                };
-                            }
-                        });
-                        
-                        // Aguardar todas as 3 requisições
-                        const results = await Promise.all(promises);
-                        
-                        // Pegar o primeiro resultado com sucesso para usar como base
-                        const firstSuccess = results.find(r => r.success);
-                        
-                        if (!firstSuccess) {
-                            throw new Error('Todos os modelos falharam. Verifique suas configurações de API.');
-                        }
-                        
-                        // Usar os dados do primeiro modelo com sucesso para a interface principal
-                        const mainData = firstSuccess.data;
-                        
-                        // Combinar todos os títulos dos 3 modelos
-                        const allTitles = [];
-                        results.forEach(result => {
-                            if (result.success && result.data.titulosSugeridos) {
-                                result.data.titulosSugeridos.forEach(titulo => {
-                                    allTitles.push({
-                                        ...titulo,
-                                        model: result.modelName // Adicionar o nome do modelo
-                                    });
-                                });
-                            }
-                        });
-                        
-                        // Criar objeto de dados combinado
-                        const combinedData = {
-                            ...mainData,
-                            titulosSugeridos: allTitles, // Todos os títulos dos 3 modelos
-                            modelUsed: 'Comparação (3 modelos)'
-                        };
-                        
-                        currentAnalysisData = {
-                            videoId: videoId,
-                            niche: mainData.niche,
-                            subniche: mainData.subniche,
-                            model: 'Comparação (3 modelos)',
-                            generatedTitles: allTitles,
-                            videoDetails: mainData.videoDetails
-                        };
-                        
-                        // Renderizar interface completa normal (mesma de sempre)
-                        populateAnalysisResults(combinedData, videoUrl);
-                        
-                        if (combinedData.folderId) {
-                            const folderName = userFolders.find(f => f.id == combinedData.folderId)?.name || 'pasta selecionada';
-                            showMessage('analisador-success-message', `Análise salva com sucesso na pasta: <strong>${folderName}</strong>`);
-                        }
-                        
-                        // Atualizar dashboard se estiver visível
-                        refreshDashboardIfVisible();
-                        
-                        if (mainData.folderId) {
-                            const folderName = userFolders.find(f => f.id == mainData.folderId)?.name || 'pasta selecionada';
-                            showMessage('analisador-success-message', `Análise comparativa salva com sucesso na pasta: <strong>${folderName}</strong>`);
-                        }
-                        
-                        // Atualizar dashboard se estiver visível
-                        refreshDashboardIfVisible();
-                        
-                    } else {
-                        // Fluxo normal para um único modelo
-                        const response = await fetch(`${API_BASE}${endpoint}`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${userToken}` 
-                            },
-                            body: JSON.stringify({ 
-                                videoUrl, 
-                                model: normalizedModel,
-                                folderId: folderId || null
-                            })
-                        });
+                        body: JSON.stringify({ 
+                            videoUrl, 
+                            model: requestModel,
+                            folderId: folderId || null,
+                            language
+                        })
+                    });
                     
                     // Ler o texto da resposta uma única vez
                     const text = await response.text();
@@ -12176,16 +12060,22 @@ Equipe La Casa Dark Core</textarea>
                         generatedTitles: data.titulosSugeridos
                     };
 
+                    // Salvar títulos gerados na biblioteca
+                    await saveTitlesToLibrary(data.titulosSugeridos, {
+                        niche: data.niche,
+                        subniche: data.subniche,
+                        views: data.videoDetails?.views || null,
+                        formula: data.analiseOriginal?.formulaTitulo || null
+                    });
+
                     populateAnalysisResults(data, videoUrl);
 
                     if (data.folderId) {
                         const folderName = userFolders.find(f => f.id == data.folderId)?.name || 'pasta selecionada';
                         showMessage('analisador-success-message', `Análise salva com sucesso na pasta: <strong>${folderName}</strong>`);
                     }
-                    
                     // Atualizar dashboard se estiver visível
                     refreshDashboardIfVisible();
-                    }
 
                 } catch (error) {
                     console.error('Erro ao analisar vídeo:', error);
@@ -12408,7 +12298,11 @@ Equipe La Casa Dark Core</textarea>
                     `;
                     
                     let titlesHtml = '<ul id="generated-titles-list" class="space-y-4">';
-                    thumbTitleSelect.innerHTML = '';
+                    
+                    // Verificar se thumbTitleSelect existe antes de usar (pode não existir quando carregado do histórico)
+                    if (thumbTitleSelect) {
+                        thumbTitleSelect.innerHTML = '';
+                    }
                     
                     // Log para debug: verificar quantos títulos serão exibidos
                     console.log(`[Frontend] Exibindo ${data.titulosSugeridos?.length || 0} títulos na interface`);
@@ -12422,16 +12316,28 @@ Equipe La Casa Dark Core</textarea>
                         else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
                         else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
                         
-                        const escapedTitle = titleObj.titulo.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                        // Remover prefixo do modelo (ex: "[Claude] Título" -> "Título")
+                        let cleanTitle = titleObj.titulo.replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '');
+                        const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
                         const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
                         const isCheckedLabelClass = titleObj.is_checked ? 'line-through' : '';
+                        
+                        // Formatar nome do modelo para exibição
+                        const formatModelNameForDisplay = (model) => {
+                            if (!model) return '';
+                            const m = String(model).toLowerCase();
+                            if (m.includes('gemini')) return 'Gemini';
+                            if (m.includes('claude')) return 'Claude';
+                            if (m.includes('openai') || m.includes('gpt')) return 'GPT-4o';
+                            return model;
+                        };
 
                         titlesHtml += `
                             <li class="bg-gray-800 p-4 rounded-lg border border-gray-700 transition-opacity ${isCheckedClass}">
                                 <div class="flex items-center space-x-3 flex-1">
                                     <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
                                     <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">
-                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${formatModelNameForDisplay(titleObj.model)}</span> ` : ''}${titleObj.titulo}
+                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${formatModelNameForDisplay(titleObj.model)}</span> ` : ''}${cleanTitle}
                                     </label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
@@ -12448,13 +12354,16 @@ Equipe La Casa Dark Core</textarea>
                             </li>
                         `;
                         
-                        const option = document.createElement('option');
-                        option.value = escapedTitle;
-                        option.innerText = escapedTitle;
-                        if (titleObj.is_checked) {
-                            option.selected = true;
+                        // Adicionar ao select apenas se ele existir (pode não existir quando carregado do histórico)
+                        if (thumbTitleSelect) {
+                            const option = document.createElement('option');
+                            option.value = escapedTitle;
+                            option.innerText = escapedTitle;
+                            if (titleObj.is_checked) {
+                                option.selected = true;
+                            }
+                            thumbTitleSelect.appendChild(option);
                         }
-                        thumbTitleSelect.appendChild(option);
                     });
                     }
                     titlesHtml += '</ul>';
@@ -12506,6 +12415,7 @@ Equipe La Casa Dark Core</textarea>
                     }
                     
                     // Inicializar o modelo de IA com o modelo usado na análise (mas permitir mudança)
+                    // Verificar se os elementos existem antes de usar (podem não existir quando carregado do histórico)
                     if (thumbModelSelect && data.modelUsed) {
                         // Tentar encontrar o modelo correspondente no dropdown
                         const modelValue = data.modelUsed;
@@ -13320,7 +13230,33 @@ Equipe La Casa Dark Core</textarea>
                                 titleText = modelMatch[1];
                             }
                             
-                            // Atualizar o select do gerador de thumbnails
+                            // Atualizar o input do gerador de thumbnails completo
+                            const thumbTitleInput = document.getElementById('thumb-title-input');
+                            if (thumbTitleInput) {
+                                thumbTitleInput.value = titleText;
+                                
+                                // Garantir que o gerador de thumbnails esteja visível
+                                const thumbnailGenerator = document.getElementById('thumbnail-generator');
+                                if (thumbnailGenerator) {
+                                    thumbnailGenerator.style.display = 'block';
+                                    
+                                    // Navegar para a view do analisador se não estiver nela
+                                    if (document.getElementById('view-analisador')?.style.display === 'none') {
+                                        navigateToView('analisador');
+                                    }
+                                    
+                                    // Scroll suave até o gerador após um pequeno delay
+                                    setTimeout(() => {
+                                        thumbnailGenerator.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                        // Focar no campo de título
+                                        thumbTitleInput.focus();
+                                    }, 200);
+                                }
+                                
+                                console.log('[Thumbnail] Título preenchido automaticamente no gerador:', titleText);
+                            }
+                            
+                            // Também atualizar o select antigo se existir (para compatibilidade)
                             if (thumbTitleSelect) {
                                 // Verificar se o título já existe nas opções
                                 let optionExists = false;
@@ -13340,17 +13276,6 @@ Equipe La Casa Dark Core</textarea>
                                     thumbTitleSelect.appendChild(newOption);
                                     thumbTitleSelect.selectedIndex = thumbTitleSelect.options.length - 1;
                                 }
-                                
-                                // Garantir que o gerador de thumbnails esteja visível
-                                if (thumbGeneratorDiv) {
-                                    thumbGeneratorDiv.style.display = 'block';
-                                    // Scroll suave até o gerador após um pequeno delay
-                                    setTimeout(() => {
-                                        thumbGeneratorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                                    }, 100);
-                                }
-                                
-                                console.log('[Thumbnail] Título selecionado automaticamente:', titleText);
                             }
                         }
                     }
@@ -13431,6 +13356,8 @@ Equipe La Casa Dark Core</textarea>
                 const useStandardPrompt = document.getElementById('use-standard-prompt')?.checked || false;
                 const customPrompt = document.getElementById('thumb-custom-prompt')?.value?.trim() || null;
                 const noPhrases = document.getElementById('thumb-no-phrases')?.checked || false;
+                const themeDetectionSelect = document.getElementById('theme-detection-select');
+                const themeKey = themeDetectionSelect && themeDetectionSelect.value !== 'auto' ? themeDetectionSelect.value : undefined;
                 
                 // Se checkbox de usar prompt padrão estiver marcado, buscar e usar o prompt padrão
                 let finalCustomPrompt = customPrompt;
@@ -13545,7 +13472,8 @@ Equipe La Casa Dark Core</textarea>
                         useStandardPrompt,
                         hasCustomPrompt: !!customPrompt,
                         finalCustomPromptLength: finalCustomPrompt ? finalCustomPrompt.length : 0,
-                        finalCustomPromptPreview: finalCustomPrompt ? finalCustomPrompt.substring(0, 200) + '...' : 'null'
+                        finalCustomPromptPreview: finalCustomPrompt ? finalCustomPrompt.substring(0, 200) + '...' : 'null',
+                        themeKey: themeKey || 'auto (detecção automática pelo título)'
                     });
                     
                     const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -13565,7 +13493,9 @@ Equipe La Casa Dark Core</textarea>
                             includePhrases: noPhrases ? false : includePhrases,
                             style: style,
                             thumbnailRule: selectedRule,
-                            customPrompt: finalCustomPrompt
+                            customPrompt: finalCustomPrompt,
+                            theme_key: themeKey,
+                            folder_id: folderSelect?.value || null
                         })
                     });
 
@@ -13677,6 +13607,181 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
+            // Novo gerador completo e sincronizado
+            document.getElementById('btn-generate-complete-thumbnail')?.addEventListener('click', async () => {
+                const titleInput = document.getElementById('thumb-title-input');
+                const languageSelect = document.getElementById('thumb-language-simple');
+                const styleSelect = document.getElementById('thumb-style-simple');
+                const resultsDiv = document.getElementById('complete-thumbnail-results');
+                const btn = document.getElementById('btn-generate-complete-thumbnail');
+                
+                if (!titleInput || !titleInput.value.trim()) {
+                    showCustomModal('Título Obrigatório', 'Por favor, digite o título do vídeo para gerar a thumbnail completa.', 'warning');
+                    return;
+                }
+                
+                const title = titleInput.value.trim();
+                const language = languageSelect?.value || 'pt-BR';
+                const style = styleSelect?.value || 'photorealistic';
+                const aiModelSelect = document.getElementById('thumb-ai-model-simple');
+                const aiModel = aiModelSelect?.value || 'gpt-4o';
+                const token = safeLocalStorageGet('core_token') || localStorage.getItem('core_token');
+                const currentNiche = currentAnalysisData?.niche || null;
+                const currentSubniche = currentAnalysisData?.subniche || null;
+                const folderSelectElement = document.getElementById('folder-select');
+                let folderId = folderSelectElement?.value || null;
+                // Converter string vazia para null e garantir que seja número se não for null
+                if (folderId === '' || folderId === '0' || folderId === 0) {
+                    folderId = null;
+                } else if (folderId) {
+                    folderId = parseInt(folderId, 10);
+                    if (isNaN(folderId)) folderId = null;
+                }
+                
+                const promptVariantSelect = document.getElementById('thumb-prompt-variant-simple');
+                const promptVariant = promptVariantSelect ? parseInt(promptVariantSelect.value, 10) : 1;
+                
+                console.log('[Thumbnail Complete] Dados enviados:', {
+                    title,
+                    niche: currentNiche,
+                    subniche: currentSubniche,
+                    folder_id: folderId,
+                    language,
+                    style,
+                    ai_model: aiModel,
+                    prompt_variant: promptVariant
+                });
+                
+                if (!resultsDiv) {
+                    console.error('[Thumbnail Complete] Área de resultados não encontrada');
+                    return;
+                }
+                
+                setButtonLoading(btn, true);
+                resultsDiv.style.display = 'none';
+                resultsDiv.innerHTML = '';
+                
+                try {
+                    showLoadingModal('Gerando thumbnail completa com headline, SEO e tags...', 'image');
+                    
+                    const resp = await fetch(`${API_BASE}/api/generate/thumbnail/complete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ 
+                            title, 
+                            niche: currentNiche, 
+                            subniche: currentSubniche, 
+                            folder_id: folderId, 
+                            language, 
+                            style, 
+                            ai_model: aiModel,
+                            prompt_variant: promptVariant,
+                            variations: 2 
+                        })
+                    });
+                    
+                    const data = await resp.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    
+                    if (!resp.ok) throw new Error(data.msg || 'Erro ao gerar thumbnail completa');
+                    
+                    if (!data.images || data.images.length === 0) {
+                        showCustomModal('Aviso', 'Nenhuma imagem foi gerada.', 'warning');
+                        return;
+                    }
+                    
+                    // Exibir resultados completos
+                    resultsDiv.innerHTML = data.images.map((imgObj, i) => `
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
+                            <h4 class="text-lg font-semibold text-white">Variação ${i + 1}</h4>
+                            
+                            <!-- Thumbnail Gerada -->
+                            <div>
+                                <img src="${imgObj.imageUrl}" alt="Thumbnail gerada" class="rounded-lg w-full mb-3" style="max-height: 400px; object-fit: contain;">
+                                <div class="flex gap-2">
+                                    <a download="thumbnail-${i + 1}.png" href="${imgObj.imageUrl}" class="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-black rounded-lg text-sm font-semibold text-center">
+                                        <i data-lucide="download" class="w-4 h-4 inline mr-2"></i>
+                                        Baixar Imagem
+                                    </a>
+                                    <span class="px-4 py-2 rounded-lg text-sm ${imgObj.savedToLibrary ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-200'}">
+                                        ${imgObj.savedToLibrary ? '✅ Salvo!' : 'Não salvo'}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <!-- Headline de Impacto -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="text-sm font-medium text-amber-400">📢 Headline de Impacto</label>
+                                    <button title="Copiar Headline" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.headline || ''}">
+                                        <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                    </button>
+                                </div>
+                                <div class="px-4 py-3 bg-gray-900 border border-amber-700/50 rounded-lg">
+                                    <p class="text-lg font-bold text-amber-300">${data.headline || 'N/A'}</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Descrição SEO -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="text-sm font-medium text-amber-400">🔍 Descrição SEO</label>
+                                    <button title="Copiar Descrição SEO" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.seoDescription || ''}">
+                                        <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                    </button>
+                                </div>
+                                <textarea readonly class="w-full h-24 text-sm p-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 resize-none">${data.seoDescription || 'N/A'}</textarea>
+                            </div>
+                            
+                            <!-- Tags -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="text-sm font-medium text-amber-400">🏷️ Tags Principais</label>
+                                    <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${Array.isArray(data.tags) ? data.tags.join(', ') : data.tags || ''}">
+                                        <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                    </button>
+                                </div>
+                                <div class="px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg">
+                                    <p class="text-sm text-gray-300">${Array.isArray(data.tags) ? data.tags.join(', ') : data.tags || 'N/A'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    resultsDiv.style.display = 'grid';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Adicionar listeners para botões de copiar
+                    resultsDiv.querySelectorAll('.btn-copy').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const text = btn.getAttribute('data-copy-text');
+                            if (text) {
+                                navigator.clipboard.writeText(text).then(() => {
+                                    const originalHTML = btn.innerHTML;
+                                    btn.innerHTML = '<i data-lucide="check" class="w-4 h-4 pointer-events-none text-green-500"></i>';
+                                    btn.classList.add('text-green-500');
+                                    setTimeout(() => {
+                                        btn.innerHTML = originalHTML;
+                                        btn.classList.remove('text-green-500');
+                                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                                    }, 2000);
+                                }).catch(err => {
+                                    console.error('Erro ao copiar:', err);
+                                    alert('Erro ao copiar. Tente selecionar o texto manualmente.');
+                                });
+                            }
+                        });
+                    });
+                    
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    console.error('[Thumbnail Complete] Erro:', err);
+                    showCustomModal('Erro', err.message || 'Falha ao gerar thumbnail completa.', 'error');
+                } finally {
+                    setButtonLoading(btn, false);
+                }
+            });
+            
             document.getElementById('btn-generate-by-title-integrated')?.addEventListener('click', async () => {
                 const title = thumbTitleSelect?.value || '';
                 if (!title || !title.trim()) { showCustomModal('Título obrigatório', 'Selecione ou digite o título no Gerador.', 'info'); return; }
@@ -13730,6 +13835,8 @@ Equipe La Casa Dark Core</textarea>
                 const promptAi = document.getElementById('gen-prompt-ai')?.value || 'none';
                 const headlineLang = document.getElementById('gen-headline-lang')?.value || 'pt-BR';
                 const artStyle = document.getElementById('gen-art-style')?.value || (document.getElementById('scene-style-select')?.value || 'photorealistic');
+                const themeDetectionSelect = document.getElementById('theme-detection-select');
+                const themeKey = themeDetectionSelect && themeDetectionSelect.value !== 'auto' ? themeDetectionSelect.value : undefined;
                 const panel = document.getElementById('gen-by-title-results');
                 try {
                     if (!title) { showCustomModal('Título obrigatório', 'Digite o título para gerar as thumbnails.', 'info'); return; }
@@ -13743,7 +13850,7 @@ Equipe La Casa Dark Core</textarea>
                     const resp = await fetch(`${API_BASE}/api/generate/imagefx/by-title`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ title, niche: currentNiche, subniche: currentSubniche, folder_id: folderId, prompt_variant: variant, language: headlineLang, style: artStyle, variations, prompt_ai: promptAi })
+                        body: JSON.stringify({ title, niche: currentNiche, subniche: currentSubniche, folder_id: folderId, prompt_variant: variant, language: headlineLang, style: artStyle, variations, prompt_ai: promptAi, theme_key: themeKey })
                     });
                     const data = await resp.json();
                     document.getElementById('generic-loading-modal')?.remove();
@@ -13928,6 +14035,12 @@ Equipe La Casa Dark Core</textarea>
                         loadThumbnailReferences();
                         updateThumbnailRefFields();
                         loadFoldersIntoRefSelect();
+                        
+                        // Carregar prompts padrão e atualizar seletor
+                        const currentNiche = refNicheInput ? refNicheInput.value.trim() : (currentAnalysisData?.niche || null);
+                        const currentSubniche = refSubnicheInput ? refSubnicheInput.value.trim() : (currentAnalysisData?.subniche || null);
+                        const currentFolderId = refFolderSelect ? refFolderSelect.value : (folderSelect?.value || null);
+                        checkStandardPrompt(currentNiche, currentSubniche, currentFolderId);
                     } else {
                         if (thumbnailRefManager) thumbnailRefManager.style.display = 'none';
                     }
@@ -14113,6 +14226,16 @@ Equipe La Casa Dark Core</textarea>
                             
                             // Ativar tab do prompt selecionado
                             showPromptTab(`prompt-${selectedPrompt}`);
+                            
+                            // Atualizar seletor de prompt padrão no gerador de thumbnail
+                            const thumbPromptVariantSelect = document.getElementById('thumb-prompt-variant-simple');
+                            if (thumbPromptVariantSelect) {
+                                // Garantir que o valor selecionado está correto
+                                if (thumbPromptVariantSelect.value !== String(selectedPrompt)) {
+                                    thumbPromptVariantSelect.value = String(selectedPrompt);
+                                }
+                                console.log('[Thumbnail Generator] Seletor de prompt atualizado para:', selectedPrompt);
+                            }
                         } else if (stylePromptInfo) {
                             stylePromptInfo.classList.add('hidden');
                         }
@@ -14505,9 +14628,10 @@ Equipe La Casa Dark Core</textarea>
                             })
                         });
                         
+                        const responseData = await response.json();
+                        
                         if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.msg || 'Erro ao fazer upload');
+                            throw new Error(responseData.msg || 'Erro ao fazer upload');
                         }
                         
                         // Limpar formulário
@@ -14515,6 +14639,8 @@ Equipe La Casa Dark Core</textarea>
                         
                         // Recarregar lista
                         loadThumbnailReferences();
+                        
+                        const styleAnalyzed = responseData.styleAnalyzed || false;
                         
                         showCustomModal(
                             '✅ Thumbnail Salva com Sucesso!',
@@ -14524,8 +14650,12 @@ Equipe La Casa Dark Core</textarea>
                             `• Subnicho: ${subniche || 'Não especificado'}\n` +
                             `• Canal: ${channelName || 'Não especificado'}\n` +
                             `• Descrição: ${description || 'Não fornecida'}\n\n` +
-                            `💡 Próximo passo:\n` +
-                            `Clique em "Analisar Estilo e Criar Prompt Padrão" para gerar prompts que replicarão o estilo visual desta thumbnail.`,
+                            (styleAnalyzed ? 
+                                `✨ Estilo analisado automaticamente!\n` +
+                                `O sistema já analisou o estilo visual e criou 3 prompts padrão.\n` +
+                                `Agora você pode usar o Gerador de Thumbnail Completa para gerar thumbnails prontas com headline, SEO e tags.` :
+                                `💡 Próximo passo:\n` +
+                                `Adicione mais thumbnails de referência ou clique em "Analisar Estilo e Criar Prompt Padrão" para gerar prompts que replicarão o estilo visual.`),
                             'success'
                         );
                     } catch (err) {
@@ -16133,7 +16263,7 @@ Equipe La Casa Dark Core</textarea>
                     const openaiKey = document.getElementById('key-openai').value;
                     const youtubeKey = document.getElementById('key-youtube').value;
                     const imagefxKey = document.getElementById('key-imagefx').value;
-                    const metaAiCookies = document.getElementById('key-metaai')?.value || '';
+                    // Cookies do Meta.ai removidos
                     const useCreditsPref = document.getElementById('pref-use-credits').checked;
 
                     // Verificar se está tentando salvar APIs bloqueadas
@@ -16150,17 +16280,6 @@ Equipe La Casa Dark Core</textarea>
                         if (openaiKey && hasPremiumPlan) promises.push(saveKey('openai', openaiKey));
                         if (youtubeKey) promises.push(saveKey('youtube', youtubeKey));
                         if (imagefxKey) promises.push(saveKey('imagefx', imagefxKey));
-                        if (metaAiCookies) promises.push((async () => {
-                            const token = localStorage.getItem('core_token');
-                            const resp = await fetch(`${API_BASE}/api/meta/cookies/save`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                body: JSON.stringify({ cookiesJson: metaAiCookies })
-                            });
-                            const data = await resp.json();
-                            if (!resp.ok) throw new Error(data.msg || 'Erro ao salvar cookies do Meta.ai');
-                            return data;
-                        })());
                         
                         // Salvar preferência de uso de créditos
                         promises.push(saveUserPreference(useCreditsPref));
@@ -16197,8 +16316,7 @@ Equipe La Casa Dark Core</textarea>
                                 youtubeInput.removeAttribute('data-has-saved-key');
                             }
                             
-                            const metaInput = document.getElementById('key-metaai');
-                            if (metaAiCookies && metaInput) metaInput.value = '';
+                            // Removido: limpeza de cookies do Meta.ai
                             
                             // Recarregar status das chaves para atualizar placeholders
                             setTimeout(() => {
@@ -16213,28 +16331,7 @@ Equipe La Casa Dark Core</textarea>
                 });
             }
 
-            // Validar cookies Meta.ai
-            document.getElementById('btn-validate-metaai')?.addEventListener('click', async () => {
-                const token = localStorage.getItem('core_token');
-                const statusEl = document.getElementById('metaai-status');
-                try {
-                    const resp = await fetch(`${API_BASE}/api/meta/cookies/status`, { headers: { 'Authorization': `Bearer ${token}` } });
-                    const data = await resp.json();
-                    if (data.hasCookies && data.isValid) {
-                        statusEl.textContent = 'Cookies válidos';
-                        statusEl.className = 'text-sm text-green-400';
-                    } else if (data.hasCookies) {
-                        statusEl.textContent = 'Cookies salvos, mas inválidos';
-                        statusEl.className = 'text-sm text-yellow-400';
-                    } else {
-                        statusEl.textContent = 'Nenhum cookie salvo';
-                        statusEl.className = 'text-sm text-red-400';
-                    }
-                } catch (err) {
-                    statusEl.textContent = 'Erro ao validar';
-                    statusEl.className = 'text-sm text-red-400';
-                }
-            });
+            // Validação de cookies do Meta.ai removida
 
             // Toggles para mostrar/ocultar senhas dos campos de API
             document.getElementById('toggle-key-claude')?.addEventListener('click', () => {
@@ -16471,51 +16568,65 @@ Equipe La Casa Dark Core</textarea>
             const findSubnicheForm = document.getElementById('find-subniche-form');
             const analyzeCompetitorForm = document.getElementById('analyze-competitor-form');
 
-            findSubnicheForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const btn = document.getElementById('btn-find-subniche');
-                const loading = document.getElementById('subniche-loading');
-                const resultsDiv = document.getElementById('subniche-results');
-                
-                setButtonLoading(btn, true);
-                loading.style.display = 'block';
-                resultsDiv.innerHTML = '';
-                showMessage('niche-error-message', '', true); // Clear previous errors
-
-                const nichePrincipal = document.getElementById('niche-principal').value;
-                const ideiaInicial = document.getElementById('ideia-inicial').value;
-                const model = document.getElementById('niche-model-select').value;
-
-                try {
-                    // Verificar se laozhang.ai está configurada como padrão
-                    let useLaozhang = false;
-                    try {
-                        const settingsResponse = await fetch(`${API_BASE}/api/app-settings/laozhang-status`, {
-                            headers: { 'Authorization': `Bearer ${userToken}` }
-                        });
-                        if (settingsResponse.ok) {
-                            const settings = await settingsResponse.json();
-                            useLaozhang = settings.laozhang_use_as_default === true || settings.laozhang_use_as_default === 'true' || settings.laozhang_use_as_default === 1;
-                        }
-                    } catch (err) {
-                        console.warn('[Find Subniche] Erro ao verificar configuração laozhang.ai:', err);
+            if (findSubnicheForm) {
+                findSubnicheForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const btn = document.getElementById('btn-find-subniche');
+                    const loading = document.getElementById('subniche-loading');
+                    const resultsDiv = document.getElementById('subniche-results');
+                    const errorMsg = document.getElementById('niche-error-message');
+                    
+                    const nichePrincipal = document.getElementById('niche-principal').value.trim();
+                    const ideiaInicial = document.getElementById('ideia-inicial').value.trim();
+                    const model = document.getElementById('niche-model-select').value;
+                    
+                    if (!nichePrincipal || !ideiaInicial) {
+                        showMessage('niche-error-message', 'Por favor, preencha todos os campos.', true);
+                        return;
                     }
                     
-                    const endpoint = useLaozhang ? '/api/niche/find-subniche/laozhang' : '/api/niche/find-subniche';
-                    const selectedModel = document.getElementById('niche-model-select')?.value || model;
+                    // Esconder mensagens de erro anteriores e mostrar loading
+                    if (errorMsg) errorMsg.style.display = 'none';
+                    if (loading) loading.style.display = 'block';
+                    if (resultsDiv) resultsDiv.innerHTML = '';
                     
-                    const response = await fetch(`${API_BASE}${endpoint}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
-                        body: JSON.stringify({ 
-                            nichePrincipal, 
-                            ideiaInicial, 
-                            model: useLaozhang ? null : model,
-                            selectedModel: selectedModel
-                        })
-                    });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.msg);
+                    setButtonLoading(btn, true);
+
+                    try {
+                        // Verificar se laozhang.ai está configurada como padrão
+                        let useLaozhang = false;
+                        try {
+                            const settingsResponse = await fetch(`${API_BASE}/api/app-settings/laozhang-status`, {
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            if (settingsResponse.ok) {
+                                const settings = await settingsResponse.json();
+                                useLaozhang = settings.laozhang_use_as_default === true || settings.laozhang_use_as_default === 'true' || settings.laozhang_use_as_default === 1;
+                            }
+                        } catch (err) {
+                            console.warn('[Find Subniche] Erro ao verificar configuração laozhang.ai:', err);
+                        }
+                        
+                        const endpoint = useLaozhang ? '/api/niche/find-subniche/laozhang' : '/api/niche/find-subniche';
+                        const selectedModel = document.getElementById('niche-model-select')?.value || model;
+                        
+                        const response = await fetch(`${API_BASE}${endpoint}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` },
+                            body: JSON.stringify({ 
+                                nichePrincipal, 
+                                ideiaInicial, 
+                                model: useLaozhang ? null : model,
+                                selectedModel: selectedModel
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({ msg: `Erro ${response.status}: ${response.statusText}` }));
+                            throw new Error(errorData.msg || `Erro ao buscar subnichos: ${response.status}`);
+                        }
+                        
+                        const data = await response.json();
                     
                     let recommendationContent = data.recommendation;
                     let escapedRec;
@@ -16558,9 +16669,11 @@ Equipe La Casa Dark Core</textarea>
                     setButtonLoading(btn, false);
                     loading.style.display = 'none';
                 }
-            });
+                });
+            }
 
-            analyzeCompetitorForm.addEventListener('submit', async (e) => {
+            if (analyzeCompetitorForm) {
+                analyzeCompetitorForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const btn = document.getElementById('btn-analyze-competitor');
                 const loading = document.getElementById('competitor-loading');
@@ -16752,7 +16865,8 @@ Equipe La Casa Dark Core</textarea>
                     setButtonLoading(btn, false);
                     loading.style.display = 'none';
                 }
-            });
+                });
+            }
 
 
             // --- LÓGICA DE LOGOUT ---
@@ -21337,7 +21451,6 @@ Equipe La Casa Dark Core</textarea>
                     }
                     
                     loadScenePromptsHistory();
-                    showMessage('prompts-imagens-success-message', 'Prompt excluído com sucesso!');
                     
                 } catch (err) {
                     console.error('[Delete Prompt] Erro:', err);
@@ -21474,7 +21587,7 @@ Equipe La Casa Dark Core</textarea>
                                                     Baixar Imagem
                                                 </button>
                                                 <button class="batch-animate-image-btn bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg pointer-events-auto z-10" data-img-index="${index}" data-scene-number="${img.sceneNumber || index + 1}">
-                                                    Animar (Meta.ai)
+                                                    Animar (Parallax)
                                                 </button>
                                             </div>
                                         </div>
@@ -23080,25 +23193,17 @@ Equipe La Casa Dark Core</textarea>
                                 continue;
                             }
                             try {
-                                // tentar live primeiro
+                                // Usar HuMo para animação
                                 const body = {
                                     sceneNumber: img.sceneNumber || idx + 1,
                                     base64: img.base64 ? `data:image/png;base64,${img.base64}` : null,
-                                    imageUrl: img.url || null,
-                                    prompt: animationPrompt
+                                    imageUrl: img.url || null
                                 };
-                                let resp = await fetch(`${API_BASE}/api/animate/meta/live`, {
+                                let resp = await fetch(`${API_BASE}/api/animate/parallax`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                                     body: JSON.stringify(body)
                                 });
-                                if (!resp.ok) {
-                                    resp = await fetch(`${API_BASE}/api/animate/parallax`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                        body: JSON.stringify(body)
-                                    });
-                                }
                                 const data = await resp.json();
                                 if (resp.ok && data.videoBase64) {
                                     const container = document.getElementById(`batch-animate-result-${idx}`);
@@ -23346,7 +23451,7 @@ Equipe La Casa Dark Core</textarea>
                     };
                 });
 
-                // Animar (Meta.ai) no grid principal
+                // Animar (Parallax) no grid principal
                 const mainOutput = document.getElementById('generated-images-output');
                 if (mainOutput && !mainOutput._animateBound) {
                     mainOutput.addEventListener('click', async (e) => {
@@ -23363,39 +23468,21 @@ Equipe La Casa Dark Core</textarea>
                         btn.textContent = 'Animando...';
                         try {
                             const token = localStorage.getItem('core_token');
-                            const res = await fetch(`${API_BASE}/api/meta/cookies/status`, { headers: { 'Authorization': `Bearer ${token}` } });
-                            const status = await res.json();
-                            if (!status.hasCookies || !status.isValid) {
-                                showMessage('prompts-imagens-error-message', 'Configure os cookies do Meta.ai em Configurações antes de animar.', true);
-                                btn.disabled = false; btn.textContent = 'Animar (Meta.ai)';
-                                return;
-                            }
                             const body = {
                                 sceneNumber: scene,
                                 base64: img.base64 ? `data:image/png;base64,${img.base64}` : null,
                                 imageUrl: img.url || null
                             };
-                            let resp = await fetch(`${API_BASE}/api/animate/meta/live`, {
+                            
+                            let resp = await fetch(`${API_BASE}/api/animate/parallax`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                                 body: JSON.stringify(body)
                             });
-                            if (!resp.ok) {
-                                resp = await fetch(`${API_BASE}/api/animate/parallax`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                    body: JSON.stringify(body)
-                                });
-                                if (!resp.ok) {
-                                    resp = await fetch(`${API_BASE}/api/animate/meta`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                        body: JSON.stringify(body)
-                                    });
-                                }
-                            }
+                            
                             const data = await resp.json();
                             if (!resp.ok) throw new Error(data.msg || 'Erro ao animar imagem');
+                            
                             const container = document.getElementById(`edit-prompt-container-${idx}`);
                             if (container) {
                                 container.style.display = 'block';
@@ -23418,7 +23505,7 @@ Equipe La Casa Dark Core</textarea>
                             showMessage('prompts-imagens-error-message', err.message || 'Erro ao animar imagem.', true);
                         } finally {
                             btn.disabled = false;
-                            btn.textContent = 'Animar (Meta.ai)';
+                            btn.textContent = 'Animar (Parallax)';
                         }
                     });
                     mainOutput._animateBound = true;
@@ -23550,6 +23637,23 @@ Equipe La Casa Dark Core</textarea>
                     const btn = document.getElementById('btn-generate-scene-prompts');
                     const originalText = btn?.querySelector('span')?.textContent;
                     
+                    // Calcular estimativa de cenas ANTES do try para garantir que está disponível em todo o escopo
+                    const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
+                    let estimatedScenes = 0;
+                    if (mode === 'manual' && wordsPerScene) {
+                        const unitSelect = document.getElementById('scene-unit-select')?.value || 'words';
+                        if (unitSelect === 'seconds') {
+                            // Calcular baseado em segundos: ~2.5 palavras por segundo
+                            const wordsPerSecond = 2.5;
+                            const wordsPerInterval = parseInt(wordsPerScene) * wordsPerSecond;
+                            estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                        } else {
+                            estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
+                        }
+                    } else {
+                        estimatedScenes = Math.max(1, Math.round(wordCount / 90));
+                    }
+                    
                     try {
                         if (btn) {
                             btn.disabled = true;
@@ -23583,22 +23687,6 @@ Equipe La Casa Dark Core</textarea>
                         const token = localStorage.getItem('core_token');
                         if (!token) {
                             throw new Error('Token de autenticação não encontrado. Faça login novamente.');
-                        }
-                        
-                        // Calcular estimativa de cenas para o contador
-                        const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
-                        let estimatedScenes = 0;
-                        if (mode === 'manual' && wordsPerScene) {
-                            if (unitSelect === 'seconds') {
-                                // Calcular baseado em segundos: ~2.5 palavras por segundo
-                                const wordsPerSecond = 2.5;
-                                const wordsPerInterval = parseInt(wordsPerScene) * wordsPerSecond;
-                                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
-                            } else {
-                                estimatedScenes = Math.max(1, Math.round(wordCount / parseInt(wordsPerScene)));
-                            }
-                        } else {
-                            estimatedScenes = Math.max(1, Math.round(wordCount / 90));
                         }
                         
                         // Simular progresso enquanto aguarda resposta
@@ -23653,7 +23741,8 @@ Equipe La Casa Dark Core</textarea>
                                 characters: characters || null,
                                 imageModel: 'imageFx',
                                 selectedModel: model, // Sempre enviar o modelo selecionado para salvar no histórico
-                                isVO3: document.getElementById('scene-vo3-checkbox')?.checked || false
+                                isVO3: document.getElementById('scene-vo3-checkbox')?.checked || false,
+                                expectedScenes: estimatedScenes // Enviar o número exato calculado no frontend
                             })
                         });
                         
@@ -23694,10 +23783,20 @@ Equipe La Casa Dark Core</textarea>
                             throw new Error('Nenhum prompt foi gerado. Tente novamente.');
                         }
                         
+                        // Verificar se gerou todas as cenas esperadas
+                        const expectedScenes = data.expectedScenes || estimatedScenes;
+                        const generatedScenes = data.generatedScenes || scenePromptsData.length;
+                        
                         // Atualizar contador final
-                        if (progressCounter) progressCounter.textContent = `${scenePromptsData.length}/${scenePromptsData.length}`;
-                        if (progressStatus) progressStatus.textContent = 'Concluído!';
-                        if (progressDetails) progressDetails.textContent = `${scenePromptsData.length} prompts gerados com sucesso!`;
+                        if (progressCounter) progressCounter.textContent = `${generatedScenes}/${expectedScenes}`;
+                        if (progressStatus) progressStatus.textContent = generatedScenes === expectedScenes ? 'Concluído!' : 'Parcialmente concluído';
+                        if (progressDetails) {
+                            if (generatedScenes === expectedScenes) {
+                                progressDetails.textContent = `${generatedScenes} prompts gerados com sucesso!`;
+                            } else {
+                                progressDetails.textContent = `${generatedScenes}/${expectedScenes} prompts gerados. Tentando gerar as cenas faltantes...`;
+                            }
+                        }
                         
                         // Fechar modal após 1.5 segundos
                         setTimeout(() => {
@@ -23715,7 +23814,15 @@ Equipe La Casa Dark Core</textarea>
                         
                         const countEl = document.getElementById('total-prompts-count');
                         if (countEl) {
-                            countEl.textContent = `${scenePromptsData.length} prompts prontos`;
+                            // Mostrar o número esperado, não apenas o gerado
+                            countEl.textContent = `${generatedScenes} prompts prontos${generatedScenes < expectedScenes ? ` (esperado: ${expectedScenes})` : ''}`;
+                        }
+                        
+                        if (generatedScenes < expectedScenes) {
+                            console.warn(`[Scene Prompts] ⚠️ Esperávamos ${expectedScenes} cenas, mas apenas ${generatedScenes} foram geradas.`);
+                            showMessage('prompts-imagens-error-message', `Atenção: Esperávamos ${expectedScenes} cenas, mas apenas ${generatedScenes} foram geradas. O sistema tentará gerar as cenas faltantes automaticamente.`, true);
+                        } else if (generatedScenes === expectedScenes) {
+                            console.log(`[Scene Prompts] ✅ Todas as ${expectedScenes} cenas foram geradas com sucesso!`);
                         }
                         
                         showMessage('prompts-imagens-success-message', data.msg || `${scenePromptsData.length} prompts gerados com sucesso!`);
@@ -23814,7 +23921,7 @@ Equipe La Casa Dark Core</textarea>
                     lucide.createIcons();
                 }
 
-                // Animar (Meta.ai)
+                // Animar (HuMo)
                 const output = document.getElementById('batch-generated-images-output');
                 if (output && !output._animateBound) {
                     output.addEventListener('click', async (e) => {
@@ -23831,39 +23938,21 @@ Equipe La Casa Dark Core</textarea>
                         btn.textContent = 'Animando...';
                         try {
                             const token = safeLocalStorageGet('core_token');
-                            const res = await fetch(`${API_BASE}/api/meta/cookies/status`, { headers: { 'Authorization': `Bearer ${token}` } });
-                            const status = await res.json();
-                            if (!status.hasCookies || !status.isValid) {
-                                showMessage('imagens-lote-error-message', 'Configure os cookies do Meta.ai em Configurações antes de animar.', true);
-                                btn.disabled = false; btn.textContent = 'Animar (Meta.ai)';
-                                return;
-                            }
                             const body = {
                                 sceneNumber: scene,
                                 base64: img.base64 ? `data:image/png;base64,${img.base64}` : null,
                                 imageUrl: img.url || null
                             };
-                            let resp = await fetch(`${API_BASE}/api/animate/meta/live`, {
+                            
+                            let resp = await fetch(`${API_BASE}/api/animate/parallax`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                                 body: JSON.stringify(body)
                             });
-                            if (!resp.ok) {
-                                resp = await fetch(`${API_BASE}/api/animate/parallax`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                    body: JSON.stringify(body)
-                                });
-                                if (!resp.ok) {
-                                    resp = await fetch(`${API_BASE}/api/animate/meta`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                        body: JSON.stringify(body)
-                                    });
-                                }
-                            }
+                            
                             const data = await resp.json();
                             if (!resp.ok) throw new Error(data.msg || 'Erro ao animar imagem');
+                            
                             const container = document.getElementById(`batch-animate-result-${idx}`);
                             if (container) {
                                 container.style.display = 'block';
@@ -23878,7 +23967,7 @@ Equipe La Casa Dark Core</textarea>
                             showMessage('imagens-lote-error-message', err.message || 'Erro ao animar imagem.', true);
                         } finally {
                             btn.disabled = false;
-                            btn.textContent = 'Animar (Meta.ai)';
+                            btn.textContent = 'Animar (Parallax)';
                         }
                     });
                     output._animateBound = true;

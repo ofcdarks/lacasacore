@@ -1776,8 +1776,31 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                 timeoutDuration = Math.min(1200000, Math.max(300000, 600000 + (numParts * 60000))); // 5-20 minutos
                 console.log(`[API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${numParts} partes)`);
             } else if (isScenePrompts || isViralAgent || isScriptRequest) {
-                // Para scene prompts, agentes virais e roteiros, usar 8 minutos
-                timeoutDuration = 480000; // 8 minutos
+                // Para scene prompts, tentar extrair número de cenas do metadata (details)
+                let timeoutForScenes = 480000; // 8 minutos padrão
+                const operationMetadata = details; // Usar details como operationMetadata
+                if (isScenePrompts && operationMetadata) {
+                    try {
+                        const metadata = typeof operationMetadata === 'string' ? JSON.parse(operationMetadata) : operationMetadata;
+                        if (metadata.estimatedScenes || metadata.timeout) {
+                            // Se o metadata já tem timeout calculado, usar ele
+                            timeoutForScenes = metadata.timeout || timeoutForScenes;
+                            // Ou calcular baseado no número de cenas
+                            if (metadata.estimatedScenes && !metadata.timeout) {
+                                const baseTimeout = 300000; // 5 minutos
+                                const timeoutPerScene = 2000; // 2 segundos por cena
+                                const baseScenes = 20;
+                                const calculatedTimeout = baseTimeout + (Math.max(0, metadata.estimatedScenes - baseScenes) * timeoutPerScene);
+                                timeoutForScenes = Math.min(1200000, Math.max(300000, calculatedTimeout));
+                            }
+                            console.log(`[API] Timeout calculado dinamicamente: ${timeoutForScenes/1000}s para ${metadata.estimatedScenes || 'N/A'} cenas`);
+                        }
+                    } catch (e) {
+                        console.warn(`[API] Erro ao parsear metadata: ${e.message}`);
+                        // Se não conseguir parsear, usar padrão
+                    }
+                }
+                timeoutDuration = timeoutForScenes;
                 console.log(`[API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${isScenePrompts ? 'scene prompts' : isViralAgent ? 'agente viral' : 'roteiro'})`);
             }
             const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
@@ -12553,6 +12576,10 @@ Tradução em PT-BR:`;
             viralContext = 'de referência';
         }
 
+        // Quantidade de títulos a gerar: sempre 5 por modelo
+        // No modo multimodal, cada modelo gera 5 títulos, totalizando 15 (5 x 3)
+        const titlesRequired = 5;
+
         const titlePrompt = `
             Você é um ESPECIALISTA EM VIRALIZAÇÃO NO YOUTUBE com experiência comprovada em criar títulos que geram MILHÕES DE VIEWS e ALTO CTR (taxa de cliques acima de 25%). Sua missão é analisar um vídeo ${isViral ? 'que VIRALIZOU' : 'de referência'} e criar variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para canais subnichados.
 
@@ -12636,6 +12663,7 @@ Tradução em PT-BR:`;
             - Cada título deve seguir a ESTRUTURA COMPROVADA do título original (ordem das palavras, ritmo, posicionamento dos gatilhos mentais).
             - Foque em criar títulos que VIRALIZEM e gerem engajamento massivo (compartilhamentos, comentários, views orgânicas).
             - Priorize títulos que TENHAM POTENCIAL PARA CRIAR CANAIS MILIONÁRIOS com milhões de views e alto CTR.
+            - Gere EXATAMENTE ${titlesRequired} títulos diferentes no array "titulosSugeridos" (sem repetir ideia ou estrutura). O array deve conter ${titlesRequired} itens.
 
             IMPORTANTE: A sua resposta completa deve ser APENAS o objeto JSON, sem nenhum texto, comentário ou formatação markdown à volta.
             {
@@ -12662,113 +12690,21 @@ Tradução em PT-BR:`;
         
         // --- INÍCIO DA LÓGICA DO DISTRIBUIDOR (SWITCHER) ---
         if (model === 'all') {
-            // Verificar se laozhang.ai está configurada como padrão
-            let useLaozhangAsDefault = false;
-            let laozhangKey = null;
-            try {
-                const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
-                useLaozhangAsDefault = laozhangDefaultSetting && (
-                    laozhangDefaultSetting.value === 'true' || 
-                    laozhangDefaultSetting.value === '1' ||
-                    JSON.parse(laozhangDefaultSetting.value) === true
-                );
-                
-                if (useLaozhangAsDefault) {
-                    laozhangKey = await getLaozhangApiKey();
-                    if (laozhangKey) {
-                        console.log('[Análise-All] Laozhang.ai configurada como padrão, usando para comparação');
-                    } else {
-                        useLaozhangAsDefault = false;
-                    }
-                }
-            } catch (err) {
-                console.warn('[Análise-All] Erro ao verificar laozhang.ai:', err.message);
+            // Comparação multimodal SEM laozhang (usa chaves próprias)
+            modelUsedForDisplay = 'Comparação (Gemini, Claude, OpenAI)';
+
+            const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+            const keys = {};
+            keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+
+            if (!keys.gemini || !keys.claude || !keys.openai) {
+                return res.status(400).json({ msg: 'Para "Comparar", precisa de ter as chaves de Gemini, Claude E OpenAI configuradas.' });
             }
-            
-            if (useLaozhangAsDefault && laozhangKey) {
-                // Comparação via laozhang com 3 modelos escolhidos
-                modelUsedForDisplay = 'Comparação (3 Modelos)';
-                console.log('[Análise-All] A chamar IA em paralelo (Laozhang.ai com 3 modelos)...');
-                const pLaoGPT = callLaozhangAPI(
-                    titlePrompt,
-                    laozhangKey,
-                    'gpt-4o',
-                    null,
-                    userId,
-                    '/api/analyze/titles',
-                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'gpt-4o' })
-                );
-                const pLaoClaude = callLaozhangAPI(
-                    titlePrompt,
-                    laozhangKey,
-                    'claude-3-7-sonnet-20250219',
-                    null,
-                    userId,
-                    '/api/analyze/titles',
-                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'claude-3-7-sonnet-20250219' })
-                );
-                const pLaoGemini = callLaozhangAPI(
-                    titlePrompt,
-                    laozhangKey,
-                    'gemini-2.5-pro',
-                    null,
-                    userId,
-                    '/api/analyze/titles',
-                    JSON.stringify({ endpoint: '/api/analyze/titles', operation: 'compare', model: 'gemini-2.5-pro' })
-                );
 
-                const results = await Promise.allSettled([pLaoGPT, pLaoClaude, pLaoGemini]);
-
-                let firstSuccessfulAnalysis = null;
-                results.forEach((result, index) => {
-                    let serviceName = ['GPT-4o', 'Claude 3.7 Sonnet', 'Gemini 2.5 Pro'][index];
-                    if (result.status === 'fulfilled') {
-                        const responseValue = result.value;
-                        const titlesText = typeof responseValue === 'string' ? responseValue : (responseValue.titles || JSON.stringify(responseValue));
-                        const parsedData = parseAIResponse(titlesText, serviceName);
-                        if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
-                        
-                        // Salvar TODOS os títulos gerados, não apenas os primeiros 5
-                        const list = Array.isArray(parsedData.titulosSugeridos) ? parsedData.titulosSugeridos : [];
-                        console.log(`[Análise-All Laozhang] ${serviceName}: ${list.length} títulos gerados`);
-                        list.forEach(t => {
-                            allGeneratedTitles.push({ ...t, model: serviceName });
-                        });
-                    } else {
-                        console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
-                        allGeneratedTitles.push({ titulo: `Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: 'A API falhou.', model: serviceName });
-                    }
-                });
-                
-                if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
-                
-                // Verificar se a análise tem os dados necessários
-                if (!firstSuccessfulAnalysis.analiseOriginal) {
-                    throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
-                }
-                
-                // Garantir que o nicho sempre existe (usar padrão se não detectado)
-                finalNicheData = { 
-                    niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
-                    subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
-                };
-                finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
-            } else {
-                // Modo original: comparar Gemini, Claude e OpenAI
-                modelUsedForDisplay = 'Comparação (Gemini, Claude, OpenAI)';
-                const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
-                const keys = {};
-                keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
-
-                if (!keys.gemini || !keys.claude || !keys.openai) {
-                    return res.status(400).json({ msg: 'Para "Comparar", precisa de ter as chaves de Gemini, Claude E OpenAI configuradas.' });
-                }
-
-                console.log('[Análise-All] A chamar IA em paralelo...');
-                // Usando os modelos específicos para a comparação
-                const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-                const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
-                const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
+            console.log('[Análise-All] A chamar IA em paralelo (APIs próprias)...');
+            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
+            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
+            const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
 
             const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
 
@@ -12779,14 +12715,17 @@ Tradução em PT-BR:`;
                     const parsedData = parseAIResponse(result.value.titles, serviceName);
                     if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
                     
-                    console.log(`[Análise-All APIs Próprias] ${serviceName}: ${parsedData.titulosSugeridos.length} títulos gerados`);
+                    // Cada modelo deve gerar EXATAMENTE 5 títulos (total: 15)
+                    const titlesFromThisModel = parsedData.titulosSugeridos.length;
+                    console.log(`[Análise Multimodal] ${serviceName}: ${titlesFromThisModel} títulos gerados (esperado: 5)`);
+                    
                     parsedData.titulosSugeridos.forEach(t => {
-                        allGeneratedTitles.push({ ...t, titulo: `[${serviceName}] ${t.titulo}`, model: serviceName });
+                        allGeneratedTitles.push({ ...t, model: serviceName });
                     });
                 } else {
                     console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
                     allGeneratedTitles.push({
-                        titulo: `[${serviceName}] Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
+                        titulo: `Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
                     });
                 }
             });
@@ -12798,21 +12737,23 @@ Tradução em PT-BR:`;
                 throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
             }
             
-                // Garantir que o nicho sempre existe (usar padrão se não detectado)
-                finalNicheData = { 
-                    niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
-                    subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
-                };
-                finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
-            }
+            // Log final do total de títulos multimodal
+            console.log(`[Análise Multimodal] ✅ Total combinado: ${allGeneratedTitles.length} títulos (esperado: 15 = 5 de cada modelo)`);
+            
+            // Garantir que o nicho sempre existe (usar padrão se não detectado)
+            finalNicheData = { 
+                niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
+                subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
+            };
+            finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
         } else {
-            // --- LÓGICA DE MODELO ÚNICO ---
-            // PRIMEIRO: Verificar se laozhang.ai está configurada como padrão
+            // --- LÓGICA DE MODELO ÚNICO (opcionalmente laozhang) ---
             let service;
             let decryptedKey;
             let apiCallFunction;
             let useLaozhang = false;
             
+            // Verificar se laozhang está como padrão
             try {
                 const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
                 const laozhangUseAsDefault = laozhangDefaultSetting && (
@@ -12821,7 +12762,6 @@ Tradução em PT-BR:`;
                     JSON.parse(laozhangDefaultSetting.value) === true
                 );
                 
-                // Usar laozhang.ai como padrão sempre que configurado no admin
                 if (laozhangUseAsDefault) {
                     const laozhangKey = await getLaozhangApiKey();
                     if (laozhangKey) {
@@ -12833,17 +12773,14 @@ Tradução em PT-BR:`;
                     }
                 }
             } catch (err) {
-                console.warn('[Análise] Erro ao verificar configuração padrão Laozhang.ai:', err.message);
+                console.warn('[Análise] Erro ao verificar laozhang.ai:', err.message);
             }
             
-            // SEGUNDO: Se não usar laozhang.ai como padrão, verificar preferência do usuário
+            // Preferência do usuário por créditos -> laozhang
             if (!useLaozhang) {
                 const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
                 const useCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
-                
-                // Usar créditos/laozhang quando preferência do usuário estiver ativa
                 if (useCredits) {
-                    // Usuário prefere usar créditos - usar laozhang.ai
                     const laozhangKey = await getLaozhangApiKey();
                     if (laozhangKey) {
                         service = 'laozhang';
@@ -12855,7 +12792,7 @@ Tradução em PT-BR:`;
                 }
             }
             
-            // TERCEIRO: Se não usar laozhang.ai, usar API própria do usuário
+            // Caso contrário, usar API própria do usuário
             if (!useLaozhang) {
                 if (model.startsWith('gemini')) service = 'gemini';
                 else if (model.startsWith('claude')) service = 'claude';
@@ -12873,80 +12810,54 @@ Tradução em PT-BR:`;
                 else apiCallFunction = callOpenAIAPI;
             }
 
-            // Mapear modelo do frontend para modelo da laozhang.ai
-            let modelToUseForAPI = model;
-            if (useLaozhang) {
-                const normalizeForLaozhang = (m) => {
-                    if (!m || typeof m !== 'string') return 'gpt-4o';
-                    const s = m.toLowerCase();
-                    if (s.includes('claude')) return 'claude-3-7-sonnet-20250219';
-                    if (s.includes('gemini')) return 'gemini-2.5-pro';
-                    if (s.includes('gpt')) return 'gpt-4o';
-                    if (s === 'claude-3-7-sonnet-20250219' || s === 'gemini-2.5-pro' || s === 'gpt-4o') return m;
-                    return 'gpt-4o';
-                };
-                modelToUseForAPI = normalizeForLaozhang(model);
-                console.log(`[Análise-Laozhang] Modelo selecionado: "${model}" -> Enviando para provedor principal como: "${modelToUseForAPI}"`);
-            }
+            // --- ETAPA 2: Chamar API selecionada (único modelo) ---
+            let apiResponse;
+            let rawResponse;
+            console.log(`[Análise] Chamando ${useLaozhang ? 'Laozhang.ai' : service} com modelo ${model}...`);
             
-            console.log(`[Análise-${service}] A chamar IA com modelo: ${modelToUseForAPI || model}...`);
-            let response;
-            if (useLaozhang) {
-                // Usar callLaozhangAPI com todos os parâmetros corretos
-                response = await callLaozhangAPI(
-                    titlePrompt, 
-                    decryptedKey, 
-                    modelToUseForAPI, 
-                    null, 
-                    userId, 
-                    '/api/analyze/titles', 
-                    JSON.stringify({ endpoint: '/api/analyze/titles', model: modelToUseForAPI })
-                );
+            if (service === 'laozhang') {
+                apiResponse = await apiCallFunction(titlePrompt, decryptedKey, model, null, userId, '/api/analyze/titles', JSON.stringify({ endpoint: '/api/analyze/titles', model, operation: 'single' }));
+                rawResponse = typeof apiResponse === 'string' ? apiResponse : (apiResponse.titles || JSON.stringify(apiResponse));
             } else {
-                // Usar API própria do usuário
-                response = await apiCallFunction(titlePrompt, decryptedKey, model);
+                apiResponse = await apiCallFunction(titlePrompt, decryptedKey, model);
+                rawResponse = typeof apiResponse === 'string' ? apiResponse : apiResponse.titles;
             }
             
-            const parsedData = parseAIResponse(response.titles || response, service);
+            console.log('[Análise] Resposta bruta (primeiros 500 chars):', String(rawResponse || '').substring(0, 500));
             
-            // Verificar se a análise tem os dados necessários
+            // --- ETAPA 2.1: Extrair dados da resposta ---
+            let parsedData;
+            try {
+                parsedData = parseAIResponse(rawResponse, service === 'laozhang' ? 'Laozhang.ai' : service);
+            } catch (parseErr) {
+                console.error('[Análise] Erro ao parsear resposta:', parseErr.message);
+                throw new Error('A resposta da IA não contém JSON válido.');
+            }
+            
+            // Verificar se há títulos sugeridos
+            if (!parsedData.titulosSugeridos || parsedData.titulosSugeridos.length === 0) {
+                throw new Error('A IA não retornou títulos sugeridos.');
+            }
+            
+            // Registrar títulos
+            allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({
+                ...t,
+                model: service === 'laozhang' ? 'Laozhang.ai' : model
+            }));
+            
+            // Garantir que analiseOriginal existe
             if (!parsedData.analiseOriginal) {
-                throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
+                parsedData.analiseOriginal = {
+                    motivoSucesso: 'Motivo não fornecido',
+                    formulaTitulo: 'Fórmula não fornecida'
+                };
             }
             
-            // Garantir que o nicho sempre existe (usar padrão se não detectado)
             finalNicheData = { 
                 niche: parsedData.niche || 'Entretenimento', 
                 subniche: parsedData.subniche || 'N/A' 
             };
             finalAnalysisData = parsedData.analiseOriginal;
-            
-            // Função para formatar modelo do frontend para exibição
-            const formatModelForDisplay = (modelName) => {
-                if (!modelName) return 'GPT-4o';
-                // Se já está no formato de exibição, retornar como está
-                if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
-                    return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
-                }
-                // Mapear formatos técnicos para nomes amigáveis
-                if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
-                    return 'Claude 3.7 Sonnet';
-                } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
-                    return 'Gemini 2.5 Pro';
-                } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
-                    return 'GPT-4o';
-                } else if (modelName.includes('claude')) {
-                    return 'Claude';
-                } else if (modelName.includes('gemini')) {
-                    return 'Gemini';
-                } else if (modelName.includes('gpt')) {
-                    return 'GPT-4o';
-                }
-                return modelName;
-            };
-            
-            const modelForDisplay = formatModelForDisplay(model);
-            allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: modelForDisplay }));
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
@@ -14536,9 +14447,170 @@ app.post('/api/thumbnail-references/upload', authenticateToken, async (req, res)
             );
         }
 
+        // Analisar estilo automaticamente após upload (se tiver niche/subniche)
+        let autoAnalyzeResult = null;
+        if (niche || subniche) {
+            try {
+                // Buscar thumbnails de referência do nicho/subnicho
+                let refQuery = 'SELECT id, thumbnail_base64 FROM thumbnail_references WHERE user_id = ?';
+                const refParams = [userId];
+                
+                if (folder_id) {
+                    refQuery += ' AND (folder_id = ? OR folder_id IS NULL)';
+                    refParams.push(folder_id);
+                }
+                if (subniche) {
+                    refQuery += ' AND (subniche = ? OR subniche IS NULL)';
+                    refParams.push(subniche);
+                }
+                if (niche) {
+                    refQuery += ' AND (niche = ? OR niche IS NULL)';
+                    refParams.push(niche);
+                }
+                
+                refQuery += ' ORDER BY created_at DESC LIMIT 10';
+                const thumbnailReferences = await db.all(refQuery, refParams);
+                
+                if (thumbnailReferences && thumbnailReferences.length >= 1) {
+                    // Buscar API key automaticamente
+                    let apiKey = null;
+                    let service = null;
+                    let modelToUse = null;
+                    
+                    const services = ['claude', 'openai', 'gemini'];
+                    for (const svc of services) {
+                        const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+                        if (keyData && keyData.api_key) {
+                            try {
+                                apiKey = decrypt(keyData.api_key);
+                                service = svc;
+                                if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                                else if (svc === 'openai') modelToUse = 'gpt-4o';
+                                else modelToUse = 'gemini-2.5-pro';
+                                break;
+                            } catch (e) {
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    if (apiKey) {
+                        // Preparar imagens para análise
+                        const additionalImages = thumbnailReferences.map(ref => ref.thumbnail_base64).filter(Boolean);
+                        
+                        // Criar prompt para análise de estilo
+                        const analysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE ESTILO VISUAL DE THUMBNAILS.
+
+Analise as ${thumbnailReferences.length} thumbnail(s) de referência fornecidas e identifique os ELEMENTOS VISUAIS COMUNS e o ESTILO PADRÃO usado.
+
+IMPORTANTE: Sua tarefa é criar TRÊS (3) PROMPTS PADRÕES DIFERENTES que descrevam o estilo visual destas thumbnails de forma FIEL, cada um com uma abordagem ligeiramente diferente, mas todos mantendo a identidade visual do canal/nicho.
+
+CRÍTICO - FIDELIDADE AO ESTILO:
+- Seja EXTREMAMENTE FIEL ao estilo visual das thumbnails de referência
+- Replique fielmente: composição, cores, tipografia, elementos visuais
+- Mantenha a identidade visual do canal/nicho
+- Cada prompt deve ser uma variação fiel, não uma reinvenção completa
+
+ANALISE OS SEGUINTES ELEMENTOS:
+1. Composição visual (layout, enquadramento, posicionamento de elementos)
+2. Paleta de cores dominante (cores principais, contrastes)
+3. Estilo de tipografia (fontes, tamanhos, efeitos, posicionamento)
+4. Elementos visuais recorrentes (objetos, símbolos, elementos decorativos)
+5. Iluminação e atmosfera (clara/escura, dramática/suave)
+6. Estilo geral (realista/cartoon/cinematográfico/minimalista)
+7. Regras de design específicas (regra dos terços, contraste, hierarquia visual)
+
+RESPONDA APENAS COM UM OBJETO JSON:
+{
+  "prompt_1": "Primeiro prompt detalhado em inglês que descreve o estilo visual padrão destas thumbnails de forma fiel, focando na composição e elementos principais. Seja específico e detalhado.",
+  "prompt_2": "Segundo prompt detalhado em inglês que descreve o mesmo estilo visual, mas com foco diferente (ex: cores e tipografia). Mantenha a fidelidade ao estilo original.",
+  "prompt_3": "Terceiro prompt detalhado em inglês que descreve o mesmo estilo visual, mas com ênfase em outros aspectos (ex: iluminação e atmosfera). Continue sendo fiel ao estilo original."
+}
+
+IMPORTANTE: Os 3 prompts devem ser variações fiéis do mesmo estilo, não estilos completamente diferentes. Todos devem manter a identidade visual do canal/nicho.`;
+
+                        // Chamar API para análise
+                        let analysisResponse;
+                        if (service === 'claude') {
+                            analysisResponse = await callClaudeAPI(analysisPrompt, apiKey, modelToUse, null, null, additionalImages);
+                        } else if (service === 'openai') {
+                            analysisResponse = await callOpenAIAPI(analysisPrompt, apiKey, modelToUse, null, additionalImages);
+                        } else {
+                            analysisResponse = await callGeminiAPI(analysisPrompt, apiKey, modelToUse, null, additionalImages);
+                        }
+                        
+                        const analysisText = typeof analysisResponse === 'string' ? analysisResponse : (analysisResponse.titles || JSON.stringify(analysisResponse));
+                        const parsedAnalysis = parseAIResponse(analysisText, service);
+                        
+                        // Validar que os 3 prompts foram gerados
+                        if (parsedAnalysis.prompt_1 && parsedAnalysis.prompt_2 && parsedAnalysis.prompt_3) {
+                            const prompt1 = parsedAnalysis.prompt_1;
+                            const prompt2 = parsedAnalysis.prompt_2;
+                            const prompt3 = parsedAnalysis.prompt_3;
+
+                            // Verificar se já existe um prompt padrão para atualizar
+                            let checkQuery = 'SELECT id FROM thumbnail_style_prompts WHERE user_id = ?';
+                            const checkParams = [userId];
+                            
+                            if (niche) {
+                                checkQuery += ' AND niche = ?';
+                                checkParams.push(niche);
+                            } else {
+                                checkQuery += ' AND niche IS NULL';
+                            }
+                            
+                            if (subniche) {
+                                checkQuery += ' AND subniche = ?';
+                                checkParams.push(subniche);
+                            } else {
+                                checkQuery += ' AND subniche IS NULL';
+                            }
+                            
+                            if (folder_id) {
+                                checkQuery += ' AND folder_id = ?';
+                                checkParams.push(folder_id);
+                            } else {
+                                checkQuery += ' AND folder_id IS NULL';
+                            }
+                            
+                            const existingPrompt = await db.get(checkQuery, checkParams);
+                            
+                            if (existingPrompt) {
+                                await db.run(
+                                    `UPDATE thumbnail_style_prompts 
+                                     SET prompt_1 = ?, prompt_2 = ?, prompt_3 = ?, 
+                                         standard_prompt = ?, updated_at = CURRENT_TIMESTAMP
+                                     WHERE id = ?`,
+                                    [prompt1, prompt2, prompt3, prompt1, existingPrompt.id]
+                                );
+                                await db.run(
+                                    `UPDATE thumbnail_style_prompts 
+                                     SET prompt_selected = 1 
+                                     WHERE id = ? AND (prompt_selected IS NULL OR prompt_selected = 0)`,
+                                    [existingPrompt.id]
+                                );
+                                autoAnalyzeResult = { success: true, updated: true, id: existingPrompt.id };
+                            } else {
+                                const insertResult = await db.run(
+                                    `INSERT INTO thumbnail_style_prompts (user_id, niche, subniche, folder_id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected, updated_at)
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
+                                    [userId, niche || null, subniche || null, folder_id || null, prompt1, prompt2, prompt3, prompt1]
+                                );
+                                autoAnalyzeResult = { success: true, created: true, id: insertResult.lastID };
+                            }
+                        }
+                    }
+                }
+            } catch (autoErr) {
+                console.warn('[Thumbnail Ref] Erro na análise automática de estilo:', autoErr.message);
+                // Não falhar o upload se a análise automática falhar
+            }
+        }
+
         res.status(200).json({ 
             msg: 'Thumbnail de referência salva com sucesso.',
-            id: result.lastID 
+            id: result.lastID,
+            styleAnalyzed: autoAnalyzeResult ? true : false
         });
     } catch (err) {
         console.error('Erro ao salvar thumbnail de referência:', err);
@@ -14750,36 +14822,100 @@ app.post('/api/thumbnail-references/analyze-style', authenticateToken, async (re
         // Preparar imagens para análise
         const additionalImages = thumbnailReferences.map(ref => ref.thumbnail_base64).filter(Boolean);
         
-        // Criar prompt para análise de estilo - gerar 3 prompts diferentes e fiéis
-        const analysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE ESTILO VISUAL DE THUMBNAILS.
+        // Criar prompt para análise de estilo - ANÁLISE ULTRA ANALÍTICA E DETALHADA
+        const analysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE ESTILO VISUAL DE THUMBNAILS e IDENTIDADE VISUAL DE CANAIS.
 
-Analise as ${thumbnailReferences.length} thumbnail(s) de referência fornecidas e identifique os ELEMENTOS VISUAIS COMUNS e o ESTILO PADRÃO usado.
+Analise as ${thumbnailReferences.length} thumbnail(s) de referência fornecidas com EXTREMA ATENÇÃO AOS DETALHES e identifique TODOS os elementos que compõem a IDENTIDADE VISUAL ÚNICA deste canal/nicho.
 
-IMPORTANTE: Sua tarefa é criar TRÊS (3) PROMPTS PADRÕES DIFERENTES que descrevam o estilo visual destas thumbnails de forma FIEL, cada um com uma abordagem ligeiramente diferente, mas todos mantendo a identidade visual do canal/nicho.
+IMPORTANTE: Sua tarefa é criar TRÊS (3) PROMPTS PADRÕES DIFERENTES que descrevam o estilo visual destas thumbnails de forma EXTREMAMENTE FIEL e DETALHADA, cada um com uma abordagem ligeiramente diferente, mas todos mantendo a identidade visual do canal/nicho.
 
-CRÍTICO - FIDELIDADE AO ESTILO:
+CRÍTICO - ANÁLISE ANALÍTICA PROFUNDA:
 - Seja EXTREMAMENTE FIEL ao estilo visual das thumbnails de referência
+- Analise CADA DETALHE visual que compõe a identidade do canal
 - Replique fielmente: composição, cores, tipografia, elementos visuais
-- Mantenha a identidade visual do canal/nicho
+- Mantenha a identidade visual do canal/nicho para QUALQUER nicho
 - Cada prompt deve ser uma variação fiel, não uma reinvenção completa
 
-ANALISE OS SEGUINTES ELEMENTOS:
-1. Composição visual (layout, enquadramento, posicionamento de elementos)
-2. Paleta de cores dominante (cores principais, contrastes)
-3. Estilo de tipografia (fontes, tamanhos, efeitos, posicionamento)
-4. Elementos visuais recorrentes (objetos, símbolos, elementos decorativos)
-5. Iluminação e atmosfera (clara/escura, dramática/suave)
-6. Estilo geral (realista/cartoon/cinematográfico/minimalista)
-7. Regras de design específicas (regra dos terços, contraste, hierarquia visual)
+ANALISE DETALHADA DOS SEGUINTES ELEMENTOS (SEJA ESPECÍFICO E DETALHADO):
+
+1. COMPOSIÇÃO VISUAL (Layout e Estrutura):
+   - Posicionamento exato do personagem/sujeito principal (centro, esquerda, direita, porcentagem do frame)
+   - Enquadramento (close-up, médio, plano geral)
+   - Proporção sujeito vs. fundo (ex: 60% sujeito, 40% fundo)
+   - Regra dos terços aplicada? Como?
+   - Hierarquia visual dos elementos
+   - Espaçamento e margens
+   - Simetria ou assimetria
+
+2. PALETA DE CORES DOMINANTE (Análise Cromática Detalhada):
+   - Cores primárias exatas (ex: dourado #D4AF37, azul escuro #1a1a2e)
+   - Cores secundárias
+   - Gradientes e transições de cor
+   - Contraste de cores (alto, médio, baixo)
+   - Temperatura de cor (quente, fria, mista)
+   - Saturação (vibrante, desaturada, natural)
+   - Distribuição espacial das cores (onde cada cor aparece)
+
+3. ESTILO DE TIPOGRAFIA (Análise Tipográfica Completa):
+   - Família de fonte (serif, sans-serif, display, script)
+   - Tamanho relativo (grande, médio, pequeno)
+   - Peso da fonte (bold, regular, light)
+   - Efeitos aplicados (sombra, brilho, gradiente, relevo, contorno)
+   - Cor da tipografia (dourado, branco, preto, gradiente)
+   - Posicionamento exato (inferior, superior, centro)
+   - Alinhamento (centralizado, esquerda, direita)
+   - Espaçamento entre letras (kerning)
+   - Estilo de capitalização (MAIÚSCULAS, minúsculas, Title Case)
+   - Efeitos de camada (stroke, drop shadow, outer glow, bevel & emboss)
+
+4. ELEMENTOS VISUAIS RECORRENTES (Inventário Completo):
+   - Objetos que aparecem consistentemente
+   - Símbolos e ícones recorrentes
+   - Elementos decorativos
+   - Padrões visuais
+   - Texturas
+   - Formas geométricas
+
+5. ILUMINAÇÃO E ATMOSFERA (Análise de Luz Detalhada):
+   - Tipo de iluminação (dramática, suave, natural, artificial)
+   - Direção da luz (frontal, lateral, traseira, superior)
+   - Contraste de iluminação (alto, médio, baixo)
+   - Sombras (suaves, duras, dramáticas)
+   - Atmosfera geral (épica, misteriosa, dramática, clara)
+   - Efeitos de luz (lens flare, god rays, rim light)
+
+6. ESTILO GERAL E QUALIDADE (Classificação Visual):
+   - Nível de realismo (foto-realista, semi-realista, estilizado)
+   - Estilo artístico (cinematográfico, documentário, ilustrativo)
+   - Qualidade visual (4K, HD, estilizado)
+   - Nível de detalhamento (ultra detalhado, detalhado, simplificado)
+
+7. REGRAS DE DESIGN ESPECÍFICAS (Princípios Aplicados):
+   - Regra dos terços (como aplicada)
+   - Contraste visual (alto, médio, baixo)
+   - Hierarquia visual (o que chama atenção primeiro)
+   - Equilíbrio visual (simétrico, assimétrico)
+   - Profundidade (plano, médio, profundo)
+
+8. ELEMENTOS DE IDENTIDADE VISUAL ÚNICA:
+   - Características distintivas que tornam este estilo único
+   - Padrões que se repetem em todas as thumbnails
+   - "Assinatura visual" do canal
+   - Elementos que devem SEMPRE estar presentes
 
 RESPONDA APENAS COM UM OBJETO JSON:
 {
-  "prompt_1": "Primeiro prompt detalhado em inglês que descreve o estilo visual padrão destas thumbnails de forma fiel, focando na composição e elementos principais. Seja específico e detalhado.",
-  "prompt_2": "Segundo prompt detalhado em inglês que descreve o mesmo estilo visual, mas com foco diferente (ex: cores e tipografia). Mantenha a fidelidade ao estilo original.",
-  "prompt_3": "Terceiro prompt detalhado em inglês que descreve o mesmo estilo visual, mas com ênfase em outros aspectos (ex: iluminação e atmosfera). Continue sendo fiel ao estilo original."
+  "prompt_1": "Primeiro prompt EXTREMAMENTE DETALHADO em inglês (600-1200 palavras) que descreve o estilo visual padrão destas thumbnails de forma fiel, focando na composição, posicionamento exato, paleta de cores específica, tipografia detalhada e elementos principais. Seja ESPECÍFICO com medidas, porcentagens, cores exatas, posicionamento preciso.",
+  "prompt_2": "Segundo prompt EXTREMAMENTE DETALHADO em inglês (600-1200 palavras) que descreve o mesmo estilo visual, mas com foco em cores específicas, tipografia detalhada (fonte, tamanho, efeitos), iluminação e atmosfera. Mantenha a fidelidade ao estilo original com TODOS os detalhes.",
+  "prompt_3": "Terceiro prompt EXTREMAMENTE DETALHADO em inglês (600-1200 palavras) que descreve o mesmo estilo visual, mas com ênfase em elementos visuais recorrentes, regras de design específicas, e identidade visual única. Continue sendo fiel ao estilo original com ANÁLISE PROFUNDA."
 }
 
-IMPORTANTE: Os 3 prompts devem ser variações fiéis do mesmo estilo, não estilos completamente diferentes. Todos devem manter a identidade visual do canal/nicho.`;
+CRÍTICO: 
+- Os 3 prompts devem ser variações fiéis do mesmo estilo, não estilos diferentes
+- Todos devem manter a identidade visual do canal/nicho
+- Seja ESPECÍFICO: use medidas, porcentagens, cores exatas, posicionamento preciso
+- Descreva CADA detalhe que compõe a identidade visual
+- Os prompts devem ser aplicáveis a QUALQUER nicho mantendo a identidade visual`;
 
         // Chamar API para análise
         let analysisResponse;
@@ -15021,13 +15157,498 @@ app.delete('/api/thumbnail-references/:id', authenticateToken, async (req, res) 
     }
 });
 
+// Endpoint unificado: Gera thumbnail completa (imagem + headline + SEO + tags) baseado no título e estilo de referência
+app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        let { title, niche, subniche, folder_id, language = 'pt-BR', style = 'photorealistic', theme_key, variations = 2, ai_model, prompt_variant } = req.body;
+
+        if (!title || !title.trim()) {
+            return res.status(400).json({ msg: 'Título é obrigatório.' });
+        }
+        
+        // Normalizar folder_id: converter string vazia para null e garantir que seja número
+        if (folder_id === '' || folder_id === '0' || folder_id === 0) {
+            folder_id = null;
+        } else if (folder_id) {
+            folder_id = parseInt(folder_id, 10);
+            if (isNaN(folder_id)) folder_id = null;
+        }
+        
+        console.log('[Thumbnail Complete] Buscando prompt para:', { userId, folder_id, niche, subniche });
+
+        // 1. Buscar prompt padrão do estilo de referência
+        // Prioridade: folder_id específico > subniche > niche > geral
+        let promptData = null;
+        
+        // Primeiro, tentar buscar por pasta específica (se folder_id fornecido)
+        if (folder_id) {
+            let query = 'SELECT id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected, folder_id, niche, subniche FROM thumbnail_style_prompts WHERE user_id = ? AND folder_id = ?';
+            const params = [userId, folder_id];
+            
+            // Adicionar filtros opcionais de nicho/subnicho para refinar a busca
+            if (subniche) {
+                query += ' AND (subniche = ? OR subniche IS NULL)';
+                params.push(subniche);
+            }
+            if (niche) {
+                query += ' AND (niche = ? OR niche IS NULL)';
+                params.push(niche);
+            }
+            query += ' ORDER BY updated_at DESC LIMIT 1';
+            
+            console.log('[Thumbnail Complete] Buscando por pasta específica:', { query, params });
+            promptData = await db.get(query, params);
+            if (promptData) {
+                console.log('[Thumbnail Complete] Prompt encontrado na pasta específica:', { id: promptData.id, folder_id: promptData.folder_id });
+            } else {
+                console.log('[Thumbnail Complete] Nenhum prompt encontrado na pasta específica:', folder_id);
+            }
+        }
+        
+        // Se não encontrou na pasta específica, tentar por subniche
+        if (!promptData && subniche) {
+            let query = 'SELECT id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected FROM thumbnail_style_prompts WHERE user_id = ? AND subniche = ?';
+            const params = [userId, subniche];
+            if (niche) {
+                query += ' AND (niche = ? OR niche IS NULL)';
+                params.push(niche);
+            }
+            query += ' ORDER BY updated_at DESC LIMIT 1';
+            
+            console.log('[Thumbnail Complete] Buscando por subniche:', { query, params });
+            promptData = await db.get(query, params);
+            if (promptData) {
+                console.log('[Thumbnail Complete] Prompt encontrado por subniche:', { id: promptData.id });
+            }
+        }
+        
+        // Se não encontrou, tentar por niche
+        if (!promptData && niche) {
+            let query = 'SELECT id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected FROM thumbnail_style_prompts WHERE user_id = ? AND niche = ?';
+            const params = [userId, niche];
+            query += ' ORDER BY updated_at DESC LIMIT 1';
+            
+            console.log('[Thumbnail Complete] Buscando por niche:', { query, params });
+            promptData = await db.get(query, params);
+            if (promptData) {
+                console.log('[Thumbnail Complete] Prompt encontrado por niche:', { id: promptData.id });
+            }
+        }
+        
+        // Se ainda não encontrou, buscar qualquer prompt do usuário (fallback)
+        if (!promptData) {
+            let query = 'SELECT id, prompt_1, prompt_2, prompt_3, standard_prompt, prompt_selected FROM thumbnail_style_prompts WHERE user_id = ?';
+            const params = [userId];
+            query += ' ORDER BY updated_at DESC LIMIT 1';
+            
+            console.log('[Thumbnail Complete] Buscando qualquer prompt do usuário (fallback)');
+            promptData = await db.get(query, params);
+            if (promptData) {
+                console.log('[Thumbnail Complete] Prompt encontrado (fallback):', { id: promptData.id });
+            }
+        }
+        
+        if (!promptData) {
+            return res.status(400).json({ 
+                msg: folder_id 
+                    ? 'Nenhum estilo de referência encontrado para esta pasta. Faça upload de thumbnails de referência para esta pasta primeiro.' 
+                    : 'Nenhum estilo de referência encontrado. Faça upload de thumbnails de referência primeiro.' 
+            });
+        }
+
+        // Usar prompt_variant se fornecido, senão usar o prompt_selected, senão usar 1
+        const selectedNum = prompt_variant || promptData.prompt_selected || 1;
+        let basePrompt = null;
+        if (selectedNum === 1 && promptData.prompt_1) basePrompt = promptData.prompt_1;
+        else if (selectedNum === 2 && promptData.prompt_2) basePrompt = promptData.prompt_2;
+        else if (selectedNum === 3 && promptData.prompt_3) basePrompt = promptData.prompt_3;
+        else basePrompt = promptData.standard_prompt || promptData.prompt_1 || promptData.prompt_2 || promptData.prompt_3;
+        
+        console.log('[Thumbnail Complete] Prompt selecionado:', {
+            prompt_variant: prompt_variant,
+            prompt_selected: promptData.prompt_selected,
+            selectedNum,
+            hasPrompt1: !!promptData.prompt_1,
+            hasPrompt2: !!promptData.prompt_2,
+            hasPrompt3: !!promptData.prompt_3
+        });
+        
+        if (!basePrompt) {
+            return res.status(400).json({ msg: 'Prompt padrão vazio.' });
+        }
+
+        // 2. Detectar tema e ambientação do título
+        const titleText = title.trim();
+        const theme = (() => {
+            const s = titleText.toLowerCase();
+            if (s.includes('faraó') || s.includes('egito') || s.includes('egip') || s.includes('pirâmide') || s.includes('piramide')) return 'egito';
+            if (s.includes('neandertal') || s.includes('neanderthal') || s.includes('neandertais') || s.includes('neandertales')) return 'prehistoria';
+            if (s.includes('inca') || s.includes('atahualpa') || s.includes('moctezuma') || s.includes('azteca') || s.includes('aztecas') || s.includes('mexica')) return 'america_pre_colombiana';
+            if (s.includes('viking') || s.includes('vikings')) return 'viking';
+            if (s.includes('roma') || s.includes('romano') || s.includes('romanos') || s.includes('roman') || s.includes('império') || s.includes('imperio') || s.includes('bárbaro') || s.includes('barbaro')) return 'roma';
+            if (s.includes('segunda guerra') || s.includes('world war') || s.includes('guerra mundial')) return 'ww2';
+            if (s.includes('cristandade') || s.includes('cristão') || s.includes('cristian') || s.includes('cathedral') || s.includes('catedral')) return 'cristandade';
+            return 'default';
+        })();
+
+        // 3. Buscar ambientação do banco de dados ou usar mapeamento padrão
+        let dbMatch = null;
+        if (theme_key) {
+            await ensureAmbientationsTable();
+            dbMatch = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, theme_key]);
+        }
+        if (!dbMatch) {
+            dbMatch = await detectAmbientationFromTitle(userId, titleText, niche);
+        }
+
+        // 4. Mapeamento de temas com personagens e elementos
+        const themes = {
+            egito: { 
+                subject: 'ancient Egyptian figure with royal collar and nemes headdress', 
+                acessorios: 'gold necklaces and ceremonial regalia', 
+                ambiente: 'desert dunes, pyramids, pharaoh temples, golden sun', 
+                elementos: 'hieroglyph walls, golden crown, architect tools' 
+            },
+            prehistoria: { 
+                subject: 'rugged Neanderthal with thick brow ridges, deep-set eyes, and weathered skin', 
+                acessorios: 'primitive fur and animal hides, no metal or feathers', 
+                ambiente: 'icy mountains, glacial valleys, burning forests', 
+                elementos: 'fur clothing, primitive tools, ice age forests, mammoth silhouettes' 
+            },
+            america_pre_colombiana: { 
+                subject: 'Mesoamerican leader with traditional attire and ceremonial elements', 
+                acessorios: 'ornate jewelry and ritual accessories', 
+                ambiente: 'jungles, stepped pyramids, volcanic eruptions', 
+                elementos: 'ancient temples, stone sculptures, ritual smoke' 
+            },
+            viking: { 
+                subject: 'Viking warrior with axe and thick beard', 
+                acessorios: 'fur, leather armor, iron helmet', 
+                ambiente: 'stormy oceans, burning ships, icy fjords', 
+                elementos: 'longships, shields, ravens' 
+            },
+            roma: { 
+                subject: 'Roman figure with laurel wreath and toga, classical lighting', 
+                acessorios: 'laurel wreath, toga, military regalia', 
+                ambiente: 'colosseum, roman columns, marble statues, ancient Rome', 
+                elementos: 'legion standards, roman architecture, battle scenes, barbarian silhouettes' 
+            },
+            ww2: { 
+                subject: 'civilian silhouette amid wartime ruins', 
+                acessorios: 'period clothing, military uniforms', 
+                ambiente: 'ruined cities, smoke, searchlights', 
+                elementos: 'tanks, helmets, barbed wire, destruction' 
+            },
+            cristandade: { 
+                subject: 'historical figure near cathedral light', 
+                acessorios: 'religious vestments, ceremonial items', 
+                ambiente: 'gothic cathedrals, stained glass light, stone plazas', 
+                elementos: 'crosses, incense smoke, candles' 
+            },
+            default: { 
+                subject: 'historical figure with authentic attire matching the title theme', 
+                acessorios: 'period-appropriate accessories', 
+                ambiente: 'dramatic scenery matching the title', 
+                elementos: 'contextual props and elements' 
+            }
+        };
+
+        // 5. EXTRAIR APENAS ELEMENTOS DE ESTILO DO PROMPT PADRÃO
+        // Remover TODOS os elementos de conteúdo (personagens, cenários, objetos específicos)
+        // Manter APENAS: composição, cores, tipografia, efeitos, distribuição, transparência, iluminação
+        let adaptedPrompt = basePrompt;
+        
+        // Lista completa de remoções - qualquer referência a personagens, cenários, objetos específicos
+        const contentRemovals = [
+            // Personagens e figuras específicas
+            /(?:native american|indigenous|mexican|aztec|inca|maya|mesoamerican|pre-columbian)[^.]*?\./gi,
+            /(?:leader|warrior|king|ruler|pharaoh|emperor|centurion|soldier|figure|person|character)[^,\.]*?(?:with|wearing|holding|standing|sitting)[^,\.]*?\./gi,
+            /(?:atahualpa|moctezuma|malinche|cortes|conquistador|spanish|roman|egyptian|viking|neanderthal|greek|medieval)[^,\.]*?\./gi,
+            /(?:feathered headdress|plumes|jaguar|eagle|serpent|snake|bird)[^,\.]*?\./gi,
+            /(?:close-up portrait of|featuring|depicting|showing)[^,\.]*?(?:leader|figure|person|warrior|king)[^,\.]*?\./gi,
+            
+            // Cenários e locais específicos
+            /(?:mesoamerican|aztec|inca|maya|pyramid|temple|ruins|tenochtitlan|machu picchu)[^,\.]*?\./gi,
+            /(?:spanish ships|galleons|conquistador ships|longships|viking ships)[^,\.]*?\./gi,
+            /(?:colosseum|roman columns|marble statues|ancient rome|egyptian pyramids|desert dunes)[^,\.]*?\./gi,
+            /(?:jungle|selva|andes|fjords|glaciers|ice age)[^,\.]*?\./gi,
+            
+            // Objetos e elementos específicos
+            /(?:jade|gold jewelry|ceremonial|ritual|sacrifice|offering|hieroglyph|glyph)[^,\.]*?\./gi,
+            /(?:spear|shield|sword|axe|bow|arrow|weapon|armor|helmet)[^,\.]*?\./gi,
+            /(?:burning ships|warriors|battle|conflict|invasion|conquest)[^,\.]*?\./gi,
+            
+            // Frases completas que mencionam conteúdo específico
+            /(?:in the background|behind|surrounding|around)[^,\.]*?(?:ships|warriors|pyramids|temples|ruins|battle)[^,\.]*?\./gi,
+            /(?:faded scenes of|scenes of|showing|depicting)[^,\.]*?(?:conflict|war|invasion|conquest|ritual)[^,\.]*?\./gi
+        ];
+        
+        // Remover todas as referências a conteúdo específico
+        for (const pattern of contentRemovals) {
+            adaptedPrompt = adaptedPrompt.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
+        }
+        
+        // Remover frases que começam com descrições de personagens/cenários
+        adaptedPrompt = adaptedPrompt.replace(/^[^,\.]*(?:featuring|depicting|showing|with|portrait of)[^,\.]*?\.\s*/gi, '');
+        
+        // Limpar múltiplos espaços e pontos
+        adaptedPrompt = adaptedPrompt.replace(/\s{2,}/g, ' ').replace(/\.\s*\./g, '.').trim();
+
+        // 6. Obter elementos do tema detectado
+        let themeData = themes[theme] || themes.default;
+        if (dbMatch) {
+            themeData = {
+                subject: dbMatch.subject || themeData.subject,
+                acessorios: dbMatch.acessorios || themeData.acessorios,
+                ambiente: dbMatch.ambiente || themeData.ambiente,
+                elementos: dbMatch.elementos || themeData.elementos
+            };
+        }
+
+        // 7. Substituir placeholders ou adicionar elementos do tema
+        const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
+        for (const rx of placeholders) {
+            if (rx.test(adaptedPrompt)) {
+                adaptedPrompt = adaptedPrompt.replace(rx, `"${titleText}"`);
+            }
+        }
+
+        // 7. Substituir placeholders de personagem, ambiente, elementos (se existirem)
+        adaptedPrompt = adaptedPrompt.replace(/\{PERSONAGEM\}/gi, themeData.subject);
+        adaptedPrompt = adaptedPrompt.replace(/\{ACESSORIOS\}/gi, themeData.acessorios || '');
+        adaptedPrompt = adaptedPrompt.replace(/\{AMBIENTE\}/gi, themeData.ambiente);
+        adaptedPrompt = adaptedPrompt.replace(/\{ELEMENTOS_DE_FUNDO\}/gi, themeData.elementos);
+
+        // 8. ADICIONAR DINAMICAMENTE PERSONAGEM E AMBIENTAÇÃO BASEADO NO TÍTULO
+        // Sempre adicionar elementos dinâmicos, independente do que estava no prompt padrão
+        
+        // Verificar se o prompt já menciona algum personagem genérico (para não duplicar)
+        const hasGenericSubject = /(?:featuring|depicting|showing|portrait of|subject|character|figure)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central|main)[^,\.]*/gi.test(adaptedPrompt);
+        
+        if (!hasGenericSubject || !adaptedPrompt.toLowerCase().includes(themeData.subject.toLowerCase().split(' ')[0])) {
+            // Procurar por padrões de descrição de personagem genérica e substituir
+            const personPatterns = [
+                /(?:featuring|depicting|showing|with)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central|main)[^,\.]*(?:figure|person|character|subject|portrait)[^,\.]*/gi,
+                /(?:subject|character|person|figure|portrait of)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central)[^,\.]*/gi,
+                /close-up portrait of\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic)[^,\.]*/gi
+            ];
+            
+            let replaced = false;
+            for (const pattern of personPatterns) {
+                if (pattern.test(adaptedPrompt)) {
+                    adaptedPrompt = adaptedPrompt.replace(pattern, (match) => {
+                        // Substituir por personagem dinâmico do título
+                        if (match.includes('featuring')) {
+                            return `featuring ${themeData.subject}`;
+                        } else if (match.includes('depicting')) {
+                            return `depicting ${themeData.subject}`;
+                        } else if (match.includes('portrait')) {
+                            return `close-up portrait of ${themeData.subject}`;
+                        } else {
+                            return match.replace(/[^,\.]*(?:figure|person|character|subject)[^,\.]*/i, themeData.subject);
+                        }
+                    });
+                    replaced = true;
+                    break;
+                }
+            }
+            
+            // Se não encontrou padrão genérico, adicionar personagem dinâmico no início
+            if (!replaced) {
+                // Verificar se o prompt começa com instruções de estilo ou composição
+                const styleStarters = ['design', 'create', 'generate', 'compose', 'arrange', 'layout'];
+                const startsWithStyle = styleStarters.some(starter => adaptedPrompt.toLowerCase().startsWith(starter));
+                
+                if (startsWithStyle) {
+                    // Adicionar personagem após o verbo de estilo
+                    adaptedPrompt = adaptedPrompt.replace(/^(design|create|generate|compose|arrange|layout)\s+/i, `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
+                } else {
+                    // Adicionar no início com personagem dinâmico
+                    adaptedPrompt = `Generate a cinematic thumbnail featuring ${themeData.subject}, ${adaptedPrompt}`;
+                }
+            }
+        }
+        
+        // 9. ADICIONAR AMBIENTAÇÃO DINÂMICA (sempre, mesmo se já tiver alguma menção)
+        // Verificar se já menciona ambiente genérico
+        const ambienteWords = themeData.ambiente.toLowerCase().split(',').map(w => w.trim()).filter(w => w.length > 3);
+        const hasAmbiente = ambienteWords.some(word => adaptedPrompt.toLowerCase().includes(word));
+        
+        if (!hasAmbiente) {
+            // Adicionar ambiente dinâmico do título
+            adaptedPrompt += `. Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`;
+        } else {
+            // Se já tem ambiente, apenas adicionar elementos se não estiverem presentes
+            const elementosWords = themeData.elementos.toLowerCase().split(',').map(w => w.trim()).filter(w => w.length > 3);
+            const hasElementos = elementosWords.some(word => adaptedPrompt.toLowerCase().includes(word));
+            if (!hasElementos) {
+                adaptedPrompt += ` Include elements: ${themeData.elementos}.`;
+            }
+        }
+        
+        // 10. GARANTIR ACESSÓRIOS DINÂMICOS
+        if (themeData.acessorios && !adaptedPrompt.toLowerCase().includes(themeData.acessorios.toLowerCase().split(' ')[0])) {
+            // Adicionar acessórios se não estiverem presentes
+            adaptedPrompt = adaptedPrompt.replace(/(wearing|with|and)\s+[^,\.]+(?:accessories|jewelry|regalia|attire)/gi, `$1 ${themeData.acessorios}`);
+            if (!adaptedPrompt.includes(themeData.acessorios)) {
+                adaptedPrompt += ` Accessories: ${themeData.acessorios}.`;
+            }
+        }
+
+        basePrompt = adaptedPrompt;
+        
+        console.log('[Thumbnail Complete] Prompt adaptado:', {
+            theme,
+            subject: themeData.subject,
+            ambiente: themeData.ambiente,
+            elementos: themeData.elementos,
+            promptPreview: basePrompt.substring(0, 200) + '...'
+        });
+
+        // 4. Gerar headline de impacto e descrição SEO usando IA
+        let apiKey = null;
+        let service = null;
+        let modelToUse = null;
+        
+        // Se ai_model foi fornecido, usar o modelo especificado
+        if (ai_model) {
+            if (ai_model.includes('claude') || ai_model === 'claude-3-7-sonnet-20250219') {
+                service = 'claude';
+                modelToUse = 'claude-3-7-sonnet-20250219';
+            } else if (ai_model.includes('gpt') || ai_model === 'gpt-4o') {
+                service = 'openai';
+                modelToUse = 'gpt-4o';
+            } else if (ai_model.includes('gemini') || ai_model === 'gemini-2.5-pro') {
+                service = 'gemini';
+                modelToUse = 'gemini-2.5-pro';
+            }
+            
+            // Buscar API key para o serviço especificado
+            if (service) {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+                if (keyData && keyData.api_key) {
+                    try {
+                        apiKey = decrypt(keyData.api_key);
+                    } catch (e) {
+                        service = null;
+                        modelToUse = null;
+                    }
+                } else {
+                    service = null;
+                    modelToUse = null;
+                }
+            }
+        }
+        
+        // Se não especificado ou falhou, usar prioridade automática
+        if (!apiKey) {
+            const services = ['claude', 'openai', 'gemini'];
+            for (const svc of services) {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+                if (keyData && keyData.api_key) {
+                    try {
+                        apiKey = decrypt(keyData.api_key);
+                        service = svc;
+                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        else if (svc === 'openai') modelToUse = 'gpt-4o';
+                        else modelToUse = 'gemini-2.5-pro';
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Nenhuma API key configurada. Configure pelo menos uma API nas Configurações.' });
+        }
+
+        // Prompt para gerar headline e SEO
+        const seoPrompt = `Com base no título do vídeo: "${titleText}"
+
+Gere:
+1. Uma HEADLINE DE IMPACTO (máximo 6 palavras, chamativa, viral, que gere curiosidade)
+2. Uma DESCRIÇÃO SEO otimizada (2-3 frases, inclua palavras-chave relevantes, seja persuasiva)
+3. PRINCIPAIS TAGS (10-15 tags separadas por vírgula, relevantes ao tema)
+
+RESPONDA APENAS COM JSON:
+{
+  "headline": "HEADLINE DE IMPACTO AQUI",
+  "seoDescription": "Descrição SEO otimizada aqui...",
+  "tags": "tag1, tag2, tag3, tag4, tag5..."
+}`;
+
+        let seoResponse;
+        if (service === 'claude') {
+            seoResponse = await callClaudeAPI(seoPrompt, apiKey, modelToUse);
+        } else if (service === 'openai') {
+            seoResponse = await callOpenAIAPI(seoPrompt, apiKey, modelToUse);
+        } else {
+            seoResponse = await callGeminiAPI(seoPrompt, apiKey, modelToUse);
+        }
+
+        const seoText = typeof seoResponse === 'string' ? seoResponse : (seoResponse.titles || JSON.stringify(seoResponse));
+        const parsedSEO = parseAIResponse(seoText, service);
+        
+        const headline = parsedSEO.headline || titleText.split(':')[0].trim();
+        const seoDescription = parsedSEO.seoDescription || `Descubra tudo sobre ${titleText}. Conteúdo exclusivo e detalhado.`;
+        const tags = parsedSEO.tags ? parsedSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+        // 5. Adaptar prompt visual com headline (APENAS HEADLINE, SEM SUBHEADLINE OU OUTROS TEXTOS)
+        const headlineText = headline;
+        // Instrução clara: apenas a headline deve aparecer, sem outros textos
+        const headlineLine = `Display ONLY the headline text "${headlineText}" (translate to ${language}) in large, bold, gold metallic serif font with subtle glow effect at the bottom of the image. Do NOT render the word 'Headline' or 'Subheadline' or any other labels. Do NOT add any subheadline, subtitle, or additional text. Only the headline text itself should be visible.`;
+        const styleLock = 'Keep composition, subject placement, palette, typography and lighting exactly as in channel references. Do not change layout. Maintain gold title text at bottom with dramatic lighting. Do not render any literal text from these instructions.';
+        // Instruções específicas para remover marcações nos 4 cantos
+        const negativeBlock = `CRITICAL - REMOVE ALL CORNER MARKINGS: Exclude any logos, watermarks, channel badges, branding marks, corner icons, decorative elements, or any visual elements in the four corners of the image (top-left, top-right, bottom-left, bottom-right). The image must be completely clean in all four corners. Do not render channel names, corner marks, badges, icons, symbols, text, or any decorative elements in the corners. Do NOT render any text except the headline. Do NOT add subheadlines, subtitles, or any additional text labels. The entire image area must be free of any corner markings, branding elements, or visual clutter in the corners.`;
+        
+        let finalPrompt = `${basePrompt}\n\n${headlineLine}\n\n${negativeBlock}\n\n${styleLock}`;
+
+        // 6. Gerar imagens
+        const images = [];
+        for (let i = 0; i < Math.max(1, Math.min(variations, 4)); i++) {
+            const genResp = await fetch(`http://localhost:${PORT}/api/generate/imagefx`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': req.headers['authorization'] || '' },
+                body: JSON.stringify({ prompt: finalPrompt, niche, subniche, style, saveToLibrary: true })
+            });
+            const genData = await genResp.json();
+            if (!genResp.ok) throw new Error(genData.msg || 'Erro ao gerar imagem');
+            images.push({
+                imageUrl: genData.imageUrl || genData.image || genData.result || null,
+                savedToLibrary: !!genData.savedToLibrary,
+                libraryId: genData.libraryId || null
+            });
+        }
+
+        // 7. Retornar resultado completo
+        res.status(200).json({
+            success: true,
+            title: titleText,
+            headline: headline,
+            seoDescription: seoDescription,
+            tags: tags,
+            images: images,
+            promptUsed: finalPrompt
+        });
+
+    } catch (err) {
+        console.error('[Thumbnail Complete] Erro:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao gerar thumbnail completa.' });
+    }
+});
+
 app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
-    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule } = req.body;
+    let { videoId, selectedTitle, model, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule, theme_key, folder_id } = req.body;
     const userId = req.user.id;
 
     if (!videoId || !selectedTitle || !model || !niche || !subniche || !language || includePhrases === undefined || !style) {
         return res.status(400).json({ msg: 'Dados insuficientes para gerar ideias de thumbnail.' });
     }
+    
+    console.log(`[Análise-Thumb] Gerando thumbnails para pasta/canal: ${folder_id || 'Nenhuma pasta selecionada'}`);
     
     // Se thumbnailRule não for fornecido, usar 'auto'
     thumbnailRule = thumbnailRule || 'auto';
@@ -15127,35 +15748,54 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 2.6. Buscar thumbnails de referência do canal/nicho ---
         let thumbnailReferences = [];
         try {
-            // Buscar thumbnails de referência que correspondam ao canal/nicho
-            let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description FROM thumbnail_references WHERE user_id = ?';
-            const refParams = [userId];
-            
-            // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
-            // Priorizar subniche, depois niche, depois qualquer thumbnail do usuário
-            if (subniche || niche) {
-                refQuery += ' AND (';
-                const conditions = [];
-                if (subniche) {
-                    conditions.push('subniche = ?');
-                    refParams.push(subniche);
+            // PRIORIDADE 1: Buscar thumbnails de referência da PASTA/CANAL específica primeiro
+            if (folder_id) {
+                const folderRefs = await db.all(
+                    'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, folder_id FROM thumbnail_references WHERE user_id = ? AND folder_id = ? ORDER BY created_at DESC LIMIT 5',
+                    [userId, folder_id]
+                );
+                
+                if (folderRefs && folderRefs.length > 0) {
+                    thumbnailReferences = folderRefs;
+                    console.log(`[Análise-Thumb] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o CANAL/PASTA ID ${folder_id} (prioridade máxima)`);
                 }
-                if (niche) {
-                    conditions.push('niche = ?');
-                    refParams.push(niche);
-                }
-                // Também incluir thumbnails sem filtro específico (NULL)
-                conditions.push('(subniche IS NULL AND niche IS NULL)');
-                refQuery += conditions.join(' OR ') + ')';
             }
             
-            refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
-            
-            const refs = await db.all(refQuery, refParams);
-            thumbnailReferences = refs || [];
-            
-            if (thumbnailReferences.length > 0) {
-                console.log(`[Análise-Thumb] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o canal/nicho`);
+            // PRIORIDADE 2: Se não houver thumbnails da pasta, buscar por nicho/subnicho
+            if (thumbnailReferences.length === 0) {
+                let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, folder_id FROM thumbnail_references WHERE user_id = ?';
+                const refParams = [userId];
+                
+                // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
+                // Priorizar subniche, depois niche, depois qualquer thumbnail do usuário
+                if (subniche || niche) {
+                    refQuery += ' AND (';
+                    const conditions = [];
+                    if (subniche) {
+                        conditions.push('subniche = ?');
+                        refParams.push(subniche);
+                    }
+                    if (niche) {
+                        conditions.push('niche = ?');
+                        refParams.push(niche);
+                    }
+                    // Também incluir thumbnails sem filtro específico (NULL)
+                    conditions.push('(subniche IS NULL AND niche IS NULL)');
+                    refQuery += conditions.join(' OR ') + ')';
+                }
+                
+                // Excluir thumbnails que já têm uma pasta específica (pois são de outros canais)
+                refQuery += ' AND folder_id IS NULL';
+                refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
+                
+                const refs = await db.all(refQuery, refParams);
+                thumbnailReferences = refs || [];
+                
+                if (thumbnailReferences.length > 0) {
+                    console.log(`[Análise-Thumb] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o nicho/subnicho (fallback)`);
+                } else {
+                    console.log(`[Análise-Thumb] ⚠️ Nenhuma thumbnail de referência encontrada para esta pasta ou nicho/subnicho`);
+                }
             }
         } catch (err) {
             console.warn(`[Análise-Thumb] Erro ao buscar thumbnails de referência: ${err.message}`);
@@ -15164,8 +15804,106 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         // --- 3. Criar o prompt multimodal (PROMPT REFINADO ou CUSTOMIZADO) ---
         let thumbPrompt;
         
+        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) ANTES de construir o prompt
+        const themeKeyManual = theme_key || null;
+        let dbMatchLocal = null;
+        if (themeKeyManual) {
+            await ensureAmbientationsTable();
+            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
+        }
+        if (!dbMatchLocal) {
+            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
+        }
+        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
+        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
+        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
+        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : 'contextual historical elements';
+
+        // --- 3.1. Se customPrompt for um prompt padrão, adaptar ao título específico ---
+        let adaptedCustomPrompt = customPrompt;
         if (customPrompt && customPrompt.trim()) {
-            // Se houver prompt customizado, usar ele como base
+            try {
+                console.log('[Thumbnail Gen] Adaptando prompt padrão ao título específico...');
+                
+                // Criar prompt para a IA adaptar o prompt padrão ao título
+                const adaptationPrompt = `Você é um especialista em adaptação de prompts visuais para thumbnails do YouTube.
+
+TAREFA: Adapte o prompt padrão abaixo para o título específico do vídeo, mantendo EXATAMENTE a estrutura visual e estilo do prompt padrão, mas ajustando o conteúdo/tema/ambientação para o título fornecido.
+
+PROMPT PADRÃO (ESTRUTURA E ESTILO A MANTER):
+"""
+${customPrompt}
+"""
+
+TÍTULO DO VÍDEO:
+"${selectedTitle}"
+
+NICHO/SUBNICHO:
+${niche} / ${subniche}
+
+INSTRUÇÕES:
+1. Analise o prompt padrão e identifique:
+   - Estrutura de composição (layout, posicionamento de elementos)
+   - Estilo visual (paleta de cores, tipografia, iluminação)
+   - Elementos técnicos (resolução, efeitos, tratamento)
+   - Padrões de texto/frases
+
+2. Adapte o prompt para o título "${selectedTitle}":
+   - MANTENHA: toda a estrutura visual, estilo, composição, paleta de cores, tipografia
+   - AJUSTE: personagem/sujeito, ambientação, cenário, elementos de fundo para corresponder ao tema do título
+   - SUBSTITUA: referências genéricas por elementos específicos do título
+   - PRESERVE: todos os elementos técnicos e de qualidade (resolução, efeitos, etc.)
+
+3. O prompt adaptado deve:
+   - Seguir EXATAMENTE o mesmo formato e estrutura do prompt padrão
+   - Manter o mesmo estilo visual e composição
+   - Aplicar o tema/contexto do título "${selectedTitle}"
+   - Ser específico e detalhado como o prompt padrão
+
+4. Retorne APENAS o prompt adaptado, sem explicações ou comentários adicionais.
+
+PROMPT ADAPTADO:`;
+
+                // Chamar IA para adaptar o prompt
+                let adaptedResponse;
+                if (useLaozhang) {
+                    adaptedResponse = await callLaozhangAPI(
+                        adaptationPrompt,
+                        decryptedKey,
+                        'gpt-4o',
+                        null,
+                        userId,
+                        '/api/analyze/thumbnail',
+                        JSON.stringify({ endpoint: '/api/analyze/thumbnail', operation: 'adapt-prompt' })
+                    );
+                } else if (service === 'openai') {
+                    adaptedResponse = await callOpenAIAPI(adaptationPrompt, decryptedKey, model);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                } else if (service === 'claude') {
+                    adaptedResponse = await callClaudeAPI(adaptationPrompt, decryptedKey, model);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                } else if (service === 'gemini') {
+                    adaptedResponse = await callGeminiAPI(adaptationPrompt, decryptedKey, model);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                }
+                
+                if (adaptedResponse && typeof adaptedResponse === 'string' && adaptedResponse.trim().length > 100) {
+                    adaptedCustomPrompt = adaptedResponse.trim();
+                    console.log('[Thumbnail Gen] ✅ Prompt padrão adaptado com sucesso ao título');
+                    console.log('[Thumbnail Gen] Prompt adaptado (preview):', adaptedCustomPrompt.substring(0, 300) + '...');
+                } else {
+                    console.warn('[Thumbnail Gen] ⚠️ Falha ao adaptar prompt, usando prompt padrão original');
+                }
+            } catch (adaptErr) {
+                console.warn('[Thumbnail Gen] Erro ao adaptar prompt padrão:', adaptErr.message);
+                console.warn('[Thumbnail Gen] Continuando com prompt padrão original');
+            }
+        }
+        
+        if (adaptedCustomPrompt && adaptedCustomPrompt.trim()) {
+            // Se houver prompt customizado (original ou adaptado), usar ele como base
             thumbPrompt = `
             Você é um especialista em YouTube, combinando as habilidades de um diretor de arte para thumbnails e um mestre de SEO.
 
@@ -15188,8 +15926,21 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
             ESTILO DE ARTE DESEJADO: "${style}"
             IDIOMA DO CONTEÚDO: "${language}"
 
-            🎨🎨🎨 PROMPT PADRÃO DO ESTILO DO CANAL/NICHO (USAR APENAS O ESTILO VISUAL - NÃO O CONTEÚDO) 🎨🎨🎨:
-            ${customPrompt}
+            🎨🎨🎨 PROMPT ADAPTADO DO ESTILO DO CANAL/NICHO PARA O TÍTULO "${selectedTitle}" 🎨🎨🎨:
+            ${adaptedCustomPrompt}
+            
+            🌍🌍🌍 AMBIENTAÇÃO DETECTADA PELO TÍTULO "${selectedTitle}" (APLICAR AO CONTEÚDO) 🌍🌍🌍:
+            ${dbMatchLocal ? `
+            - PERSONAGEM/SUJEITO: ${personagemCalc}
+            - AMBIENTAÇÃO/CENÁRIO: ${ambientacaoCalc}
+            - ELEMENTOS DE FUNDO: ${elementosDeFundoCalc}
+            ${acessoriosCalc ? `- ACESSÓRIOS: ${acessoriosCalc}` : ''}
+            
+            ⚠️ CRÍTICO: Use esta ambientação detectada pelo título para definir o CONTEÚDO da thumbnail, mantendo o ESTILO VISUAL do prompt padrão acima.
+            ` : `
+            - A ambientação será detectada automaticamente pelo título "${selectedTitle}".
+            - Use elementos visuais relacionados ao tema do título, mantendo o estilo visual do prompt padrão.
+            `}
             
             ⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO VISUAL - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:
             - O PROMPT PADRÃO acima define APENAS o ESTILO VISUAL (composição, cores, tipografia, elementos, iluminação, atmosfera).
@@ -15401,7 +16152,7 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
                 `}
             4.  **"descricaoThumbnail"**: Um prompt EXTREMAMENTE DETALHADO e VÍVIDO, em INGLÊS, para uma IA de geração de imagem. ${!includePhrases ? 'NÃO inclua nenhum placeholder para texto. A thumbnail deve ser APENAS imagem, sem texto ou frases de gancho.' : 'A descrição DEVE incluir OBRIGATORIAMENTE o placeholder exato "[FRASE DE GANCHO AQUI]" em algum lugar da descrição, onde o texto da thumbnail será inserido. CRÍTICO: O placeholder "[FRASE DE GANCHO AQUI]" DEVE aparecer literalmente na descrição. Quando mencionar o texto, descreva-o como se fosse criado no Photoshop por um designer profissional: use termos como "Professional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI]", "professional layer effects", "Photoshop stroke effect", "professional drop shadow with specific values (distance, spread, size, opacity, angle)", "professional outer glow", "professional bevel and emboss", "professional typography with perfect kerning", "professional text rendering with anti-aliasing", "looks like it was designed by a professional graphic designer". O texto DEVE ter múltiplos efeitos de camada do Photoshop com valores específicos, não apenas descrições genéricas. Fonte estilizada profissional, grande e impactante, cores vibrantes e contrastantes, efeitos visuais profissionais (sombra com valores específicos, brilho, outline, gradiente), posicionamento estratégico, tamanho grande que ocupa 25-35% da imagem. IMPORTANTE: Sempre inclua o texto "[FRASE DE GANCHO AQUI]" literalmente na descrição, por exemplo: "with professional text design displaying [FRASE DE GANCHO AQUI]" ou "featuring large bold text that says [FRASE DE GANCHO AQUI]".'}
 
-${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL (composição, cores, tipografia, elementos visuais, iluminação, atmosfera).\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}".\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n` : ''}
+${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL (composição, cores, tipografia, elementos visuais, iluminação, atmosfera).\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}".\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n\n🚫 OBRIGATÓRIO - INSTRUÇÕES DE EXCLUSÃO (SEMPRE INCLUIR NA descricaoThumbnail):\nA descricaoThumbnail DEVE SEMPRE incluir estas instruções de exclusão no final:\n"Exclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships, jaguar motifs, and any aztec elements unless specifically relevant to the detected theme. Exclude any logos, watermarks, channel badges or branding marks. Do not render channel names or corner marks."\n\n⚠️ CRÍTICO: Estas instruções de exclusão são OBRIGATÓRIAS e devem ser incluídas em TODAS as descrições de thumbnail, independentemente do prompt padrão usado.\n` : ''}
             
             CRÍTICO PARA A "descricaoThumbnail" - DEVE SER FOTOGRAFIA REAL ULTRA HD 8K, NÃO ILUSTRAÇÃO:
             - OBRIGATÓRIO: A descrição DEVE começar EXATAMENTE com: "Ultra-high-definition (8K) professional photograph, captured with a world-class professional camera (Arri Alexa 65, Red Komodo, or Canon EOS R5), shot on location, real-world photography, documentary photography, photorealistic, hyper-realistic, absolutely no illustration, no drawing, no cartoon, no artwork, no digital art, no render, no 3D, no CGI, no stylized, no artistic interpretation, real photograph of real people and real objects, National Geographic documentary quality, BBC documentary style, real textures, real imperfections, real lighting, real shadows, real depth of field, real bokeh, real camera grain, real color grading, real-world photography, 8K resolution, extreme sharpness, maximum detail, every pore visible, every texture crisp, professional color grading, cinematic lighting, perfect focus, ultra sharp, no blur except intentional depth of field, no artifacts, no compression, no pixelation, perfect clarity, professional photography quality"
@@ -16592,22 +17343,8 @@ ${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMP
 
         // --- 5. Validar e processar dados antes de enviar ---
 
-        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) UMA VEZ
-        const themeKeyManual = req.body.theme_key || null;
-        let dbMatchLocal = null;
-        if (themeKeyManual) {
-            await ensureAmbientationsTable();
-            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
-        }
-        if (!dbMatchLocal) {
-            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
-        }
-        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
-        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
-        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
-        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
-        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
-        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : '';
+        // Nota: A ambientação já foi calculada anteriormente (linhas 15168-15184) e as variáveis estão disponíveis:
+        // ambientacaoArr, elementosArr, acessoriosCalc, personagemCalc, ambientacaoCalc, elementosDeFundoCalc
         
         // Validar e corrigir tags (limite de 300 caracteres) e frases de gancho (idioma correto)
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
@@ -16690,7 +17427,7 @@ ${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMP
                 if (includePhrases) {
                     built += `\nProfessional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI], with multiple layer effects (stroke, drop shadow, outer glow, bevel and emboss), perfect kerning, anti-aliasing, large bold serif gold typography at bottom.`;
                 }
-                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. Exclude logos, watermarks, badges, channel names or corner marks.`;
+                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. CRITICAL - REMOVE ALL CORNER MARKINGS: Exclude any logos, watermarks, channel badges, branding marks, corner icons, decorative elements, or any visual elements in the four corners of the image (top-left, top-right, bottom-left, bottom-right). The image must be completely clean in all four corners.`;
                 idea.descricaoThumbnail = built;
                 
                 // Calcular score viral baseado no algoritmo do YouTube
@@ -16719,7 +17456,7 @@ ${customPrompt && customPrompt.trim() ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMP
 // Nota: Esta rota usa a mesma lógica da rota original, mas sempre usa Laozhang API
 // A implementação completa seguiria o mesmo padrão, mas simplificamos para usar callLaozhangAPI
 app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) => {
-    let { videoId, selectedTitle, model, selectedModel, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule } = req.body;
+    let { videoId, selectedTitle, model, selectedModel, niche, subniche, language, includePhrases, style, customPrompt, thumbnailRule, folder_id } = req.body;
     // Usar 'model' se 'selectedModel' não estiver presente (compatibilidade)
     const modelToUse = model || selectedModel;
     const userId = req.user.id;
@@ -16727,6 +17464,8 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
     if (!videoId || !selectedTitle || !niche || !subniche || !language || includePhrases === undefined || !style) {
         return res.status(400).json({ msg: 'Dados insuficientes para gerar ideias de thumbnail.' });
     }
+    
+    console.log(`[Thumbnail Laozhang] Gerando thumbnails para pasta/canal: ${folder_id || 'Nenhuma pasta selecionada'}`);
     
     // Se thumbnailRule não for fornecido, usar 'auto'
     thumbnailRule = thumbnailRule || 'auto';
@@ -16905,53 +17644,170 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
         // --- Buscar thumbnails de referência do canal/nicho ---
         let thumbnailReferences = [];
         try {
-            // Buscar thumbnails de referência que correspondam ao canal/nicho
-            let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description FROM thumbnail_references WHERE user_id = ?';
-            const refParams = [userId];
-            
-            // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
-            if (subniche || niche) {
-                refQuery += ' AND (';
-                const conditions = [];
-                if (subniche) {
-                    conditions.push('subniche = ?');
-                    refParams.push(subniche);
+            // PRIORIDADE 1: Buscar thumbnails de referência da PASTA/CANAL específica primeiro
+            if (folder_id) {
+                const folderRefs = await db.all(
+                    'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, folder_id FROM thumbnail_references WHERE user_id = ? AND folder_id = ? ORDER BY created_at DESC LIMIT 5',
+                    [userId, folder_id]
+                );
+                
+                if (folderRefs && folderRefs.length > 0) {
+                    thumbnailReferences = folderRefs;
+                    console.log(`[Thumbnail Laozhang] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o CANAL/PASTA ID ${folder_id} (prioridade máxima)`);
                 }
-                if (niche) {
-                    conditions.push('niche = ?');
-                    refParams.push(niche);
-                }
-                // Também incluir thumbnails sem filtro específico (NULL)
-                conditions.push('(subniche IS NULL AND niche IS NULL)');
-                refQuery += conditions.join(' OR ') + ')';
             }
             
-            refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
-            
-            const refs = await db.all(refQuery, refParams);
-            thumbnailReferences = refs || [];
-            
-            if (thumbnailReferences.length > 0) {
-                console.log(`[Análise-Thumb Laozhang] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o canal/nicho`);
+            // PRIORIDADE 2: Se não houver thumbnails da pasta, buscar por nicho/subnicho
+            if (thumbnailReferences.length === 0) {
+                let refQuery = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, folder_id FROM thumbnail_references WHERE user_id = ?';
+                const refParams = [userId];
+                
+                // Buscar por subniche, niche ou sem filtro específico (para pegar thumbnails gerais também)
+                if (subniche || niche) {
+                    refQuery += ' AND (';
+                    const conditions = [];
+                    if (subniche) {
+                        conditions.push('subniche = ?');
+                        refParams.push(subniche);
+                    }
+                    if (niche) {
+                        conditions.push('niche = ?');
+                        refParams.push(niche);
+                    }
+                    // Também incluir thumbnails sem filtro específico (NULL)
+                    conditions.push('(subniche IS NULL AND niche IS NULL)');
+                    refQuery += conditions.join(' OR ') + ')';
+                }
+                
+                // Excluir thumbnails que já têm uma pasta específica (pois são de outros canais)
+                refQuery += ' AND folder_id IS NULL';
+                refQuery += ' ORDER BY created_at DESC LIMIT 5'; // Limitar a 5 thumbnails de referência
+                
+                const refs = await db.all(refQuery, refParams);
+                thumbnailReferences = refs || [];
+                
+                if (thumbnailReferences.length > 0) {
+                    console.log(`[Thumbnail Laozhang] ✅ Encontradas ${thumbnailReferences.length} thumbnail(s) de referência para o nicho/subnicho (fallback)`);
+                } else {
+                    console.log(`[Thumbnail Laozhang] ⚠️ Nenhuma thumbnail de referência encontrada para esta pasta ou nicho/subnicho`);
+                }
             }
         } catch (err) {
-            console.warn(`[Análise-Thumb Laozhang] Erro ao buscar thumbnails de referência: ${err.message}`);
+            console.warn(`[Thumbnail Laozhang] Erro ao buscar thumbnails de referência: ${err.message}`);
         }
         
         const formulaContext = formulaTitulo ? `\n            FÓRMULA DO TÍTULO VIRAL IDENTIFICADA: "${formulaTitulo}"\n            MOTIVO DO SUCESSO: "${motivoSucesso || 'Análise não disponível'}"\n            \n            IMPORTANTE: Use esta fórmula como base para criar thumbnails que complementem e reforcem o mesmo gatilho mental e estratégia que tornaram o título viral.` : '';
         
+        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) ANTES de construir o prompt
+        const themeKeyManual = req.body.theme_key || null;
+        let dbMatchLocal = null;
+        if (themeKeyManual) {
+            await ensureAmbientationsTable();
+            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
+        }
+        if (!dbMatchLocal) {
+            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
+        }
+        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
+        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
+        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
+        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : 'contextual historical elements';
+        
+        // --- Adaptar prompt padrão ao título específico ---
+        let adaptedCustomPrompt = customPrompt;
+        if (customPrompt && customPrompt.trim()) {
+            try {
+                console.log('[Thumbnail Laozhang] Adaptando prompt padrão ao título específico...');
+                
+                // Criar prompt para a IA adaptar o prompt padrão ao título
+                const adaptationPrompt = `Você é um especialista em adaptação de prompts visuais para thumbnails do YouTube.
+
+TAREFA: Adapte o prompt padrão abaixo para o título específico do vídeo, mantendo EXATAMENTE a estrutura visual e estilo do prompt padrão, mas ajustando o conteúdo/tema/ambientação para o título fornecido.
+
+PROMPT PADRÃO (ESTRUTURA E ESTILO A MANTER):
+"""
+${customPrompt}
+"""
+
+TÍTULO DO VÍDEO:
+"${selectedTitle}"
+
+NICHO/SUBNICHO:
+${niche} / ${subniche}
+
+INSTRUÇÕES:
+1. Analise o prompt padrão e identifique:
+   - Estrutura de composição (layout, posicionamento de elementos)
+   - Estilo visual (paleta de cores, tipografia, iluminação)
+   - Elementos técnicos (resolução, efeitos, tratamento)
+   - Padrões de texto/frases
+
+2. Adapte o prompt para o título "${selectedTitle}":
+   - MANTENHA: toda a estrutura visual, estilo, composição, paleta de cores, tipografia
+   - AJUSTE: personagem/sujeito, ambientação, cenário, elementos de fundo para corresponder ao tema do título
+   - SUBSTITUA: referências genéricas por elementos específicos do título
+   - PRESERVE: todos os elementos técnicos e de qualidade (resolução, efeitos, etc.)
+
+3. O prompt adaptado deve:
+   - Seguir EXATAMENTE o mesmo formato e estrutura do prompt padrão
+   - Manter o mesmo estilo visual e composição
+   - Aplicar o tema/contexto do título "${selectedTitle}"
+   - Ser específico e detalhado como o prompt padrão
+
+4. Retorne APENAS o prompt adaptado, sem explicações ou comentários adicionais.
+
+PROMPT ADAPTADO:`;
+
+                // Chamar IA para adaptar o prompt
+                let adaptedResponse;
+                if (useLaozhang) {
+                    adaptedResponse = await apiCallFunction(
+                        adaptationPrompt,
+                        apiKeyToUse,
+                        'gpt-4o',
+                        null,
+                        userId,
+                        '/api/analyze/thumbnail/laozhang',
+                        JSON.stringify({ endpoint: '/api/analyze/thumbnail/laozhang', operation: 'adapt-prompt' })
+                    );
+                } else if (serviceToUse === 'openai') {
+                    adaptedResponse = await apiCallFunction(adaptationPrompt, apiKeyToUse, modelForAPI);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                } else if (serviceToUse === 'claude') {
+                    adaptedResponse = await apiCallFunction(adaptationPrompt, apiKeyToUse, modelForAPI);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                } else if (serviceToUse === 'gemini') {
+                    adaptedResponse = await apiCallFunction(adaptationPrompt, apiKeyToUse, modelForAPI);
+                    adaptedResponse = adaptedResponse.titles || adaptedResponse;
+                }
+                
+                if (adaptedResponse && typeof adaptedResponse === 'string' && adaptedResponse.trim().length > 100) {
+                    adaptedCustomPrompt = adaptedResponse.trim();
+                    console.log('[Thumbnail Laozhang] ✅ Prompt padrão adaptado com sucesso ao título');
+                    console.log('[Thumbnail Laozhang] Prompt adaptado (preview):', adaptedCustomPrompt.substring(0, 300) + '...');
+                } else {
+                    console.warn('[Thumbnail Laozhang] ⚠️ Falha ao adaptar prompt, usando prompt padrão original');
+                }
+            } catch (adaptErr) {
+                console.warn('[Thumbnail Laozhang] Erro ao adaptar prompt padrão:', adaptErr.message);
+                console.warn('[Thumbnail Laozhang] Continuando com prompt padrão original');
+            }
+        }
+        
         // Se customPrompt foi fornecido (prompt padrão do estilo), integrá-lo ao prompt do sistema
         // em vez de substituí-lo completamente, para manter a estrutura JSON necessária
-        const hasStandardPrompt = customPrompt && customPrompt.trim();
-        console.log(`[Thumbnail Laozhang] customPrompt recebido: ${hasStandardPrompt ? 'SIM (' + customPrompt.length + ' caracteres, usado APENAS como estilo visual)' : 'NÃO'}`);
+        const hasStandardPrompt = adaptedCustomPrompt && adaptedCustomPrompt.trim();
+        console.log(`[Thumbnail Laozhang] customPrompt adaptado recebido: ${hasStandardPrompt ? 'SIM (' + adaptedCustomPrompt.length + ' caracteres, usado APENAS como estilo visual)' : 'NÃO'}`);
         if (hasStandardPrompt) {
-            console.log(`[Thumbnail Laozhang] Estilo visual bloqueado a partir do prompt padrão (preview 200 chars): ${customPrompt.substring(0, 200)}...`);
+            console.log(`[Thumbnail Laozhang] Estilo visual bloqueado a partir do prompt adaptado (preview 200 chars): ${adaptedCustomPrompt.substring(0, 200)}...`);
         }
         
         const thumbPrompt = `
 Você é um ESPECIALISTA EM THUMBNAILS VIRAIS NO YOUTUBE, combinando as habilidades de um diretor de arte profissional e um estrategista de viralização com experiência em criar thumbnails que gerem MILHÕES DE VIEWS e ALTO CTR (acima de 25%).${formulaContext}
 
-${hasStandardPrompt ? `\n🎨🎨🎨 PROMPT PADRÃO DO ESTILO DO CANAL/NICHO (USAR APENAS O ESTILO VISUAL - NÃO O CONTEÚDO) 🎨🎨🎨:\n${customPrompt}\n\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO VISUAL - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\n- O PROMPT PADRÃO acima define APENAS o ESTILO VISUAL (composição, cores, tipografia, elementos, iluminação, atmosfera).\n- O CONTEÚDO das thumbnails deve ser SOBRE O TÍTULO "${selectedTitle}" que o usuário escolheu.\n- NÃO use o conteúdo do prompt padrão. Use APENAS o estilo visual dele.\n- NÃO crie um prompt novo. APLIQUE o estilo do prompt padrão ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (ex: "close-up dramático", "composição dividida", "cena épica")\n   - Paleta de cores (ex: "dourado e azul escuro", "tons terrosos", "vermelho e preto")\n   - Estilo de tipografia (ex: "textos dourados serifados com bevel/emboss", "fonte bold com outline preto")\n   - Elementos visuais recorrentes (ex: "pirâmides ao fundo", "navios", "fogo", "tempestades", "silhuetas")\n   - Iluminação e atmosfera (ex: "iluminação dramática", "céu tempestuoso", "chiaroscuro", "luz dourada")\n   - Estilo geral (ex: "cinematográfico", "documental", "épico", "realista")\n\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo deve ser sobre "${selectedTitle}".\n\n3. APLIQUE o estilo extraído ao criar thumbnails sobre o título "${selectedTitle}":\n   - Use a mesma composição (ex: se o estilo é "close-up", faça close-up mas do assunto relacionado a "${selectedTitle}")\n   - Use a mesma paleta de cores\n   - Use o mesmo estilo de tipografia\n   - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo visual)\n   - Use a mesma iluminação e atmosfera\n   - Mantenha o estilo geral\n\n4. RESULTADO: Thumbnails sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO:\n- Se o prompt padrão diz "close-up de líder indígena com textos dourados" mas o título é sobre tecnologia inca:\n  → Use "close-up" (estilo) + "textos dourados" (estilo) + "tecnologia inca" (conteúdo do título)\n  → RESULTADO: "close-up de tecnologia inca com textos dourados"\n\n⚠️ NÃO REPLIQUE O PROMPT PADRÃO. APLIQUE APENAS O ESTILO AO TÍTULO ESCOLHIDO.\n` : ''}
+${hasStandardPrompt ? `\n🎨🎨🎨 PROMPT ADAPTADO DO ESTILO DO CANAL/NICHO PARA O TÍTULO "${selectedTitle}" 🎨🎨🎨:\n${adaptedCustomPrompt}\n\n🌍🌍🌍 AMBIENTAÇÃO DETECTADA PELO TÍTULO "${selectedTitle}" (APLICAR AO CONTEÚDO) 🌍🌍🌍:\n${dbMatchLocal ? `\n- PERSONAGEM/SUJEITO: ${personagemCalc}\n- AMBIENTAÇÃO/CENÁRIO: ${ambientacaoCalc}\n- ELEMENTOS DE FUNDO: ${elementosDeFundoCalc}\n${acessoriosCalc ? `- ACESSÓRIOS: ${acessoriosCalc}` : ''}\n\n⚠️ CRÍTICO: Use esta ambientação detectada pelo título para definir o CONTEÚDO da thumbnail, mantendo o ESTILO VISUAL do prompt padrão acima.\n` : `\n- A ambientação será detectada automaticamente pelo título "${selectedTitle}".\n- Use elementos visuais relacionados ao tema do título, mantendo o estilo visual do prompt padrão.\n`}\n\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO VISUAL - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\n- O PROMPT PADRÃO acima define APENAS o ESTILO VISUAL (composição, cores, tipografia, elementos, iluminação, atmosfera).\n- O CONTEÚDO das thumbnails deve ser SOBRE O TÍTULO "${selectedTitle}" que o usuário escolheu.\n- Use a AMBIENTAÇÃO DETECTADA acima para definir o conteúdo (personagem, cenário, elementos).\n- NÃO use o conteúdo do prompt padrão. Use APENAS o estilo visual dele.\n- NÃO crie um prompt novo. APLIQUE o estilo do prompt padrão ao título "${selectedTitle}" usando a ambientação detectada.\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (ex: "close-up dramático", "composição dividida", "cena épica")\n   - Paleta de cores (ex: "dourado e azul escuro", "tons terrosos", "vermelho e preto")\n   - Estilo de tipografia (ex: "textos dourados serifados com bevel/emboss", "fonte bold com outline preto")\n   - Iluminação e atmosfera (ex: "iluminação dramática", "céu tempestuoso", "chiaroscuro", "luz dourada")\n   - Estilo geral (ex: "cinematográfico", "documental", "épico", "realista")\n\n2. USE a AMBIENTAÇÃO DETECTADA para definir o CONTEÚDO:\n   - Personagem/Sujeito: ${personagemCalc}\n   - Cenário/Ambientação: ${ambientacaoCalc}\n   - Elementos de fundo: ${elementosDeFundoCalc}\n   ${acessoriosCalc ? `- Acessórios: ${acessoriosCalc}` : ''}\n\n3. APLIQUE o estilo extraído + a ambientação detectada ao criar thumbnails sobre "${selectedTitle}":\n   - Use a mesma composição do prompt padrão (ex: se o estilo é "close-up", faça close-up do ${personagemCalc})\n   - Use a mesma paleta de cores do prompt padrão\n   - Use o mesmo estilo de tipografia do prompt padrão\n   - Use a AMBIENTAÇÃO DETECTADA (${ambientacaoCalc}) como cenário\n   - Use os ELEMENTOS DE FUNDO DETECTADOS (${elementosDeFundoCalc})\n   - Use a mesma iluminação e atmosfera do prompt padrão\n   - Mantenha o estilo geral do prompt padrão\n\n4. RESULTADO: Thumbnails sobre "${selectedTitle}" com o ESTILO VISUAL do prompt padrão + CONTEÚDO baseado na ambientação detectada pelo título.\n\nEXEMPLO:\n- Prompt padrão: "close-up dramático com textos dourados serifados, iluminação dramática"\n- Título: "${selectedTitle}" (ex: sobre neandertais)\n- Ambientação detectada: ${personagemCalc}, ${ambientacaoCalc}, ${elementosDeFundoCalc}\n- RESULTADO: "close-up dramático de ${personagemCalc} em ${ambientacaoCalc} com textos dourados serifados, iluminação dramática"\n\n⚠️ NÃO REPLIQUE O CONTEÚDO DO PROMPT PADRÃO. USE A AMBIENTAÇÃO DETECTADA PELO TÍTULO.\n` : ''}
 
 IMAGEM DE REFERÊNCIA: [A imagem da thumbnail original do vídeo está anexada]
 ${thumbnailReferences.length > 0 ? `
@@ -17064,7 +17920,7 @@ PARA CADA UMA DAS 2 IDEIAS, GERE:
 
 4. **"descricaoThumbnail"**: Prompt EXTREMAMENTE DETALHADO em INGLÊS para IA de geração de imagem. ${!includePhrases ? 'NÃO inclua placeholder para texto. Apenas elementos visuais.' : 'DEVE incluir placeholder "[FRASE DE GANCHO AQUI]" com descrição profissional de texto Photoshop (layer effects, stroke, drop shadow, outer glow, bevel & emboss, tipografia profissional, valores específicos).'} 
 
-${hasStandardPrompt ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (close-up, composição dividida, cena épica, etc.)\n   - Paleta de cores (dourado, azul escuro, vermelho, preto, etc.)\n   - Estilo de tipografia (dourado serifado, bevel/emboss, outline preto, etc.)\n   - Elementos visuais recorrentes (pirâmides, navios, fogo, tempestades, silhuetas, etc.)\n   - Iluminação e atmosfera (dramática, stormy, chiaroscuro, luz dourada, etc.)\n   - Estilo geral (cinematográfico, documental, épico, realista, etc.)\n\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}":\n   - Use a mesma composição mas com elementos relacionados a "${selectedTitle}"\n   - Use a mesma paleta de cores\n   - Use o mesmo estilo de tipografia\n   - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo)\n   - Use a mesma iluminação e atmosfera\n   - Mantenha o estilo geral\n\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados, iluminação dramática, céu tempestuoso"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados, iluminação dramática, céu tempestuoso"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n` : ''}
+${hasStandardPrompt ? `\n⚠️⚠️⚠️ CRÍTICO - O PROMPT PADRÃO É APENAS ESTILO - APLICAR AO TÍTULO "${selectedTitle}" ⚠️⚠️⚠️:\nA descriçãoThumbnail DEVE APLICAR APENAS O ESTILO VISUAL do prompt padrão acima ao título "${selectedTitle}".\n\nPROCESSO OBRIGATÓRIO:\n1. EXTRAIA do prompt padrão APENAS os elementos de ESTILO VISUAL:\n   - Tipo de composição (close-up, composição dividida, cena épica, etc.)\n   - Paleta de cores (dourado, azul escuro, vermelho, preto, etc.)\n   - Estilo de tipografia (dourado serifado, bevel/emboss, outline preto, etc.)\n   - Elementos visuais recorrentes (pirâmides, navios, fogo, tempestades, silhuetas, etc.)\n   - Iluminação e atmosfera (dramática, stormy, chiaroscuro, luz dourada, etc.)\n   - Estilo geral (cinematográfico, documental, épico, realista, etc.)\n\n2. IGNORE o conteúdo/tema do prompt padrão. O conteúdo DEVE ser sobre "${selectedTitle}".\n\n3. APLIQUE o estilo extraído ao criar uma thumbnail sobre "${selectedTitle}":\n   - Use a mesma composição mas com elementos relacionados a "${selectedTitle}"\n   - Use a mesma paleta de cores\n   - Use o mesmo estilo de tipografia\n   - Adapte os elementos visuais ao tema de "${selectedTitle}" (mantendo o estilo)\n   - Use a mesma iluminação e atmosfera\n   - Mantenha o estilo geral\n\n4. RESULTADO: Thumbnail sobre "${selectedTitle}" mas com o estilo visual do prompt padrão.\n\nEXEMPLO PRÁTICO:\n- Prompt padrão: "close-up dramático de líder indígena com textos dourados serifados, iluminação dramática, céu tempestuoso"\n- Título escolhido: "${selectedTitle}" (ex: sobre tecnologia inca)\n- RESULTADO: "close-up dramático de [elementos relacionados a ${selectedTitle}] com textos dourados serifados, iluminação dramática, céu tempestuoso"\n\n⚠️ NÃO USE O CONTEÚDO DO PROMPT PADRÃO. USE APENAS O ESTILO E APLIQUE AO TÍTULO "${selectedTitle}".\n\n🚫 OBRIGATÓRIO - INSTRUÇÕES DE EXCLUSÃO (SEMPRE INCLUIR NA descricaoThumbnail):\nA descricaoThumbnail DEVE SEMPRE incluir estas instruções de exclusão no final:\n"Exclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships, jaguar motifs, and any aztec elements unless specifically relevant to the detected theme. Exclude any logos, watermarks, channel badges or branding marks. Do not render channel names or corner marks."\n\n⚠️ CRÍTICO: Estas instruções de exclusão são OBRIGATÓRIAS e devem ser incluídas em TODAS as descrições de thumbnail, independentemente do prompt padrão usado.\n` : ''}
 
 DEVE começar com: "${getStyleSpecificPrompt(style, includePhrases)}" ${hasStandardPrompt ? `e APLICAR o estilo visual do PROMPT PADRÃO acima ao título "${selectedTitle}", mantendo todos os elementos de estilo (composição, cores, tipografia, iluminação, atmosfera) mas adaptando o conteúdo ao tema do título.` : 'e aplicar as regras de thumbnail viral identificadas acima de forma EXPLÍCITA.'}
 
@@ -17182,22 +18038,8 @@ Retorne APENAS JSON válido:
         }
 
         // Validar e processar dados antes de enviar (mesma lógica da rota principal)
-        // Pré-calcular ambientação dinâmica pelo título (ou tema manual) UMA VEZ
-        const themeKeyManual = req.body.theme_key || null;
-        let dbMatchLocal = null;
-        if (themeKeyManual) {
-            await ensureAmbientationsTable();
-            dbMatchLocal = await db.get('SELECT * FROM niche_ambientations WHERE user_id = ? AND theme_key = ? LIMIT 1', [userId, themeKeyManual]);
-        }
-        if (!dbMatchLocal) {
-            dbMatchLocal = await detectAmbientationFromTitle(userId, selectedTitle, niche);
-        }
-        const ambientacaoArr = dbMatchLocal ? String(dbMatchLocal.ambiente || '').split(',').map(s => s.trim()).filter(Boolean) : [];
-        const elementosArr = dbMatchLocal ? String(dbMatchLocal.elementos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
-        const acessoriosCalc = dbMatchLocal ? String(dbMatchLocal.acessorios || '') : '';
-        const personagemCalc = dbMatchLocal && dbMatchLocal.subject ? dbMatchLocal.subject : 'historical figure with authentic attire';
-        const ambientacaoCalc = ambientacaoArr.length ? ambientacaoArr.join(', ') : 'landscapes and architecture matching the title theme';
-        const elementosDeFundoCalc = elementosArr.length ? elementosArr.join(', ') : '';
+        // Nota: A ambientação já foi calculada anteriormente (linhas 16960-16986) e as variáveis estão disponíveis:
+        // ambientacaoArr, elementosArr, acessoriosCalc, personagemCalc, ambientacaoCalc, elementosDeFundoCalc
 
         if (parsedData.ideias && Array.isArray(parsedData.ideias)) {
             parsedData.ideias = parsedData.ideias.map((idea, index) => {
@@ -17258,7 +18100,7 @@ Retorne APENAS JSON válido:
                 if (includePhrases) {
                     built += `\nProfessional Photoshop-quality text design displaying [FRASE DE GANCHO AQUI], with multiple layer effects (stroke, drop shadow, outer glow, bevel and emboss), perfect kerning, anti-aliasing, large bold serif gold typography at bottom.`;
                 }
-                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. Exclude logos, watermarks, badges, channel names or corner marks.`;
+                built += `\nExclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships unless specifically relevant to the detected theme. CRITICAL - REMOVE ALL CORNER MARKINGS: Exclude any logos, watermarks, channel badges, branding marks, corner icons, decorative elements, or any visual elements in the four corners of the image (top-left, top-right, bottom-left, bottom-right). The image must be completely clean in all four corners.`;
                 idea.descricaoThumbnail = built;
 
                 // Calcular score viral baseado no algoritmo do YouTube
@@ -17279,7 +18121,7 @@ Retorne APENAS JSON válido:
 
 // === ROTA PARA GERAR PROMPTS DE CENA ===
 app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
-    const { script, model, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3 } = req.body;
+    const { script, model, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3, expectedScenes } = req.body;
     const userId = req.user.id;
     const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
@@ -17330,32 +18172,41 @@ app.post('/api/generate/scene-prompts', authenticateToken, async (req, res) => {
             }
         }
 
-        // Calcular número estimado de cenas baseado no modo
+        // Usar o número exato enviado pelo frontend, ou calcular se não foi enviado
         const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
         let estimatedScenes, minScenes, maxScenes;
         
-        if (mode === 'manual' && wordsPerScene) {
-            const unitType = unit || 'words'; // 'words' ou 'seconds'
-            const value = parseInt(wordsPerScene);
-            
-            if (unitType === 'seconds') {
-                // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
-                const wordsPerSecond = 2.5;
-                const wordsPerInterval = value * wordsPerSecond;
-                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
-                minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
-                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
-            } else {
-                // Modo manual: baseado em palavras por cena
-                estimatedScenes = Math.max(1, Math.round(wordCount / value));
-                minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
-                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
-            }
+        if (expectedScenes && parseInt(expectedScenes) > 0) {
+            // Usar o número exato do frontend
+            estimatedScenes = parseInt(expectedScenes);
+            minScenes = estimatedScenes;
+            maxScenes = estimatedScenes;
+            console.log(`[Scene Prompts] Usando número exato do frontend: ${estimatedScenes} cenas`);
         } else {
-            // Modo automático: 1 cena a cada ~90 palavras
-            estimatedScenes = Math.max(1, Math.round(wordCount / 90));
-            minScenes = Math.max(1, Math.floor(wordCount / 140));
-            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+            // Calcular número estimado de cenas baseado no modo (fallback)
+            if (mode === 'manual' && wordsPerScene) {
+                const unitType = unit || 'words'; // 'words' ou 'seconds'
+                const value = parseInt(wordsPerScene);
+                
+                if (unitType === 'seconds') {
+                    // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
+                    const wordsPerSecond = 2.5;
+                    const wordsPerInterval = value * wordsPerSecond;
+                    estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                    minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
+                    maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
+                } else {
+                    // Modo manual: baseado em palavras por cena
+                    estimatedScenes = Math.max(1, Math.round(wordCount / value));
+                    minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
+                    maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
+                }
+            } else {
+                // Modo automático: 1 cena a cada ~90 palavras
+                estimatedScenes = Math.max(1, Math.round(wordCount / 90));
+                minScenes = Math.max(1, Math.floor(wordCount / 140));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+            }
         }
 
         // ============================================
@@ -17547,7 +18398,7 @@ ${script}
 INSTRUÇÕES:
 1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual definida pelo estilo escolhido (${selectedStyle}).
 2. 🎨 O estilo "${selectedStyle}" foi selecionado pelo usuário. TODOS os prompts devem seguir este estilo visual consistentemente.
-3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+3. ⚠️⚠️⚠️ CRÍTICO - NÚMERO EXATO DE CENAS ⚠️⚠️⚠️: Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO mais, NÃO menos. O frontend espera ${estimatedScenes} cenas e você DEVE entregar todas elas. Se a resposta ficar muito longa, continue mesmo assim. É OBRIGATÓRIO gerar todas as ${estimatedScenes} cenas.
 4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
 5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
 6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
@@ -17578,22 +18429,26 @@ FORMATO DE RESPOSTA (JSON):
 IMPORTANTE:
 - Responda APENAS com o JSON válido, sem texto adicional
 - Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
-${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
-- O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
-- Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.`;
+${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}
+⚠️⚠️⚠️ REGRA ABSOLUTA - NÚMERO DE CENAS ⚠️⚠️⚠️:
+- Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO ${minScenes}, NÃO ${maxScenes}, mas EXATAMENTE ${estimatedScenes} cenas.
+- O JSON DEVE conter um array "scenes" com EXATAMENTE ${estimatedScenes} objetos.
+- NÃO pare antes de gerar todas as ${estimatedScenes} cenas, mesmo que a resposta fique muito longa.
+- Se você gerar menos de ${estimatedScenes} cenas, a resposta será considerada INCOMPLETA e REJEITADA.
+- O roteiro tem ${wordCount} palavras, o que justifica ${estimatedScenes} cenas. Gere TODAS elas.
+- Comece pela cena 1 e continue até a cena ${estimatedScenes}. NÃO pule nenhuma cena.
+- É CRÍTICO e OBRIGATÓRIO que o array "scenes" tenha EXATAMENTE ${estimatedScenes} elementos.`;
 
         let apiCallFunction;
         let response;
         
         if (useLaozhang && laozhangApiKey) {
             // Usar créditos (laozhang.ai)
-            console.log(`[Scene Prompts] Gerando prompts com laozhang.ai (créditos) - modelo: ${model}...`);
-            response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, '/api/generate/scene-prompts', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
+            console.log(`[Scene Prompts] Gerando prompts com laozhang.ai (créditos) - modelo: ${model}... (timeout: ${scenePromptsTimeout/1000}s)`);
+            // Passar o timeout calculado no operationType para o callLaozhangAPI ajustar
+            response = await callLaozhangAPI(prompt, laozhangApiKey, model, null, userId, '/api/generate/scene-prompts', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model, estimatedScenes, timeout: scenePromptsTimeout }));
         } else {
             // Usar API própria
-            // Para geração de prompts de cena, usar timeout maior (5 minutos) devido ao tamanho do prompt e número de cenas
-            const scenePromptsTimeout = 300000; // 5 minutos
-            
             if (service === 'gemini') {
                 apiCallFunction = callGeminiAPI;
                 response = await apiCallFunction(prompt, decryptedKey, model);
@@ -17621,6 +18476,34 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
         }
         
         console.log('[Scene Prompts] Resposta bruta (primeiros 1000 chars):', rawResponse.substring(0, 1000));
+        
+        // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
+        // Primeiro, tentar verificar se há JSON válido na resposta
+        const hasValidJson = rawResponse.match(/\{[\s\S]*"scenes"[\s\S]*\}/) || rawResponse.match(/\{[\s\S]*"scene_number"[\s\S]*\}/);
+        
+        // Se não há JSON válido, verificar se é uma mensagem de erro da API
+        if (!hasValidJson) {
+            const errorPatterns = [
+                /^I'm sorry,?\s+I can't assist/i,
+                /^I'm sorry,?\s+I cannot/i,
+                /^I'm unable to assist/i,
+                /^I cannot fulfill/i,
+                /^I must decline/i,
+                /^I can't help with that/i,
+                /^I'm not able to/i,
+                /^This request violates/i,
+                /^I cannot comply/i
+            ];
+            
+            const trimmedResponse = rawResponse.trim();
+            const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+            
+            // Também verificar se é uma resposta muito curta (menos de 100 chars) que começa com mensagem de erro
+            if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
+                console.error('[Scene Prompts] API recusou a requisição:', rawResponse.substring(0, 500));
+                throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o roteiro ou remover conteúdo sensível. Resposta: ${rawResponse.substring(0, 500)}`);
+            }
+        }
         
         // Tentar parsear diretamente
         try {
@@ -17753,9 +18636,72 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
         
         console.log(`[Scene Prompts] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
         
-        // Verificar se gerou todas as cenas esperadas
-        if (scenesData.scenes.length < minScenes) {
-            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
+        // Verificar se gerou todas as cenas esperadas e tentar gerar as faltantes até completar
+        let totalAttempts = 0;
+        const maxTotalAttempts = 5; // Máximo de 5 tentativas totais para gerar todas as cenas
+        
+        while (scenesData.scenes.length < estimatedScenes && totalAttempts < maxTotalAttempts) {
+            const missingScenes = estimatedScenes - scenesData.scenes.length;
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos ${estimatedScenes} cenas. Faltam ${missingScenes} cenas. Tentativa ${totalAttempts + 1}/${maxTotalAttempts}...`);
+            
+            // Tentar gerar as cenas faltantes usando a função de retry
+            try {
+                let apiCallFunction;
+                if (useLaozhang && laozhangApiKey) {
+                    apiCallFunction = (prompt, key, model) => callLaozhangAPI(prompt, key, model, null, userId, '/api/generate/scene-prompts', JSON.stringify({ endpoint: '/api/generate/scene-prompts', model }));
+                } else if (service === 'gemini') {
+                    apiCallFunction = callGeminiAPI;
+                } else if (service === 'claude') {
+                    // Usar o timeout calculado anteriormente (scenePromptsTimeout)
+                    apiCallFunction = (prompt, key, model) => callClaudeAPI(prompt, key, model, null, scenePromptsTimeout);
+                } else {
+                    apiCallFunction = callOpenAIAPI;
+                }
+                
+                const additionalScenes = await generateScenesWithRetries({
+                    apiFunc: apiCallFunction,
+                    apiKey: useLaozhang ? laozhangApiKey : decryptedKey,
+                    model: model,
+                    script: script,
+                    styleInstruction: styleModifier,
+                    imageModelInstruction: imageModelInstruction,
+                    charactersInstruction: charactersInstruction,
+                    estimatedScenes: missingScenes,
+                    minScenes: missingScenes, // Exigir exatamente o número faltante
+                    maxScenes: missingScenes, // Exigir exatamente o número faltante
+                    wordCount: wordCount,
+                    serviceLabel: useLaozhang ? 'Laozhang' : service,
+                    maxAttempts: 3
+                });
+                
+                if (additionalScenes && additionalScenes.length > 0) {
+                    // Ajustar números das cenas para continuar a sequência
+                    const lastSceneNumber = scenesData.scenes.length;
+                    additionalScenes.forEach((scene, idx) => {
+                        scene.scene_number = lastSceneNumber + idx + 1;
+                    });
+                    scenesData.scenes = scenesData.scenes.concat(additionalScenes);
+                    console.log(`[Scene Prompts] ✅ ${additionalScenes.length} cenas adicionais geradas! Total: ${scenesData.scenes.length}/${estimatedScenes} cenas.`);
+                } else {
+                    console.warn(`[Scene Prompts] ⚠️ Nenhuma cena adicional foi gerada nesta tentativa.`);
+                }
+            } catch (retryError) {
+                console.error(`[Scene Prompts] Erro ao tentar gerar cenas faltantes:`, retryError.message);
+            }
+            
+            totalAttempts++;
+            
+            // Se ainda faltam cenas mas já tentamos várias vezes, parar para evitar loop infinito
+            if (scenesData.scenes.length < estimatedScenes && totalAttempts >= maxTotalAttempts) {
+                console.warn(`[Scene Prompts] ⚠️ Atingido limite de tentativas (${maxTotalAttempts}). Geradas ${scenesData.scenes.length}/${estimatedScenes} cenas.`);
+                break;
+            }
+        }
+        
+        if (scenesData.scenes.length < estimatedScenes) {
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos ${estimatedScenes} cenas.`);
+        } else {
+            console.log(`[Scene Prompts] ✅ Todas as ${estimatedScenes} cenas foram geradas com sucesso!`);
         }
 
         // Função auxiliar para limpar nome do modelo (remover fornecedores)
@@ -17797,7 +18743,7 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
 
 // Rota alternativa que SEMPRE usa Laozhang.ai
 app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, res) => {
-    const { script, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3 } = req.body;
+    const { script, style, imageModel, mode, wordsPerScene, unit, characters, selectedModel, isVO3, expectedScenes } = req.body;
     const userId = req.user.id;
     const forVO3 = isVO3 === true || isVO3 === 'true' || isVO3 === 1; // Suporta boolean, string ou número
 
@@ -17862,8 +18808,16 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
                 return res.status(500).json({ msg: 'Falha ao descriptografar a chave de API.' });
             }
             
-            // Para geração de prompts de cena, usar timeout maior (5 minutos) devido ao tamanho do prompt e número de cenas
-            const scenePromptsTimeout = 300000; // 5 minutos
+            // Calcular timeout dinamicamente baseado no número de cenas esperadas
+            // Base: 5 minutos (300s) + 2 segundos por cena adicional acima de 20
+            const baseTimeout = 300000; // 5 minutos
+            const timeoutPerScene = 2000; // 2 segundos por cena
+            const baseScenes = 20;
+            const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenes - baseScenes) * timeoutPerScene);
+            // Limitar a 20 minutos máximo (1200000ms) para evitar timeouts muito longos
+            const scenePromptsTimeout = Math.min(1200000, Math.max(300000, calculatedTimeout));
+            
+            console.log(`[Scene Prompts] Timeout calculado: ${scenePromptsTimeout/1000}s (${estimatedScenes} cenas esperadas)`);
             
             if (service === 'gemini') {
                 apiCallFunction = callGeminiAPI;
@@ -17877,31 +18831,40 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
             }
         }
 
-        // Calcular número estimado de cenas baseado no modo
+        // Usar o número exato enviado pelo frontend, ou calcular se não foi enviado
         const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
         let estimatedScenes, minScenes, maxScenes;
         
-        if (mode === 'manual' && wordsPerScene) {
-            const unitType = unit || 'words'; // 'words' ou 'seconds'
-            const value = parseInt(wordsPerScene);
-            
-            if (unitType === 'seconds') {
-                // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
-                const wordsPerSecond = 2.5;
-                const wordsPerInterval = value * wordsPerSecond;
-                estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
-                minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
-                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
-            } else {
-                // Modo manual: baseado em palavras por cena
-                estimatedScenes = Math.max(1, Math.round(wordCount / value));
-                minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
-                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
-            }
+        if (expectedScenes && parseInt(expectedScenes) > 0) {
+            // Usar o número exato do frontend
+            estimatedScenes = parseInt(expectedScenes);
+            minScenes = estimatedScenes;
+            maxScenes = estimatedScenes;
+            console.log(`[Scene Prompts Laozhang] Usando número exato do frontend: ${estimatedScenes} cenas`);
         } else {
-            estimatedScenes = Math.max(1, Math.round(wordCount / 90));
-            minScenes = Math.max(1, Math.floor(wordCount / 140));
-            maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+            // Calcular número estimado de cenas baseado no modo (fallback)
+            if (mode === 'manual' && wordsPerScene) {
+                const unitType = unit || 'words'; // 'words' ou 'seconds'
+                const value = parseInt(wordsPerScene);
+                
+                if (unitType === 'seconds') {
+                    // Modo manual por segundos: assumir ~2.5 palavras por segundo de narração
+                    const wordsPerSecond = 2.5;
+                    const wordsPerInterval = value * wordsPerSecond;
+                    estimatedScenes = Math.max(1, Math.round(wordCount / wordsPerInterval));
+                    minScenes = Math.max(1, Math.floor(wordCount / (wordsPerInterval * 1.4)));
+                    maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (wordsPerInterval * 0.6)));
+                } else {
+                    // Modo manual: baseado em palavras por cena
+                    estimatedScenes = Math.max(1, Math.round(wordCount / value));
+                    minScenes = Math.max(1, Math.floor(wordCount / (value * 1.4)));
+                    maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / (value * 0.6)));
+                }
+            } else {
+                estimatedScenes = Math.max(1, Math.round(wordCount / 90));
+                minScenes = Math.max(1, Math.floor(wordCount / 140));
+                maxScenes = Math.max(estimatedScenes + 2, Math.ceil(wordCount / 60));
+            }
         }
 
         // ============================================
@@ -18002,7 +18965,7 @@ ${script}
 INSTRUÇÕES:
 1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual definida pelo estilo escolhido (${selectedStyle}).
 2. 🎨 O estilo "${selectedStyle}" foi selecionado pelo usuário. TODOS os prompts devem seguir este estilo visual consistentemente.
-3. Divida o roteiro em aproximadamente ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas, se necessário)
+3. ⚠️⚠️⚠️ CRÍTICO - NÚMERO EXATO DE CENAS ⚠️⚠️⚠️: Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO mais, NÃO menos. O frontend espera ${estimatedScenes} cenas e você DEVE entregar todas elas. Se a resposta ficar muito longa, continue mesmo assim. É OBRIGATÓRIO gerar todas as ${estimatedScenes} cenas.
 4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
 5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
 6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
@@ -18024,11 +18987,16 @@ FORMATO DE RESPOSTA (JSON):
 
 IMPORTANTE: 
 - Retorne APENAS o JSON, sem texto adicional
-${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}- Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
-- Gere EXATAMENTE ${estimatedScenes} cenas (entre ${minScenes} e ${maxScenes} cenas). NÃO pare antes de gerar todas as cenas necessárias.
-- O roteiro tem aproximadamente ${wordCount} palavras, então você DEVE gerar pelo menos ${minScenes} cenas e idealmente ${estimatedScenes} cenas.
-- Se a resposta ficar muito longa, continue gerando todas as cenas mesmo assim. É CRÍTICO que você gere TODAS as ${estimatedScenes} cenas solicitadas.
-- NÃO pare na cena 10 ou qualquer número menor. Continue até gerar todas as ${estimatedScenes} cenas.`;
+- Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
+${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}
+⚠️⚠️⚠️ REGRA ABSOLUTA - NÚMERO DE CENAS ⚠️⚠️⚠️:
+- Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO ${minScenes}, NÃO ${maxScenes}, mas EXATAMENTE ${estimatedScenes} cenas.
+- O JSON DEVE conter um array "scenes" com EXATAMENTE ${estimatedScenes} objetos.
+- NÃO pare antes de gerar todas as ${estimatedScenes} cenas, mesmo que a resposta fique muito longa.
+- Se você gerar menos de ${estimatedScenes} cenas, a resposta será considerada INCOMPLETA e REJEITADA.
+- O roteiro tem ${wordCount} palavras, o que justifica ${estimatedScenes} cenas. Gere TODAS elas.
+- Comece pela cena 1 e continue até a cena ${estimatedScenes}. NÃO pule nenhuma cena.
+- É CRÍTICO e OBRIGATÓRIO que o array "scenes" tenha EXATAMENTE ${estimatedScenes} elementos.`;
 
         // Mapear modelo selecionado para modelo da API (Laozhang ou própria)
         let modelForAPI = null;
@@ -18064,6 +19032,15 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
         
         // Chamar API apropriada
         let response;
+        // Calcular timeout dinamicamente baseado no número de cenas esperadas (antes de chamar a API)
+        const baseTimeout = 300000; // 5 minutos
+        const timeoutPerScene = 2000; // 2 segundos por cena
+        const baseScenes = 20;
+        const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenes - baseScenes) * timeoutPerScene);
+        const scenePromptsTimeout = Math.min(1200000, Math.max(300000, calculatedTimeout));
+        
+        console.log(`[Scene Prompts Laozhang] Timeout calculado: ${scenePromptsTimeout/1000}s (${estimatedScenes} cenas esperadas)`);
+        
         if (useLaozhang) {
             response = await callLaozhangAPI(
                 prompt, 
@@ -18072,14 +19049,11 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
                 null, 
                 userId, 
                 '/api/generate/scene-prompts/laozhang', 
-                JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI })
+                JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI, estimatedScenes, timeout: scenePromptsTimeout })
             );
             // callLaozhangAPI retorna string diretamente
             response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         } else {
-            // Para geração de prompts de cena, usar timeout maior (5 minutos) se for Claude
-            const scenePromptsTimeout = 300000; // 5 minutos
-            
             if (serviceToUse === 'claude') {
                 console.log(`[Scene Prompts] Usando timeout estendido de ${scenePromptsTimeout/1000}s para Claude (geração de múltiplas cenas)`);
                 response = await callClaudeAPI(prompt, apiKeyToUse, modelForAPI, null, scenePromptsTimeout);
@@ -18108,6 +19082,34 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             .replace(/^```\s*/i, '')      // Remover ``` no início
             .replace(/\s*```\s*$/i, '')   // Remover ``` no final
             .trim();
+        
+        // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
+        // Primeiro, tentar verificar se há JSON válido na resposta
+        const hasValidJson = rawResponse.match(/\{[\s\S]*"scenes"[\s\S]*\}/) || rawResponse.match(/\{[\s\S]*"scene_number"[\s\S]*\}/);
+        
+        // Se não há JSON válido, verificar se é uma mensagem de erro da API
+        if (!hasValidJson) {
+            const errorPatterns = [
+                /^I'm sorry,?\s+I can't assist/i,
+                /^I'm sorry,?\s+I cannot/i,
+                /^I'm unable to assist/i,
+                /^I cannot fulfill/i,
+                /^I must decline/i,
+                /^I can't help with that/i,
+                /^I'm not able to/i,
+                /^This request violates/i,
+                /^I cannot comply/i
+            ];
+            
+            const trimmedResponse = rawResponse.trim();
+            const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+            
+            // Também verificar se é uma resposta muito curta (menos de 100 chars) que começa com mensagem de erro
+            if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
+                console.error('[Scene Prompts] API recusou a requisição:', rawResponse.substring(0, 500));
+                throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o roteiro ou remover conteúdo sensível. Resposta: ${rawResponse.substring(0, 500)}`);
+            }
+        }
         
         try {
             // Tentar parsear diretamente
@@ -18233,9 +19235,72 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
 
         console.log(`[Scene Prompts] ✅ ${scenesData.scenes.length} cenas parseadas com sucesso!`);
         
-        // Verificar se gerou todas as cenas esperadas
-        if (scenesData.scenes.length < minScenes) {
-            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos pelo menos ${minScenes} cenas (estimado: ${estimatedScenes}).`);
+        // Verificar se gerou todas as cenas esperadas e tentar gerar as faltantes até completar
+        let totalAttempts = 0;
+        const maxTotalAttempts = 5; // Máximo de 5 tentativas totais para gerar todas as cenas
+        
+        while (scenesData.scenes.length < estimatedScenes && totalAttempts < maxTotalAttempts) {
+            const missingScenes = estimatedScenes - scenesData.scenes.length;
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos ${estimatedScenes} cenas. Faltam ${missingScenes} cenas. Tentativa ${totalAttempts + 1}/${maxTotalAttempts}...`);
+            
+            // Tentar gerar as cenas faltantes usando a função de retry
+            try {
+                let apiCallFunction;
+                if (useLaozhang && apiKeyToUse) {
+                    apiCallFunction = (prompt, key, model) => callLaozhangAPI(prompt, key, model, null, userId, '/api/generate/scene-prompts/laozhang', JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model }));
+                } else if (serviceToUse === 'gemini') {
+                    apiCallFunction = callGeminiAPI;
+                } else if (serviceToUse === 'claude') {
+                    // Usar o timeout calculado anteriormente (scenePromptsTimeout)
+                    apiCallFunction = (prompt, key, model) => callClaudeAPI(prompt, key, model, null, scenePromptsTimeout);
+                } else {
+                    apiCallFunction = callOpenAIAPI;
+                }
+                
+                const additionalScenes = await generateScenesWithRetries({
+                    apiFunc: apiCallFunction,
+                    apiKey: apiKeyToUse,
+                    model: model,
+                    script: script,
+                    styleInstruction: styleModifier,
+                    imageModelInstruction: imageModelInstruction,
+                    charactersInstruction: charactersInstruction,
+                    estimatedScenes: missingScenes,
+                    minScenes: missingScenes, // Exigir exatamente o número faltante
+                    maxScenes: missingScenes, // Exigir exatamente o número faltante
+                    wordCount: wordCount,
+                    serviceLabel: useLaozhang ? 'Laozhang' : serviceToUse,
+                    maxAttempts: 3
+                });
+                
+                if (additionalScenes && additionalScenes.length > 0) {
+                    // Ajustar números das cenas para continuar a sequência
+                    const lastSceneNumber = scenesData.scenes.length;
+                    additionalScenes.forEach((scene, idx) => {
+                        scene.scene_number = lastSceneNumber + idx + 1;
+                    });
+                    scenesData.scenes = scenesData.scenes.concat(additionalScenes);
+                    console.log(`[Scene Prompts] ✅ ${additionalScenes.length} cenas adicionais geradas! Total: ${scenesData.scenes.length}/${estimatedScenes} cenas.`);
+                } else {
+                    console.warn(`[Scene Prompts] ⚠️ Nenhuma cena adicional foi gerada nesta tentativa.`);
+                }
+            } catch (retryError) {
+                console.error(`[Scene Prompts] Erro ao tentar gerar cenas faltantes:`, retryError.message);
+            }
+            
+            totalAttempts++;
+            
+            // Se ainda faltam cenas mas já tentamos várias vezes, parar para evitar loop infinito
+            if (scenesData.scenes.length < estimatedScenes && totalAttempts >= maxTotalAttempts) {
+                console.warn(`[Scene Prompts] ⚠️ Atingido limite de tentativas (${maxTotalAttempts}). Geradas ${scenesData.scenes.length}/${estimatedScenes} cenas.`);
+                break;
+            }
+        }
+        
+        if (scenesData.scenes.length < estimatedScenes) {
+            console.warn(`[Scene Prompts] ⚠️ Apenas ${scenesData.scenes.length} cenas foram geradas, mas esperávamos ${estimatedScenes} cenas.`);
+        } else {
+            console.log(`[Scene Prompts] ✅ Todas as ${estimatedScenes} cenas foram geradas com sucesso!`);
         }
 
         // Limpar nome do modelo (remover prefixos de fornecedores)
@@ -19645,7 +20710,7 @@ app.post('/api/generate/imagefx/by-title', authenticateToken, async (req, res) =
         }
         const headlineLine = `Headline: \\\"${headlineText}\\\" (translate to ${language}) in gold all-caps serif with subtle glow; do not render the word 'Headline'.`;
         const subheadlineLine = subText ? `Subheadline: \\\"${subText}\\\" (translate to ${language}) below, smaller, high contrast; do not render the word 'Subheadline'.` : '';
-        const negativeBlock = `Exclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships, jaguar motifs, and any aztec elements. Exclude any logos, watermarks, channel badges or branding marks. Do not render channel names or corner marks.`;
+        const negativeBlock = `Exclude mesoamerican pyramids, feathered headdress, conquistadors, Spanish ships, jaguar motifs, and any aztec elements. CRITICAL - REMOVE ALL CORNER MARKINGS: Exclude any logos, watermarks, channel badges, branding marks, corner icons, decorative elements, or any visual elements in the four corners of the image (top-left, top-right, bottom-left, bottom-right). The image must be completely clean in all four corners. Do not render channel names, corner marks, badges, icons, symbols, text, or any decorative elements in the corners.`;
         finalPrompt = `${adaptedPrompt}\\n\\n${headlineLine}\\n${subheadlineLine}\\n\\n${negativeBlock}\\n\\n${styleLock}`;
         // Reutilizar rota de geração
         const images = [];
@@ -29234,6 +30299,31 @@ Responda APENAS com o JSON, sem texto adicional.`;
                     console.log(`[Auto-metadata] Resposta recebida da API configurada como padrão (${responseText.length} caracteres)`);
                     console.log(`[Auto-metadata] Primeiros 500 caracteres da resposta:`, responseText.substring(0, 500));
                     
+                    // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
+                    const hasValidJson = responseText.match(/\{[\s\S]*"description"[\s\S]*\}/) || responseText.match(/\{[\s\S]*"tags"[\s\S]*\}/);
+                    
+                    if (!hasValidJson) {
+                        const errorPatterns = [
+                            /^I'm sorry,?\s+I can't assist/i,
+                            /^I'm sorry,?\s+I cannot/i,
+                            /^I'm unable to assist/i,
+                            /^I cannot fulfill/i,
+                            /^I must decline/i,
+                            /^I can't help with that/i,
+                            /^I'm not able to/i,
+                            /^This request violates/i,
+                            /^I cannot comply/i
+                        ];
+                        
+                        const trimmedResponse = responseText.trim();
+                        const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+                        
+                        if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
+                            console.error('[Auto-metadata] API recusou a requisição:', responseText.substring(0, 500));
+                            throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o conteúdo ou remover conteúdo sensível.`);
+                        }
+                    }
+                    
                     // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
                     let jsonMatch = responseText.match(/\{[\s\S]*\}/);
                     // Se não encontrar, tentar remover markdown code blocks
@@ -31926,6 +33016,31 @@ Responda APENAS com o JSON, sem texto adicional.`;
                     console.log(`[Sugestões IA] Resposta recebida (${responseText.length} caracteres)`);
                     console.log(`[Sugestões IA] Primeiros 500 caracteres:`, responseText.substring(0, 500));
                     
+                    // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
+                    const hasValidJson = responseText.match(/\{[\s\S]*"suggestions"[\s\S]*\}/) || responseText.match(/\{[\s\S]*"title"[\s\S]*\}/);
+                    
+                    if (!hasValidJson) {
+                        const errorPatterns = [
+                            /^I'm sorry,?\s+I can't assist/i,
+                            /^I'm sorry,?\s+I cannot/i,
+                            /^I'm unable to assist/i,
+                            /^I cannot fulfill/i,
+                            /^I must decline/i,
+                            /^I can't help with that/i,
+                            /^I'm not able to/i,
+                            /^This request violates/i,
+                            /^I cannot comply/i
+                        ];
+                        
+                        const trimmedResponse = responseText.trim();
+                        const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+                        
+                        if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
+                            console.error('[Sugestões IA] API recusou a requisição:', responseText.substring(0, 500));
+                            throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o conteúdo ou remover conteúdo sensível.`);
+                        }
+                    }
+                    
                     // Tentar extrair JSON da resposta - usar regex mais robusto para pegar JSON completo
                     let jsonMatch = responseText.match(/\{[\s\S]*\}/);
                     // Se não encontrar, tentar remover markdown code blocks
@@ -32423,116 +33538,7 @@ Nicho identificado:`;
     }
 });
 
-// === META.AI: Cookies e Animação de Imagens ===
-app.post('/api/meta/cookies/save', authenticateToken, async (req, res) => {
-    const userId = req.user.id;
-    const { cookiesJson } = req.body || {};
-    try {
-        if (!cookiesJson || typeof cookiesJson !== 'string') {
-            return res.status(400).json({ msg: 'Cole os cookies do Meta.ai (JSON ou string "name=value;...")' });
-        }
-        const normalizeCookies = (input) => {
-            try {
-                const parsed = JSON.parse(input);
-                if (Array.isArray(parsed)) return parsed;
-                if (parsed && Array.isArray(parsed.cookies)) return parsed.cookies;
-            } catch (_) {}
-            // Tentar formato "name=value; name2=value2; ..."
-            const parts = input.split(';').map(s => s.trim()).filter(Boolean);
-            const arr = [];
-            for (const p of parts) {
-                const eq = p.indexOf('=');
-                if (eq > 0) {
-                    const name = p.slice(0, eq).trim();
-                    const value = p.slice(eq + 1).trim();
-                    if (name && value) arr.push({ name, value });
-                }
-            }
-            return arr.length ? arr : null;
-        };
-
-        const normalized = normalizeCookies(cookiesJson);
-        if (!normalized || !normalized.every(c => c && c.name && c.value)) {
-            return res.status(400).json({ msg: 'Formato de cookies inválido. Use JSON válido ou "name=value; name2=value2".' });
-        }
-
-        const encrypted = encrypt(JSON.stringify(normalized));
-        await db.run(
-            `INSERT INTO user_api_keys (user_id, service_name, api_key)
-             VALUES (?, ?, ?)
-             ON CONFLICT(user_id, service_name) DO UPDATE SET api_key=excluded.api_key`,
-            [userId, 'meta_ai_cookies', encrypted]
-        );
-        return res.json({ success: true });
-    } catch (err) {
-        console.error('[Meta.ai] Erro ao salvar cookies:', err);
-        return res.status(500).json({ msg: 'Erro interno ao salvar cookies.' });
-    }
-});
-
-app.get('/api/meta/cookies/status', authenticateToken, async (req, res) => {
-    const userId = req.user.id;
-    try {
-        const row = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
-        if (!row) return res.json({ hasCookies: false, isValid: false });
-        const json = decrypt(row.api_key);
-        let parsed = null;
-        try { parsed = JSON.parse(json); } catch {}
-        const isValid = Array.isArray(parsed) && parsed.every(c => c && c.name && c.value);
-        return res.json({ hasCookies: true, isValid });
-    } catch (err) {
-        console.error('[Meta.ai] Erro ao verificar status de cookies:', err);
-        return res.status(500).json({ msg: 'Erro ao verificar cookies.' });
-    }
-});
-
-app.post('/api/animate/meta', authenticateToken, async (req, res) => {
-    const userId = req.user.id;
-    const { base64, imageUrl, sceneNumber } = req.body || {};
-    try {
-        const cookieRow = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
-        const hasCookies = !!cookieRow;
-        if (!hasCookies) return res.status(400).json({ msg: 'Configure os cookies do Meta.ai nas Configurações para habilitar a animação.' });
-
-        let imgBuffer;
-        if (base64 && typeof base64 === 'string') {
-            const commaIdx = base64.indexOf(',');
-            const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
-            imgBuffer = Buffer.from(raw, 'base64');
-        } else if (imageUrl) {
-            const resp = await fetch(imageUrl);
-            if (!resp.ok) throw new Error('Falha ao baixar imagem');
-            imgBuffer = Buffer.from(await resp.arrayBuffer());
-        } else {
-            return res.status(400).json({ msg: 'Envie base64 ou imageUrl para animar.' });
-        }
-
-        const tmpDir = TEMP_DIR || path.join(process.cwd(), 'temp_audio');
-        const imgPath = path.join(tmpDir, `meta_img_${Date.now()}.png`);
-        fs.writeFileSync(imgPath, imgBuffer);
-        const outPath = path.join(tmpDir, `meta_anim_${Date.now()}.mp4`);
-
-        await new Promise((resolve, reject) => {
-            ffmpeg()
-                .input(imgPath)
-                .inputOptions(['-loop 1'])
-                .videoFilters("zoompan=z='min(zoom+0.0018,1.15)':d=125,framerate=25")
-                .duration(5)
-                .outputOptions(['-pix_fmt yuv420p'])
-                .on('end', resolve)
-                .on('error', reject)
-                .save(outPath);
-        });
-
-        const videoB64 = fs.readFileSync(outPath).toString('base64');
-        try { fs.unlinkSync(imgPath); fs.unlinkSync(outPath); } catch {}
-        return res.json({ success: true, sceneNumber: sceneNumber || null, videoBase64: `data:video/mp4;base64,${videoB64}` });
-    } catch (err) {
-        console.error('[Meta.ai] Erro ao animar imagem:', err.message);
-        return res.status(500).json({ msg: err.message || 'Erro ao animar imagem.' });
-    }
-});
-
+// === ANIMAÇÃO PARALLAX ===
 app.post('/api/animate/parallax', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { base64, imageUrl, sceneNumber, duration = 5 } = req.body || {};
@@ -32558,7 +33564,21 @@ app.post('/api/animate/parallax', authenticateToken, async (req, res) => {
             try { execSync('python --version', { stdio: 'ignore' }); return 'python'; } catch {}
             return 'python3';
         })();
-        const cmd = `${py} ${path.join(__dirname, 'animator_depth.py')} --input "${imgPath}" --output "${outPath}" --duration ${duration}`;
+        
+        // Escapar caminhos corretamente para Windows (caminhos com espaços)
+        const scriptPath = path.join(__dirname, 'animator_depth.py');
+        // No Windows, usar aspas duplas e escapar corretamente
+        const escapePath = (p) => {
+            // Normalizar caminho e adicionar aspas se necessário
+            const normalized = path.normalize(p);
+            // Se contém espaços, adicionar aspas e escapar aspas internas
+            if (normalized.includes(' ')) {
+                return `"${normalized.replace(/"/g, '\\"')}"`;
+            }
+            return normalized;
+        };
+        
+        const cmd = `${py} ${escapePath(scriptPath)} --input ${escapePath(imgPath)} --output ${escapePath(outPath)} --duration ${duration}`;
         const { stdout, stderr } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 50 });
         const videoB64 = fs.readFileSync(outPath).toString('base64');
         try { fs.unlinkSync(imgPath); fs.unlinkSync(outPath); } catch {}
@@ -32568,185 +33588,8 @@ app.post('/api/animate/parallax', authenticateToken, async (req, res) => {
         return res.status(500).json({ msg: `Falha parallax: ${err.message}` });
     }
 });
-app.post('/api/animate/meta/live', authenticateToken, async (req, res) => {
-    const userId = req.user.id;
-    const { base64, imageUrl, sceneNumber, prompt } = req.body || {};
-    try {
-        const row = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'meta_ai_cookies']);
-        if (!row) return res.status(400).json({ msg: 'Configure os cookies do Meta.ai nas Configurações.' });
-        const cookiesArr = JSON.parse(decrypt(row.api_key));
-        let imgBuffer;
-        if (base64 && typeof base64 === 'string') {
-            const commaIdx = base64.indexOf(',');
-            const raw = commaIdx >= 0 ? base64.slice(commaIdx + 1) : base64;
-            imgBuffer = Buffer.from(raw, 'base64');
-        } else if (imageUrl) {
-            const resp = await fetch(imageUrl);
-            if (!resp.ok) throw new Error('Falha ao baixar imagem');
-            imgBuffer = Buffer.from(await resp.arrayBuffer());
-        } else {
-            return res.status(400).json({ msg: 'Envie base64 ou imageUrl para animar.' });
-        }
-        const tmpDir = TEMP_DIR || path.join(process.cwd(), 'temp_audio');
-        const imgPath = path.join(tmpDir, `meta_live_${Date.now()}.png`);
-        fs.writeFileSync(imgPath, imgBuffer);
-        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)
-            ? process.env.PUPPETEER_EXECUTABLE_PATH
-            : undefined;
-        const browser = await puppeteer.launch({ headless: true, executablePath, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36');
-        await page.setViewport({ width: 1280, height: 800 });
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        });
-        const setCookies = cookiesArr.map(c => ({ name: c.name, value: c.value, domain: c.domain || '.meta.ai', path: c.path || '/', httpOnly: !!c.httpOnly, secure: !!c.secure }));
-        const namesAuth = cookiesArr.map(c => c.name);
-        const requiredAuth = ['c_user','xs'];
-        const missingAuth = requiredAuth.filter(n => !namesAuth.includes(n));
-        if (missingAuth.length > 0) {
-            return res.status(400).json({ msg: 'Sessão não autenticada no Meta.ai. Adicione cookies de login.', missing: missingAuth });
-        }
-        try { await page.setCookie(...setCookies); } catch {}
-        try { await page.setCookie(...setCookies.map(c => ({ ...c, domain: 'www.meta.ai' }))); } catch {}
-        await page.goto('https://www.meta.ai/media', { waitUntil: 'networkidle2', timeout: 120000 });
-        let triedAlt = false;
-        if ((await page.content()).includes('login') || (await page.$('input[name="email"]'))) {
-            triedAlt = true;
-            await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
-        }
-        let videoSrc = null;
-        // Capturar URL de vídeo via network
-        const mp4Candidates = new Set();
-        page.on('response', async (response) => {
-            try {
-                const ct = response.headers()['content-type'] || '';
-                const url = response.url();
-                if (ct.includes('video/mp4') || url.endsWith('.mp4')) {
-                    mp4Candidates.add(url);
-                }
-            } catch {}
-        });
-        try {
-            const createSpan = await page.$x("//span[normalize-space()='Criar' or normalize-space()='Create']");
-            if (createSpan && createSpan[0]) {
-                await createSpan[0].evaluate(el => {
-                    let n = el;
-                    for (let i = 0; i < 5 && n; i++) {
-                        if (n.tagName === 'BUTTON' || n.tagName === 'A') { n.click(); return; }
-                        n = n.parentElement;
-                    }
-                    el.click();
-                });
-                await page.waitForTimeout(300);
-            }
-            let input = await page.$('input[type=file]');
-            if (input) {
-                await input.uploadFile(imgPath);
-            }
-            // Se o input não estiver visível, clicar no elemento "Carregar imagem" (Português) ou "Upload image" (Inglês)
-            if (!input) {
-                const uploadNodes = await page.$x(
-                    "//div[@role='button'][.//span[normalize-space()='Carregar imagem'] or .//*[contains(normalize-space(.),'Carregar imagem')]] | " +
-                    "//div[@role='button'][.//span[normalize-space()='Upload image'] or .//*[contains(normalize-space(.),'Upload image')]] | " +
-                    "//*[contains(text(),'Carregar imagem')] | //*[contains(text(),'Upload image')]"
-                );
-                if (uploadNodes && uploadNodes[0]) {
-                    try { await uploadNodes[0].click(); } catch {}
-                    try {
-                        await page.waitForSelector('input[type=file]', { timeout: 10000 });
-                        input = await page.$('input[type=file]');
-                        if (input) await input.uploadFile(imgPath);
-                    } catch {}
-                }
-            }
-            // Escrever prompt (se fornecido)
-            if (prompt && prompt.trim().length > 0) {
-                const inputCandidates = await page.$x("//textarea | //input[@placeholder] | //*[@contenteditable='true']");
-                if (inputCandidates && inputCandidates[0]) {
-                    try {
-                        await inputCandidates[0].focus();
-                        await inputCandidates[0].click({ clickCount: 1 });
-                        await page.keyboard.type(prompt.trim());
-                    } catch {}
-                }
-            }
-            // Garantir modo Vídeo
-            const videoMode = await page.$x("//*[contains(text(),'Vídeo')]//ancestor::button | //*[contains(text(),'Vídeo')]");
-            if (videoMode && videoMode[0]) {
-                try { await videoMode[0].click(); } catch {}
-            }
-            // Clicar em Animar
-            let animateSpan = await page.$x("//span[normalize-space()='Animar'] | //span[normalize-space()='Animate']");
-            if (animateSpan && animateSpan[0]) {
-                await animateSpan[0].evaluate(el => {
-                    let n = el;
-                    for (let i = 0; i < 6 && n; i++) {
-                        if ((n.tagName === 'BUTTON') || (n.getAttribute && n.getAttribute('role') === 'button')) { n.click(); return; }
-                        n = n.parentElement;
-                    }
-                    el.click();
-                });
-            } else {
-                const animateNode = await page.$x("//button[.//text()[contains(.,'Animar')]] | //*[(self::button or self::div) and contains(text(),'Animar')] | //button[.//text()[contains(.,'Animate')]] | //*[(self::button or self::div) and contains(text(),'Animate')]");
-                if (animateNode && animateNode[0]) {
-                    await animateNode[0].click();
-                }
-            }
-            await page.waitForSelector('video, canvas, img', { timeout: 60000 });
-            await page.waitForTimeout(5000);
-            // Tentar pegar por DOM
-            videoSrc = await page.evaluate(() => {
-                const v = document.querySelector('video');
-                if (v && v.src) return v.src;
-                const a = Array.from(document.querySelectorAll('a')).find(x => (x.href || '').endsWith('.mp4'));
-                return a ? a.href : null;
-            });
-            if (!videoSrc && mp4Candidates.size > 0) {
-                videoSrc = Array.from(mp4Candidates).pop();
-            }
-            if (!videoSrc) {
-                const candidate = (await page.$$('a[download], button svg, div[role="button"] svg')).pop();
-                if (candidate) {
-                    try {
-                        await candidate.evaluate(el => {
-                            let n = el;
-                            for (let i = 0; i < 6 && n; i++) {
-                                if (n.tagName === 'A' || n.tagName === 'BUTTON' || (n.getAttribute && n.getAttribute('role') === 'button')) { n.click(); return; }
-                                n = n.parentElement;
-                            }
-                        });
-                    } catch {}
-                    await page.waitForTimeout(2000);
-                }
-                if (mp4Candidates.size > 0) {
-                    videoSrc = Array.from(mp4Candidates).pop();
-                }
-            }
-        } catch (e) {
-            if (!triedAlt) {
-                await page.goto('https://www.meta.ai', { waitUntil: 'networkidle2' });
-            }
-            try {
-                const dbgPath = path.join(TEMP_DIR, `meta_debug_${Date.now()}.png`);
-                await page.screenshot({ path: dbgPath, fullPage: true });
-                const dbgB64 = fs.readFileSync(dbgPath).toString('base64');
-                videoSrc = null;
-                return res.status(502).json({ msg: 'Meta.ai não retornou vídeo. Verifique cookies válidos.', debugScreenshot: `data:image/png;base64,${dbgB64}` });
-            } catch {}
-        }
-        await browser.close();
-        try { fs.unlinkSync(imgPath); } catch {}
-        if (!videoSrc) return res.status(502).json({ msg: 'Não foi possível obter o vídeo do Meta.ai (verifique cookies válidos e fluxo).'});
-        const vidResp = await fetch(videoSrc, { headers: { 'Referer': 'https://www.meta.ai/media', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', 'Accept': 'video/mp4,*/*' } });
-        if (!vidResp.ok) return res.status(502).json({ msg: 'Falha ao baixar vídeo do Meta.ai.' });
-        const buf = Buffer.from(await vidResp.arrayBuffer());
-        const b64 = buf.toString('base64');
-        return res.json({ success: true, sceneNumber: sceneNumber || null, videoBase64: `data:video/mp4;base64,${b64}` });
-    } catch (err) {
-        return res.status(500).json({ msg: err.message || 'Erro ao animar imagem (live).' });
-    }
-});
+
+// Rotas do Meta.ai e HuMo removidas - usando apenas Parallax
 
 // ============================================
 // INICIAR SERVIDOR (DEPOIS DE TODAS AS ROTAS)
