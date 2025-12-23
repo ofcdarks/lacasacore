@@ -790,8 +790,13 @@
                 console.warn('[AUTH] Acesso ao storage bloqueado neste contexto (pode ser iframe ou extensão)');
                 return false;
             }
-            // Ignorar erros de extensões do navegador
-            if (event.message && event.message.includes('message channel closed')) {
+            
+            // Ignorar erros comuns de extensões do Chrome
+            if (event.message && (
+                event.message.includes('message channel closed') ||
+                event.message.includes('asynchronous response') ||
+                event.message.includes('listener indicated an asynchronous response')
+            )) {
                 event.preventDefault();
                 return false;
             }
@@ -799,22 +804,29 @@
         
         // Tratamento de erros não capturados em promises
         window.addEventListener('unhandledrejection', function(event) {
-            // Ignorar erros relacionados a storage
-            if (event.reason && typeof event.reason === 'object' && event.reason.message) {
-                if (event.reason.message.includes('Access to storage is not allowed') ||
-                    event.reason.message.includes('message channel closed')) {
-                    event.preventDefault();
-                    console.warn('[AUTH] Erro de promise relacionado a storage/extensão ignorado');
-                    return false;
-                }
+            // Ignorar erros relacionados a storage e extensões do Chrome
+            const errorMessage = event.reason?.message || (typeof event.reason === 'string' ? event.reason : '') || '';
+            
+            if (errorMessage.includes('Access to storage is not allowed') ||
+                errorMessage.includes('message channel closed') ||
+                errorMessage.includes('asynchronous response') ||
+                errorMessage.includes('listener indicated an asynchronous response') ||
+                errorMessage.includes('message channel closed before a response was received')) {
+                event.preventDefault();
+                // Não logar para não poluir o console
+                return;
             }
-            // Ignorar erros de string
+            
+            // Verificar também se o erro é uma string
             if (typeof event.reason === 'string') {
                 if (event.reason.includes('Access to storage is not allowed') ||
-                    event.reason.includes('message channel closed')) {
+                    event.reason.includes('message channel closed') ||
+                    event.reason.includes('asynchronous response') ||
+                    event.reason.includes('listener indicated an asynchronous response') ||
+                    event.reason.includes('message channel closed before a response was received')) {
                     event.preventDefault();
-                    console.warn('[AUTH] Erro de promise (string) relacionado a storage/extensão ignorado');
-                    return false;
+                    // Não logar para não poluir o console
+                    return;
                 }
             }
         });
@@ -936,6 +948,11 @@
                 <a href="#" data-view="youtube-integration" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
                     <i data-lucide="youtube"></i>
                     <span>Integração YouTube</span>
+                </a>
+                
+                <a href="#" data-view="viral-analysis" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="trending-up"></i>
+                    <span>Análise de Canais Virais</span>
                 </a>
                 
                 <a href="#" data-view="configuracoes" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
@@ -1169,8 +1186,8 @@
                     <!-- Dicas da IA - Coluna Direita Compacta -->
                     <div class="lg:col-span-1 bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-4">
                         <h2 class="text-lg font-semibold text-white mb-3 flex items-center">
-                            <i data-lucide="sparkles" class="w-5 h-5 mr-2 text-amber-400"></i>
-                            Dicas da IA
+                            <i data-lucide="lightbulb" class="w-5 h-5 mr-2 text-amber-400"></i>
+                            Dicas
                         </h2>
                         <div id="ai-tips" class="space-y-2 max-h-[500px] overflow-y-auto pr-2" style="scrollbar-width: thin; scrollbar-color: rgba(251, 191, 36, 0.5) transparent;">
                             <div class="bg-gray-800/50 rounded-lg p-3 border border-amber-700/30">
@@ -1422,60 +1439,60 @@
                         <p class="text-sm text-gray-400 mb-6">Digite o título e o sistema gerará automaticamente: thumbnail pronta, headline de impacto, descrição SEO e tags principais, tudo baseado no estilo das suas thumbnails de referência.</p>
                         
                         <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
-                            <div class="mb-4">
+                        <div class="mb-4">
                                 <label for="thumb-title-input" class="block text-sm font-medium mb-2">Título do Vídeo</label>
                                 <input type="text" id="thumb-title-input" placeholder="Ex: A CIDADE FLUTUANTE dos Astecas: 3 TÉCNICAS GENIAIS que Arqueólogos Ainda Não Conseguem Explicar" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                 <p class="text-xs text-gray-400 mt-1">O sistema adaptará automaticamente o estilo das thumbnails de referência para este título.</p>
-                            </div>
-                            
-                            <div class="mb-4">
+                        </div>
+                        
+                        <div class="mb-4">
                                 <label for="thumb-prompt-variant-simple" class="block text-sm font-medium mb-2">Prompt Padrão a Usar</label>
                                 <select id="thumb-prompt-variant-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="1" selected>Prompt 1</option>
                                     <option value="2">Prompt 2</option>
                                     <option value="3">Prompt 3</option>
-                                </select>
+                            </select>
                                 <p class="text-xs text-gray-400 mt-1">Selecione qual dos 3 prompts padrão usar para gerar a thumbnail</p>
-                            </div>
-                            
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                <div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div>
                                     <label for="thumb-ai-model-simple" class="block text-sm font-medium mb-2">Modelo de IA</label>
                                     <select id="thumb-ai-model-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                         <option value="gpt-4o" selected>GPT-4o (2025)</option>
                                         <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
-                                    </select>
-                                </div>
-                                <div>
+                                </select>
+                            </div>
+                            <div>
                                     <label for="thumb-language-simple" class="block text-sm font-medium mb-2">Idioma</label>
                                     <select id="thumb-language-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                         <option value="pt-BR" selected>Português</option>
                                         <option value="en-US">Inglês</option>
                                         <option value="es-ES">Espanhol</option>
-                                    </select>
-                                </div>
-                                <div>
+                                </select>
+                            </div>
+                            <div>
                                     <label for="thumb-style-simple" class="block text-sm font-medium mb-2">Estilo de Arte</label>
                                     <select id="thumb-style-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                        <optgroup label="🎨 Estilos Realistas">
-                                            <option value="photorealistic" selected>📸 Foto Realista - Ultra HD, detalhes perfeitos</option>
-                                            <option value="cinematic">🎬 Cinematográfico - Estilo Hollywood, dramático</option>
-                                            <option value="documentary">📹 Documentário - Natural, autêntico</option>
-                                            <option value="cinematic-narrative">🎭 Narrativa Cinematográfica - Storytelling visual</option>
-                                        </optgroup>
-                                        <optgroup label="🎨 Estilos Artísticos">
-                                            <option value="anime">🌸 Anime - Estilo japonês animado</option>
-                                            <option value="cartoon">🎨 Desenho Animado - Colorido e expressivo</option>
-                                            <option value="cartoon-premium">✨ Cartoon Premium - Alta qualidade animada</option>
-                                            <option value="fantasy">✨ Fantasia - Mágico e épico</option>
-                                        </optgroup>
-                                        <optgroup label="🎨 Estilos Minimalistas">
+                                    <optgroup label="🎨 Estilos Realistas">
+                                        <option value="photorealistic" selected>📸 Foto Realista - Ultra HD, detalhes perfeitos</option>
+                                        <option value="cinematic">🎬 Cinematográfico - Estilo Hollywood, dramático</option>
+                                        <option value="documentary">📹 Documentário - Natural, autêntico</option>
+                                        <option value="cinematic-narrative">🎭 Narrativa Cinematográfica - Storytelling visual</option>
+                                    </optgroup>
+                                    <optgroup label="🎨 Estilos Artísticos">
+                                        <option value="anime">🌸 Anime - Estilo japonês animado</option>
+                                        <option value="cartoon">🎨 Desenho Animado - Colorido e expressivo</option>
+                                        <option value="cartoon-premium">✨ Cartoon Premium - Alta qualidade animada</option>
+                                        <option value="fantasy">✨ Fantasia - Mágico e épico</option>
+                                    </optgroup>
+                                    <optgroup label="🎨 Estilos Minimalistas">
                                             <option value="stick-figure">👤 Desenho de Palitos - Simples e minimalista</option>
                                             <option value="whiteboard">📝 Quadro Branco - Explicativo e limpo</option>
                                             <option value="tech-minimalist">💻 Tech Minimalista - Moderno e clean</option>
                                             <option value="spiritual-minimalist">🧘 Narrativa Espiritual Minimalista - Sereno</option>
-                                        </optgroup>
+                                    </optgroup>
                                         <optgroup label="🎨 Estilos Vibrantes">
                                             <option value="viral-vibrant">🔥 Viral Vibrante - Alto contraste, cores intensas</option>
                                             <option value="modern-documentary">📺 Documentário Moderno - Dinâmico e atual</option>
@@ -1490,17 +1507,17 @@
                                             <option value="spiritual-neorealism">🌟 Neo-Realismo Espiritual - Transcendente</option>
                                             <option value="psychological-surrealism">🌀 Surrealismo Psicológico - Onírico</option>
                                             <option value="fragmented-memory">🧩 Memória Fragmentada - Narrativa quebrada</option>
-                                            <option value="fragmented-narrative">📖 Narrativa Fragmentada - Estilo colagem</option>
+                                        <option value="fragmented-narrative">📖 Narrativa Fragmentada - Estilo colagem</option>
                                             <option value="dream-real">💭 Sonho-Real - Limiar entre sonho e realidade</option>
                                             <option value="vhs-nostalgic">📼 VHS Nostálgico - Estética anos 80/90</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
+                                    </optgroup>
+                                </select>
                             </div>
-                            
+                        </div>
+                        
                             <button type="button" id="btn-generate-complete-thumbnail" class="w-full py-4 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black text-lg">
-                                <i data-lucide="sparkles" class="w-5 h-5"></i>
-                                <span>✨ Gerar Thumbnail Completa</span>
+                                <i data-lucide="image" class="w-5 h-5"></i>
+                                <span>Gerar Thumbnail Completa</span>
                                 <div class="btn-spinner hidden"></div>
                             </button>
                             <p class="text-xs text-gray-400 mt-3 text-center">O sistema gerará 2 variações da thumbnail com headline, SEO e tags prontos</p>
@@ -2585,7 +2602,7 @@
                     </div>
                     
                     <button id="batch-btn-generate-images" class="mt-4 w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg transition duration-200 flex items-center justify-center gap-2">
-                        <i data-lucide="sparkles" class="w-5 h-5"></i>
+                        <i data-lucide="images" class="w-5 h-5"></i>
                         <span>Gerar Todas as Imagens</span>
                     </button>
                 </div>
@@ -2814,7 +2831,7 @@
                                 Tentar Novamente
                             </button>
                             <button id="video-extend-btn" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">
-                                <i data-lucide="sparkles" class="w-5 h-5 inline mr-2"></i>
+                                <i data-lucide="play-circle" class="w-5 h-5 inline mr-2"></i>
                                 Estender Vídeo
                             </button>
                             <a id="video-download-link" href="#" download class="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition inline-flex items-center">
@@ -3500,7 +3517,94 @@
                 </div>
             </div>
 
-            <!-- VISÃO 9: Configurações -->
+            <!-- VISÃO 9: Análise de Canais Virais -->
+            <div id="view-viral-analysis" style="display: none;">
+                <div class="max-w-7xl mx-auto px-4 py-8">
+                    <div class="mb-8">
+                        <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">📊 Análise de Canais Virais</h1>
+                        <p class="text-lg text-gray-400">Analise até 5 canais, identifique padrões virais e crie títulos baseados no que funcionou</p>
+                    </div>
+
+                    <!-- Adicionar Canal -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">➕ Adicionar Canal para Análise</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">URL do Canal</label>
+                                <input type="text" id="viral-channel-url" placeholder="https://youtube.com/@canal ou https://youtube.com/channel/..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Nicho <span class="text-xs text-gray-500">(detectado após análise)</span></label>
+                                <input type="text" id="viral-channel-niche" placeholder="Será detectado automaticamente após a análise..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors" readonly>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Subnicho <span class="text-xs text-gray-500">(detectado após análise)</span></label>
+                                <input type="text" id="viral-channel-subniche" placeholder="Será detectado automaticamente após a análise..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors" readonly>
+                            </div>
+                            <div class="flex items-end">
+                                <button id="btn-add-viral-channel" class="w-full py-3 px-6 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-lg transition">
+                                    Adicionar Canal
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">Você pode adicionar até 5 canais para análise simultânea. O nicho e subnicho serão detectados automaticamente após a análise do canal, trazendo informações mais precisas.</p>
+                    </div>
+
+                    <!-- Lista de Canais -->
+                    <div id="viral-channels-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+                        <!-- Canais serão inseridos aqui -->
+                    </div>
+
+                    <!-- Análise Detalhada -->
+                    <div id="viral-analysis-detail" class="hidden">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                            <h2 class="text-xl font-semibold text-white mb-4" id="viral-detail-title">Análise do Canal</h2>
+                            
+                            <!-- Informações do Canal -->
+                            <div id="viral-channel-info" class="mb-6"></div>
+                            
+                            <!-- Top Vídeos -->
+                            <div class="mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4">🎬 Top Vídeos Mais Vistos</h3>
+                                <div id="viral-top-videos" class="space-y-4"></div>
+                            </div>
+                            
+                            <!-- Insights Virais -->
+                            <div class="mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4">💡 Insights Virais (IA)</h3>
+                                <div id="viral-insights" class="space-y-4"></div>
+                            </div>
+                            
+                            <!-- Cruzamento de Análises -->
+                            <div class="mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4">🔀 Cruzar Análises de Canais</h3>
+                                <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                    <p class="text-gray-300 text-sm mb-4">Selecione múltiplos canais analisados para cruzar informações e gerar conteúdo inédito viral baseado nos padrões identificados.</p>
+                                    <button onclick="window.showCrossAnalysisModal()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-semibold flex items-center gap-2">
+                                        <i data-lucide="git-branch" class="w-4 h-4"></i>
+                                        Cruzar Análises e Gerar Conteúdo Viral
+                                    </button>
+                                </div>
+                                <div id="cross-analysis-results" class="space-y-4"></div>
+                            </div>
+                            
+                            <!-- Recomendações -->
+                            <div class="mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4">🎯 Recomendações e Títulos Sugeridos</h3>
+                                <div id="viral-recommendations"></div>
+                            </div>
+                            
+                            <!-- Insights para Novo Canal -->
+                            <div id="viral-new-channel-insights-section" class="mb-6" style="display: none;">
+                                <h3 class="text-lg font-semibold text-white mb-4">🚀 Insights para Criar Novo Canal</h3>
+                                <div id="viral-new-channel-insights" class="space-y-4"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISÃO 10: Configurações -->
             <div id="view-configuracoes" style="display: none;">
                 <header class="mb-8">
                     <h1 class="text-3xl md:text-4xl font-bold text-white">Configurações</h1>
@@ -4009,6 +4113,40 @@
                             <div class="mt-4 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
                                 <p class="text-sm text-blue-300">
                                     <strong>💡 Dica:</strong> Esta chave é usada quando o usuário seleciona "Gemini" como provider de voz e tem preferência para usar API própria. Se configurada aqui, será usada ao invés da chave do usuário.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Configuração de API DownSub - APENAS NO PAINEL ADMIN -->
+                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">📝 Configuração de API DownSub (Transcrições)</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Chave de API DownSub</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="downsub-api-key" class="flex-1 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200" placeholder="Cole sua chave de API do DownSub aqui">
+                                    <button id="check-downsub-api" class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+                                        Verificar
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">Configure a chave de API do DownSub para carregar transcrições de vídeos do YouTube e outros sites suportados.</p>
+                                <div id="downsub-api-result" class="mt-3 hidden p-4 bg-gray-900 rounded-lg border border-gray-700">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm text-gray-400">Status da API</p>
+                                            <p class="text-lg font-bold text-green-400 mt-1" id="downsub-api-status">Válida</p>
+                                            <p class="text-xs text-gray-400 mt-1" id="downsub-api-credits"></p>
+                                        </div>
+                                        <button id="save-downsub-api" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+                                            Salvar Chave
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-4 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
+                                <p class="text-sm text-blue-300">
+                                    <strong>💡 Dica:</strong> A API DownSub permite obter transcrições de vídeos do YouTube e outros sites suportados. Cada chamada bem-sucedida consome 1 crédito. Os créditos são renovados mensalmente no plano Pro (2000 créditos/mês).
                                 </p>
                             </div>
                         </div>
@@ -5534,7 +5672,7 @@ Equipe La Casa Dark Core</textarea>
                         Transcrição Manual (Opcional)
                         <span class="text-xs text-gray-400 ml-2">Cole aqui a transcrição do vídeo se a automática não funcionar</span>
                     </label>
-                    <textarea id="agent-manual-transcript" rows="8" placeholder="Cole aqui a transcrição completa do vídeo..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                    <textarea id="agent-manual-transcript" rows="20" placeholder="Cole aqui a transcrição completa do vídeo..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-y min-h-[400px] max-h-[600px]"></textarea>
                     <p class="text-xs text-gray-400 mt-1">Se você colar uma transcrição manual aqui, ela será usada em vez da transcrição automática.</p>
                 </div>
                 <div class="flex justify-end space-x-3 pt-4">
@@ -5596,6 +5734,21 @@ Equipe La Casa Dark Core</textarea>
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal de Loading ao Criar Agente -->
+    <div id="create-agent-loading-modal" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 border border-amber-500 rounded-xl shadow-2xl max-w-md w-full p-8 text-center">
+            <div class="mb-6">
+                <div class="loader mx-auto w-16 h-16 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <h3 class="text-2xl font-semibold text-white mb-2">Criando Agente...</h3>
+            <p class="text-gray-400 text-sm mb-4">Analisando a fórmula viral e gerando o agente personalizado</p>
+            <div class="w-full bg-gray-800 rounded-full h-2 mb-2">
+                <div id="create-agent-progress-bar" class="bg-amber-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="create-agent-progress-text" class="text-xs text-gray-500">Iniciando...</p>
         </div>
     </div>
 
@@ -9265,6 +9418,176 @@ Equipe La Casa Dark Core</textarea>
                 }
             });
             
+            // Verificar chave da API DownSub
+            document.getElementById('check-downsub-api')?.addEventListener('click', async () => {
+                const apiKeyInput = document.getElementById('downsub-api-key');
+                let apiKey = apiKeyInput.value.trim();
+                
+                // Se for chave mascarada, usar a chave salva
+                if (apiKey.includes('...') && apiKeyInput.dataset.savedKey) {
+                    apiKey = apiKeyInput.dataset.savedKey;
+                }
+                
+                if (!apiKey) {
+                    showMessage('admin-error-message', 'Digite a chave de API primeiro', true);
+                    return;
+                }
+                
+                const btn = document.getElementById('check-downsub-api');
+                btn.disabled = true;
+                btn.textContent = 'Verificando...';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/downsub/verify`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ api_key: apiKey })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        const resultDiv = document.getElementById('downsub-api-result');
+                        resultDiv.classList.remove('hidden');
+                        
+                        if (data.success) {
+                            document.getElementById('downsub-api-status').textContent = 'Válida';
+                            document.getElementById('downsub-api-status').classList.remove('text-red-400');
+                            document.getElementById('downsub-api-status').classList.add('text-green-400');
+                            
+                            // Mostrar créditos disponíveis
+                            if (data.credits) {
+                                const creditsText = `Créditos restantes: ${data.credits.remainingCredits || 'N/A'} / ${data.credits.monthlyCredits || 'N/A'}`;
+                                document.getElementById('downsub-api-credits').textContent = creditsText;
+                            }
+                            
+                            showMessage('admin-success-message', data.message || 'Chave de API válida');
+                        } else {
+                            document.getElementById('downsub-api-status').textContent = 'Inválida';
+                            document.getElementById('downsub-api-status').classList.remove('text-green-400');
+                            document.getElementById('downsub-api-status').classList.add('text-red-400');
+                            showMessage('admin-error-message', data.message || 'Chave de API inválida', true);
+                        }
+                    } else {
+                        const error = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
+                        showMessage('admin-error-message', error.message || 'Erro ao verificar chave', true);
+                        const resultDiv = document.getElementById('downsub-api-result');
+                        resultDiv.classList.remove('hidden');
+                        document.getElementById('downsub-api-status').textContent = 'Erro';
+                        document.getElementById('downsub-api-status').classList.remove('text-green-400');
+                        document.getElementById('downsub-api-status').classList.add('text-red-400');
+                    }
+                } catch (err) {
+                    console.error('[Admin] Erro ao verificar chave DownSub:', err);
+                    showMessage('admin-error-message', 'Erro ao verificar chave: ' + err.message, true);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Verificar';
+                }
+            });
+            
+            // Salvar chave da API DownSub
+            document.getElementById('save-downsub-api')?.addEventListener('click', async () => {
+                const apiKeyInput = document.getElementById('downsub-api-key');
+                let apiKey = apiKeyInput.value.trim();
+                
+                // Se for chave mascarada, usar a chave salva
+                if (apiKey.includes('...') && apiKeyInput.dataset.savedKey) {
+                    apiKey = apiKeyInput.dataset.savedKey;
+                }
+                
+                if (!apiKey) {
+                    showMessage('admin-error-message', 'Digite a chave de API primeiro', true);
+                    return;
+                }
+                
+                const btn = document.getElementById('save-downsub-api');
+                btn.disabled = true;
+                btn.textContent = 'Salvando...';
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/downsub/save`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ api_key: apiKey })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        showMessage('admin-success-message', data.message || 'Chave de API salva com sucesso');
+                        // Mascarar chave na interface
+                        const maskedKey = apiKey.length > 10 
+                            ? apiKey.substring(0, 8) + '...' + apiKey.substring(apiKey.length - 4)
+                            : '••••••••';
+                        apiKeyInput.value = maskedKey;
+                        apiKeyInput.setAttribute('data-saved-key', apiKey);
+                        apiKeyInput.setAttribute('readonly', 'readonly');
+                        apiKeyInput.classList.add('bg-gray-800', 'cursor-not-allowed');
+                    } else {
+                        const error = await response.json();
+                        throw new Error(error.message || 'Erro ao salvar chave');
+                    }
+                } catch (err) {
+                    showMessage('admin-error-message', err.message, true);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Salvar Chave';
+                }
+            });
+            
+            // Carregar configuração do DownSub
+            async function loadDownSubConfig() {
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/api-providers`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    if (response.ok) {
+                        const apis = await response.json();
+                        const downsubApi = apis.find(api => api.provider === 'downsub');
+                        if (downsubApi && downsubApi.api_key) {
+                            const apiKeyInput = document.getElementById('downsub-api-key');
+                            if (apiKeyInput) {
+                                // A chave vem descriptografada do backend quando listamos as APIs
+                                // Mas vamos mascarar para segurança
+                                const apiKey = downsubApi.api_key;
+                                const maskedKey = apiKey.length > 10 
+                                    ? apiKey.substring(0, 8) + '...' + apiKey.substring(apiKey.length - 4)
+                                    : '••••••••';
+                                apiKeyInput.value = maskedKey;
+                                apiKeyInput.setAttribute('data-saved-key', apiKey);
+                                apiKeyInput.setAttribute('readonly', 'readonly');
+                                apiKeyInput.classList.add('bg-gray-800', 'cursor-not-allowed');
+                                
+                                // Adicionar botão para editar
+                                const editBtn = document.createElement('button');
+                                editBtn.textContent = 'Editar';
+                                editBtn.className = 'px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-semibold rounded-lg transition ml-2';
+                                editBtn.addEventListener('click', () => {
+                                    apiKeyInput.removeAttribute('readonly');
+                                    apiKeyInput.classList.remove('bg-gray-800', 'cursor-not-allowed');
+                                    apiKeyInput.value = apiKey;
+                                    apiKeyInput.removeAttribute('data-saved-key');
+                                    editBtn.remove();
+                                });
+                                
+                                const checkBtn = document.getElementById('check-downsub-api');
+                                if (checkBtn && !checkBtn.nextElementSibling?.classList.contains('edit-downsub-key-btn')) {
+                                    checkBtn.insertAdjacentElement('afterend', editBtn);
+                                    editBtn.classList.add('edit-downsub-key-btn');
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Admin] Erro ao carregar configuração DownSub:', err);
+                }
+            }
+            
             // Carregar APIs no admin
             async function loadAdminApis() {
                 await loadVoicePremiumConfig();
@@ -9272,6 +9595,7 @@ Equipe La Casa Dark Core</textarea>
                 await loadOpenAiVoiceKeyConfig();
                 await loadVideoApiKeyConfig();
                 await loadLaozhangConfig();
+                await loadDownSubConfig();
                 
                 try {
                     const response = await fetch(`${API_BASE}/api/admin/api-providers`, {
@@ -12237,7 +12561,7 @@ Equipe La Casa Dark Core</textarea>
                                 <p class="text-xs text-gray-500 mt-1">Assim que o campo estiver preenchido, o botão "Criar Agente de Roteiro" será liberado automaticamente.</p>
                             </div>
                             <div id="transcript-container">
-                                <textarea id="full-transcript-text" class="w-full h-64 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm resize-none" placeholder="Cole aqui a transcrição completa do vídeo ou aguarde o carregamento automático."></textarea>
+                                <textarea id="full-transcript-text" class="w-full min-h-[500px] max-h-[700px] px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm resize-y" placeholder="Cole aqui a transcrição completa do vídeo ou aguarde o carregamento automático."></textarea>
                                 <p class="text-xs text-gray-500 mt-2">Você pode colar manualmente o roteiro completo, colar direto da área de transferência ou utilizar o botão de transcrição automática após analisar o vídeo.</p>
                                 <div class="flex flex-wrap gap-2 mt-3">
                                     <button id="btn-paste-transcript" class="py-2 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold text-sm flex items-center space-x-2">
@@ -12257,7 +12581,7 @@ Equipe La Casa Dark Core</textarea>
                                         <span>Analisar Fórmula Viral</span>
                                     </button>
                                     <button id="btn-create-agent" class="py-2 px-4 rounded-lg bg-green-600 hover:bg-green-500 text-white font-semibold text-sm flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                        <i data-lucide="file-text" class="w-4 h-4"></i>
                                         <span>Criar Agente de Roteiro</span>
                                     </button>
                                 </div>
@@ -12301,7 +12625,7 @@ Equipe La Casa Dark Core</textarea>
                     
                     // Verificar se thumbTitleSelect existe antes de usar (pode não existir quando carregado do histórico)
                     if (thumbTitleSelect) {
-                        thumbTitleSelect.innerHTML = '';
+                    thumbTitleSelect.innerHTML = '';
                     }
                     
                     // Log para debug: verificar quantos títulos serão exibidos
@@ -12356,13 +12680,13 @@ Equipe La Casa Dark Core</textarea>
                         
                         // Adicionar ao select apenas se ele existir (pode não existir quando carregado do histórico)
                         if (thumbTitleSelect) {
-                            const option = document.createElement('option');
-                            option.value = escapedTitle;
-                            option.innerText = escapedTitle;
-                            if (titleObj.is_checked) {
-                                option.selected = true;
-                            }
-                            thumbTitleSelect.appendChild(option);
+                        const option = document.createElement('option');
+                        option.value = escapedTitle;
+                        option.innerText = escapedTitle;
+                        if (titleObj.is_checked) {
+                            option.selected = true;
+                        }
+                        thumbTitleSelect.appendChild(option);
                         }
                     });
                     }
@@ -12530,22 +12854,27 @@ Equipe La Casa Dark Core</textarea>
                     const checklist = Array.isArray(analysis.formulaChecklist) ? analysis.formulaChecklist : [];
                     const sugestoes = Array.isArray(analysis.sugestoesAplicacao) ? analysis.sugestoesAplicacao : [];
                     const alertas = Array.isArray(analysis.alertas) ? analysis.alertas : [];
+                    const elementosRetencao = Array.isArray(analysis.elementosRetencao) ? analysis.elementosRetencao : [];
+                    const tecnicasViralizacao = Array.isArray(analysis.tecnicasViralizacao) ? analysis.tecnicasViralizacao : [];
+                    const pontosClimaticos = Array.isArray(analysis.pontosClimaticos) ? analysis.pontosClimaticos : [];
+                    const formulaViral = analysis.formulaViralCompleta || null;
+                    const roteiro10 = analysis.roteiro10por10 || null;
 
                     let html = '';
 
                     if (analysis.resumo) {
-                        html += `<p class="text-gray-200">${analysis.resumo}</p>`;
+                        html += `<div class="bg-blue-600/20 border border-blue-500/40 rounded-lg p-3 mb-4"><p class="text-gray-200">${analysis.resumo}</p></div>`;
                     }
 
                     if (motivos.length) {
                         html += `
-                            <div>
-                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Por que viralizou</h6>
-                                <ul class="space-y-1">
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-amber-400 mb-2">Por que viralizou</h6>
+                                <ul class="space-y-2">
                                     ${motivos.map(item => `
-                                        <li class="flex items-start space-x-2">
-                                            <i data-lucide="check-circle" class="w-4 h-4 text-green-400 mt-0.5"></i>
-                                            <span>${item}</span>
+                                        <li class="flex items-start space-x-2 bg-gray-800/50 rounded-md p-2">
+                                            <i data-lucide="check-circle" class="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0"></i>
+                                            <span class="text-gray-200">${item}</span>
                                         </li>
                                     `).join('')}
                                 </ul>
@@ -12555,14 +12884,24 @@ Equipe La Casa Dark Core</textarea>
 
                     if (estrutura.length) {
                         html += `
-                            <div>
-                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Estrutura narrativa</h6>
-                                <div class="space-y-1">
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-amber-400 mb-2">Estrutura narrativa</h6>
+                                <div class="space-y-2">
                                     ${estrutura.map(step => `
-                                        <div class="bg-gray-800/70 rounded-md px-3 py-2">
-                                            <p class="text-xs uppercase text-gray-400 tracking-wide">${step.tempoAproximado || ''}</p>
-                                            <p class="text-sm font-semibold text-white">${step.etapa || 'Etapa'}</p>
-                                            <p class="text-sm text-gray-300">${step.descricao || ''}</p>
+                                        <div class="bg-gray-800/70 rounded-md px-3 py-3 border border-gray-700">
+                                            <p class="text-xs uppercase text-gray-400 tracking-wide mb-1">${step.tempoAproximado || ''}</p>
+                                            <p class="text-sm font-semibold text-white mb-1">${step.etapa || 'Etapa'}</p>
+                                            <p class="text-sm text-gray-300 mb-2">${step.descricao || ''}</p>
+                                            ${step.elementosVirais && step.elementosVirais.length ? `
+                                                <div class="mt-2">
+                                                    <p class="text-xs text-amber-400 font-semibold mb-1">Elementos virais:</p>
+                                                    <div class="flex flex-wrap gap-1">
+                                                        ${step.elementosVirais.map(el => `<span class="px-2 py-0.5 rounded bg-amber-500/20 text-xs text-amber-300">${el}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            ${step.pontoRetencao ? `<p class="text-xs text-green-400 mt-2"><strong>Retenção:</strong> ${step.pontoRetencao}</p>` : ''}
+                                            ${step.melhoriasSugeridas ? `<p class="text-xs text-blue-400 mt-1"><strong>Melhoria:</strong> ${step.melhoriasSugeridas}</p>` : ''}
                                         </div>
                                     `).join('')}
                                 </div>
@@ -12572,21 +12911,22 @@ Equipe La Casa Dark Core</textarea>
 
                     if (checklist.length) {
                         html += `
-                            <div>
-                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Checklist da fórmula (ticado pela IA)</h6>
-                                <div class="space-y-2">
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-amber-400 mb-2">Checklist da fórmula (ticado pela IA)</h6>
+                                <div class="space-y-3">
                                     ${checklist.map(item => {
                                         const statusOk = (item.status || '').toLowerCase() === 'aplicado';
                                         const icon = statusOk ? 'check-circle-2' : 'circle';
                                         const color = statusOk ? 'text-green-400' : 'text-yellow-400';
                                         return `
-                                            <div class="flex items-start space-x-3 bg-gray-800/60 rounded-md p-3">
-                                                <i data-lucide="${icon}" class="w-5 h-5 ${color} mt-0.5"></i>
-                                                <div class="text-sm text-gray-200">
-                                                    <p class="font-semibold">${item.item || 'Elemento da fórmula'}</p>
-                                                    <p class="text-gray-400 text-xs">${item.porqueFunciona || ''}</p>
+                                            <div class="flex items-start space-x-3 bg-gray-800/60 rounded-md p-3 border border-gray-700">
+                                                <i data-lucide="${icon}" class="w-5 h-5 ${color} mt-0.5 flex-shrink-0"></i>
+                                                <div class="flex-1 text-sm text-gray-200">
+                                                    <p class="font-semibold text-white mb-1">${item.item || 'Elemento da fórmula'}</p>
+                                                    <p class="text-gray-400 text-xs mb-2">${item.porqueFunciona || ''}</p>
+                                                    ${item.exemploConcreto ? `<p class="text-gray-300 text-xs mb-2 bg-gray-900/50 rounded p-2"><span class="text-purple-400 font-semibold">Exemplo:</span> ${item.exemploConcreto}</p>` : ''}
                                                     ${item.comoAplicarNoMeuConteudo ? `<p class="text-gray-300 mt-1"><span class="text-amber-400 font-semibold">Como aplicar:</span> ${item.comoAplicarNoMeuConteudo}</p>` : ''}
-                                                    ${item.upgradeSugerido ? `<p class="text-gray-300 mt-1"><span class="text-amber-400 font-semibold">Upgrade 10/10:</span> ${item.upgradeSugerido}</p>` : ''}
+                                                    ${item.upgradeSugerido ? `<p class="text-green-300 mt-2 bg-green-500/10 rounded p-2"><span class="text-green-400 font-semibold">✨ Upgrade 10/10:</span> ${item.upgradeSugerido}</p>` : ''}
                                                 </div>
                                             </div>
                                         `;
@@ -12598,29 +12938,171 @@ Equipe La Casa Dark Core</textarea>
 
                     if (gatilhos.length) {
                         html += `
-                            <div>
-                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Gatilhos emocionais</h6>
-                                <div class="flex flex-wrap gap-2">
-                                    ${gatilhos.map(trigger => `
-                                        <span class="px-3 py-1 rounded-full bg-gray-800 text-xs text-gray-200 border border-gray-700">${trigger}</span>
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-amber-400 mb-2">Gatilhos emocionais</h6>
+                                <div class="space-y-2">
+                                    ${gatilhos.map(trigger => {
+                                        if (typeof trigger === 'string') {
+                                            return `<span class="px-3 py-1 rounded-full bg-gray-800 text-xs text-gray-200 border border-gray-700">${trigger}</span>`;
+                                        } else {
+                                            return `
+                                                <div class="bg-gray-800/50 rounded-md p-2 border border-gray-700">
+                                                    <div class="flex items-center justify-between mb-1">
+                                                        <span class="px-3 py-1 rounded-full bg-purple-500/20 text-xs text-purple-300 border border-purple-500/40">${trigger.gatilho || 'Gatilho'}</span>
+                                                        <span class="text-xs text-gray-400">${trigger.intensidade || ''}</span>
+                                                    </div>
+                                                    <p class="text-xs text-gray-300 mb-1"><strong>Momento:</strong> ${trigger.momentoAplicado || ''}</p>
+                                                    <p class="text-xs text-amber-300"><strong>Intensificar:</strong> ${trigger.comoIntensificar || ''}</p>
+                                                </div>
+                                            `;
+                                        }
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (elementosRetencao.length) {
+                        html += `
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-green-400 mb-2">🎯 Elementos de Retenção (Watch Time)</h6>
+                                <div class="space-y-2">
+                                    ${elementosRetencao.map(elem => `
+                                        <div class="bg-green-500/10 border border-green-500/40 rounded-md p-3">
+                                            <p class="text-sm font-semibold text-green-300 mb-1">${elem.elemento || ''}</p>
+                                            <p class="text-xs text-gray-300 mb-2">${elem.comoFunciona || ''}</p>
+                                            <p class="text-xs text-amber-300"><strong>Momento ideal:</strong> ${elem.momentoIdeal || ''}</p>
+                                            <p class="text-xs text-green-300 mt-1"><strong>Intensificar:</strong> ${elem.intensificacao || ''}</p>
+                                        </div>
                                     `).join('')}
                                 </div>
                             </div>
                         `;
                     }
 
+                    if (tecnicasViralizacao.length) {
+                        html += `
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-purple-400 mb-2">🚀 Técnicas de Viralização</h6>
+                                <div class="space-y-2">
+                                    ${tecnicasViralizacao.map(tec => `
+                                        <div class="bg-purple-500/10 border border-purple-500/40 rounded-md p-3">
+                                            <p class="text-sm font-semibold text-purple-300 mb-1">${tec.tecnica || ''}</p>
+                                            <p class="text-xs text-gray-300 mb-2">${tec.descricao || ''}</p>
+                                            <p class="text-xs text-amber-300 mb-1"><strong>Aplicação:</strong> ${tec.aplicacao || ''}</p>
+                                            <p class="text-xs text-purple-300"><strong>Potencial viral:</strong> ${tec.potencialViral || ''}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (pontosClimaticos.length) {
+                        html += `
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-red-400 mb-2">⚡ Pontos Climáticos</h6>
+                                <div class="space-y-2">
+                                    ${pontosClimaticos.map(ponto => `
+                                        <div class="bg-red-500/10 border border-red-500/40 rounded-md p-3">
+                                            <div class="flex items-center justify-between mb-1">
+                                                <p class="text-sm font-semibold text-red-300">${ponto.momento || ''}</p>
+                                                <span class="text-xs text-gray-400">${ponto.tempoAproximado || ''}</span>
+                                            </div>
+                                            <p class="text-xs text-gray-300 mb-1"><strong>Emoção:</strong> ${ponto.impactoEmocional || ''}</p>
+                                            <p class="text-xs text-amber-300"><strong>Amplificar:</strong> ${ponto.comoAmplificar || ''}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    if (formulaViral) {
+                        html += `
+                            <div class="mb-4 bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/40 rounded-lg p-4">
+                                <h6 class="text-sm font-semibold text-purple-300 mb-3">📋 Fórmula Viral Completa</h6>
+                                ${formulaViral.introducao ? `
+                                    <div class="mb-3 bg-gray-800/50 rounded p-3">
+                                        <p class="text-xs font-semibold text-blue-400 mb-2">INTRODUÇÃO (${formulaViral.introducao.tempoIdeal || ''})</p>
+                                        <p class="text-xs text-gray-300 mb-1"><strong>Objetivo:</strong> ${formulaViral.introducao.objetivo || ''}</p>
+                                        <p class="text-xs text-gray-300 mb-2"><strong>Elementos:</strong> ${Array.isArray(formulaViral.introducao.elementos) ? formulaViral.introducao.elementos.join(', ') : ''}</p>
+                                        <p class="text-xs text-amber-300"><strong>Fórmula:</strong> ${formulaViral.introducao.formula || ''}</p>
+                                    </div>
+                                ` : ''}
+                                ${formulaViral.desenvolvimento ? `
+                                    <div class="mb-3 bg-gray-800/50 rounded p-3">
+                                        <p class="text-xs font-semibold text-green-400 mb-2">DESENVOLVIMENTO</p>
+                                        <p class="text-xs text-gray-300 mb-1"><strong>Ritmo:</strong> ${formulaViral.desenvolvimento.ritmo || ''}</p>
+                                        <p class="text-xs text-gray-300 mb-2"><strong>Elementos:</strong> ${Array.isArray(formulaViral.desenvolvimento.elementos) ? formulaViral.desenvolvimento.elementos.join(', ') : ''}</p>
+                                        <p class="text-xs text-amber-300"><strong>Fórmula:</strong> ${formulaViral.desenvolvimento.formula || ''}</p>
+                                    </div>
+                                ` : ''}
+                                ${formulaViral.climax ? `
+                                    <div class="mb-3 bg-gray-800/50 rounded p-3">
+                                        <p class="text-xs font-semibold text-red-400 mb-2">CLÍMAX</p>
+                                        <p class="text-xs text-gray-300 mb-1"><strong>Intensidade:</strong> ${formulaViral.climax.intensidade || ''}</p>
+                                        <p class="text-xs text-gray-300 mb-2"><strong>Elementos:</strong> ${Array.isArray(formulaViral.climax.elementos) ? formulaViral.climax.elementos.join(', ') : ''}</p>
+                                        <p class="text-xs text-amber-300"><strong>Fórmula:</strong> ${formulaViral.climax.formula || ''}</p>
+                                    </div>
+                                ` : ''}
+                                ${formulaViral.fechamento ? `
+                                    <div class="bg-gray-800/50 rounded p-3">
+                                        <p class="text-xs font-semibold text-amber-400 mb-2">FECHAMENTO</p>
+                                        <p class="text-xs text-gray-300 mb-1"><strong>CTA:</strong> ${formulaViral.fechamento.cta || ''}</p>
+                                        <p class="text-xs text-gray-300 mb-2"><strong>Elementos:</strong> ${Array.isArray(formulaViral.fechamento.elementos) ? formulaViral.fechamento.elementos.join(', ') : ''}</p>
+                                        <p class="text-xs text-amber-300"><strong>Fórmula:</strong> ${formulaViral.fechamento.formula || ''}</p>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
+
+                    if (roteiro10) {
+                        html += `
+                            <div class="mb-4 bg-gradient-to-r from-amber-600/20 to-yellow-600/20 border border-amber-500/40 rounded-lg p-4">
+                                <h6 class="text-sm font-semibold text-amber-300 mb-3">⭐ Roteiro 10/10 - Fórmula Completa</h6>
+                                ${roteiro10.caracteristicas && roteiro10.caracteristicas.length ? `
+                                    <div class="mb-3">
+                                        <p class="text-xs font-semibold text-amber-400 mb-1">Características:</p>
+                                        <ul class="list-disc pl-5 space-y-1">
+                                            ${roteiro10.caracteristicas.map(c => `<li class="text-xs text-gray-300">${c}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${roteiro10.diferenciais && roteiro10.diferenciais.length ? `
+                                    <div class="mb-3">
+                                        <p class="text-xs font-semibold text-green-400 mb-1">Diferenciais:</p>
+                                        <ul class="list-disc pl-5 space-y-1">
+                                            ${roteiro10.diferenciais.map(d => `<li class="text-xs text-gray-300">${d}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${roteiro10.formula ? `<p class="text-xs text-amber-300 mb-2"><strong>Fórmula:</strong> ${roteiro10.formula}</p>` : ''}
+                                ${roteiro10.checklist && roteiro10.checklist.length ? `
+                                    <div class="mt-3">
+                                        <p class="text-xs font-semibold text-purple-400 mb-1">Checklist:</p>
+                                        <ul class="list-disc pl-5 space-y-1">
+                                            ${roteiro10.checklist.map(item => `<li class="text-xs text-gray-300">${item}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
+
                     if (analysis.diferencialProposto) {
                         html += `
-                            <div class="bg-green-600/20 border border-green-500/40 rounded-lg p-3">
-                                <p class="text-sm text-green-200"><strong>Diferencial sugerido 10/10:</strong> ${analysis.diferencialProposto}</p>
+                            <div class="bg-green-600/20 border border-green-500/40 rounded-lg p-3 mb-4">
+                                <p class="text-sm text-green-200"><strong>💎 Diferencial sugerido 10/10:</strong> ${analysis.diferencialProposto}</p>
                             </div>
                         `;
                     }
 
                     if (sugestoes.length) {
                         html += `
-                            <div>
-                                <h6 class="text-sm font-semibold text-amber-400 mb-1">Como aplicar no meu roteiro</h6>
+                            <div class="mb-4">
+                                <h6 class="text-sm font-semibold text-amber-400 mb-2">Como aplicar no meu roteiro</h6>
                                 <ul class="list-disc pl-5 space-y-1 text-gray-300">
                                     ${sugestoes.map(item => `<li>${item}</li>`).join('')}
                                 </ul>
@@ -12631,7 +13113,7 @@ Equipe La Casa Dark Core</textarea>
                     if (alertas.length) {
                         html += `
                             <div class="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3">
-                                <h6 class="text-sm font-semibold text-amber-300 mb-1">Alertas / pontos de atenção</h6>
+                                <h6 class="text-sm font-semibold text-amber-300 mb-1">⚠️ Alertas / pontos de atenção</h6>
                                 <ul class="list-disc pl-5 text-sm text-amber-100 space-y-1">
                                     ${alertas.map(item => `<li>${item}</li>`).join('')}
                                 </ul>
@@ -12644,8 +13126,8 @@ Equipe La Casa Dark Core</textarea>
                     hasViralInsights = true;
                     if (insightsStatus) {
                         insightsStatus.textContent = provider
-                            ? `Checklist gerado automaticamente (${provider}).`
-                            : 'Checklist gerado automaticamente.';
+                            ? 'Fórmula viral completa gerada automaticamente.'
+                            : 'Fórmula viral completa gerada automaticamente.';
                     }
                     updateCreateAgentAvailability();
                     if (typeof lucide !== 'undefined') {
@@ -12699,7 +13181,8 @@ Equipe La Casa Dark Core</textarea>
                                 videoId: currentVideoId,
                                 videoTitle: currentVideoTitle,
                                 niche: currentNiche,
-                                subniche: currentSubniche
+                                subniche: currentSubniche,
+                                generateAgent: true // Gerar agente automaticamente com os 4 passos
                             })
                         });
 
@@ -12709,6 +13192,11 @@ Equipe La Casa Dark Core</textarea>
                         }
 
                         currentViralInsights = data;
+                        // Se o agente foi gerado automaticamente, incluir nos insights
+                        if (data.agent) {
+                            currentViralInsights.agent = data.agent;
+                            currentViralInsights.agentProvider = data.agentProvider;
+                        }
                         renderTranscriptInsights(data.analysis, data.provider);
                         autoInsightsTriggered = true;
                     } catch (err) {
@@ -12830,7 +13318,53 @@ Equipe La Casa Dark Core</textarea>
                 function buildAgentFormulaPreview(insights) {
                     if (!insights) return '<p class="text-gray-400">Sem dados suficientes para exibir a fórmula.</p>';
                     const analysis = insights.analysis || insights;
+                    const agent = insights.agent || null;
                     let html = '';
+
+                    // Mostrar dados do agente gerado com os 4 passos
+                    if (agent) {
+                        html += `<div class="bg-amber-600/20 border border-amber-500/40 rounded-lg p-4 mb-4">
+                            <h4 class="text-sm font-semibold text-amber-400 mb-2">🤖 Agente Gerado Automaticamente</h4>
+                            ${agent.agentName ? `<p class="text-white text-sm mb-2"><strong>Nome:</strong> ${agent.agentName}</p>` : ''}
+                            ${agent.agentDescription ? `<p class="text-gray-300 text-sm mb-2">${agent.agentDescription}</p>` : ''}
+                        </div>`;
+                        
+                        if (agent.introduction) {
+                            html += `
+                                <div class="bg-blue-600/20 border border-blue-500/40 rounded-lg p-3 mb-3">
+                                    <h4 class="text-sm font-semibold text-blue-400 mb-2">📝 Introdução (PASSO 2)</h4>
+                                    <p class="text-gray-200 text-sm">${agent.introduction}</p>
+                                </div>
+                            `;
+                        }
+                        
+                        if (agent.subscriptionCTA) {
+                            html += `
+                                <div class="bg-green-600/20 border border-green-500/40 rounded-lg p-3 mb-3">
+                                    <h4 class="text-sm font-semibold text-green-400 mb-2">🔔 CTA de Inscrição (PASSO 3)</h4>
+                                    <p class="text-gray-200 text-sm">${agent.subscriptionCTA}</p>
+                                </div>
+                            `;
+                        }
+                        
+                        if (agent.commentCTA) {
+                            html += `
+                                <div class="bg-purple-600/20 border border-purple-500/40 rounded-lg p-3 mb-3">
+                                    <h4 class="text-sm font-semibold text-purple-400 mb-2">💬 CTA de Comentário (PASSO 4)</h4>
+                                    <p class="text-gray-200 text-sm">${agent.commentCTA}</p>
+                                </div>
+                            `;
+                        }
+                        
+                        if (agent.exampleScript) {
+                            html += `
+                                <div class="bg-gray-800/70 border border-gray-700 rounded-lg p-3 mb-3">
+                                    <h4 class="text-sm font-semibold text-amber-400 mb-2">📄 Exemplo de Roteiro (PASSO 1)</h4>
+                                    <p class="text-gray-300 text-xs">${agent.exampleScript.substring(0, 500)}${agent.exampleScript.length > 500 ? '...' : ''}</p>
+                                </div>
+                            `;
+                        }
+                    }
 
                     if (analysis.resumo) {
                         html += `<p class="text-base text-white mb-3">${analysis.resumo}</p>`;
@@ -12910,6 +13444,35 @@ Equipe La Casa Dark Core</textarea>
                 async function submitAgentRequest(payload) {
                     if (!payload || isSubmittingAgent) return;
                     isSubmittingAgent = true;
+                    
+                    // Mostrar modal de loading
+                    const loadingModal = document.getElementById('create-agent-loading-modal');
+                    const progressBar = document.getElementById('create-agent-progress-bar');
+                    const progressText = document.getElementById('create-agent-progress-text');
+                    
+                    if (loadingModal) {
+                        loadingModal.style.display = 'flex';
+                        loadingModal.classList.remove('hidden');
+                    }
+                    
+                    // Simular progresso
+                    let progress = 0;
+                    const progressInterval = setInterval(() => {
+                        progress = Math.min(95, progress + Math.random() * 15);
+                        if (progressBar) progressBar.style.width = progress + '%';
+                        if (progressText) {
+                            if (progress < 30) {
+                                progressText.textContent = 'Analisando fórmula viral...';
+                            } else if (progress < 60) {
+                                progressText.textContent = 'Gerando instruções do agente...';
+                            } else if (progress < 90) {
+                                progressText.textContent = 'Finalizando configuração...';
+                            } else {
+                                progressText.textContent = 'Quase pronto...';
+                            }
+                        }
+                    }, 300);
+                    
                     const spinner = btnSubmitAgent ? btnSubmitAgent.querySelector('.btn-spinner') : null;
                     if (btnSubmitAgent) btnSubmitAgent.disabled = true;
                     if (spinner) spinner.classList.remove('hidden');
@@ -12945,8 +13508,21 @@ Equipe La Casa Dark Core</textarea>
                             throw new Error(errorData.msg || 'Erro ao criar agente.');
                         }
 
-                        await response.json();
-                        showCustomModal('Agente viral criado', 'A fórmula foi clonada e aprimorada para o novo agente!', 'success');
+                        const agentData = await response.json();
+                        
+                        // Fechar modal de loading
+                        clearInterval(progressInterval);
+                        if (progressBar) progressBar.style.width = '100%';
+                        if (progressText) progressText.textContent = 'Concluído!';
+                        
+                        setTimeout(() => {
+                            if (loadingModal) {
+                                loadingModal.style.display = 'none';
+                                loadingModal.classList.add('hidden');
+                            }
+                        }, 500);
+                        
+                        showCustomModal('Agente criado', 'A fórmula foi clonada e aprimorada para o novo agente!', 'success');
                         if (createAgentModal) createAgentModal.style.display = 'none';
                         createAgentForm.reset();
 
@@ -12957,6 +13533,15 @@ Equipe La Casa Dark Core</textarea>
                         }
                     } catch (err) {
                         console.error('Erro ao criar agente:', err);
+                        
+                        // Fechar modal de loading em caso de erro
+                        if (typeof progressInterval !== 'undefined') clearInterval(progressInterval);
+                        const loadingModal = document.getElementById('create-agent-loading-modal');
+                        if (loadingModal) {
+                            loadingModal.style.display = 'none';
+                            loadingModal.classList.add('hidden');
+                        }
+                        
                         showCustomModal('Erro ao criar agente', err.message || 'Tente novamente.', 'error');
                     } finally {
                         isSubmittingAgent = false;
@@ -14654,7 +15239,7 @@ Equipe La Casa Dark Core</textarea>
                                 `✨ Estilo analisado automaticamente!\n` +
                                 `O sistema já analisou o estilo visual e criou 3 prompts padrão.\n` +
                                 `Agora você pode usar o Gerador de Thumbnail Completa para gerar thumbnails prontas com headline, SEO e tags.` :
-                                `💡 Próximo passo:\n` +
+                            `💡 Próximo passo:\n` +
                                 `Adicione mais thumbnails de referência ou clique em "Analisar Estilo e Criar Prompt Padrão" para gerar prompts que replicarão o estilo visual.`),
                             'success'
                         );
@@ -18697,9 +19282,9 @@ Equipe La Casa Dark Core</textarea>
                                     minute: '2-digit'
                                 });
                                 
-                                // Calcular tempo aproximado (150 palavras/minuto, ~5 caracteres/palavra = 750 caracteres/minuto)
+                                // Calcular tempo aproximado (130 palavras/minuto para narração mais rigorosa, ~5 caracteres/palavra = 650 caracteres/minuto)
                                 const charCount = script.script_content?.length || 0;
-                                const estimatedMinutes = Math.ceil(charCount / 750);
+                                const estimatedMinutes = Math.ceil(charCount / 650);
                                 
                                 return `
                                     <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 hover:border-amber-500 transition-colors">
@@ -18852,8 +19437,8 @@ Equipe La Casa Dark Core</textarea>
                                             .replace(/\s+/g, ' ') // Normalizar espaços
                                             .trim();
                                         
-                                        // Estimar duração baseado no tamanho (150 palavras/minuto, ~5 caracteres/palavra)
-                                        const estimatedDuration = Math.max(5, Math.ceil(fullContent.length / (150 * 5)));
+                                        // Estimar duração baseado no tamanho (130 palavras/minuto para narração mais rigorosa, ~5 caracteres/palavra)
+                                        const estimatedDuration = Math.max(5, Math.ceil(fullContent.length / (130 * 5)));
                                         const srtContent = generateSRT(fullContent, estimatedDuration);
                                         downloadSRT(srtContent, scriptTitle || 'roteiro');
                                     })
@@ -19044,7 +19629,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div>
                                         <label class="block text-sm font-medium mb-2 text-gray-300">Duração (min) <span class="text-amber-500">*</span></label>
                                         <input type="number" id="generate-script-duration" min="3" max="120" value="5" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
-                                        <p class="text-xs text-gray-400 mt-1">Palavras: ~<span id="duration-words">750</span></p>
+                                        <p class="text-xs text-gray-400 mt-1">Palavras: ~<span id="duration-words">650</span></p>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium mb-2 text-gray-300">Partes (Automático)</label>
@@ -19281,8 +19866,8 @@ Equipe La Casa Dark Core</textarea>
                             
                             // Validar quantidade de palavras antes de fechar o modal
                             const wordCount = scriptText.trim().split(/\s+/).filter(w => w.length > 0).length;
-                            const expectedWords = parsedDuration * 150;
-                            const minWords = expectedWords - 50;
+                            const expectedWords = parsedDuration * 130; // 130 palavras/minuto (mais rigoroso)
+                            const minWords = expectedWords - 40; // Margem menor para ser mais rigoroso
                             const maxWords = expectedWords + 100;
                             
                             console.log(`[Roteiro] Validação: ${wordCount} palavras encontradas, esperado: ${expectedWords} (tolerância: ${minWords}-${maxWords})`);
@@ -19309,7 +19894,10 @@ Equipe La Casa Dark Core</textarea>
                             
                             setTimeout(() => {
                                 hideProgressModal();
-                                showScriptResult(scriptText, agentName, parsedDuration);
+                                // Calcular informações do roteiro
+                                const wordCount = scriptText.trim().split(/\s+/).filter(w => w.length > 0).length;
+                                const estimatedMinutes = Math.round((wordCount / 130) * 10) / 10; // 130 palavras/minuto
+                                showScriptResult(scriptText, agentName, parsedDuration, wordCount, estimatedMinutes);
                             }, 1200);
                         } catch (err) {
                             hideProgressModal();
@@ -19333,7 +19921,15 @@ Equipe La Casa Dark Core</textarea>
                 
                 document.getElementById('generate-script-title').value = '';
                 document.getElementById('generate-script-topic').value = '';
-                document.getElementById('generate-script-duration').value = '5';
+                const durationInput = document.getElementById('generate-script-duration');
+                if (durationInput) {
+                    durationInput.value = '5';
+                    // Atualizar palavras inicialmente (5 min * 130 palavras/min = 650 palavras)
+                    const wordsSpan = document.getElementById('duration-words');
+                    if (wordsSpan) {
+                        wordsSpan.textContent = '650';
+                    }
+                }
                 document.getElementById('generate-script-language').value = 'pt';
                 document.getElementById('generate-script-model').value = 'claude-3-7-sonnet-20250219';
                 document.getElementById('cta-inicio').checked = false;
@@ -19361,7 +19957,7 @@ Equipe La Casa Dark Core</textarea>
                     const displayedDuration = duration + additionalMinutes;
                     const basePartDuration = 3;
                     const numberOfParts = Math.max(1, Math.ceil(displayedDuration / basePartDuration));
-                    const wordsTarget = displayedDuration * 150;
+                    const wordsTarget = displayedDuration * 130; // 130 palavras/minuto (mais rigoroso)
                     
                     partsInput.value = numberOfParts;
                     // Atualizar texto mostrando duração ajustada
@@ -19757,6 +20353,194 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             // ===== FIM DAS FUNÇÕES DE PROGRESSO =====
+
+            // Função para limpar marcações de partes do roteiro
+            function cleanScriptForCopy(script) {
+                if (!script || typeof script !== 'string') return script;
+                
+                let cleaned = script;
+                
+                // Remover marcações de PARTE X com intervalos de tempo
+                cleaned = cleaned.replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, '');
+                cleaned = cleaned.replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gi, '');
+                cleaned = cleaned.replace(/PARTE\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, '');
+                cleaned = cleaned.replace(/Parte\s+\d+.*?\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/gi, '');
+                cleaned = cleaned.replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*?\n/gmi, '');
+                cleaned = cleaned.replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*/gmi, '');
+                cleaned = cleaned.replace(/PARTE\s+\d+\s*$/gmi, '');
+                cleaned = cleaned.replace(/Parte\s+\d+\s*$/gmi, '');
+                
+                // Remover marcações entre chaves e colchetes
+                cleaned = cleaned.replace(/\{[^}]*\}/g, '');
+                cleaned = cleaned.replace(/\[[^\]]*\]/g, '');
+                
+                // Limpar múltiplas quebras de linha
+                cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+                cleaned = cleaned.replace(/\s+\n/g, '\n');
+                cleaned = cleaned.replace(/\n\s+/g, '\n');
+                
+                return cleaned.trim();
+            }
+
+            // Função para gerar arquivo SRT
+            function generateSRT(text, durationMinutes) {
+                const cleanedText = cleanScriptForCopy(text);
+                const sentences = cleanedText.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+                const totalSeconds = durationMinutes * 60;
+                const secondsPerSentence = totalSeconds / sentences.length;
+                
+                let srt = '';
+                let currentTime = 0;
+                
+                sentences.forEach((sentence, index) => {
+                    const startTime = currentTime;
+                    const endTime = Math.min(totalSeconds, currentTime + secondsPerSentence);
+                    
+                    const start = formatSRTTime(startTime);
+                    const end = formatSRTTime(endTime);
+                    
+                    srt += `${index + 1}\n${start} --> ${end}\n${sentence.trim()}\n\n`;
+                    
+                    currentTime = endTime;
+                });
+                
+                return srt;
+            }
+
+            // Função para formatar tempo no formato SRT (HH:MM:SS,mmm)
+            function formatSRTTime(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                const milliseconds = Math.floor((seconds % 1) * 1000);
+                
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds).padStart(3, '0')}`;
+            }
+
+            // Função para baixar arquivo SRT
+            function downloadSRT(srtContent, filename) {
+                const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${filename || 'roteiro'}.srt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            // Função para exibir resultado do roteiro gerado
+            function showScriptResult(scriptText, agentName, requestedDuration, wordCount, estimatedMinutes) {
+                const cleanedScript = cleanScriptForCopy(scriptText);
+                const actualWordCount = wordCount || cleanedScript.trim().split(/\s+/).filter(w => w.length > 0).length;
+                const actualMinutes = estimatedMinutes || Math.round((actualWordCount / 130) * 10) / 10;
+                
+                // Criar ou obter modal
+                let modal = document.getElementById('script-result-modal');
+                if (!modal) {
+                    modal = document.createElement('div');
+                    modal.id = 'script-result-modal';
+                    modal.className = 'fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+                    document.body.appendChild(modal);
+                }
+                
+                const statusClass = actualMinutes <= requestedDuration * 1.1 ? 'text-green-400' : 'text-amber-400';
+                const statusIcon = actualMinutes <= requestedDuration * 1.1 ? '✓' : '⚠';
+                
+                modal.innerHTML = `
+                    <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                        <div class="flex justify-between items-center p-6 border-b border-gray-700">
+                            <div>
+                                <h3 class="text-2xl font-bold text-white mb-2">Roteiro Gerado</h3>
+                                <div class="flex items-center gap-4 text-sm">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-gray-400">Agente:</span>
+                                        <span class="text-amber-400 font-semibold">${escapeHtml(agentName || 'N/A')}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-gray-400">Duração solicitada:</span>
+                                        <span class="text-white font-semibold">${requestedDuration} min</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="close-script-result-modal" class="text-gray-400 hover:text-white transition">
+                                <i data-lucide="x" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                        <div class="p-6 border-b border-gray-700 bg-gray-800/50">
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+                                    <p class="text-xs text-gray-400 mb-1">Palavras</p>
+                                    <p class="text-xl font-bold text-white">${actualWordCount.toLocaleString('pt-BR')}</p>
+                                </div>
+                                <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+                                    <p class="text-xs text-gray-400 mb-1">Duração Estimada</p>
+                                    <p class="text-xl font-bold ${statusClass}">${statusIcon} ${actualMinutes.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} min</p>
+                                </div>
+                                <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+                                    <p class="text-xs text-gray-400 mb-1">Status</p>
+                                    <p class="text-sm font-semibold ${statusClass}">${actualMinutes <= requestedDuration * 1.1 ? 'Dentro do esperado' : 'Acima do esperado'}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-6">
+                            <textarea id="script-result-text" readonly class="w-full h-full min-h-[400px] px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 text-sm resize-none font-mono">${escapeHtml(cleanedScript)}</textarea>
+                        </div>
+                        <div class="flex justify-end gap-3 p-6 border-t border-gray-700 bg-gray-800/50">
+                            <button id="copy-script-btn" class="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition flex items-center gap-2">
+                                <i data-lucide="clipboard-copy" class="w-5 h-5"></i>
+                                <span>Copiar Roteiro</span>
+                            </button>
+                            <button id="download-srt-btn" class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition flex items-center gap-2">
+                                <i data-lucide="download" class="w-5 h-5"></i>
+                                <span>Baixar SRT</span>
+                            </button>
+                            <button id="close-script-result-btn" class="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition">
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                modal.style.display = 'flex';
+                
+                // Event listeners
+                document.getElementById('close-script-result-modal').addEventListener('click', () => {
+                    modal.style.display = 'none';
+                });
+                
+                document.getElementById('close-script-result-btn').addEventListener('click', () => {
+                    modal.style.display = 'none';
+                });
+                
+                document.getElementById('copy-script-btn').addEventListener('click', () => {
+                    const cleaned = cleanScriptForCopy(cleanedScript);
+                    navigator.clipboard.writeText(cleaned).then(() => {
+                        const btn = document.getElementById('copy-script-btn');
+                        const originalText = btn.innerHTML;
+                        btn.innerHTML = '<i data-lucide="check" class="w-5 h-5"></i> <span>Copiado!</span>';
+                        btn.classList.remove('bg-amber-600', 'hover:bg-amber-500');
+                        btn.classList.add('bg-green-600', 'hover:bg-green-500');
+                        setTimeout(() => {
+                            btn.innerHTML = originalText;
+                            btn.classList.remove('bg-green-600', 'hover:bg-green-500');
+                            btn.classList.add('bg-amber-600', 'hover:bg-amber-500');
+                        }, 2000);
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    }).catch(err => {
+                        alert('Erro ao copiar: ' + err.message);
+                    });
+                });
+                
+                document.getElementById('download-srt-btn').addEventListener('click', () => {
+                    const cleaned = cleanScriptForCopy(cleanedScript);
+                    const srtContent = generateSRT(cleaned, actualMinutes);
+                    downloadSRT(srtContent, `${agentName || 'roteiro'}-${actualMinutes}min`);
+                });
+                
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
 
             // Função para formatar roteiro em partes (cada parte ~3 minutos, dividida em 5 parágrafos)
             function formatScriptIntoParts(script, totalDuration) {
@@ -21002,8 +21786,8 @@ Equipe La Casa Dark Core</textarea>
                     const value = parseInt(wordsPerScene?.value || 50);
                     
                     if (unit === 'seconds') {
-                        // Calcular baseado em segundos: assumir ~150 palavras por minuto de narração (2.5 palavras/segundo)
-                        const wordsPerSecond = 2.5;
+                        // Calcular baseado em segundos: assumir ~130 palavras por minuto de narração (2.17 palavras/segundo) - mais rigoroso
+                        const wordsPerSecond = 2.17;
                         const wordsPerInterval = value * wordsPerSecond;
                         estimatedScenes = Math.max(1, Math.round(words / wordsPerInterval));
                     } else {
@@ -25133,7 +25917,7 @@ Equipe La Casa Dark Core</textarea>
                 const text = e.target.value;
                 const charCount = text.length;
                 const wordCount = text.trim().split(/\s+/).filter(w => w).length;
-                const estimatedDuration = Math.ceil(wordCount / 150); // 150 palavras por minuto
+                const estimatedDuration = Math.ceil(wordCount / 130); // 130 palavras por minuto (mais rigoroso)
                 
                 document.getElementById('tts-char-count').textContent = `${charCount} caracteres`;
                 if (wordCount > 0) {
@@ -26066,6 +26850,13 @@ Equipe La Casa Dark Core</textarea>
                             <div class="flex-1">
                                 <h3 class="text-lg font-bold text-white mb-1">${escapeHtml(agent.name)}</h3>
                                 ${agent.description ? `<p class="text-sm text-gray-400">${escapeHtml(agent.description)}</p>` : ''}
+                                ${agent.niche || agent.subniche ? `
+                                    <div class="flex items-center gap-2 mt-2">
+                                        ${agent.niche ? `<span class="px-2 py-1 bg-amber-500/20 text-amber-400 text-xs rounded">${escapeHtml(agent.niche)}</span>` : ''}
+                                        ${agent.subniche ? `<span class="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">${escapeHtml(agent.subniche)}</span>` : ''}
+                                    </div>
+                                ` : ''}
+                                ${agent.formula_json ? `<span class="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">✓ Fórmula Viral</span>` : ''}
                             </div>
                             ${agent.is_favorite ? '<i data-lucide="star" class="text-amber-500 fill-amber-500"></i>' : ''}
                         </div>
@@ -27178,6 +27969,1323 @@ Equipe La Casa Dark Core</textarea>
             };
             // ==================== FIM DAS FUNÇÕES PARA AGENTES VIRAIS ====================
 
+            // --- FUNÇÕES PARA ANÁLISE DE CANAIS VIRAIS ---
+            
+            async function loadViralChannels() {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) throw new Error('Erro ao carregar canais');
+                    
+                    const data = await response.json();
+                    const channelsList = document.getElementById('viral-channels-list');
+                    
+                    if (!channelsList) return;
+                    
+                    if (!data.channels || data.channels.length === 0) {
+                        channelsList.innerHTML = '<p class="text-gray-400 col-span-full text-center py-8">Nenhum canal adicionado ainda. Adicione um canal para começar a análise.</p>';
+                        return;
+                    }
+                    
+                    channelsList.innerHTML = data.channels.map(channel => {
+                        const ageYears = channel.channel_age_years ? channel.channel_age_years.toFixed(1) : 'N/A';
+                        const ageDays = channel.channel_age_days || 0;
+                        const rpmUsd = channel.avg_rpm_usd ? channel.avg_rpm_usd.toFixed(2) : 'N/A';
+                        const rpmBrl = channel.avg_rpm_brl ? channel.avg_rpm_brl.toFixed(2) : 'N/A';
+                        const niche = channel.niche ? `<span class="px-2 py-1 bg-amber-600/20 text-amber-300 rounded text-xs">${escapeHtml(channel.niche)}</span>` : '';
+                        const subniche = channel.subniche ? `<span class="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-xs ml-2">${escapeHtml(channel.subniche)}</span>` : '';
+                        const nicheDisplay = channel.niche || channel.subniche ? `<div class="flex flex-wrap items-center gap-2 mt-2">${niche}${subniche}</div>` : '';
+                        
+                        return `
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                            <div class="flex items-start justify-between mb-4">
+                                <div class="flex-1">
+                                    <h3 class="text-lg font-semibold text-white mb-2">${escapeHtml(channel.channel_name)}</h3>
+                                    <p class="text-sm text-gray-400 mb-2">@${escapeHtml(channel.channel_handle || 'N/A')}</p>
+                                    ${nicheDisplay || (niche ? `<div class="mb-2">${niche}</div>` : '')}
+                                    <div class="flex flex-wrap gap-4 text-xs text-gray-500 mb-2">
+                                        <span>👥 ${(channel.subscriber_count || 0).toLocaleString()} inscritos</span>
+                                        <span>📹 ${(channel.total_videos || 0).toLocaleString()} vídeos</span>
+                                        <span>👁️ ${(channel.total_views || 0).toLocaleString()} visualizações</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-4 text-xs text-gray-500">
+                                        <span>⏱️ ${ageYears} anos (${ageDays} dias)</span>
+                                        <span>💰 RPM: $${rpmUsd} USD / R$ ${rpmBrl} BRL</span>
+                                    </div>
+                                </div>
+                                <button onclick="deleteViralChannel(${channel.id})" class="p-2 text-red-400 hover:text-red-300" title="Remover">
+                                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="analyzeViralChannel(${channel.id})" class="flex-1 py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-lg transition">
+                                    🔍 Analisar Canal
+                                </button>
+                                <button onclick="viewViralAnalysis(${channel.id})" class="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition">
+                                    📊 Ver Análise
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">Analisado: ${new Date(channel.analyzed_at).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                    `;
+                    }).join('');
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('[Viral Analysis] Erro ao carregar canais:', err);
+                    showCustomModal('Erro', 'Erro ao carregar canais: ' + err.message, 'error');
+                }
+            }
+            
+            async function addViralChannel() {
+                const urlInput = document.getElementById('viral-channel-url');
+                const url = urlInput?.value.trim();
+                
+                if (!url) {
+                    showCustomModal('URL Obrigatória', 'Por favor, insira a URL do canal do YouTube.', 'warning');
+                    return;
+                }
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    showLoadingModal('Adicionando canal...', 'default');
+                    
+                    // Não enviar nicho/subnicho - serão detectados durante a análise
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ channelUrl: url })
+                    });
+                    
+                    const data = await response.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.msg || 'Erro ao adicionar canal');
+                    }
+                    
+                    urlInput.value = '';
+                    // Limpar campos de nicho e subnicho
+                    const nicheInput = document.getElementById('viral-channel-niche');
+                    const subnicheInput = document.getElementById('viral-channel-subniche');
+                    if (nicheInput) nicheInput.value = '';
+                    if (subnicheInput) subnicheInput.value = '';
+                    showCustomModal('Sucesso', data.msg || 'Canal adicionado com sucesso!', 'success');
+                    loadViralChannels();
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    showCustomModal('Erro', err.message || 'Erro ao adicionar canal', 'error');
+                }
+            }
+            
+            async function analyzeViralChannel(analysisId) {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    showLoadingModal('Analisando canal... Isso pode levar alguns minutos.', 'default');
+                    
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels/${analysisId}/analyze`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ ai_model: 'auto' })
+                    });
+                    
+                    const data = await response.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.msg || 'Erro ao analisar canal');
+                    }
+                    
+                    showCustomModal('Análise Concluída', 'Análise do canal concluída com sucesso! O nicho e subnicho foram detectados automaticamente. Visualize os insights na seção de análise.', 'success');
+                    loadViralChannels();
+                    viewViralAnalysis(analysisId);
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    showCustomModal('Erro', err.message || 'Erro ao analisar canal', 'error');
+                }
+            }
+            
+            async function viewViralAnalysis(analysisId) {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    showLoadingModal('Carregando análise...', 'default');
+                    
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels/${analysisId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    const data = await response.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.msg || 'Erro ao carregar análise');
+                    }
+                    
+                    const detailDiv = document.getElementById('viral-analysis-detail');
+                    const channelInfo = data.analysis;
+                    const videos = data.videos || [];
+                    const insights = data.insights || [];
+                    
+                    console.log('[Viral Analysis Frontend] Dados recebidos:', {
+                        hasAnalysis: !!data.analysis,
+                        hasViralInsights: !!data.analysis?.viral_insights,
+                        viralInsightsType: typeof data.analysis?.viral_insights,
+                        viralInsightsValue: data.analysis?.viral_insights,
+                        videosCount: videos.length,
+                        insightsCount: insights.length,
+                        fullAnalysis: data.analysis
+                    });
+                    
+                    // Informações do canal
+                    const analysisData = data.analysis;
+                    const ageYears = analysisData.channel_age_years ? analysisData.channel_age_years.toFixed(1) : (channelInfo.yearsSinceCreation || 0).toFixed(1);
+                    const ageDays = analysisData.channel_age_days || channelInfo.daysSinceCreation || 0;
+                    const rpmUsd = analysisData.avg_rpm_usd ? analysisData.avg_rpm_usd.toFixed(2) : 'N/A';
+                    const rpmBrl = analysisData.avg_rpm_brl ? analysisData.avg_rpm_brl.toFixed(2) : 'N/A';
+                    const totalRevenueUSD = analysisData.total_revenue_usd ? parseFloat(analysisData.total_revenue_usd).toFixed(2) : 'N/A';
+                    const totalRevenueBRL = analysisData.total_revenue_brl ? parseFloat(analysisData.total_revenue_brl).toFixed(2) : 'N/A';
+                    
+                    document.getElementById('viral-channel-info').innerHTML = `
+                        <div class="bg-gray-800 rounded-lg p-4">
+                            <h4 class="text-white font-semibold mb-4">${escapeHtml(channelInfo.channel_name)}</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Inscritos</p>
+                                    <p class="text-white text-2xl font-bold">${(channelInfo.subscriber_count || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-400 text-sm">Videos</p>
+                                    <p class="text-white text-2xl font-bold">${(channelInfo.total_videos || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-400 text-sm">Visualizações</p>
+                                    <p class="text-white text-2xl font-bold">${(channelInfo.total_views || 0).toLocaleString()}</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-400 text-sm">Idade do Canal</p>
+                                    <p class="text-white text-2xl font-bold">${ageYears} anos</p>
+                                    <p class="text-gray-500 text-xs">${ageDays} dias</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <p class="text-gray-400 text-sm">RPM Médio (USD)</p>
+                                    <p class="text-white text-2xl font-bold">$${rpmUsd}</p>
+                                    <p class="text-gray-500 text-xs">por 1000 visualizações</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-400 text-sm">RPM Médio (BRL)</p>
+                                    <p class="text-white text-2xl font-bold">R$ ${rpmBrl}</p>
+                                    <p class="text-gray-500 text-xs">por 1000 visualizações</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="bg-gradient-to-r from-green-900/30 to-emerald-900/30 rounded-lg p-3 border border-green-700/50">
+                                    <p class="text-gray-400 text-sm">💰 Valor Total Ganho (USD)</p>
+                                    <p class="text-green-400 text-2xl font-bold">$${totalRevenueUSD !== 'N/A' ? parseFloat(totalRevenueUSD).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</p>
+                                </div>
+                                <div class="bg-gradient-to-r from-green-900/30 to-emerald-900/30 rounded-lg p-3 border border-green-700/50">
+                                    <p class="text-gray-400 text-sm">💰 Valor Total Ganho (BRL)</p>
+                                    <p class="text-green-400 text-2xl font-bold">R$ ${totalRevenueBRL !== 'N/A' ? parseFloat(totalRevenueBRL).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'N/A'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Top vídeos - ordenar por visualizações e pegar top 10
+                    const sortedVideos = videos.sort((a, b) => (b.view_count || 0) - (a.view_count || 0)).slice(0, 10);
+                    const videosHtml = sortedVideos.map(video => {
+                        // Calcular tempo no ar
+                        const publishedAt = video.published_at ? new Date(video.published_at) : null;
+                        let timeAgo = 'N/A';
+                        let hoursAgo = 0;
+                        if (publishedAt) {
+                            const now = new Date();
+                            const diffMs = now - publishedAt;
+                            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                            const diffDays = Math.floor(diffHours / 24);
+                            const diffMonths = Math.floor(diffDays / 30);
+                            const diffYears = Math.floor(diffDays / 365);
+                            
+                            hoursAgo = diffHours;
+                            
+                            if (diffYears > 0) {
+                                timeAgo = `${diffYears} ${diffYears === 1 ? 'ano' : 'anos'}`;
+                            } else if (diffMonths > 0) {
+                                timeAgo = `${diffMonths} ${diffMonths === 1 ? 'mês' : 'meses'}`;
+                            } else if (diffDays > 0) {
+                                timeAgo = `${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}`;
+                            } else if (diffHours > 0) {
+                                timeAgo = `${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
+                            } else {
+                                const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                                timeAgo = `${diffMinutes} ${diffMinutes === 1 ? 'minuto' : 'minutos'}`;
+                            }
+                        }
+                        
+                        // Calcular VPH (Views Per Hour)
+                        const views = video.view_count || 0;
+                        const vph = hoursAgo > 0 ? (views / hoursAgo).toFixed(0) : views.toFixed(0);
+                        const vphFormatted = hoursAgo > 0 ? `${parseInt(vph).toLocaleString()}/h` : `${views.toLocaleString()} (recém publicado)`;
+                        
+                        // Calcular fórmula de estrutura do vídeo
+                        const engagementRate = views > 0 ? (((video.like_count || 0) + (video.comment_count || 0)) / views * 100).toFixed(2) : '0.00';
+                        const viewsPerDay = hoursAgo > 0 ? (views / (hoursAgo / 24)).toFixed(0) : views.toFixed(0);
+                        
+                        // Buscar fórmula de estrutura do título dos insights
+                        let titleStructureFormula = '';
+                        if (data.analysis?.viral_insights) {
+                            try {
+                                const viralInsights = typeof data.analysis.viral_insights === 'string' 
+                                    ? JSON.parse(data.analysis.viral_insights) 
+                                    : data.analysis.viral_insights;
+                                if (viralInsights?.title_patterns?.structure && viralInsights.title_patterns.structure !== 'Estrutura não identificada') {
+                                    titleStructureFormula = viralInsights.title_patterns.structure;
+                                }
+                            } catch (e) {
+                                console.error('Erro ao parsear insights:', e);
+                            }
+                        }
+                        
+                        const structureFormula = titleStructureFormula 
+                            ? `Estrutura do Título: ${escapeHtml(titleStructureFormula)} | VPH: ${vphFormatted} | Taxa Engajamento: ${engagementRate}% | Views/Dia: ${parseInt(viewsPerDay).toLocaleString()}`
+                            : `VPH: ${vphFormatted} | Taxa Engajamento: ${engagementRate}% | Views/Dia: ${parseInt(viewsPerDay).toLocaleString()}`;
+                        
+                        // Escapar URL e título para uso seguro em onclick
+                        const safeThumbnailUrl = (video.thumbnail_url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        const safeTitle = escapeHtml(video.title).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        const safeVideoUrl = (video.video_url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        const safeVideoId = (video.video_id || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        
+                        return `
+                        <div class="bg-gray-800 rounded-lg p-4 hover:bg-gray-750 transition-colors">
+                            <div class="flex gap-4">
+                                <div class="relative">
+                                    <img src="${video.thumbnail_url || ''}" class="w-32 h-20 object-cover rounded" onerror="this.style.display='none'">
+                                    <button onclick="window.downloadThumbnail('${safeThumbnailUrl}', '${safeTitle}')" 
+                                            class="absolute bottom-1 right-1 bg-amber-600 hover:bg-amber-700 text-white p-1.5 rounded text-xs flex items-center gap-1" 
+                                            title="Baixar Thumbnail">
+                                        <i data-lucide="download" class="w-3 h-3"></i>
+                                    </button>
+                                </div>
+                                <div class="flex-1">
+                                    <h4 class="text-white font-semibold mb-2 line-clamp-2">${escapeHtml(video.title)}</h4>
+                                    <div class="flex flex-wrap gap-4 text-xs text-gray-400 mb-2">
+                                        <span>👁️ ${views.toLocaleString()}</span>
+                                        <span>👍 ${(video.like_count || 0).toLocaleString()}</span>
+                                        <span>💬 ${(video.comment_count || 0).toLocaleString()}</span>
+                                        <span>⭐ Score: ${(video.viral_score || 0).toFixed(2)}</span>
+                                    </div>
+                                    <div class="bg-gray-900 rounded p-2 mb-2">
+                                        <div class="grid grid-cols-2 gap-2 text-xs">
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">⚡ VPH:</span>
+                                                <span class="text-white ml-1">${vphFormatted}</span>
+                                            </div>
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">⏱️ No ar há:</span>
+                                                <span class="text-white ml-1">${timeAgo}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2 pt-2 border-t border-gray-700">
+                                            <span class="text-amber-400 font-semibold text-xs">📊 Fórmula:</span>
+                                            <p class="text-gray-300 text-xs mt-1">${structureFormula}</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2 mt-2">
+                                        <a href="${video.video_url || '#'}" target="_blank" rel="noopener noreferrer" 
+                                           class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1">
+                                            <i data-lucide="external-link" class="w-3 h-3"></i>
+                                            Ver no YouTube
+                                        </a>
+                                        <button onclick="window.copyVideoLink('${safeVideoUrl}')" 
+                                                class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                                                title="Copiar Link">
+                                            <i data-lucide="copy" class="w-3 h-3"></i>
+                                            Copiar Link
+                                        </button>
+                                        <button onclick="window.analyzeVideoComments('${safeVideoId}')" 
+                                                class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-xs flex items-center gap-1"
+                                                title="Analisar Comentários e Gerar Títulos">
+                                            <i data-lucide="message-square" class="w-3 h-3"></i>
+                                            Analisar Comentários
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    }).join('');
+                    document.getElementById('viral-top-videos').innerHTML = videosHtml || '<p class="text-gray-400">Nenhum vídeo analisado ainda.</p>';
+                    
+                    // Inicializar ícones do Lucide após renderizar vídeos
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                    
+                    // Insights - Parsear se for string
+                    let insightsData = {};
+                    console.log('[Viral Analysis Frontend] channelInfo.viral_insights:', channelInfo.viral_insights);
+                    
+                    if (channelInfo.viral_insights) {
+                        if (typeof channelInfo.viral_insights === 'string') {
+                            try {
+                                insightsData = JSON.parse(channelInfo.viral_insights);
+                                console.log('[Viral Analysis Frontend] Insights parseados:', insightsData);
+                            } catch (e) {
+                                console.error('[Viral Analysis] Erro ao parsear insights:', e);
+                                insightsData = {};
+                            }
+                        } else {
+                            insightsData = channelInfo.viral_insights;
+                            console.log('[Viral Analysis Frontend] Insights já são objeto:', insightsData);
+                        }
+                    } else {
+                        console.warn('[Viral Analysis Frontend] Nenhum insight encontrado em channelInfo.viral_insights');
+                    }
+                    
+                    // Formatar insights de forma mais legível
+                    const formatInsightValue = (value) => {
+                        if (typeof value === 'string') return value;
+                        if (Array.isArray(value)) return value.map(v => `• ${v}`).join('<br>');
+                        if (typeof value === 'object' && value !== null) {
+                            return Object.entries(value).map(([k, v]) => {
+                                if (Array.isArray(v)) {
+                                    return `<strong>${k}:</strong> ${v.join(', ')}`;
+                                }
+                                return `<strong>${k}:</strong> ${v}`;
+                            }).join('<br>');
+                        }
+                        return String(value);
+                    };
+                    
+                    const insightsHtml = `
+                        <div class="space-y-4">
+                            ${insightsData.title_patterns && Object.keys(insightsData.title_patterns).length > 0 ? `
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="text-white font-semibold mb-3">📝 Padrões nos Títulos</h4>
+                                    <div class="text-gray-300 text-sm space-y-2">
+                                        ${insightsData.title_patterns.structure ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Estrutura:</span>
+                                                <p class="text-gray-300 mt-1">${escapeHtml(insightsData.title_patterns.structure)}</p>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.title_patterns.keywords && Array.isArray(insightsData.title_patterns.keywords) && insightsData.title_patterns.keywords.length > 0 ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Palavras-chave recorrentes:</span>
+                                                <div class="flex flex-wrap gap-2 mt-1">
+                                                    ${insightsData.title_patterns.keywords.map(kw => `<span class="px-2 py-1 bg-amber-600/20 text-amber-300 rounded text-xs">${escapeHtml(kw)}</span>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.title_patterns.hook_techniques && Array.isArray(insightsData.title_patterns.hook_techniques) && insightsData.title_patterns.hook_techniques.length > 0 ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Técnicas de Hook:</span>
+                                                <ul class="list-disc list-inside mt-1 space-y-1">
+                                                    ${insightsData.title_patterns.hook_techniques.map(tech => `<li class="text-gray-300">${escapeHtml(tech)}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.title_patterns.avg_length ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Comprimento médio:</span>
+                                                <span class="text-gray-300 ml-2">${insightsData.title_patterns.avg_length} caracteres</span>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${insightsData.engagement_strategies && Object.keys(insightsData.engagement_strategies).length > 0 ? `
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="text-white font-semibold mb-3">💬 Estratégias de Engagement</h4>
+                                    <div class="text-gray-300 text-sm space-y-2">
+                                        ${insightsData.engagement_strategies.comment_triggers && Array.isArray(insightsData.engagement_strategies.comment_triggers) && insightsData.engagement_strategies.comment_triggers.length > 0 ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">O que gera comentários:</span>
+                                                <ul class="list-disc list-inside mt-1 space-y-1">
+                                                    ${insightsData.engagement_strategies.comment_triggers.map(trigger => `<li class="text-gray-300">${escapeHtml(trigger)}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.engagement_strategies.like_triggers && Array.isArray(insightsData.engagement_strategies.like_triggers) && insightsData.engagement_strategies.like_triggers.length > 0 ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">O que gera likes:</span>
+                                                <ul class="list-disc list-inside mt-1 space-y-1">
+                                                    ${insightsData.engagement_strategies.like_triggers.map(trigger => `<li class="text-gray-300">${escapeHtml(trigger)}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.engagement_strategies.best_posting_times ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Melhor horário de publicação:</span>
+                                                <p class="text-gray-300 mt-1">${escapeHtml(insightsData.engagement_strategies.best_posting_times)}</p>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${insightsData.viral_insights && Object.keys(insightsData.viral_insights).length > 0 ? `
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="text-white font-semibold mb-3">🔥 Insights Virais</h4>
+                                    <div class="text-gray-300 text-sm space-y-2">
+                                        ${insightsData.viral_insights.why_viral ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Por que viralizaram:</span>
+                                                <p class="text-gray-300 mt-1">${escapeHtml(insightsData.viral_insights.why_viral)}</p>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.viral_insights.common_elements && Array.isArray(insightsData.viral_insights.common_elements) && insightsData.viral_insights.common_elements.length > 0 ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Elementos comuns:</span>
+                                                <ul class="list-disc list-inside mt-1 space-y-1">
+                                                    ${insightsData.viral_insights.common_elements.map(elem => `<li class="text-gray-300">${escapeHtml(elem)}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                        ${insightsData.viral_insights.differences ? `
+                                            <div>
+                                                <span class="text-amber-400 font-semibold">Diferenças identificadas:</span>
+                                                <p class="text-gray-300 mt-1">${escapeHtml(insightsData.viral_insights.differences)}</p>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                    document.getElementById('viral-insights').innerHTML = insightsHtml || '<p class="text-gray-400">Execute a análise para ver os insights.</p>';
+                    
+                    // Recomendações
+                    const recommendations = insightsData.recommendations || {};
+                    const recommendationsHtml = `
+                        <div class="bg-gray-800 rounded-lg p-4">
+                            ${recommendations.suggested_titles && Array.isArray(recommendations.suggested_titles) && recommendations.suggested_titles.length > 0 ? `
+                                <h4 class="text-white font-semibold mb-3">🎯 Títulos Sugeridos Baseados nos Padrões Virais:</h4>
+                                <ul class="space-y-2">
+                                    ${recommendations.suggested_titles.map(title => `
+                                        <li class="text-gray-300 text-sm flex items-start gap-2">
+                                            <span class="text-amber-500 mt-1">•</span>
+                                            <span class="flex-1">${escapeHtml(title)}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                            ${recommendations.replication_strategy ? `
+                                <div class="mt-4">
+                                    <h4 class="text-white font-semibold mb-2">🔄 Estratégia de Replicação:</h4>
+                                    <p class="text-gray-300 text-sm leading-relaxed">${escapeHtml(recommendations.replication_strategy)}</p>
+                                </div>
+                            ` : ''}
+                            ${recommendations.content_strategies && Array.isArray(recommendations.content_strategies) && recommendations.content_strategies.length > 0 ? `
+                                <div class="mt-4">
+                                    <h4 class="text-white font-semibold mb-2">📋 Estratégias de Conteúdo:</h4>
+                                    <ul class="space-y-2">
+                                        ${recommendations.content_strategies.map(strategy => `
+                                            <li class="text-gray-300 text-sm flex items-start gap-2">
+                                                <span class="text-amber-500 mt-1">•</span>
+                                                <span class="flex-1">${escapeHtml(strategy)}</span>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                    document.getElementById('viral-recommendations').innerHTML = recommendationsHtml || '<p class="text-gray-400">Execute a análise para ver recomendações.</p>';
+                    
+                    // Insights para Novo Canal
+                    const newChannelInsights = data.analysis.new_channel_insights;
+                    if (newChannelInsights && Object.keys(newChannelInsights).length > 0) {
+                        const newChannelHtml = `
+                            ${newChannelInsights.cross_patterns ? `
+                                <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                    <h4 class="text-white font-semibold mb-3">🔀 Padrões Cruzados</h4>
+                                    ${newChannelInsights.cross_patterns.common_elements && Array.isArray(newChannelInsights.cross_patterns.common_elements) && newChannelInsights.cross_patterns.common_elements.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Elementos Comuns:</span>
+                                            <ul class="list-disc list-inside mt-1 space-y-1">
+                                                ${newChannelInsights.cross_patterns.common_elements.map(elem => `<li class="text-gray-300 text-sm">${escapeHtml(elem)}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.cross_patterns.best_practices && Array.isArray(newChannelInsights.cross_patterns.best_practices) && newChannelInsights.cross_patterns.best_practices.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Melhores Práticas:</span>
+                                            <ul class="list-disc list-inside mt-1 space-y-1">
+                                                ${newChannelInsights.cross_patterns.best_practices.map(practice => `<li class="text-gray-300 text-sm">${escapeHtml(practice)}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.cross_patterns.key_differences ? `
+                                        <div>
+                                            <span class="text-amber-400 font-semibold text-sm">Diferenças-Chave:</span>
+                                            <p class="text-gray-300 text-sm mt-1">${escapeHtml(newChannelInsights.cross_patterns.key_differences)}</p>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                            ${newChannelInsights.new_channel_strategy ? `
+                                <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                    <h4 class="text-white font-semibold mb-3">📋 Estratégia para Novo Canal</h4>
+                                    ${newChannelInsights.new_channel_strategy.positioning ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Posicionamento:</span>
+                                            <p class="text-gray-300 text-sm mt-1">${escapeHtml(newChannelInsights.new_channel_strategy.positioning)}</p>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.new_channel_strategy.replicate_elements && Array.isArray(newChannelInsights.new_channel_strategy.replicate_elements) && newChannelInsights.new_channel_strategy.replicate_elements.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Elementos para Replicar:</span>
+                                            <ul class="list-disc list-inside mt-1 space-y-1">
+                                                ${newChannelInsights.new_channel_strategy.replicate_elements.map(elem => `<li class="text-gray-300 text-sm">${escapeHtml(elem)}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.new_channel_strategy.avoid_elements && Array.isArray(newChannelInsights.new_channel_strategy.avoid_elements) && newChannelInsights.new_channel_strategy.avoid_elements.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Elementos para Evitar:</span>
+                                            <ul class="list-disc list-inside mt-1 space-y-1">
+                                                ${newChannelInsights.new_channel_strategy.avoid_elements.map(elem => `<li class="text-gray-300 text-sm">${escapeHtml(elem)}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.new_channel_strategy.launch_timing ? `
+                                        <div>
+                                            <span class="text-amber-400 font-semibold text-sm">Timing de Lançamento:</span>
+                                            <p class="text-gray-300 text-sm mt-1">${escapeHtml(newChannelInsights.new_channel_strategy.launch_timing)}</p>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                            ${newChannelInsights.optimized_titles && Array.isArray(newChannelInsights.optimized_titles) && newChannelInsights.optimized_titles.length > 0 ? `
+                                <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                    <h4 class="text-white font-semibold mb-3">📝 Títulos Otimizados (${newChannelInsights.optimized_titles.length})</h4>
+                                    <ul class="space-y-2">
+                                        ${newChannelInsights.optimized_titles.map((title, idx) => `
+                                            <li class="text-gray-300 text-sm flex items-start gap-2">
+                                                <span class="text-amber-500 mt-1">${idx + 1}.</span>
+                                                <span class="flex-1">${escapeHtml(title)}</span>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            ${newChannelInsights.content_roadmap ? `
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="text-white font-semibold mb-3">🗺️ Roadmap de Conteúdo</h4>
+                                    ${newChannelInsights.content_roadmap.first_10_videos && Array.isArray(newChannelInsights.content_roadmap.first_10_videos) && newChannelInsights.content_roadmap.first_10_videos.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-amber-400 font-semibold text-sm">Primeiros 10 Vídeos:</span>
+                                            <ol class="list-decimal list-inside mt-2 space-y-2">
+                                                ${newChannelInsights.content_roadmap.first_10_videos.map(video => `
+                                                    <li class="text-gray-300 text-sm">
+                                                        <strong>${escapeHtml(video.title || 'Título não especificado')}</strong>
+                                                        ${video.reason ? `<span class="text-gray-500 text-xs block ml-6">→ ${escapeHtml(video.reason)}</span>` : ''}
+                                                    </li>
+                                                `).join('')}
+                                            </ol>
+                                        </div>
+                                    ` : ''}
+                                    ${newChannelInsights.content_roadmap.growth_strategy ? `
+                                        <div>
+                                            <span class="text-amber-400 font-semibold text-sm">Estratégia de Crescimento:</span>
+                                            <p class="text-gray-300 text-sm mt-1">${escapeHtml(newChannelInsights.content_roadmap.growth_strategy)}</p>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                        `;
+                        const newChannelInsightsEl = document.getElementById('viral-new-channel-insights');
+                        const newChannelInsightsSection = document.getElementById('viral-new-channel-insights-section');
+                        
+                        if (newChannelInsightsEl && newChannelInsightsSection) {
+                            newChannelInsightsEl.innerHTML = newChannelHtml;
+                            newChannelInsightsSection.style.display = 'block';
+                        }
+                    } else {
+                        const newChannelInsightsSection = document.getElementById('viral-new-channel-insights-section');
+                        if (newChannelInsightsSection) {
+                            newChannelInsightsSection.style.display = 'none';
+                        }
+                    }
+                    
+                    detailDiv.classList.remove('hidden');
+                    detailDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    showCustomModal('Erro', err.message || 'Erro ao carregar análise', 'error');
+                }
+            }
+            
+            async function deleteViralChannel(analysisId) {
+                if (!confirm('Tem certeza que deseja remover este canal da análise?')) return;
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels/${analysisId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.msg || 'Erro ao remover canal');
+                    }
+                    
+                    showCustomModal('Sucesso', 'Canal removido com sucesso!', 'success');
+                    loadViralChannels();
+                } catch (err) {
+                    showCustomModal('Erro', err.message || 'Erro ao remover canal', 'error');
+                }
+            }
+            
+            // Funções globais para download e copiar link
+            window.downloadThumbnail = async function(thumbnailUrl, videoTitle) {
+                if (!thumbnailUrl) {
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', 'URL da thumbnail não disponível', 'error');
+                    } else {
+                        alert('URL da thumbnail não disponível');
+                    }
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(thumbnailUrl);
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const sanitizedTitle = (videoTitle || 'thumbnail').replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+                    a.download = `${sanitizedTitle}_thumbnail.jpg`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                } catch (err) {
+                    console.error('Erro ao baixar thumbnail:', err);
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', 'Erro ao baixar thumbnail. Tente abrir a imagem em uma nova aba e salvar manualmente.', 'error');
+                    } else {
+                        alert('Erro ao baixar thumbnail');
+                    }
+                }
+            };
+            
+            window.copyVideoLink = function(videoUrl) {
+                if (!videoUrl) {
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', 'Link do vídeo não disponível', 'error');
+                    } else {
+                        alert('Link do vídeo não disponível');
+                    }
+                    return;
+                }
+                
+                navigator.clipboard.writeText(videoUrl).then(() => {
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Sucesso', 'Link copiado para a área de transferência!', 'success');
+                    } else {
+                        alert('Link copiado!');
+                    }
+                }).catch(err => {
+                    console.error('Erro ao copiar:', err);
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', 'Erro ao copiar link', 'error');
+                    } else {
+                        alert('Erro ao copiar link');
+                    }
+                });
+            };
+            
+            // Função helper para escape HTML (disponível globalmente)
+            function escapeHtmlGlobal(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = String(text);
+                return div.innerHTML;
+            }
+            
+            // Funções globais para cruzamento de análises
+            window.showCrossAnalysisModal = async function() {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/channels`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Erro ao carregar canais');
+                    }
+                    
+                    const data = await response.json();
+                    const channels = data.channels || [];
+                    
+                    if (channels.length < 2) {
+                        showCustomModal('Aviso', 'Você precisa ter pelo menos 2 canais analisados para cruzar informações.', 'warning');
+                        return;
+                    }
+                    
+                    // Função helper local para escape
+                    const escapeHtml = (text) => {
+                        if (!text) return '';
+                        const div = document.createElement('div');
+                        div.textContent = String(text);
+                        return div.innerHTML;
+                    };
+                    
+                    // Criar modal
+                    const modalHtml = `
+                        <div id="cross-analysis-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                            <div class="bg-gray-900 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-800">
+                                <div class="p-6">
+                                    <div class="flex justify-between items-center mb-4">
+                                        <h2 class="text-2xl font-bold text-white">🔀 Cruzar Análises e Gerar Conteúdo Viral</h2>
+                                        <button onclick="window.closeCrossAnalysisModal()" class="text-gray-400 hover:text-white">
+                                            <i data-lucide="x" class="w-6 h-6"></i>
+                                        </button>
+                                    </div>
+                                    <p class="text-gray-400 mb-6">Selecione 2 ou mais canais para cruzar informações e gerar conteúdo inédito viral baseado nos padrões identificados.</p>
+                                    
+                                    <div class="space-y-3 mb-6 max-h-96 overflow-y-auto">
+                                        ${channels.map(channel => `
+                                            <label class="flex items-start gap-3 p-3 bg-gray-800 rounded-lg hover:bg-gray-750 cursor-pointer">
+                                                <input type="checkbox" value="${channel.id}" class="mt-1 cross-analysis-channel" 
+                                                       onchange="window.updateCrossAnalysisButton()">
+                                                <div class="flex-1">
+                                                    <div class="text-white font-semibold">${escapeHtml(channel.channel_name || 'Canal sem nome')}</div>
+                                                    <div class="text-gray-400 text-sm">${(channel.subscriber_count || 0).toLocaleString()} inscritos • ${(channel.total_videos || 0)} vídeos</div>
+                                                    <div class="text-gray-500 text-xs mt-1">Nicho: ${escapeHtml(channel.niche || 'Não identificado')}</div>
+                                                </div>
+                                            </label>
+                                        `).join('')}
+                                    </div>
+                                    
+                                    <div class="flex gap-3">
+                                        <button onclick="window.closeCrossAnalysisModal()" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded font-semibold">
+                                            Cancelar
+                                        </button>
+                                        <button id="generate-cross-content-btn" onclick="window.generateCrossAnalysisContent()" 
+                                                class="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                                disabled>
+                                            <span id="generate-cross-content-text">Gerar Conteúdo Viral</span>
+                                            <span id="generate-cross-content-loading" class="hidden">Gerando...</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                    window.updateCrossAnalysisButton();
+                } catch (err) {
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', err.message || 'Erro ao abrir modal', 'error');
+                    } else {
+                        alert('Erro ao abrir modal: ' + err.message);
+                    }
+                }
+            };
+            
+            window.closeCrossAnalysisModal = function() {
+                const modal = document.getElementById('cross-analysis-modal');
+                if (modal) modal.remove();
+            };
+            
+            window.updateCrossAnalysisButton = function() {
+                const checkboxes = document.querySelectorAll('.cross-analysis-channel:checked');
+                const btn = document.getElementById('generate-cross-content-btn');
+                if (btn) {
+                    btn.disabled = checkboxes.length < 2;
+                }
+            };
+            
+            window.generateCrossAnalysisContent = async function() {
+                const checkboxes = document.querySelectorAll('.cross-analysis-channel:checked');
+                const selectedIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+                
+                if (selectedIds.length < 2) {
+                    showCustomModal('Aviso', 'Selecione pelo menos 2 canais', 'warning');
+                    return;
+                }
+                
+                const btn = document.getElementById('generate-cross-content-btn');
+                const btnText = document.getElementById('generate-cross-content-text');
+                const btnLoading = document.getElementById('generate-cross-content-loading');
+                
+                btn.disabled = true;
+                btnText.classList.add('hidden');
+                btnLoading.classList.remove('hidden');
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/cross-analyze`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ analysisIds: selectedIds })
+                    });
+                    
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.msg || 'Erro ao gerar conteúdo');
+                    }
+                    
+                    const data = await response.json();
+                    window.closeCrossAnalysisModal();
+                    
+                    // Exibir resultados
+                    displayCrossAnalysisResults(data);
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Sucesso', 'Conteúdo viral gerado com sucesso!', 'success');
+                    }
+                } catch (err) {
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', err.message || 'Erro ao gerar conteúdo', 'error');
+                    } else {
+                        alert('Erro ao gerar conteúdo: ' + err.message);
+                    }
+                } finally {
+                    btn.disabled = false;
+                    btnText.classList.remove('hidden');
+                    btnLoading.classList.add('hidden');
+                }
+            };
+            
+            function displayCrossAnalysisResults(data) {
+                const resultsDiv = document.getElementById('cross-analysis-results');
+                if (!resultsDiv) return;
+                
+                // Função helper local para escape
+                const escapeHtml = (text) => {
+                    if (!text) return '';
+                    const div = document.createElement('div');
+                    div.textContent = String(text);
+                    return div.innerHTML;
+                };
+                
+                const resultsHtml = `
+                    <div class="bg-gray-800 rounded-lg p-6 space-y-6">
+                        <h4 class="text-white font-semibold text-xl mb-4">📊 Análise Cruzada - Conteúdo Viral Inédito Gerado</h4>
+                        
+                        ${data.unexplored_opportunities ? `
+                            <div class="bg-gradient-to-r from-amber-900/30 to-orange-900/30 rounded-lg p-4 border border-amber-700/50">
+                                <h5 class="text-amber-400 font-semibold mb-3 flex items-center gap-2">
+                                    <i data-lucide="lightbulb" class="w-5 h-5"></i>
+                                    🎯 Oportunidades Inexploradas Identificadas
+                                </h5>
+                                ${data.unexplored_opportunities.subniches && Array.isArray(data.unexplored_opportunities.subniches) && data.unexplored_opportunities.subniches.length > 0 ? `
+                                    <div class="mb-4">
+                                        <span class="text-white font-semibold text-sm mb-2 block">Subnichos com Alta Demanda e Baixa Competição:</span>
+                                        <div class="space-y-3">
+                                            ${data.unexplored_opportunities.subniches.map((subniche, idx) => `
+                                                <div class="bg-gray-900 rounded-lg p-3 border border-amber-600/30">
+                                                    <div class="flex items-start justify-between mb-2">
+                                                        <span class="text-amber-300 font-semibold text-sm">${idx + 1}. ${escapeHtml(subniche.name || 'Subnicho')}</span>
+                                                        <div class="flex gap-2">
+                                                            ${subniche.demand_level === 'alta' ? '<span class="px-2 py-0.5 bg-green-600/20 text-green-300 rounded text-xs">Alta Demanda</span>' : ''}
+                                                            ${subniche.competition_level === 'baixa' ? '<span class="px-2 py-0.5 bg-blue-600/20 text-blue-300 rounded text-xs">Baixa Competição</span>' : ''}
+                                                            ${subniche.monetization_potential === 'alto' ? '<span class="px-2 py-0.5 bg-amber-600/20 text-amber-300 rounded text-xs">Alto Potencial</span>' : ''}
+                                                        </div>
+                                                    </div>
+                                                    ${subniche.why_unexplored ? `<p class="text-gray-300 text-xs mb-1">${escapeHtml(subniche.why_unexplored)}</p>` : ''}
+                                                    ${subniche.trend_direction ? `<p class="text-gray-400 text-xs">Tendência: ${escapeHtml(subniche.trend_direction)}</p>` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                ${data.unexplored_opportunities.content_gaps && Array.isArray(data.unexplored_opportunities.content_gaps) && data.unexplored_opportunities.content_gaps.length > 0 ? `
+                                    <div class="mb-3">
+                                        <span class="text-white font-semibold text-sm mb-2 block">Gaps de Conteúdo Identificados:</span>
+                                        <ul class="list-disc list-inside space-y-1">
+                                            ${data.unexplored_opportunities.content_gaps.map(gap => `<li class="text-gray-300 text-sm">${escapeHtml(gap)}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${data.unexplored_opportunities.unique_angles && Array.isArray(data.unexplored_opportunities.unique_angles) && data.unexplored_opportunities.unique_angles.length > 0 ? `
+                                    <div>
+                                        <span class="text-white font-semibold text-sm mb-2 block">Ângulos Únicos Identificados:</span>
+                                        <ul class="list-disc list-inside space-y-1">
+                                            ${data.unexplored_opportunities.unique_angles.map(angle => `<li class="text-gray-300 text-sm">${escapeHtml(angle)}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+                        
+                        ${data.common_patterns ? `
+                            <div class="bg-gray-900 rounded-lg p-4">
+                                <h5 class="text-amber-400 font-semibold mb-3">🔍 Padrões Comuns Identificados</h5>
+                                ${data.common_patterns.title_patterns ? `
+                                    <div class="mb-3">
+                                        <span class="text-white font-semibold text-sm">Padrões de Títulos:</span>
+                                        <p class="text-gray-300 text-sm mt-1">${escapeHtml(data.common_patterns.title_patterns)}</p>
+                                    </div>
+                                ` : ''}
+                                ${data.common_patterns.engagement_patterns ? `
+                                    <div class="mb-3">
+                                        <span class="text-white font-semibold text-sm">Padrões de Engagement:</span>
+                                        <p class="text-gray-300 text-sm mt-1">${escapeHtml(data.common_patterns.engagement_patterns)}</p>
+                                    </div>
+                                ` : ''}
+                                ${data.common_patterns.content_themes && Array.isArray(data.common_patterns.content_themes) ? `
+                                    <div class="mb-3">
+                                        <span class="text-white font-semibold text-sm">Temas de Conteúdo:</span>
+                                        <ul class="list-disc list-inside mt-1 space-y-1">
+                                            ${data.common_patterns.content_themes.map(theme => `<li class="text-gray-300 text-sm">${escapeHtml(theme)}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${data.common_patterns.thumbnail_patterns ? `
+                                    <div class="mb-3">
+                                        <span class="text-white font-semibold text-sm">Padrões de Thumbnails:</span>
+                                        <p class="text-gray-300 text-sm mt-1">${escapeHtml(data.common_patterns.thumbnail_patterns)}</p>
+                                    </div>
+                                ` : ''}
+                                ${data.common_patterns.viral_title_elements && Array.isArray(data.common_patterns.viral_title_elements) ? `
+                                    <div>
+                                        <span class="text-white font-semibold text-sm">Elementos de Títulos Virais:</span>
+                                        <div class="flex flex-wrap gap-2 mt-1">
+                                            ${data.common_patterns.viral_title_elements.map(elem => `<span class="px-2 py-1 bg-amber-600/20 text-amber-300 rounded text-xs">${escapeHtml(elem)}</span>`).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+                        
+                        ${data.viral_title_analysis && data.viral_title_analysis.viral_titles && Array.isArray(data.viral_title_analysis.viral_titles) && data.viral_title_analysis.viral_titles.length > 0 ? `
+                            <div class="bg-gray-900 rounded-lg p-4">
+                                <h5 class="text-amber-400 font-semibold mb-3">📝 Análise de Títulos Virais</h5>
+                                <div class="space-y-4">
+                                    ${data.viral_title_analysis.viral_titles.map((analysis, idx) => `
+                                        <div class="bg-gray-800 rounded-lg p-3">
+                                            <div class="text-white font-semibold text-sm mb-2">"${escapeHtml(analysis.original_title || 'Título')}"</div>
+                                            ${analysis.why_viral ? `
+                                                <div class="mb-2">
+                                                    <span class="text-amber-400 text-xs font-semibold">Por que viralizou:</span>
+                                                    <p class="text-gray-300 text-xs mt-1">${escapeHtml(analysis.why_viral)}</p>
+                                                </div>
+                                            ` : ''}
+                                            ${analysis.key_elements && Array.isArray(analysis.key_elements) && analysis.key_elements.length > 0 ? `
+                                                <div class="mb-2">
+                                                    <span class="text-amber-400 text-xs font-semibold">Elementos-chave:</span>
+                                                    <div class="flex flex-wrap gap-1 mt-1">
+                                                        ${analysis.key_elements.map(elem => `<span class="px-2 py-0.5 bg-blue-600/20 text-blue-300 rounded text-xs">${escapeHtml(elem)}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            ${analysis.variations && Array.isArray(analysis.variations) && analysis.variations.length > 0 ? `
+                                                <div>
+                                                    <span class="text-amber-400 text-xs font-semibold">Variações virais:</span>
+                                                    <ul class="mt-1 space-y-1">
+                                                        ${analysis.variations.map((variation, vIdx) => `
+                                                            <li class="text-gray-300 text-xs flex items-start gap-2">
+                                                                <span class="text-green-400 mt-0.5">•</span>
+                                                                <span>${escapeHtml(variation)}</span>
+                                                            </li>
+                                                        `).join('')}
+                                                    </ul>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${data.thumbnail_analysis && data.thumbnail_analysis.viral_thumbnails && Array.isArray(data.thumbnail_analysis.viral_thumbnails) && data.thumbnail_analysis.viral_thumbnails.length > 0 ? `
+                            <div class="bg-gray-900 rounded-lg p-4">
+                                <h5 class="text-amber-400 font-semibold mb-3">🖼️ Análise de Thumbnails Virais</h5>
+                                <div class="space-y-3">
+                                    ${data.thumbnail_analysis.viral_thumbnails.map((thumb, idx) => `
+                                        <div class="bg-gray-800 rounded-lg p-3">
+                                            <div class="text-white font-semibold text-xs mb-2">"${escapeHtml(thumb.title || 'Título')}"</div>
+                                            ${thumb.visual_elements && Array.isArray(thumb.visual_elements) && thumb.visual_elements.length > 0 ? `
+                                                <div class="mb-2">
+                                                    <span class="text-amber-400 text-xs font-semibold">Elementos visuais:</span>
+                                                    <div class="flex flex-wrap gap-1 mt-1">
+                                                        ${thumb.visual_elements.map(elem => `<span class="px-2 py-0.5 bg-purple-600/20 text-purple-300 rounded text-xs">${escapeHtml(elem)}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            ${thumb.thumbnail_title_synergy ? `
+                                                <div class="mb-2">
+                                                    <span class="text-amber-400 text-xs font-semibold">Sinergia Thumbnail-Título:</span>
+                                                    <p class="text-gray-300 text-xs mt-1">${escapeHtml(thumb.thumbnail_title_synergy)}</p>
+                                                </div>
+                                            ` : ''}
+                                            ${thumb.adaptations && Array.isArray(thumb.adaptations) && thumb.adaptations.length > 0 ? `
+                                                <div>
+                                                    <span class="text-amber-400 text-xs font-semibold">Adaptações sugeridas:</span>
+                                                    <ul class="mt-1 space-y-1">
+                                                        ${thumb.adaptations.map(adaptation => `
+                                                            <li class="text-gray-300 text-xs flex items-start gap-2">
+                                                                <span class="text-green-400 mt-0.5">→</span>
+                                                                <span>${escapeHtml(adaptation)}</span>
+                                                            </li>
+                                                        `).join('')}
+                                                    </ul>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${data.generated_content ? `
+                            <div class="bg-gradient-to-r from-green-900/30 to-emerald-900/30 rounded-lg p-4 border border-green-700/50">
+                                <h5 class="text-green-400 font-semibold mb-3 flex items-center gap-2">
+                                    <i data-lucide="sparkles" class="w-5 h-5"></i>
+                                    ✨ Conteúdo Inédito Viral Gerado
+                                </h5>
+                                ${data.generated_content.titles && Array.isArray(data.generated_content.titles) && data.generated_content.titles.length > 0 ? `
+                                    <div class="mb-4">
+                                        <span class="text-white font-semibold text-sm mb-2 block">Títulos Inéditos para Conteúdo Não Explorado (${data.generated_content.titles.length}):</span>
+                                        <ul class="space-y-2">
+                                            ${data.generated_content.titles.map((title, idx) => `
+                                                <li class="text-gray-300 text-sm flex items-start gap-2 bg-gray-800/50 rounded p-2">
+                                                    <span class="text-green-400 mt-1 font-bold">${idx + 1}.</span>
+                                                    <span class="flex-1">${escapeHtml(title)}</span>
+                                                </li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${data.generated_content.unexplored_topics && Array.isArray(data.generated_content.unexplored_topics) && data.generated_content.unexplored_topics.length > 0 ? `
+                                    <div class="mb-4">
+                                        <span class="text-white font-semibold text-sm mb-2 block">Tópicos Inexplorados Identificados:</span>
+                                        <ul class="space-y-1">
+                                            ${data.generated_content.unexplored_topics.map(topic => `
+                                                <li class="text-gray-300 text-sm flex items-start gap-2">
+                                                    <span class="text-green-400 mt-1">•</span>
+                                                    <span>${escapeHtml(topic)}</span>
+                                                </li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                ${data.generated_content.content_strategy ? `
+                                    <div class="mb-4">
+                                        <span class="text-white font-semibold text-sm mb-2 block">Estratégia de Conteúdo:</span>
+                                        <p class="text-gray-300 text-sm">${escapeHtml(data.generated_content.content_strategy)}</p>
+                                    </div>
+                                ` : ''}
+                                ${data.generated_content.hooks && Array.isArray(data.generated_content.hooks) && data.generated_content.hooks.length > 0 ? `
+                                    <div>
+                                        <span class="text-white font-semibold text-sm mb-2 block">Hooks Virais Identificados:</span>
+                                        <ul class="space-y-2">
+                                            ${data.generated_content.hooks.map((hook, idx) => `
+                                                <li class="text-gray-300 text-sm flex items-start gap-2">
+                                                    <span class="text-amber-500 mt-1">•</span>
+                                                    <span class="flex-1">${escapeHtml(hook)}</span>
+                                                </li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+                        
+                        ${data.recommendations ? `
+                            <div class="bg-gray-900 rounded-lg p-4">
+                                <h5 class="text-amber-400 font-semibold mb-3">💡 Recomendações Estratégicas</h5>
+                                ${typeof data.recommendations === 'object' ? `
+                                    ${data.recommendations.strategic_recommendations ? `
+                                        <div class="mb-3">
+                                            <span class="text-white font-semibold text-sm mb-1 block">Recomendações Estratégicas:</span>
+                                            <p class="text-gray-300 text-sm">${escapeHtml(data.recommendations.strategic_recommendations)}</p>
+                                        </div>
+                                    ` : ''}
+                                    ${data.recommendations.monetization_strategy ? `
+                                        <div class="mb-3">
+                                            <span class="text-white font-semibold text-sm mb-1 block">Estratégia de Monetização:</span>
+                                            <p class="text-gray-300 text-sm">${escapeHtml(data.recommendations.monetization_strategy)}</p>
+                                        </div>
+                                    ` : ''}
+                                    ${data.recommendations.content_roadmap && Array.isArray(data.recommendations.content_roadmap) && data.recommendations.content_roadmap.length > 0 ? `
+                                        <div class="mb-3">
+                                            <span class="text-white font-semibold text-sm mb-1 block">Roadmap de Conteúdo:</span>
+                                            <ol class="list-decimal list-inside space-y-1">
+                                                ${data.recommendations.content_roadmap.map(item => `<li class="text-gray-300 text-sm">${escapeHtml(item)}</li>`).join('')}
+                                            </ol>
+                                        </div>
+                                    ` : ''}
+                                    ${data.recommendations.competitive_advantages && Array.isArray(data.recommendations.competitive_advantages) && data.recommendations.competitive_advantages.length > 0 ? `
+                                        <div>
+                                            <span class="text-white font-semibold text-sm mb-1 block">Vantagens Competitivas:</span>
+                                            <ul class="list-disc list-inside space-y-1">
+                                                ${data.recommendations.competitive_advantages.map(advantage => `<li class="text-gray-300 text-sm">${escapeHtml(advantage)}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                ` : `
+                                    <p class="text-gray-300 text-sm">${escapeHtml(data.recommendations)}</p>
+                                `}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+                resultsDiv.innerHTML = resultsHtml;
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+                resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            
+            // Remover detecção automática de nicho - agora será detectado durante a análise
+            // O nicho e subnicho serão preenchidos automaticamente após a análise do canal
+            
+            // Função para analisar comentários de um vídeo e gerar títulos
+            window.analyzeVideoComments = async function(videoId) {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    showLoadingModal('Analisando comentários e gerando títulos... Isso pode levar alguns segundos.', 'default');
+                    
+                    const response = await fetch(`${API_BASE}/api/viral-analysis/videos/${videoId}/analyze-comments`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    const data = await response.json();
+                    document.getElementById('generic-loading-modal')?.remove();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.msg || 'Erro ao analisar comentários');
+                    }
+                    
+                    // Exibir resultados em modal
+                    displayCommentsAnalysisResults(data);
+                } catch (err) {
+                    document.getElementById('generic-loading-modal')?.remove();
+                    if (typeof showCustomModal === 'function') {
+                        showCustomModal('Erro', err.message || 'Erro ao analisar comentários', 'error');
+                    } else {
+                        alert('Erro ao analisar comentários: ' + err.message);
+                    }
+                }
+            };
+            
+            function displayCommentsAnalysisResults(data) {
+                const escapeHtml = (text) => {
+                    if (!text) return '';
+                    const div = document.createElement('div');
+                    div.textContent = String(text);
+                    return div.innerHTML;
+                };
+                
+                const analysis = data.analysis || {};
+                const insights = analysis.comment_insights || {};
+                const titles = analysis.generated_titles || [];
+                const formula = analysis.title_structure_formula || 'Não identificada';
+                
+                const modalHtml = `
+                    <div id="comments-analysis-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                        <div class="bg-gray-900 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-800">
+                            <div class="p-6">
+                                <div class="flex justify-between items-center mb-4">
+                                    <h2 class="text-2xl font-bold text-white">💬 Análise de Comentários - Títulos Gerados</h2>
+                                    <button onclick="document.getElementById('comments-analysis-modal')?.remove()" class="text-gray-400 hover:text-white">
+                                        <i data-lucide="x" class="w-6 h-6"></i>
+                                    </button>
+                                </div>
+                                
+                                <div class="mb-4 p-3 bg-gray-800 rounded">
+                                    <p class="text-white font-semibold">${escapeHtml(data.video?.title || 'Vídeo')}</p>
+                                    <p class="text-gray-400 text-sm">${(data.video?.view_count || 0).toLocaleString()} visualizações • ${data.comments_analyzed || 0} comentários analisados</p>
+                                </div>
+                                
+                                ${insights.most_mentioned_topics && Array.isArray(insights.most_mentioned_topics) && insights.most_mentioned_topics.length > 0 ? `
+                                    <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                        <h3 class="text-amber-400 font-semibold mb-2">🔍 Tópicos Mais Mencionados</h3>
+                                        <div class="flex flex-wrap gap-2">
+                                            ${insights.most_mentioned_topics.map(topic => `
+                                                <span class="px-2 py-1 bg-amber-600/20 text-amber-300 rounded text-xs">${escapeHtml(topic)}</span>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                
+                                ${insights.common_questions && Array.isArray(insights.common_questions) && insights.common_questions.length > 0 ? `
+                                    <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                        <h3 class="text-blue-400 font-semibold mb-2">❓ Perguntas Frequentes</h3>
+                                        <ul class="space-y-1">
+                                            ${insights.common_questions.map(q => `
+                                                <li class="text-gray-300 text-sm">• ${escapeHtml(q)}</li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                ${formula && formula !== 'Não identificada' ? `
+                                    <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                                        <h3 class="text-green-400 font-semibold mb-2">📐 Fórmula de Estrutura do Título</h3>
+                                        <p class="text-gray-300 text-sm">${escapeHtml(formula)}</p>
+                                    </div>
+                                ` : ''}
+                                
+                                ${titles.length > 0 ? `
+                                    <div class="bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-lg p-4 border border-purple-700/50">
+                                        <h3 class="text-purple-400 font-semibold mb-3">✨ Títulos Gerados Baseados nos Comentários (${titles.length})</h3>
+                                        <ul class="space-y-2 max-h-96 overflow-y-auto">
+                                            ${titles.map((title, idx) => `
+                                                <li class="text-gray-300 text-sm flex items-start gap-2 bg-gray-800/50 rounded p-2">
+                                                    <span class="text-purple-400 mt-1 font-bold">${idx + 1}.</span>
+                                                    <span class="flex-1">${escapeHtml(title)}</span>
+                                                </li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                                
+                                <div class="mt-4">
+                                    <button onclick="document.getElementById('comments-analysis-modal')?.remove()" 
+                                            class="w-full bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded font-semibold">
+                                        Fechar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+            
+            // Event listeners
+            document.getElementById('btn-add-viral-channel')?.addEventListener('click', addViralChannel);
+            document.getElementById('viral-channel-url')?.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') addViralChannel();
+            });
+            
+            // Tornar funções globais para uso em onclick
+            window.analyzeViralChannel = analyzeViralChannel;
+            window.viewViralAnalysis = viewViralAnalysis;
+            window.deleteViralChannel = deleteViralChannel;
+
             // Iniciar polling de notificações
             if (userToken && userToken !== 'undefined') {
                 // Aguardar um pouco para garantir que tudo está carregado
@@ -27257,3 +29365,4 @@ Equipe La Casa Dark Core</textarea>
 </body>
 </html>
 </html>
+

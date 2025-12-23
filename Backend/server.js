@@ -1694,9 +1694,18 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
     const totalTokens = promptTokens + estimatedOutputTokens;
     
     // Debitar créditos ANTES da chamada se userId fornecido
+    // IMPORTANTE: Esta função só deve ser chamada quando realmente deve usar créditos
+    // A verificação de preferência já foi feita em getPreferredAIProvider
     let creditDebitResult = null;
     if (userId) {
         try {
+            // Verificar novamente se realmente deve usar créditos (double-check)
+            const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
+            if (!creditsCheck.shouldUse) {
+                console.warn('[callLaozhangAPI] ⚠️ Esta função foi chamada mas usuário não deve usar créditos. Verifique a lógica em getPreferredAIProvider.');
+                throw new Error('Usuário não deve usar créditos. Use API própria.');
+            }
+            
             const laozhangProviderId = await getLaozhangApiProviderId();
             if (laozhangProviderId) {
                 creditDebitResult = await checkAndDebitCredits(
@@ -1981,9 +1990,63 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
     }
 
     // SEGUNDO: Verificar se deve usar créditos (laozhang.ai)
-    // REGRA: Usa créditos se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
-    // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria
+    // REGRA: Usa créditos SOMENTE se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
+    // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria SEM verificar créditos
     try {
+        // Primeiro, verificar a preferência do usuário
+        const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+        const hasPreference = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // Se a preferência NÃO está marcada, verificar se pode usar API própria diretamente
+        if (!hasPreference) {
+            // Verificar se usuário tem plano que permite usar API própria
+            let hasPlanPermission = false;
+            try {
+                const userData = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [userId]);
+                if (userData) {
+                    // Admin sempre tem permissão
+                    if (userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1') {
+                        hasPlanPermission = true;
+                    } else {
+                        const planName = userData.subscription_plan || userData.plan || 'plan-free';
+                        const permission = await db.get(
+                            'SELECT is_allowed FROM plan_permissions WHERE plan_name = ? AND feature_name = ?',
+                            [planName, 'api_propria']
+                        );
+                        hasPlanPermission = permission && permission.is_allowed === 1;
+                    }
+                }
+            } catch (err) {
+                console.warn('[AI Provider] Erro ao verificar permissão do plano:', err.message);
+            }
+            
+            // Se tem plano que permite, verificar se tem API própria configurada
+            if (hasPlanPermission) {
+                for (const service of preferenceOrder) {
+                    try {
+                        const keyData = await db.get(
+                            'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                            [userId, service]
+                        );
+                        if (keyData && keyData.api_key) {
+                            const decryptedKey = decrypt(keyData.api_key);
+                            if (decryptedKey && decryptedKey.trim().length > 0) {
+                                console.log(`[AI Provider] ✅ Usando API própria (preferência não marcada, tem plano e API configurada)`);
+                                return {
+                                    service,
+                                    apiKey: decryptedKey,
+                                    model: defaultModels[service] || 'gemini-2.0-flash'
+                                };
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`[AI Provider] Erro ao buscar chave ${service}:`, err.message);
+                    }
+                }
+            }
+        }
+        
+        // Se chegou aqui, verificar se deve usar créditos (preferência marcada OU não tem plano OU não tem API)
         const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
         
         if (creditsCheck.shouldUse) {
@@ -2042,43 +2105,136 @@ async function analyzeTranscriptForVirality({ userId, transcript, videoTitle, ni
         : sanitizedTranscript;
 
     const analysisPrompt = `
-Você é um ESTRATEGISTA DE CONTEÚDO para YouTube. Analise profundamente o roteiro abaixo e explique POR QUE ele viralizou.
+Você é um ESPECIALISTA EM CRIAÇÃO DE CONTEÚDO VIRAL para YouTube, com expertise em análise profunda de roteiros que alcançaram milhões de visualizações. Sua missão é DISSECAR este roteiro viral e criar uma FÓRMULA COMPLETA que permita gerar roteiros AINDA MAIS VIRAIS que o original, com ALTO PODER DE RETENÇÃO e VIRALIZAÇÃO.
+
+OBJETIVO: Entregar uma fórmula viral detalhada que permita ao agente de roteiro criar conteúdos 10/10, superando o original em:
+- Retenção de audiência (watch time)
+- Taxa de engajamento (likes, comentários, compartilhamentos)
+- Potencial de viralização
+- Conexão emocional com o público
+- Elementos de suspense e curiosidade
 
 Retorne APENAS um JSON válido no formato:
 {
-  "resumo": "síntese em 2-3 frases",
-  "motivosVirais": ["motivo 1", "motivo 2", "..."],
-  "gatilhosEmocionais": ["gatilho 1", "..."],
+  "resumo": "Síntese detalhada em 3-4 frases explicando a essência viral do roteiro",
+  "motivosVirais": [
+    "Motivo 1 com explicação detalhada",
+    "Motivo 2 com explicação detalhada",
+    "..."
+  ],
+  "gatilhosEmocionais": [
+    {
+      "gatilho": "Nome do gatilho emocional",
+      "intensidade": "alta/média/baixa",
+      "momentoAplicado": "Em qual parte do roteiro aparece",
+      "comoIntensificar": "Como tornar ainda mais impactante"
+    }
+  ],
   "estruturaNarrativa": [
-    { "etapa": "Nome curto", "descricao": "O que acontece nessa parte", "tempoAproximado": "0:00-0:45" }
+    {
+      "etapa": "Nome da etapa",
+      "descricao": "Descrição detalhada do que acontece",
+      "tempoAproximado": "0:00-0:45",
+      "elementosVirais": ["elemento 1", "elemento 2"],
+      "pontoRetencao": "O que mantém o espectador assistindo nesta parte",
+      "melhoriasSugeridas": "Como melhorar esta etapa para aumentar retenção"
+    }
   ],
   "formulaChecklist": [
     {
-      "item": "Elemento da fórmula",
+      "item": "Elemento específico da fórmula viral",
       "status": "aplicado" ou "melhorar",
-      "porqueFunciona": "Explicação curta",
-      "comoAplicarNoMeuConteudo": "Diretriz prática",
-      "upgradeSugerido": "Ajuste para ficar 10/10"
+      "porqueFunciona": "Explicação científica/psicológica detalhada de POR QUE funciona",
+      "comoAplicarNoMeuConteudo": "Diretriz prática e específica para replicar",
+      "upgradeSugerido": "Ajuste específico para ficar 10/10 e SUPERAR o original",
+      "exemploConcreto": "Exemplo prático de como aplicar"
     }
   ],
-  "diferencialProposto": "Diferencial para deixar ainda melhor",
-  "sugestoesAplicacao": ["ação 1", "ação 2"],
-  "alertas": ["possíveis riscos ou pontos de atenção"]
+  "elementosRetencao": [
+    {
+      "elemento": "Nome do elemento de retenção",
+      "comoFunciona": "Explicação detalhada",
+      "momentoIdeal": "Quando aplicar no roteiro",
+      "intensificacao": "Como intensificar para aumentar watch time"
+    }
+  ],
+  "tecnicasViralizacao": [
+    {
+      "tecnica": "Nome da técnica",
+      "descricao": "Como funciona",
+      "aplicacao": "Como aplicar no roteiro",
+      "potencialViral": "Por que tem potencial de viralizar"
+    }
+  ],
+  "pontosClimaticos": [
+    {
+      "momento": "Descrição do momento climático",
+      "tempoAproximado": "Quando acontece",
+      "impactoEmocional": "Qual emoção desperta",
+      "comoAmplificar": "Como tornar ainda mais impactante"
+    }
+  ],
+  "diferencialProposto": "Diferencial específico e acionável para deixar o roteiro AINDA MELHOR que o original, com foco em retenção e viralização",
+  "formulaViralCompleta": {
+    "introducao": {
+      "elementos": ["elemento 1", "elemento 2"],
+      "tempoIdeal": "0:00-0:XX",
+      "objetivo": "O que deve alcançar",
+      "formula": "Fórmula específica para criar introdução virais"
+    },
+    "desenvolvimento": {
+      "ritmo": "Ritmo ideal (lento/médio/rápido)",
+      "elementos": ["elemento 1", "elemento 2"],
+      "tecnicas": ["técnica 1", "técnica 2"],
+      "formula": "Fórmula específica para manter engajamento"
+    },
+    "climax": {
+      "elementos": ["elemento 1", "elemento 2"],
+      "intensidade": "Nível de intensidade necessário",
+      "formula": "Fórmula específica para criar clímax virais"
+    },
+    "fechamento": {
+      "elementos": ["elemento 1", "elemento 2"],
+      "cta": "Como fazer CTA eficaz",
+      "formula": "Fórmula específica para fechamento que gera compartilhamentos"
+    }
+  },
+  "sugestoesAplicacao": [
+    "Ação específica 1 com detalhes",
+    "Ação específica 2 com detalhes",
+    "..."
+  ],
+  "roteiro10por10": {
+    "caracteristicas": ["característica 1", "característica 2"],
+    "diferenciais": ["diferencial 1", "diferencial 2"],
+    "formula": "Fórmula completa para criar roteiros 10/10",
+    "checklist": ["item 1", "item 2", "item 3"]
+  },
+  "alertas": [
+    "Possíveis riscos ou pontos de atenção específicos",
+    "..."
+  ]
 }
 
-Regras:
+REGRAS CRÍTICAS:
 - Idioma: português do Brasil.
-- Não copie trechos do roteiro; descreva a fórmula e o raciocínio.
-- Mostre como replicar a estrutura sem plagiar.
-- Foque em transformar os aprendizados em um checklist acionável.
+- Seja EXTREMAMENTE DETALHADO e ESPECÍFICO em todas as respostas.
+- Não copie trechos do roteiro; ANALISE e EXTRAIA os princípios virais.
+- Foque em ENTREGAR uma fórmula que permita CRIAR roteiros SUPERIORES ao original.
+- Cada elemento deve ter explicação do POR QUÊ funciona (base científica/psicológica quando possível).
+- Forneça EXEMPLOS CONCRETOS e ACIONÁVEIS.
+- A fórmula deve ser clara o suficiente para um agente de IA replicar e melhorar.
+- Priorize elementos que aumentem RETENÇÃO (watch time) e VIRALIZAÇÃO (compartilhamentos).
 
-Contexto do vídeo:
+CONTEXTO DO VÍDEO:
 - Título: ${videoTitle || 'N/A'}
 - Nicho: ${niche || 'N/A'}
 - Subnicho: ${subniche || 'N/A'}
 
-ROTEIRO COMPLETO:
-"""${truncatedTranscript}"""`;
+ROTEIRO COMPLETO PARA ANÁLISE:
+"""${truncatedTranscript}"""
+
+ANALISE ESTE ROTEIRO E ENTREGUE UMA FÓRMULA VIRAL COMPLETA QUE PERMITA CRIAR ROTEIROS 10/10, COM ALTO PODER DE RETENÇÃO E VIRALIZAÇÃO, SUPERANDO O ORIGINAL.`;
 
     let aiResponse;
         if (provider.service === 'laozhang') {
@@ -2112,6 +2268,99 @@ ROTEIRO COMPLETO:
     }
 
     return { analysis: parsed, provider: provider.service };
+}
+
+/**
+ * Função para gerar agente automático após análise da transcrição
+ * Usa os prompts específicos fornecidos pelo usuário
+ */
+async function generateAgentFromTranscript({ userId, transcript, videoTitle, niche, subniche, analysis }) {
+    const provider = await getPreferredAIProvider(userId, ['claude', 'openai', 'gemini']);
+    if (!provider) {
+        throw new Error('Configure uma chave do Claude, OpenAI ou Gemini para gerar o agente.');
+    }
+
+    const sanitizedTranscript = transcript.trim();
+    const truncatedTranscript = sanitizedTranscript.length > 50000
+        ? `${sanitizedTranscript.substring(0, 50000)}\n[... conteúdo truncado ...]`
+        : sanitizedTranscript;
+
+    // Construir o prompt completo com os 4 passos
+    const agentPrompt = `
+PASSO 1 - CRIAR ROTEIRO BASE:
+Preciso que você me ajude a criar um agente de criação de roteiros em forma de documento no nicho de ${niche || 'N/A'} subnichado em ${subniche || 'N/A'}. 
+
+Vou te mandar uma transcrição de um roteiro e quero que o agente crie roteiros com a mesma estrutura da TRANSCRIÇÃO. O agente deve criar os roteiros com parágrafos longos, cheios, sem quebras de linha excessivas e deve evitar termos técnicos como "capitulo x" ou "parte tal" deve seguir apenas com o conteúdo para facilitar que eu copie o roteiro para um documento. O agente deve produzir roteiros com em média 30 mil caracteres em ptbr. Preciso que o texto seja feito em um bloco único, sem separação por subtítulos ou tópicos e que não possua palavras destacadas em negrito ou algo do tipo. Esse texto vai ser narrado por uma IA, por isso peço que retire todos os travessões ou hifens em palavras ou frases, para que não ocorra nenhum tipo de bug na hora que a IA for narrar esse texto. Corte a introdução da resposta do prompt e vá direto ao texto traduzido. Mantenha a essência de um roteiro feito para youtube, como CTA de like e inscrição no canal.
+
+PASSO 2 - INTRODUÇÃO:
+Crie uma introdução breve e impactante para o vídeo com o título "${videoTitle || 'N/A'}" como referência no agente. A introdução deve ser envolvente, criar conexão com o público, gerar identificação imediata, tocar diretamente na dor que o espectador sente e apresentar a promessa de uma solução real e acessível. Use linguagem emocional, simples e direta, como se estivesse falando com alguém que sofre com esse problema há muito tempo. Utilize riqueza de detalhes e storytelling para o público se identificar.
+
+PASSO 3 - CTA DE INSCRIÇÃO:
+Crie um CTA de inscrição envolvente e humanizado para um canal desse nicho e subnicho específico voltado ao público que sofre com essa dor específica. O CTA deve incentivar a inscrição de forma acolhedora, sem pressão, destacando os benefícios de acompanhar o canal. Use linguagem simples, direta e emocional. O tom deve transmitir cuidado, confiança e autoridade.
+
+PASSO 4 - CTA DE COMENTÁRIO:
+Crie um CTA envolvente, localizado por volta de 1/3 do vídeo, que provoque o espectador a comentar. O trecho deve usar uma pergunta direta, gerar identificação com a dor ou dificuldade da audiência, e ativar emocionalmente a pessoa — como se ela estivesse sendo ouvida pela primeira vez. O texto deve induzir o comentário com uma frase pronta para copiar e colar, e fazer o espectador sentir que sua participação ajuda outras pessoas. Use um tom empático, acolhedor e de conversa íntima, como se estivesse falando com um amigo que sofre em silêncio.
+
+CONTEXTO:
+- Título do vídeo: ${videoTitle || 'N/A'}
+- Nicho: ${niche || 'N/A'}
+- Subnicho: ${subniche || 'N/A'}
+- Análise da fórmula viral: ${JSON.stringify(analysis, null, 2)}
+
+TRANSCRIÇÃO DE REFERÊNCIA:
+"""${truncatedTranscript}"""
+
+INSTRUÇÕES PARA O AGENTE:
+Com base na transcrição acima e na análise da fórmula viral, crie um agente que:
+1. Gere roteiros seguindo a mesma estrutura e estilo da transcrição
+2. Use a introdução, CTA de inscrição e CTA de comentário criados acima
+3. Mantenha o tom, estilo narrativo e elementos virais identificados na análise
+4. Produza roteiros completos de aproximadamente 30.000 caracteres
+5. Formate o texto como um bloco único, sem quebras excessivas ou formatação especial
+6. Remova todos os travessões e hifens que possam causar problemas na narração por IA
+
+Retorne APENAS um JSON válido no formato:
+{
+  "agentName": "Nome do agente baseado no nicho/subnicho",
+  "agentDescription": "Descrição do agente",
+  "agentInstructions": "Instruções completas para o agente seguir ao criar roteiros",
+  "introduction": "Introdução criada no PASSO 2",
+  "subscriptionCTA": "CTA de inscrição criado no PASSO 3",
+  "commentCTA": "CTA de comentário criado no PASSO 4",
+  "exampleScript": "Exemplo de roteiro completo seguindo a estrutura da transcrição (aprox. 2000 caracteres como exemplo)"
+}`;
+
+    let aiResponse;
+    if (provider.service === 'laozhang') {
+        aiResponse = await callLaozhangAPI(
+            agentPrompt, 
+            provider.apiKey, 
+            provider.model, 
+            null, 
+            userId, 
+            'api_call', 
+            JSON.stringify({ endpoint: '/api/scripts/generate', model: provider.model })
+        );
+        const responseText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+        const parsed = parseJSONFromString(responseText);
+        if (!parsed) {
+            throw new Error('A IA retornou um formato inválido na geração do agente.');
+        }
+        return { agent: parsed, provider: provider.service };
+    } else if (provider.service === 'claude') {
+        aiResponse = await callClaudeAPI(agentPrompt, provider.apiKey, provider.model);
+    } else if (provider.service === 'openai') {
+        aiResponse = await callOpenAIAPI(agentPrompt, provider.apiKey, provider.model);
+    } else {
+        aiResponse = await callGeminiAPI(agentPrompt, provider.apiKey, provider.model);
+    }
+
+    const parsed = parseJSONFromString(extractTextFromAIResponse(aiResponse));
+    if (!parsed) {
+        throw new Error('A IA retornou um formato inválido na geração do agente.');
+    }
+
+    return { agent: parsed, provider: provider.service };
 }
 
 
@@ -2719,9 +2968,68 @@ const getLaozhangApiProviderId = async () => {
  */
 async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini']) {
     try {
-        // Verificar preferência do usuário
+        // Verificar preferência do usuário PRIMEIRO
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
         const hasPreference = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+        
+        // REGRA CRÍTICA: Se preferência NÃO está marcada, verificar se pode usar API própria
+        // Se pode usar API própria, NÃO deve usar créditos (não precisa nem verificar saldo)
+        if (!hasPreference) {
+            // Verificar se usuário tem plano que permite usar API própria
+            let hasPlanPermission = false;
+            try {
+                const userData = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [userId]);
+                if (userData) {
+                    // Admin sempre tem permissão
+                    if (userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1') {
+                        hasPlanPermission = true;
+                    } else {
+                        const planName = userData.subscription_plan || userData.plan || 'plan-free';
+                        const permission = await db.get(
+                            'SELECT is_allowed FROM plan_permissions WHERE plan_name = ? AND feature_name = ?',
+                            [planName, 'api_propria']
+                        );
+                        hasPlanPermission = permission && permission.is_allowed === 1;
+                    }
+                }
+            } catch (err) {
+                console.warn('[shouldUseCredits] Erro ao verificar permissão do plano:', err.message);
+            }
+            
+            // Se tem plano que permite, verificar se tem API própria configurada
+            if (hasPlanPermission) {
+                let hasOwnApi = false;
+                for (const service of services) {
+                    try {
+                        const keyData = await db.get(
+                            'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
+                            [userId, service]
+                        );
+                        if (keyData && keyData.api_key) {
+                            const decryptedKey = decrypt(keyData.api_key);
+                            if (decryptedKey && decryptedKey.trim().length > 0) {
+                                hasOwnApi = true;
+                                break;
+                            }
+                        }
+                    } catch (err) {
+                        // Ignorar erros individuais
+                    }
+                }
+                
+                // Se tem plano E tem API própria → NÃO usar créditos (retornar imediatamente)
+                if (hasOwnApi) {
+                    console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: false, reason: Preferência não marcada, tem plano e API própria - NÃO usar créditos`);
+                    return {
+                        shouldUse: false,
+                        reason: 'Preferência não marcada, usuário tem plano que permite API própria e tem API própria configurada',
+                        hasOwnApi: true,
+                        hasPreference: false,
+                        hasPlanPermission: true
+                    };
+                }
+            }
+        }
         
         // Se preferência estiver marcada, SEMPRE usar créditos
         if (hasPreference) {
@@ -2735,6 +3043,7 @@ async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini'
             };
         }
         
+        // Se chegou aqui, não tem preferência marcada mas também não tem plano/permissão ou não tem API própria
         // Verificar se usuário tem plano que permite usar API própria
         let hasPlanPermission = false;
         try {
@@ -2768,52 +3077,14 @@ async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini'
             };
         }
         
-        // Verificar se usuário tem API própria configurada
-        let hasOwnApi = false;
-        for (const service of services) {
-            try {
-                const keyData = await db.get(
-                    'SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?',
-                    [userId, service]
-                );
-                if (keyData && keyData.api_key) {
-                    const decryptedKey = decrypt(keyData.api_key);
-                    if (decryptedKey && decryptedKey.trim().length > 0) {
-                        hasOwnApi = true;
-                        break;
-                    }
-                }
-            } catch (err) {
-                // Ignorar erros individuais
-            }
-        }
-        
-        // REGRA CRÍTICA: Se preferência NÃO está marcada E tem plano que permite E tem API própria → usar API própria
-        if (!hasPreference && hasPlanPermission && hasOwnApi) {
-            console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: false, reason: Usuário tem plano que permite API própria, tem API própria configurada e não marcou preferência para usar créditos`);
-            return {
-                shouldUse: false,
-                reason: 'Usuário tem plano que permite API própria, tem API própria configurada e não marcou preferência para usar créditos',
-                hasOwnApi: true,
-                hasPreference: false,
-                hasPlanPermission: true
-            };
-        }
-        
         // Se tem plano mas não tem API própria configurada, usar créditos
-        const shouldUse = !hasOwnApi;
-        const reason = !hasOwnApi 
-            ? 'Usuário tem plano que permite API própria mas não tem API própria configurada'
-            : 'Usuário tem API própria e não marcou preferência';
-        
-        console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: ${shouldUse}, reason: ${reason}, hasOwnApi: ${hasOwnApi}, hasPreference: ${hasPreference}, hasPlanPermission: ${hasPlanPermission}`);
-        
+        console.log(`[shouldUseCredits] userId: ${userId}, shouldUse: true, reason: Usuário tem plano mas não tem API própria configurada`);
         return {
-            shouldUse,
-            reason,
-            hasOwnApi,
-            hasPreference,
-            hasPlanPermission
+            shouldUse: true,
+            reason: 'Usuário tem plano que permite API própria mas não tem API própria configurada',
+            hasOwnApi: false,
+            hasPreference: false,
+            hasPlanPermission: true
         };
     } catch (error) {
         console.error('[shouldUseCredits] Erro:', error);
@@ -4250,6 +4521,141 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             );
         `);
         
+        // Tabelas para análise de canais virais
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS channel_viral_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                channel_id TEXT NOT NULL,
+                channel_name TEXT NOT NULL,
+                channel_url TEXT NOT NULL,
+                channel_handle TEXT,
+                subscriber_count INTEGER,
+                total_videos INTEGER,
+                total_views INTEGER,
+                channel_age_days INTEGER,
+                channel_age_years REAL,
+                avg_rpm_usd REAL,
+                avg_rpm_brl REAL,
+                niche TEXT,
+                folder_id INTEGER,
+                analysis_data_json TEXT,
+                viral_insights_json TEXT,
+                new_channel_insights_json TEXT,
+                analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (folder_id) REFERENCES analysis_folders (id) ON DELETE SET NULL,
+                UNIQUE(user_id, channel_id)
+            );
+        `);
+        
+        // Migração: Adicionar campos novos se não existirem
+        try {
+            const tableInfo = await db.all("PRAGMA table_info(channel_viral_analysis)");
+            const existingColumns = tableInfo.map(col => col.name);
+            
+            if (!existingColumns.includes('channel_age_days')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN channel_age_days INTEGER');
+                console.log('[MIGRATION] Adicionado campo channel_age_days');
+            }
+            if (!existingColumns.includes('channel_age_years')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN channel_age_years REAL');
+                console.log('[MIGRATION] Adicionado campo channel_age_years');
+            }
+            if (!existingColumns.includes('avg_rpm_usd')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN avg_rpm_usd REAL');
+                console.log('[MIGRATION] Adicionado campo avg_rpm_usd');
+            }
+            if (!existingColumns.includes('avg_rpm_brl')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN avg_rpm_brl REAL');
+                console.log('[MIGRATION] Adicionado campo avg_rpm_brl');
+            }
+            if (!existingColumns.includes('niche')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN niche TEXT');
+                console.log('[MIGRATION] Adicionado campo niche');
+            }
+            if (!existingColumns.includes('folder_id')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN folder_id INTEGER');
+                console.log('[MIGRATION] Adicionado campo folder_id');
+            }
+            if (!existingColumns.includes('new_channel_insights_json')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN new_channel_insights_json TEXT');
+                console.log('[MIGRATION] Adicionado campo new_channel_insights_json');
+            }
+            if (!existingColumns.includes('subniche')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN subniche TEXT');
+                console.log('[MIGRATION] Adicionado campo subniche');
+            }
+            if (!existingColumns.includes('total_revenue_usd')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN total_revenue_usd REAL');
+                console.log('[MIGRATION] Adicionado campo total_revenue_usd');
+            }
+            if (!existingColumns.includes('total_revenue_brl')) {
+                await db.run('ALTER TABLE channel_viral_analysis ADD COLUMN total_revenue_brl REAL');
+                console.log('[MIGRATION] Adicionado campo total_revenue_brl');
+            }
+        } catch (migrationErr) {
+            console.error('[MIGRATION] Erro ao adicionar campos:', migrationErr);
+            // Não bloquear se a migração falhar, os campos podem já existir
+        }
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS channel_viral_videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id INTEGER NOT NULL,
+                video_id TEXT NOT NULL,
+                video_url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                thumbnail_url TEXT,
+                view_count INTEGER,
+                like_count INTEGER,
+                comment_count INTEGER,
+                published_at DATETIME,
+                duration TEXT,
+                tags_json TEXT,
+                category_id INTEGER,
+                viral_score REAL,
+                analysis_notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (analysis_id) REFERENCES channel_viral_analysis (id) ON DELETE CASCADE,
+                UNIQUE(analysis_id, video_id)
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS channel_viral_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id INTEGER NOT NULL,
+                comment_id TEXT NOT NULL,
+                author_name TEXT,
+                author_channel_id TEXT,
+                text TEXT NOT NULL,
+                like_count INTEGER DEFAULT 0,
+                published_at DATETIME,
+                sentiment TEXT,
+                keywords_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (video_id) REFERENCES channel_viral_videos (id) ON DELETE CASCADE,
+                UNIQUE(video_id, comment_id)
+            );
+        `);
+
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS channel_viral_insights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id INTEGER NOT NULL,
+                insight_type TEXT NOT NULL,
+                insight_title TEXT NOT NULL,
+                insight_content TEXT NOT NULL,
+                supporting_data_json TEXT,
+                priority INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (analysis_id) REFERENCES channel_viral_analysis (id) ON DELETE CASCADE
+            );
+        `);
+
         await db.exec(`
             CREATE TABLE IF NOT EXISTS generated_thumbnails (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7622,7 +8028,22 @@ app.put('/api/admin/credits/reset', authenticateToken, isAdmin, async (req, res)
 app.get('/api/admin/api-providers', authenticateToken, isAdmin, async (req, res) => {
     try {
         const apis = await db.all('SELECT * FROM api_providers ORDER BY created_at DESC');
-        res.json(apis);
+        // Descriptografar chaves de API para exibição (apenas para admin)
+        const apisWithDecryptedKeys = apis.map(api => {
+            if (api.api_key) {
+                try {
+                    const decrypted = decrypt(api.api_key);
+                    if (decrypted) {
+                        return { ...api, api_key: decrypted };
+                    }
+                } catch (err) {
+                    // Se falhar ao descriptografar, pode não estar criptografada
+                    return api;
+                }
+            }
+            return api;
+        });
+        res.json(apisWithDecryptedKeys);
     } catch (error) {
         console.error('Erro ao listar APIs:', error);
         res.status(500).json({ message: 'Erro ao listar APIs' });
@@ -10518,6 +10939,226 @@ app.post('/api/admin/laozhang/verify', authenticateToken, isAdmin, async (req, r
         });
     }
 });
+
+// POST /api/admin/downsub/verify - Verificar chave da API DownSub
+app.post('/api/admin/downsub/verify', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ success: false, message: 'Chave de API é obrigatória' });
+        }
+        
+        try {
+            // Verificar chave fazendo uma requisição para o endpoint de status
+            const response = await axios.get('https://api.downsub.com/status', {
+                headers: {
+                    'Authorization': `Bearer ${api_key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000,
+                validateStatus: (status) => status < 500 // Não lançar erro para 4xx
+            });
+            
+            if (response.status === 200 && response.data && response.data.status === 'success') {
+                res.json({ 
+                    success: true, 
+                    message: 'Chave de API válida',
+                    credits: response.data.data || {}
+                });
+                return;
+            }
+            
+            // Se for erro 401/403, a chave é inválida
+            if (response.status === 401 || response.status === 403) {
+                res.json({ 
+                    success: false, 
+                    message: 'Chave de API inválida ou expirada'
+                });
+                return;
+            }
+            
+            // Outros erros
+            res.json({ 
+                success: false, 
+                message: 'Erro ao verificar chave: ' + (response.data?.message || 'Erro desconhecido')
+            });
+        } catch (apiErr) {
+            if (apiErr.response) {
+                if (apiErr.response.status === 401 || apiErr.response.status === 403) {
+                    res.json({ 
+                        success: false, 
+                        message: 'Chave de API inválida ou expirada'
+                    });
+                } else {
+                    res.json({ 
+                        success: false, 
+                        message: 'Erro ao verificar chave: ' + (apiErr.response.data?.message || 'Erro desconhecido')
+                    });
+                }
+            } else {
+                throw apiErr;
+            }
+        }
+    } catch (error) {
+        console.error('[Admin] Erro ao verificar chave DownSub:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Erro ao verificar chave', 
+            details: error.message
+        });
+    }
+});
+
+// POST /api/admin/downsub/save - Salvar chave da API DownSub
+app.post('/api/admin/downsub/save', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) {
+            return res.status(400).json({ message: 'Chave de API é obrigatória' });
+        }
+        
+        // Verificar se já existe uma API DownSub
+        let existingApi = await db.get(`
+            SELECT * FROM api_providers 
+            WHERE provider = 'downsub'
+            LIMIT 1
+        `);
+        
+        if (existingApi) {
+            // Atualizar existente
+            await db.run(`
+                UPDATE api_providers SET
+                    api_key = ?,
+                    name = 'DownSub API',
+                    is_active = 1,
+                    is_default = 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, [encrypt(api_key), existingApi.id]);
+            
+            res.json({ message: 'Chave de API DownSub atualizada com sucesso', id: existingApi.id });
+        } else {
+            // Criar nova
+            const result = await db.run(`
+                INSERT INTO api_providers (
+                    name, provider, model, api_key, unit_type, unit_size,
+                    real_cost_per_unit, credits_per_unit, markup, is_premium,
+                    is_active, is_default
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                'DownSub API', 'downsub', 'downsub-default', encrypt(api_key), 'calls', 1,
+                0.0, 1.0, 1.0, 0, 1, 1
+            ]);
+            
+            res.json({ message: 'Chave de API DownSub salva com sucesso', id: result.lastID });
+        }
+    } catch (error) {
+        console.error('Erro ao salvar chave DownSub:', error);
+        res.status(500).json({ message: 'Erro ao salvar chave', details: error.message });
+    }
+});
+
+// Função para obter transcrição usando API DownSub
+async function getTranscriptFromDownSub(videoUrl, apiKey) {
+    try {
+        console.log('[DownSub] Tentando obter transcrição para:', videoUrl);
+        
+        const response = await axios.post('https://api.downsub.com/download', 
+            { url: videoUrl },
+            {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 60000 // 60 segundos
+            }
+        );
+        
+        if (response.data && response.data.status === 'success' && response.data.data) {
+            const data = response.data.data;
+            
+            // Verificar se há legendas disponíveis
+            if (data.subtitles && Array.isArray(data.subtitles) && data.subtitles.length > 0) {
+                // Tentar obter legenda em português primeiro, depois inglês, depois a primeira disponível
+                let selectedSubtitle = null;
+                
+                // Procurar português
+                selectedSubtitle = data.subtitles.find(s => 
+                    s.language && (s.language.toLowerCase().includes('portuguese') || 
+                                   s.language.toLowerCase().includes('português') ||
+                                   s.language.toLowerCase().includes('pt'))
+                );
+                
+                // Se não encontrar português, procurar inglês
+                if (!selectedSubtitle) {
+                    selectedSubtitle = data.subtitles.find(s => 
+                        s.language && (s.language.toLowerCase().includes('english') || 
+                                       s.language.toLowerCase().includes('en'))
+                    );
+                }
+                
+                // Se não encontrar, usar a primeira disponível
+                if (!selectedSubtitle) {
+                    selectedSubtitle = data.subtitles[0];
+                }
+                
+                // Tentar obter o formato TXT primeiro, depois SRT
+                let transcriptUrl = null;
+                if (selectedSubtitle.formats && Array.isArray(selectedSubtitle.formats)) {
+                    const txtFormat = selectedSubtitle.formats.find(f => f.format === 'txt');
+                    const srtFormat = selectedSubtitle.formats.find(f => f.format === 'srt');
+                    
+                    transcriptUrl = txtFormat ? txtFormat.url : (srtFormat ? srtFormat.url : null);
+                }
+                
+                if (transcriptUrl) {
+                    console.log('[DownSub] Baixando transcrição de:', transcriptUrl);
+                    const transcriptResponse = await axios.get(transcriptUrl, {
+                        timeout: 30000,
+                        responseType: 'text'
+                    });
+                    
+                    if (transcriptResponse.data) {
+                        // Limpar o texto (remover timestamps se for SRT, etc)
+                        let transcript = transcriptResponse.data;
+                        
+                        // Se for formato SRT, remover timestamps
+                        if (transcript.includes('-->')) {
+                            transcript = transcript
+                                .replace(/\d+\n/g, '') // Remove números de sequência
+                                .replace(/\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n/g, '') // Remove timestamps
+                                .replace(/\n{3,}/g, '\n\n') // Remove múltiplas linhas vazias
+                                .trim();
+                        }
+                        
+                        console.log('[DownSub] ✓ Transcrição obtida com sucesso!');
+                        return transcript;
+                    }
+                }
+            }
+            
+            throw new Error('Nenhuma legenda disponível para este vídeo');
+        } else {
+            throw new Error('Resposta inválida da API DownSub');
+        }
+    } catch (error) {
+        if (error.response) {
+            if (error.response.status === 401 || error.response.status === 403) {
+                throw new Error('Chave de API DownSub inválida ou expirada');
+            } else if (error.response.status === 403) {
+                throw new Error('Limite de créditos da API DownSub excedido');
+            } else if (error.response.status === 404) {
+                throw new Error('Vídeo não encontrado ou sem legendas disponíveis');
+            } else {
+                throw new Error(`Erro da API DownSub: ${error.response.status} - ${error.response.data?.message || 'Erro desconhecido'}`);
+            }
+        } else if (error.request) {
+            throw new Error('Erro de conexão com a API DownSub');
+        } else {
+            throw error;
+        }
+    }
+}
 
 // ================================================
 // ROTAS DO SISTEMA DE TTS (TEXT-TO-SPEECH)
@@ -21591,6 +22232,82 @@ app.get('/api/transcribe', authenticateToken, async (req, res) => {
 
 // === ROTAS DE AGENTES DE ROTEIRO ===
 
+/**
+ * Função para obter transcrição com sistema de fallback
+ * Tenta usar DownSub primeiro, depois YoutubeTranscript, depois outros métodos
+ */
+async function getTranscriptWithFallback(videoUrl, userId, videoTitle = null) {
+    const errors = [];
+    
+    // MÉTODO 1: Tentar usar API DownSub (se configurada)
+    try {
+        console.log('[Transcrição] Tentando usar API DownSub...');
+        
+        // Buscar chave do DownSub do admin
+        const downsubApi = await db.get(`
+            SELECT api_key FROM api_providers 
+            WHERE provider = 'downsub' AND is_active = 1
+            LIMIT 1
+        `);
+        
+        if (downsubApi && downsubApi.api_key) {
+            let apiKey = null;
+            try {
+                // Tentar descriptografar primeiro
+                apiKey = decrypt(downsubApi.api_key);
+            } catch (decryptErr) {
+                // Se falhar, pode não estar criptografada
+                console.warn('[Transcrição] Erro ao descriptografar chave DownSub, tentando usar diretamente:', decryptErr.message);
+                apiKey = downsubApi.api_key;
+            }
+            
+            // Se ainda não tiver chave, usar diretamente (pode não estar criptografada)
+            if (!apiKey) {
+                apiKey = downsubApi.api_key;
+            }
+            
+            if (apiKey && apiKey.trim().length > 0) {
+                console.log('[Transcrição] Chave DownSub encontrada, tentando obter transcrição...');
+                const transcript = await getTranscriptFromDownSub(videoUrl, apiKey);
+                if (transcript && transcript.trim().length > 0) {
+                    console.log('[Transcrição] ✓ Sucesso com DownSub!');
+                    return { transcript, source: 'downsub' };
+                }
+            } else {
+                console.warn('[Transcrição] Chave DownSub vazia ou inválida');
+            }
+        } else {
+            console.log('[Transcrição] API DownSub não configurada ou inativa');
+        }
+    } catch (downsubErr) {
+        console.warn('[Transcrição] DownSub falhou:', downsubErr.message);
+        errors.push(`DownSub: ${downsubErr.message}`);
+    }
+    
+    // MÉTODO 2: Tentar usar YoutubeTranscript (biblioteca)
+    try {
+        console.log('[Transcrição] Tentando usar YoutubeTranscript...');
+        const videoId = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')
+            ? (videoUrl.match(/[?&]v=([^&]+)/) || videoUrl.match(/youtu\.be\/([^?]+)/))?.[1]
+            : videoUrl;
+        
+        if (videoId) {
+            const transcriptData = await YoutubeTranscript.fetchTranscript(videoId);
+            const transcript = transcriptData.map(t => t.text).join(' ');
+            if (transcript && transcript.trim().length > 0) {
+                console.log('[Transcrição] ✓ Sucesso com YoutubeTranscript!');
+                return { transcript, source: 'youtube-transcript' };
+            }
+        }
+    } catch (ytErr) {
+        console.warn('[Transcrição] YoutubeTranscript falhou:', ytErr.message);
+        errors.push(`YoutubeTranscript: ${ytErr.message}`);
+    }
+    
+    // Se todos os métodos falharam
+    throw new Error(`Todos os métodos de transcrição falharam. Erros: ${errors.join('; ')}`);
+}
+
 // Rota para obter transcrição completa de um vídeo
 app.get('/api/video/transcript/:videoId', authenticateToken, async (req, res) => {
     let { videoId } = req.params;
@@ -21747,7 +22464,7 @@ app.get('/api/video/transcript/:videoId', authenticateToken, async (req, res) =>
 });
 
 app.post('/api/video/transcript/analyze', authenticateToken, async (req, res) => {
-    const { transcript, videoId, videoTitle, niche, subniche } = req.body || {};
+    const { transcript, videoId, videoTitle, niche, subniche, generateAgent } = req.body || {};
     const userId = req.user.id;
 
     if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 400) {
@@ -21763,11 +22480,32 @@ app.post('/api/video/transcript/analyze', authenticateToken, async (req, res) =>
             subniche
         });
 
-        res.status(200).json({
+        const response = {
             analysis: result.analysis,
             provider: result.provider,
             videoId: videoId || null
-        });
+        };
+
+        // Se solicitado, gerar agente automaticamente após a análise
+        if (generateAgent === true) {
+            try {
+                const agentResult = await generateAgentFromTranscript({
+                    userId,
+                    transcript,
+                    videoTitle,
+                    niche,
+                    subniche,
+                    analysis: result.analysis
+                });
+                response.agent = agentResult.agent;
+                response.agentProvider = agentResult.provider;
+            } catch (agentErr) {
+                console.error('[ERRO ao gerar agente automaticamente]:', agentErr);
+                response.agentError = agentErr.message;
+            }
+        }
+
+        res.status(200).json(response);
     } catch (err) {
         console.error('[ERRO /api/video/transcript/analyze]:', err);
         res.status(500).json({ msg: err.message || 'Erro ao analisar o roteiro.' });
@@ -21990,48 +22728,40 @@ app.post('/api/script-agents/create', authenticateToken, async (req, res) => {
         }
         
         if (fullTranscript && fullTranscript.trim().length >= 100) {
-            // Usar o roteiro completo (ou até 20000 caracteres para análise mais profunda)
-            const transcriptToAnalyze = fullTranscript.length > 20000 
-                ? fullTranscript.substring(0, 20000) + '\n[... roteiro continua ...]'
+            // Usar o roteiro completo (ou até 50000 caracteres para análise mais profunda)
+            const transcriptToAnalyze = fullTranscript.length > 50000 
+                ? fullTranscript.substring(0, 50000) + '\n[... roteiro continua ...]'
                 : fullTranscript;
             
-            agentPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE ROTEIROS VIRAIS para YouTube. Sua missão é analisar profundamente o roteiro transcrito abaixo e identificar EXATAMENTE por que ele foi viral, capturando sua fórmula completa para replicação.
+            agentPrompt = `PASSO 1 - CRIAR ROTEIRO BASE:
+Preciso que você me ajude a criar um agente de criação de roteiros em forma de documento no nicho de ${niche || 'N/A'} subnichado em ${subniche || 'N/A'}. 
 
-ROTEIRO COMPLETO DO VÍDEO VIRAL (TRANSCRITO):
-${transcriptToAnalyze}
+Vou te mandar uma transcrição de um roteiro e quero que o agente crie roteiros com a mesma estrutura da TRANSCRIÇÃO. O agente deve criar os roteiros com parágrafos longos, cheios, sem quebras de linha excessivas e deve evitar termos técnicos como "capitulo x" ou "parte tal" deve seguir apenas com o conteúdo para facilitar que eu copie o roteiro para um documento. O agente deve produzir roteiros com em média 30 mil caracteres em ptbr. Preciso que o texto seja feito em um bloco único, sem separação por subtítulos ou tópicos e que não possua palavras destacadas em negrito ou algo do tipo. Esse texto vai ser narrado por uma IA, por isso peço que retire todos os travessões ou hifens em palavras ou frases, para que não ocorra nenhum tipo de bug na hora que a IA for narrar esse texto. Corte a introdução da resposta do prompt e vá direto ao texto traduzido. Mantenha a essência de um roteiro feito para youtube, como CTA de like e inscrição no canal.
+
+PASSO 2 - INTRODUÇÃO:
+Crie uma introdução breve e impactante para o vídeo com o título "${videoTitle || 'N/A'}" como referência no agente. A introdução deve ser envolvente, criar conexão com o público, gerar identificação imediata, tocar diretamente na dor que o espectador sente e apresentar a promessa de uma solução real e acessível. Use linguagem emocional, simples e direta, como se estivesse falando com alguém que sofre com esse problema há muito tempo. Utilize riqueza de detalhes e storytelling para o público se identificar.
+
+PASSO 3 - CTA DE INSCRIÇÃO:
+Crie um CTA de inscrição envolvente e humanizado para um canal desse nicho e subnicho específico voltado ao público que sofre com essa dor específica. O CTA deve incentivar a inscrição de forma acolhedora, sem pressão, destacando os benefícios de acompanhar o canal. Use linguagem simples, direta e emocional. O tom deve transmitir cuidado, confiança e autoridade.
+
+PASSO 4 - CTA DE COMENTÁRIO:
+Crie um CTA envolvente, localizado por volta de 1/3 do vídeo, que provoque o espectador a comentar. O trecho deve usar uma pergunta direta, gerar identificação com a dor ou dificuldade da audiência, e ativar emocionalmente a pessoa — como se ela estivesse sendo ouvida pela primeira vez. O texto deve induzir o comentário com uma frase pronta para copiar e colar, e fazer o espectador sentir que sua participação ajuda outras pessoas. Use um tom empático, acolhedor e de conversa íntima, como se estivesse falando com um amigo que sofre em silêncio.
+
+TRANSCRIÇÃO DE REFERÊNCIA:
+"""${transcriptToAnalyze}"""
 
 TÍTULO DO VÍDEO: ${videoTitle || 'N/A'}
 NICHE: ${niche || 'N/A'}
 SUBNICHE: ${subniche || 'N/A'}
 
-ANÁLISE PROFUNDA REQUERIDA:
-
-1. **ESTRUTURA NARRATIVA EXATA:**
-   - Como o roteiro começa? (primeiros 15-30 segundos)
-   - Qual é a progressão da narrativa? (desenvolvimento, clímax, resolução)
-   - Como termina? (últimos 30 segundos)
-   - Identifique a estrutura temporal exata (timing de cada seção)
-
-2. **ELEMENTOS VIRAIS IDENTIFICADOS:**
-   - Ganchos específicos usados (perguntas, afirmações chocantes, curiosidade)
-   - Técnicas de engajamento (quando pede like, compartilhar, comentar)
-   - Ritmo e cadência da narrativa (rápido, lento, variado)
-   - Tom de voz (sério, descontraído, emocional, informativo)
-   - Elementos de suspense e curiosidade
-   - Transições entre tópicos
-
-3. **FÓRMULA DO SUCESSO:**
-   - Por que este roteiro específico foi viral?
-   - Quais padrões se repetem que geram engajamento?
-   - O que mantém o espectador assistindo até o final?
-   - Elementos únicos que diferenciam este roteiro
-
-4. **PADRÕES REPLICÁVEIS:**
-   - Estrutura que pode ser aplicada a outros títulos
-   - Elementos que devem ser mantidos em qualquer replicação
-   - Variações permitidas sem perder a essência viral
-
-Sua tarefa é criar um "agente de roteiro" que capture COMPLETAMENTE esta fórmula viral e seja capaz de replicá-la para QUALQUER título fornecido, mantendo a mesma estrutura e elementos virais identificados.
+INSTRUÇÕES PARA O AGENTE:
+Com base na transcrição acima, crie um agente que:
+1. Gere roteiros seguindo a mesma estrutura e estilo da transcrição
+2. Use a introdução, CTA de inscrição e CTA de comentário criados acima
+3. Mantenha o tom, estilo narrativo e elementos virais identificados
+4. Produza roteiros completos de aproximadamente 30.000 caracteres
+5. Formate o texto como um bloco único, sem quebras excessivas ou formatação especial
+6. Remova todos os travessões e hifens que possam causar problemas na narração por IA
 
 Crie:`;
         } else {
@@ -22048,33 +22778,20 @@ Crie:`;
         }
 
         agentPrompt += `${insightsSection}
+
 IMPORTANTE:
 - NÃO copie o texto do roteiro original.
 - Extraia apenas a FÓRMULA, estrutura, ritmo e gatilhos que tornam o vídeo viral.
-- Inclua melhorias e correções para levar o resultado a nível 10/10.
-- Produza prompts e instruções claros para que qualquer novo título possa reutilizar essa fórmula com diferenciais.
-`;
-
-        agentPrompt += `
-1. **"agent_prompt"**: Um prompt base que será usado para gerar novos roteiros. Este prompt deve:
-   - Capturar a estrutura narrativa exata identificada no roteiro viral
-   - Incluir os elementos virais específicos (ganchos, ritmo, tom, técnicas)
-   - Ser capaz de adaptar essa estrutura para QUALQUER título fornecido
-   - Manter a fórmula de sucesso identificada
-
-2. **"agent_instructions"**: Instruções detalhadas que explicam:
-   - A estrutura exata do roteiro (timing, seções, progressão)
-   - Os elementos virais que DEVEM ser mantidos em cada replicação
-   - Como adaptar o conteúdo para novos títulos mantendo a essência
-   - Padrões e fórmulas identificadas que geram engajamento
-   - Exemplos específicos do roteiro original que devem ser replicados
-
-IMPORTANTE: O agente deve ser capaz de receber APENAS um título de vídeo e gerar um roteiro completo seguindo EXATAMENTE a mesma estrutura e fórmula viral do roteiro original analisado.
+- Use os 4 PASSOS acima (roteiro base, introdução, CTA inscrição, CTA comentário) como base para criar o agente.
+- O agente deve ser capaz de receber APENAS um título de vídeo e gerar um roteiro completo seguindo EXATAMENTE a mesma estrutura e fórmula viral do roteiro original analisado.
 
 Responda APENAS com um objeto JSON válido no seguinte formato:
 {
-  "agent_prompt": "Prompt base detalhado que captura a estrutura e elementos virais do roteiro original...",
-  "agent_instructions": "Instruções completas sobre a estrutura exata, timing, elementos virais, e como replicar a fórmula para qualquer título..."
+  "agent_prompt": "Prompt base detalhado que inclui os 4 PASSOS (roteiro base, introdução, CTA inscrição, CTA comentário) e captura a estrutura e elementos virais do roteiro original. O prompt deve instruir o agente a criar roteiros de ~30.000 caracteres em bloco único, sem formatação especial, sem travessões/hifens, mantendo a essência do YouTube com CTAs de like e inscrição.",
+  "agent_instructions": "Instruções completas que explicam: 1) Como usar a introdução criada no PASSO 2, 2) Como usar o CTA de inscrição do PASSO 3, 3) Como usar o CTA de comentário do PASSO 4, 4) A estrutura exata do roteiro (timing, seções, progressão), 5) Os elementos virais que DEVEM ser mantidos em cada replicação, 6) Como adaptar o conteúdo para novos títulos mantendo a essência, 7) Padrões e fórmulas identificadas que geram engajamento.",
+  "introduction": "Introdução criada no PASSO 2 que será usada pelo agente",
+  "subscriptionCTA": "CTA de inscrição criado no PASSO 3 que será usado pelo agente",
+  "commentCTA": "CTA de comentário criado no PASSO 4 que será usado pelo agente"
 }`;
 
         let response;
@@ -22149,7 +22866,22 @@ Responda APENAS com um objeto JSON válido no seguinte formato:
             if (parsed && parsed.agent_prompt && parsed.agent_instructions) {
                 agentPromptText = parsed.agent_prompt;
                 agentInstructions = parsed.agent_instructions;
-                console.log(`[Agente] ✅ Agente criado com sucesso a partir da resposta do Gemini`);
+                
+                // Adicionar introdução, CTA de inscrição e CTA de comentário às instruções se disponíveis
+                if (parsed.introduction || parsed.subscriptionCTA || parsed.commentCTA) {
+                    agentInstructions += '\n\n=== ELEMENTOS ESPECÍFICOS DO AGENTE ===\n';
+                    if (parsed.introduction) {
+                        agentInstructions += `\nINTRODUÇÃO (usar no início de cada roteiro):\n${parsed.introduction}\n`;
+                    }
+                    if (parsed.subscriptionCTA) {
+                        agentInstructions += `\nCTA DE INSCRIÇÃO (usar no final do roteiro):\n${parsed.subscriptionCTA}\n`;
+                    }
+                    if (parsed.commentCTA) {
+                        agentInstructions += `\nCTA DE COMENTÁRIO (usar por volta de 1/3 do vídeo):\n${parsed.commentCTA}\n`;
+                    }
+                }
+                
+                console.log(`[Agente] ✅ Agente criado com sucesso a partir da resposta da IA`);
             } else {
                 console.warn(`[Agente] JSON parseado mas campos ausentes. Campos encontrados:`, Object.keys(parsed || {}));
                 throw new Error('JSON não contém agent_prompt e agent_instructions');
@@ -22196,6 +22928,89 @@ Crie roteiros seguindo esta estrutura e estilo, adaptando o conteúdo para novos
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [userId, agentName, niche || null, subniche || null, videoId, videoUrl || null, videoTitle || null, fullTranscript, agentPromptText, agentInstructions, viralFormulaJson]
         );
+
+        // Salvar automaticamente em agentes virais
+        try {
+            // Preparar instruções completas incluindo a fórmula viral se disponível
+            let fullInstructions = agentInstructions || agentPromptText || '';
+            if (viralFormulaJson) {
+                try {
+                    const formulaData = JSON.parse(viralFormulaJson);
+                    fullInstructions += '\n\n=== FÓRMULA VIRAL IDENTIFICADA ===\n';
+                    fullInstructions += JSON.stringify(formulaData, null, 2);
+                } catch (e) {
+                    fullInstructions += '\n\n=== FÓRMULA VIRAL ===\n' + viralFormulaJson;
+                }
+            }
+            
+            // Adicionar informações do vídeo fonte na descrição
+            const description = `Agente gerado automaticamente a partir do vídeo "${videoTitle || 'N/A'}". ${niche ? `Nicho: ${niche}` : ''} ${subniche ? `| Subnicho: ${subniche}` : ''}`;
+            
+            // Verificar se as colunas existem antes de inserir
+            // Adicionar colunas se não existirem (migração suave)
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN niche TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna niche:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN subniche TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna subniche:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN formula_json TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna formula_json:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN source_video_id TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna source_video_id:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN source_video_url TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna source_video_url:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN source_video_title TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna source_video_title:', e.message);
+            }
+            try {
+                await db.run(`ALTER TABLE viral_agents ADD COLUMN agent_prompt TEXT`);
+            } catch (e) {
+                if (!/duplicate column name/i.test(e.message)) console.warn('[DB] Erro ao adicionar coluna agent_prompt:', e.message);
+            }
+            
+            await db.run(`
+                INSERT INTO viral_agents (
+                    user_id, name, description, instructions, model, 
+                    niche, subniche, formula_json, source_video_id, 
+                    source_video_url, source_video_title, agent_prompt,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `, [
+                userId,
+                agentName,
+                description,
+                fullInstructions,
+                'gpt-4o', // Modelo padrão
+                niche || null,
+                subniche || null,
+                viralFormulaJson || null,
+                videoId || null,
+                videoUrl || null,
+                videoTitle || null,
+                agentPromptText || null
+            ]);
+            
+            console.log('[Agente] ✅ Agente salvo automaticamente em agentes virais com todos os campos');
+        } catch (viralAgentErr) {
+            console.warn('[Agente] ⚠️ Erro ao salvar em agentes virais:', viralAgentErr.message);
+            // Não falhar a criação do agente se não conseguir salvar em viral_agents
+        }
 
         res.status(200).json({
             msg: 'Agente de roteiro criado com sucesso!',
@@ -23169,12 +23984,24 @@ RESPOSTA FINAL - CRÍTICO:
         }
 
         // Validar quantidade de palavras e expandir se necessário
-        const expectedWords = scriptDuration * wordsPerMinute;
-        const minWords = expectedWords - 50; // Tolerância de -50 palavras
-        const maxWords = expectedWords + 100; // Tolerância de +100 palavras
+        // Usar 130 palavras/minuto de forma rigorosa
+        const wordsPerMinuteRigorous = 130;
+        const expectedWords = scriptDuration * wordsPerMinuteRigorous;
+        // Tolerância mais rigorosa: máximo 10% acima da duração solicitada
+        const maxAllowedMinutes = scriptDuration * 1.1; // Máximo 10% acima
+        const maxWords = maxAllowedMinutes * wordsPerMinuteRigorous;
+        const minWords = expectedWords - 30; // Tolerância mínima de -30 palavras
         
         let wordCount = scriptContent.trim().split(/\s+/).filter(w => w.length > 0).length;
-        console.log(`[Roteiro] Validação inicial: ${wordCount} palavras encontradas, esperado: ${expectedWords} (tolerância: ${minWords}-${maxWords})`);
+        const estimatedMinutes = Math.round((wordCount / wordsPerMinuteRigorous) * 10) / 10;
+        
+        console.log(`[Roteiro] Validação rigorosa: ${wordCount} palavras encontradas (${estimatedMinutes} min), esperado: ${expectedWords} palavras (${scriptDuration} min)`);
+        console.log(`[Roteiro] Tolerância: ${minWords}-${maxWords} palavras (${scriptDuration}-${maxAllowedMinutes.toFixed(1)} min)`);
+        
+        // Se o roteiro exceder muito a duração, avisar mas continuar
+        if (estimatedMinutes > maxAllowedMinutes) {
+            console.warn(`[Roteiro] ⚠️ Roteiro excede a duração solicitada: ${estimatedMinutes} min (solicitado: ${scriptDuration} min, máximo: ${maxAllowedMinutes.toFixed(1)} min)`);
+        }
 
         // Tentar expandir até atingir a quantidade mínima (máximo 3 tentativas)
         let expansionAttempts = 0;
@@ -24846,7 +25673,7 @@ app.get('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
 // Rota para atualizar um agente viral
 app.put('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
     const { agentId } = req.params;
-    const { name, description, memory, instructions, is_favorite, model } = req.body;
+    const { name, description, memory, instructions, is_favorite, model, formula_json, niche, subniche, agent_prompt } = req.body;
     const userId = req.user.id;
 
     try {
@@ -24885,6 +25712,22 @@ app.put('/api/viral-agents/:agentId', authenticateToken, async (req, res) => {
         if (is_favorite !== undefined) {
             updates.push('is_favorite = ?');
             values.push(is_favorite ? 1 : 0);
+        }
+        if (formula_json !== undefined) {
+            updates.push('formula_json = ?');
+            values.push(typeof formula_json === 'object' ? JSON.stringify(formula_json) : formula_json);
+        }
+        if (niche !== undefined) {
+            updates.push('niche = ?');
+            values.push(niche);
+        }
+        if (subniche !== undefined) {
+            updates.push('subniche = ?');
+            values.push(subniche);
+        }
+        if (agent_prompt !== undefined) {
+            updates.push('agent_prompt = ?');
+            values.push(agent_prompt);
         }
 
         if (updates.length === 0) {
@@ -33799,6 +34642,653 @@ async function processNotificationLoop(loopType) {
     }
 }
 
+// --- FUNÇÕES AUXILIARES PARA ANÁLISE DE CANAIS VIRAIS ---
+
+// Buscar informações do canal
+async function getChannelInfo(channelIdOrHandle, apiKey) {
+    try {
+        // Limpar handle (remover @ se presente)
+        let identifier = channelIdOrHandle.trim();
+        if (identifier.startsWith('@')) {
+            identifier = identifier.substring(1);
+        }
+        
+        // Tentar buscar por channelId primeiro (se parece com ID)
+        if (identifier.length === 24 && identifier.startsWith('UC')) {
+            let url = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${identifier}&key=${apiKey}`;
+            let response = await fetch(url);
+            let data = await response.json();
+            
+            if (response.ok && data.items && data.items.length > 0) {
+                const channel = data.items[0];
+                const publishedAt = new Date(channel.snippet.publishedAt);
+                const daysSinceCreation = Math.round((new Date() - publishedAt) / (1000 * 60 * 60 * 24));
+                const monthsSinceCreation = Math.round(daysSinceCreation / 30);
+                const yearsSinceCreation = (daysSinceCreation / 365).toFixed(1);
+                
+                return {
+                    channelId: channel.id,
+                    channelName: channel.snippet.title,
+                    channelHandle: channel.snippet.customUrl || identifier,
+                    subscriberCount: parseInt(channel.statistics.subscriberCount || 0),
+                    videoCount: parseInt(channel.statistics.videoCount || 0),
+                    viewCount: parseInt(channel.statistics.viewCount || 0),
+                    description: channel.snippet.description || '',
+                    thumbnail: channel.snippet.thumbnails.high?.url || channel.snippet.thumbnails.default?.url || '',
+                    publishedAt: channel.snippet.publishedAt,
+                    daysSinceCreation: daysSinceCreation,
+                    monthsSinceCreation: monthsSinceCreation,
+                    yearsSinceCreation: parseFloat(yearsSinceCreation)
+                };
+            }
+        }
+        
+        // Tentar buscar por handle usando search
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(identifier)}&type=channel&maxResults=1&key=${apiKey}`;
+        const searchResponse = await fetch(searchUrl);
+        const searchData = await searchResponse.json();
+        
+        if (searchResponse.ok && searchData.items && searchData.items.length > 0) {
+            const channelId = searchData.items[0].id.channelId;
+            
+            // Buscar detalhes completos
+            const detailsUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${channelId}&key=${apiKey}`;
+            const detailsResponse = await fetch(detailsUrl);
+            const detailsData = await detailsResponse.json();
+            
+            if (detailsResponse.ok && detailsData.items && detailsData.items.length > 0) {
+                const channel = detailsData.items[0];
+                const publishedAt = new Date(channel.snippet.publishedAt);
+                const daysSinceCreation = Math.round((new Date() - publishedAt) / (1000 * 60 * 60 * 24));
+                const monthsSinceCreation = Math.round(daysSinceCreation / 30);
+                const yearsSinceCreation = (daysSinceCreation / 365).toFixed(1);
+                
+                return {
+                    channelId: channel.id,
+                    channelName: channel.snippet.title,
+                    channelHandle: channel.snippet.customUrl || identifier,
+                    subscriberCount: parseInt(channel.statistics.subscriberCount || 0),
+                    videoCount: parseInt(channel.statistics.videoCount || 0),
+                    viewCount: parseInt(channel.statistics.viewCount || 0),
+                    description: channel.snippet.description || '',
+                    thumbnail: channel.snippet.thumbnails.high?.url || channel.snippet.thumbnails.default?.url || '',
+                    publishedAt: channel.snippet.publishedAt,
+                    daysSinceCreation: daysSinceCreation,
+                    monthsSinceCreation: monthsSinceCreation,
+                    yearsSinceCreation: parseFloat(yearsSinceCreation)
+                };
+            }
+        }
+        
+        throw new Error('Canal não encontrado. Verifique a URL ou handle do canal.');
+    } catch (err) {
+        console.error('[getChannelInfo] Erro:', err);
+        throw new Error(`Erro ao buscar informações do canal: ${err.message}`);
+    }
+}
+
+// Buscar vídeos mais vistos do canal
+async function getChannelTopVideos(channelId, apiKey, maxResults = 20) {
+    try {
+        // Buscar vídeos ordenados por viewCount
+        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=${maxResults}&key=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error?.message || 'Erro ao buscar vídeos');
+        }
+        
+        if (!data.items || data.items.length === 0) {
+            return [];
+        }
+        
+        const videoIds = data.items.map(item => item.id.videoId).join(',');
+        
+        // Buscar estatísticas detalhadas
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds}&key=${apiKey}`;
+        const detailsResponse = await fetch(detailsUrl);
+        const detailsData = await detailsResponse.json();
+        
+        if (!detailsResponse.ok || !detailsData.items) {
+            throw new Error('Erro ao buscar detalhes dos vídeos');
+        }
+        
+        return detailsData.items.map(item => {
+            const publishedAt = new Date(item.snippet.publishedAt);
+            const daysAgo = Math.round((new Date() - publishedAt) / (1000 * 60 * 60 * 24));
+            
+            return {
+                videoId: item.id,
+                title: item.snippet.title,
+                description: item.snippet.description || '',
+                thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url || '',
+                publishedAt: item.snippet.publishedAt,
+                viewCount: parseInt(item.statistics.viewCount || 0),
+                likeCount: parseInt(item.statistics.likeCount || 0),
+                commentCount: parseInt(item.statistics.commentCount || 0),
+                duration: item.contentDetails.duration,
+                tags: item.snippet.tags || [],
+                categoryId: item.snippet.categoryId,
+                daysAgo: daysAgo,
+                viralScore: calculateViralScore(
+                    parseInt(item.statistics.viewCount || 0),
+                    parseInt(item.statistics.likeCount || 0),
+                    parseInt(item.statistics.commentCount || 0),
+                    daysAgo
+                )
+            };
+        }).sort((a, b) => b.viralScore - a.viralScore);
+    } catch (err) {
+        console.error('[getChannelTopVideos] Erro:', err);
+        throw new Error(`Erro ao buscar vídeos mais vistos: ${err.message}`);
+    }
+}
+
+// Calcular score viral
+function calculateViralScore(views, likes, comments, daysAgo) {
+    if (daysAgo === 0) daysAgo = 1;
+    const viewsPerDay = views / daysAgo;
+    const engagementRate = ((likes + comments) / views) * 100;
+    return (viewsPerDay * 0.6) + (engagementRate * 1000 * 0.4);
+}
+
+// Buscar comentários de um vídeo
+async function getVideoComments(videoId, apiKey, maxResults = 100) {
+    try {
+        const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=${maxResults}&order=relevance&key=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error?.message || 'Erro ao buscar comentários');
+        }
+        
+        if (!data.items || data.items.length === 0) {
+            return [];
+        }
+        
+        return data.items.map(item => {
+            const comment = item.snippet.topLevelComment.snippet;
+            return {
+                commentId: item.snippet.topLevelComment.id,
+                authorName: comment.authorDisplayName,
+                authorChannelId: comment.authorChannelId?.value || null,
+                text: comment.textDisplay,
+                likeCount: parseInt(comment.likeCount || 0),
+                publishedAt: comment.publishedAt,
+                updatedAt: comment.updatedAt
+            };
+        });
+    } catch (err) {
+        console.error('[getVideoComments] Erro:', err);
+        // Se não houver comentários ou erro, retornar array vazio
+        return [];
+    }
+}
+
+// Analisar insights virais com IA
+async function analyzeViralInsights(channelData, videos, comments, apiKey, service, modelToUse) {
+    try {
+        const topVideos = videos.slice(0, 10);
+        const topComments = comments.slice(0, 50);
+        
+        // Identificar o vídeo mais viral para análise detalhada
+        const mostViralVideo = topVideos.reduce((max, v) => {
+            const maxViews = max.viewCount || 0;
+            const vViews = v.viewCount || 0;
+            return vViews > maxViews ? v : max;
+        }, topVideos[0]);
+        
+        const mostViralDaysAgo = mostViralVideo.daysAgo || (mostViralVideo.publishedAt ? Math.round((new Date() - new Date(mostViralVideo.publishedAt)) / (1000 * 60 * 60 * 24)) : 0);
+        
+        const analysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE CANAIS VIRAIS DO YOUTUBE.
+
+GPT, preciso da sua ajuda para analisar um canal de sucesso no YouTube e usar essa análise como base para a criação do meu próprio canal dentro do mesmo nicho.
+
+DADOS DO CANAL:
+- Nome: ${channelData.channelName}
+- Inscritos: ${channelData.subscriberCount.toLocaleString()}
+- Total de vídeos: ${channelData.videoCount}
+- Total de visualizações: ${channelData.viewCount.toLocaleString()}
+
+LISTA COMPLETA DOS VÍDEOS PUBLICADOS (TOP 10 MAIS VISTOS):
+${topVideos.map((v, i) => {
+    const daysAgo = v.daysAgo || (v.publishedAt ? Math.round((new Date() - new Date(v.publishedAt)) / (1000 * 60 * 60 * 24)) : 0);
+    const viralScore = v.viralScore || 0;
+    return `
+${i + 1}. "${v.title}"
+   - Visualizações: ${(v.viewCount || 0).toLocaleString()}
+   - Likes: ${(v.likeCount || 0).toLocaleString()}
+   - Comentários: ${(v.commentCount || 0).toLocaleString()}
+   - Publicado há: ${daysAgo} dias
+   - Score Viral: ${viralScore.toFixed(2)}
+   - Thumbnail URL: ${v.thumbnail || 'N/A'}
+`;
+}).join('\n')}
+
+VÍDEO MAIS VIRAL DO CANAL:
+"${mostViralVideo.title}"
+- Visualizações: ${(mostViralVideo.viewCount || 0).toLocaleString()}
+- Pegou ${(mostViralVideo.viewCount || 0).toLocaleString()} views em ${mostViralDaysAgo} dias
+- Likes: ${(mostViralVideo.likeCount || 0).toLocaleString()}
+- Comentários: ${(mostViralVideo.commentCount || 0).toLocaleString()}
+- Thumbnail: ${mostViralVideo.thumbnail || 'N/A'}
+
+COMENTÁRIOS MAIS RELEVANTES (especialmente dos vídeos que performaram melhor):
+${topComments.map((c, i) => `
+${i + 1}. "${c.text.substring(0, 200)}" - ${c.authorName} (${c.likeCount} likes)
+`).join('\n')}
+
+ANÁLISE PROFUNDA REQUERIDA:
+
+1. IDENTIFICAÇÃO DO NICHO E SUBNICHO:
+   - Qual é o nicho exato desse canal?
+   - Qual é o subnicho (se houver)?
+   - Há subnichos pouco explorados dentro deste nicho que tenham alto volume de buscas e baixa competição?
+
+2. DIFERENCIAIS DE SUCESSO:
+   - Quais são os principais diferenciais que tornam esse canal bem-sucedido?
+   - O que faz este canal se destacar da concorrência?
+
+3. PÚBLICO-ALVO:
+   - Perfil demográfico (idade, gênero, localização)
+   - Interesses específicos
+   - Comportamento e padrões de consumo de conteúdo
+
+4. PADRÕES NOS TÍTULOS (ANÁLISE DETALHADA):
+   - Estrutura comum dos títulos virais
+   - Palavras-chave recorrentes que geram mais views
+   - Técnicas de hook mais eficazes
+   - Comprimento médio ideal
+   - Para o vídeo mais viral com título "${mostViralVideo.title}", identifique:
+     * Por que este título específico viralizou?
+     * Quais elementos do título são responsáveis pelo sucesso?
+     * Variações deste título que poderiam funcionar igualmente bem
+
+5. ANÁLISE DE THUMBNAILS:
+   - Para o vídeo mais viral com thumbnail "${mostViralVideo.thumbnail || 'N/A'}" e título "${mostViralVideo.title}":
+     * Quais elementos visuais da thumbnail contribuíram para o viral?
+     * Como a thumbnail complementa o título?
+     * Padrões visuais que se repetem nas thumbnails dos vídeos virais
+
+6. ESTRATÉGIAS DE ENGAGEMENT:
+   - O que gera mais comentários? (identifique nos comentários fornecidos)
+   - O que gera mais likes?
+   - Timing de publicação mais eficaz
+   - Há algo nos comentários que revele desejos ou insatisfações da audiência que possam ser usados como oportunidade?
+
+7. INSIGHTS VIRAIS:
+   - Por que esses vídeos viralizaram? (análise profunda)
+   - Elementos comuns nos vídeos virais
+   - Diferenças entre vídeos virais e não virais
+   - Padrões ou formatos que se repetem nos vídeos de maior sucesso
+
+8. OPORTUNIDADES ESTRATÉGICAS:
+   - Oportunidades para criar um canal similar com diferenciais competitivos
+   - Subnichos dentro deste nicho que estão pouco explorados mas com alta demanda
+   - Gaps de conteúdo identificados nos comentários
+
+9. RECOMENDAÇÕES PRÁTICAS:
+   - Como estruturar o conteúdo de um novo canal
+   - Linha editorial recomendada
+   - Sugestões de temas iniciais
+   - Estratégias de conteúdo mais eficazes (tipo de vídeo, frequência, estilo de narrativa)
+
+RESPONDA EM FORMATO JSON:
+{
+  "niche_analysis": {
+    "exact_niche": "descrição do nicho exato",
+    "subniche": "subnicho identificado",
+    "unexplored_subniches": ["subnicho 1 com alta demanda", "subnicho 2 com alta demanda"],
+    "competition_level": "baixa/média/alta"
+  },
+  "differentiators": {
+    "main_differentiators": ["diferencial 1", "diferencial 2", ...],
+    "success_factors": ["fator 1", "fator 2", ...]
+  },
+  "target_audience": {
+    "demographic": "perfil demográfico",
+    "interests": ["interesse 1", "interesse 2", ...],
+    "behavior": "comportamento identificado"
+  },
+  "title_patterns": {
+    "structure": "descrição detalhada da estrutura comum",
+    "keywords": ["palavra-chave 1", "palavra-chave 2", ...],
+    "hook_techniques": ["técnica 1", "técnica 2", ...],
+    "avg_length": número,
+    "viral_title_analysis": {
+      "title": "${mostViralVideo.title}",
+      "why_viral": "análise detalhada de por que este título viralizou",
+      "key_elements": ["elemento 1", "elemento 2", ...],
+      "variations": ["variação 1", "variação 2", "variação 3", ...]
+    }
+  },
+  "thumbnail_analysis": {
+    "viral_thumbnail_url": "${mostViralVideo.thumbnail || 'N/A'}",
+    "viral_title": "${mostViralVideo.title}",
+    "visual_elements": ["elemento visual 1", "elemento visual 2", ...],
+    "thumbnail_title_synergy": "como thumbnail e título trabalham juntos",
+    "recurring_patterns": ["padrão 1", "padrão 2", ...]
+  },
+  "engagement_strategies": {
+    "comment_triggers": ["elemento 1", "elemento 2", ...],
+    "like_triggers": ["elemento 1", "elemento 2", ...],
+    "best_posting_times": "análise de timing",
+    "audience_desires": ["desejo 1 identificado nos comentários", "desejo 2", ...],
+    "audience_pain_points": ["ponto de dor 1", "ponto de dor 2", ...]
+  },
+  "viral_insights": {
+    "why_viral": "análise detalhada e profunda",
+    "common_elements": ["elemento 1", "elemento 2", ...],
+    "differences": "diferenças entre vídeos virais e não virais",
+    "recurring_formats": ["formato 1", "formato 2", ...]
+  },
+  "opportunities": {
+    "competitive_differentiators": ["oportunidade 1", "oportunidade 2", ...],
+    "unexplored_subniches": ["subnicho 1", "subnicho 2", ...],
+    "content_gaps": ["gap 1", "gap 2", ...]
+  },
+  "recommendations": {
+    "content_structure": "como estruturar conteúdo",
+    "editorial_line": "linha editorial recomendada",
+    "initial_themes": ["tema 1", "tema 2", ...],
+    "replication_strategy": "estratégia detalhada de replicação",
+    "suggested_titles": ["título 1 baseado nos padrões", "título 2", ...],
+    "content_strategies": ["estratégia 1", "estratégia 2", ...],
+    "video_types": "tipos de vídeo mais eficazes",
+    "publishing_frequency": "frequência recomendada",
+    "narrative_style": "estilo de narrativa"
+  }
+}`;
+
+        let analysisResponse;
+        if (service === 'claude') {
+            analysisResponse = await callClaudeAPI(analysisPrompt, apiKey, modelToUse);
+        } else if (service === 'openai') {
+            analysisResponse = await callOpenAIAPI(analysisPrompt, apiKey, modelToUse);
+        } else {
+            analysisResponse = await callGeminiAPI(analysisPrompt, apiKey, modelToUse);
+        }
+        
+        const analysisText = typeof analysisResponse === 'string' ? analysisResponse : JSON.stringify(analysisResponse);
+        console.log('[analyzeViralInsights] Resposta da IA (primeiros 1000 chars):', analysisText.substring(0, 1000));
+        
+        let parsed;
+        try {
+            parsed = parseAIResponse(analysisText, service);
+            console.log('[analyzeViralInsights] Parseado com sucesso. Tipo:', typeof parsed);
+            console.log('[analyzeViralInsights] Estrutura parseada:', {
+                hasTitlePatterns: !!parsed?.title_patterns,
+                hasEngagement: !!parsed?.engagement_strategies,
+                hasViralInsights: !!parsed?.viral_insights,
+                hasRecommendations: !!parsed?.recommendations
+            });
+        } catch (parseErr) {
+            console.error('[analyzeViralInsights] Erro ao parsear resposta da IA:', parseErr);
+            console.error('[analyzeViralInsights] Texto que causou erro:', analysisText.substring(0, 500));
+            parsed = {};
+        }
+        
+        // Garantir que sempre retorna estrutura válida
+        if (!parsed || typeof parsed !== 'object') {
+            console.warn('[analyzeViralInsights] Parse retornou valor inválido, usando objeto vazio');
+            parsed = {};
+        }
+        
+        // Garantir que todas as seções existem
+        if (!parsed.niche_analysis || typeof parsed.niche_analysis !== 'object') {
+            parsed.niche_analysis = {
+                exact_niche: 'Não identificado',
+                subniche: 'Não identificado',
+                unexplored_subniches: [],
+                competition_level: 'Não identificado'
+            };
+        }
+        
+        if (!parsed.differentiators || typeof parsed.differentiators !== 'object') {
+            parsed.differentiators = {
+                main_differentiators: [],
+                success_factors: []
+            };
+        }
+        
+        if (!parsed.target_audience || typeof parsed.target_audience !== 'object') {
+            parsed.target_audience = {
+                demographic: 'Não identificado',
+                interests: [],
+                behavior: 'Não identificado'
+            };
+        }
+        
+        if (!parsed.title_patterns || typeof parsed.title_patterns !== 'object') {
+            parsed.title_patterns = {
+                structure: 'Estrutura não identificada',
+                keywords: [],
+                hook_techniques: [],
+                avg_length: 0,
+                viral_title_analysis: {
+                    title: '',
+                    why_viral: 'Análise não disponível',
+                    key_elements: [],
+                    variations: []
+                }
+            };
+        }
+        
+        if (!parsed.thumbnail_analysis || typeof parsed.thumbnail_analysis !== 'object') {
+            parsed.thumbnail_analysis = {
+                viral_thumbnail_url: '',
+                viral_title: '',
+                visual_elements: [],
+                thumbnail_title_synergy: 'Análise não disponível',
+                recurring_patterns: []
+            };
+        }
+        
+        if (!parsed.engagement_strategies || typeof parsed.engagement_strategies !== 'object') {
+            parsed.engagement_strategies = {
+                comment_triggers: [],
+                like_triggers: [],
+                best_posting_times: 'Não identificado',
+                audience_desires: [],
+                audience_pain_points: []
+            };
+        }
+        
+        if (!parsed.viral_insights || typeof parsed.viral_insights !== 'object') {
+            parsed.viral_insights = {
+                why_viral: 'Análise não disponível',
+                common_elements: [],
+                differences: 'Não identificado',
+                recurring_formats: []
+            };
+        }
+        
+        if (!parsed.opportunities || typeof parsed.opportunities !== 'object') {
+            parsed.opportunities = {
+                competitive_differentiators: [],
+                unexplored_subniches: [],
+                content_gaps: []
+            };
+        }
+        
+        if (!parsed.recommendations || typeof parsed.recommendations !== 'object') {
+            parsed.recommendations = {
+                content_structure: 'Estrutura não identificada',
+                editorial_line: 'Linha editorial não identificada',
+                initial_themes: [],
+                replication_strategy: 'Estratégia não identificada',
+                suggested_titles: [],
+                content_strategies: [],
+                video_types: 'Não identificado',
+                publishing_frequency: 'Não identificado',
+                narrative_style: 'Não identificado'
+            };
+        }
+        
+        return parsed;
+    } catch (err) {
+        console.error('[analyzeViralInsights] Erro:', err);
+        // Retornar estrutura padrão em vez de lançar erro
+        return {
+            niche_analysis: {
+                exact_niche: 'Não identificado',
+                subniche: 'Não identificado',
+                unexplored_subniches: [],
+                competition_level: 'Não identificado'
+            },
+            differentiators: {
+                main_differentiators: [],
+                success_factors: []
+            },
+            target_audience: {
+                demographic: 'Não identificado',
+                interests: [],
+                behavior: 'Não identificado'
+            },
+            title_patterns: {
+                structure: 'Estrutura não identificada',
+                keywords: [],
+                hook_techniques: [],
+                avg_length: 0,
+                viral_title_analysis: {
+                    title: '',
+                    why_viral: 'Análise não disponível',
+                    key_elements: [],
+                    variations: []
+                }
+            },
+            thumbnail_analysis: {
+                viral_thumbnail_url: '',
+                viral_title: '',
+                visual_elements: [],
+                thumbnail_title_synergy: 'Análise não disponível',
+                recurring_patterns: []
+            },
+            engagement_strategies: {
+                comment_triggers: [],
+                like_triggers: [],
+                best_posting_times: 'Não identificado',
+                audience_desires: [],
+                audience_pain_points: []
+            },
+            viral_insights: {
+                why_viral: 'Análise não disponível',
+                common_elements: [],
+                differences: 'Não identificado',
+                recurring_formats: []
+            },
+            opportunities: {
+                competitive_differentiators: [],
+                unexplored_subniches: [],
+                content_gaps: []
+            },
+            recommendations: {
+                content_structure: 'Estrutura não identificada',
+                editorial_line: 'Linha editorial não identificada',
+                initial_themes: [],
+                replication_strategy: 'Estratégia não identificada',
+                suggested_titles: [],
+                content_strategies: [],
+                video_types: 'Não identificado',
+                publishing_frequency: 'Não identificado',
+                narrative_style: 'Não identificado'
+            }
+        };
+    }
+}
+
+// Analisar insights para novo canal baseado em análises cruzadas
+async function analyzeNewChannelInsights(currentInsights, otherChannelsInsights, channelInfo, apiKey, service, modelToUse) {
+    try {
+        const prompt = `Você é um ESPECIALISTA EM CRIAÇÃO DE CANAIS VIRAIS NO YOUTUBE.
+
+Com base na análise de múltiplos canais virais do mesmo nicho, forneça insights específicos para CRIAR UM NOVO CANAL que replique o sucesso.
+
+ANÁLISE ATUAL DO CANAL: ${channelInfo.channelName}
+- Idade do canal: ${channelInfo.yearsSinceCreation || 0} anos
+- Inscritos: ${channelInfo.subscriberCount.toLocaleString()}
+- Total de vídeos: ${channelInfo.videoCount}
+- Total de visualizações: ${channelInfo.viewCount.toLocaleString()}
+
+INSIGHTS DO CANAL ATUAL:
+${JSON.stringify(currentInsights, null, 2)}
+
+INSIGHTS DE OUTROS CANAIS VIRAIS DO MESMO NICHO:
+${otherChannelsInsights.map((oc, i) => `
+Canal ${i + 1}: ${oc.channelName}
+${JSON.stringify(oc.insights, null, 2)}
+`).join('\n---\n')}
+
+ANALISE E FORNEÇA INSIGHTS ESPECÍFICOS PARA CRIAR UM NOVO CANAL:
+
+1. PADRÕES CRUZADOS:
+   - Quais elementos são comuns em TODOS os canais virais analisados?
+   - Quais diferenças estratégicas existem entre os canais?
+   - O que funciona melhor para este nicho?
+
+2. ESTRATÉGIA PARA NOVO CANAL:
+   - Como posicionar o novo canal para competir?
+   - Quais elementos replicar e quais evitar?
+   - Timing ideal para lançamento
+
+3. TÍTULOS OTIMIZADOS:
+   - 10 títulos sugeridos baseados nos padrões virais identificados
+   - Estrutura ideal para este nicho
+   - Palavras-chave essenciais
+
+4. ROADMAP DE CONTEÚDO:
+   - Primeiros 10 vídeos sugeridos
+   - Ordem de publicação recomendada
+   - Estratégia de crescimento inicial
+
+RESPONDA EM FORMATO JSON:
+{
+  "cross_patterns": {
+    "common_elements": ["elemento1", "elemento2", ...],
+    "key_differences": "análise das diferenças",
+    "best_practices": ["prática1", "prática2", ...]
+  },
+  "new_channel_strategy": {
+    "positioning": "como posicionar",
+    "replicate_elements": ["elemento1", "elemento2", ...],
+    "avoid_elements": ["elemento1", "elemento2", ...],
+    "launch_timing": "quando lançar"
+  },
+  "optimized_titles": [
+    "título 1",
+    "título 2",
+    ...
+  ],
+  "content_roadmap": {
+    "first_10_videos": [
+      {"order": 1, "title": "título", "reason": "por que este primeiro"},
+      ...
+    ],
+    "growth_strategy": "estratégia de crescimento"
+  }
+}`;
+
+        let response;
+        if (service === 'claude') {
+            response = await callClaudeAPI(prompt, apiKey, modelToUse);
+        } else if (service === 'openai') {
+            response = await callOpenAIAPI(prompt, apiKey, modelToUse);
+        } else {
+            response = await callGeminiAPI(prompt, apiKey, modelToUse);
+        }
+        
+        const responseText = typeof response === 'string' ? response : JSON.stringify(response);
+        const parsed = parseAIResponse(responseText, service);
+        
+        return parsed || {};
+    } catch (err) {
+        console.error('[analyzeNewChannelInsights] Erro:', err);
+        return null;
+    }
+}
+
 // Função para restaurar loops ativos ao iniciar o servidor
 async function restoreActiveLoops() {
     try {
@@ -33841,6 +35331,1128 @@ async function restoreActiveLoops() {
         console.error('[NOTIFICATIONS] Erro ao restaurar loops:', error);
     }
 }
+
+// --- ENDPOINTS PARA ANÁLISE DE CANAIS VIRAIS ---
+
+// Detectar nicho automaticamente pela URL do canal
+app.post('/api/viral-analysis/detect-niche', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { channelUrl, channelId, channelHandle } = req.body;
+        
+        if (!channelUrl && !channelId && !channelHandle) {
+            return res.status(400).json({ msg: 'URL, ID ou Handle do canal é obrigatório.' });
+        }
+        
+        // Buscar API key do YouTube
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (!youtubeKeyData || !youtubeKeyData.api_key) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube não configurada.' });
+        }
+        const youtubeApiKey = decrypt(youtubeKeyData.api_key);
+        
+        // Extrair channelId da URL se necessário
+        let finalChannelId = channelId;
+        if (channelUrl && !channelId) {
+            const urlMatch = channelUrl.match(/(?:youtube\.com\/(?:c\/|channel\/|user\/|@)|youtu\.be\/)([^\/\?]+)/);
+            if (urlMatch) {
+                finalChannelId = urlMatch[1];
+            }
+        }
+        if (!finalChannelId && channelHandle) {
+            finalChannelId = channelHandle;
+        }
+        
+        // Buscar informações do canal
+        const channelInfo = await getChannelInfo(finalChannelId, youtubeApiKey);
+        
+        // Buscar API key para IA
+        let apiKey = null;
+        let service = null;
+        let modelToUse = null;
+        
+        const services = ['claude', 'openai', 'gemini'];
+        for (const svc of services) {
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+            if (keyData && keyData.api_key) {
+                try {
+                    apiKey = decrypt(keyData.api_key);
+                    service = svc;
+                    if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                    else if (svc === 'openai') modelToUse = 'gpt-4o';
+                    else modelToUse = 'gemini-2.5-pro';
+                    break;
+                } catch (e) {
+                    continue;
+                }
+            }
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Nenhuma API key de IA configurada para detectar o nicho.' });
+        }
+        
+        // Usar IA para detectar o nicho
+        const nichePrompt = `Analise as seguintes informações de um canal do YouTube e identifique o NICHO PRINCIPAL do canal.
+
+INFORMAÇÕES DO CANAL:
+- Nome: ${channelInfo.channelName}
+- Descrição: ${channelInfo.description.substring(0, 500)}
+- Total de vídeos: ${channelInfo.videoCount}
+- Total de visualizações: ${channelInfo.viewCount.toLocaleString()}
+- Inscritos: ${channelInfo.subscriberCount.toLocaleString()}
+
+Com base nessas informações, identifique o nicho principal do canal. O nicho deve ser uma palavra ou frase curta (máximo 2 palavras) que descreva o tema principal do conteúdo.
+
+Exemplos de nichos válidos:
+- História
+- Tecnologia
+- Educação
+- Entretenimento
+- Finanças
+- Gaming
+- Culinária
+- Fitness
+- Viagens
+- Ciência
+- Negócios
+- Marketing
+
+Responda APENAS com o nicho identificado, sem explicações adicionais. Use letras maiúsculas para a primeira letra de cada palavra.`;
+
+        let nicheResponse;
+        if (service === 'claude') {
+            nicheResponse = await callClaudeAPI(nichePrompt, apiKey, modelToUse);
+        } else if (service === 'openai') {
+            nicheResponse = await callOpenAIAPI(nichePrompt, apiKey, modelToUse);
+        } else {
+            nicheResponse = await callGeminiAPI(nichePrompt, apiKey, modelToUse);
+        }
+        
+        const nicheText = typeof nicheResponse === 'string' ? nicheResponse : JSON.stringify(nicheResponse);
+        const parsedNiche = parseAIResponse(nicheText, service);
+        
+        // Extrair nicho da resposta
+        let detectedNiche = null;
+        if (typeof parsedNiche === 'string') {
+            detectedNiche = parsedNiche.trim();
+        } else if (parsedNiche && parsedNiche.niche) {
+            detectedNiche = parsedNiche.niche.trim();
+        } else if (parsedNiche && typeof parsedNiche === 'object') {
+            // Tentar encontrar o nicho no objeto
+            detectedNiche = parsedNiche.niche || parsedNiche.title || Object.values(parsedNiche)[0];
+            if (typeof detectedNiche === 'string') {
+                detectedNiche = detectedNiche.trim();
+            }
+        }
+        
+        // Limpar e formatar o nicho
+        if (detectedNiche) {
+            // Remover aspas, pontos, etc.
+            detectedNiche = detectedNiche.replace(/^["']|["']$/g, '').replace(/\.$/, '').trim();
+            // Capitalizar primeira letra de cada palavra
+            detectedNiche = detectedNiche.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+            ).join(' ');
+        }
+        
+        res.status(200).json({ 
+            niche: detectedNiche || null,
+            channel: {
+                name: channelInfo.channelName,
+                description: channelInfo.description
+            }
+        });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/detect-niche]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao detectar nicho do canal.' });
+    }
+});
+
+// Adicionar canal para análise
+app.post('/api/viral-analysis/channels', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { channelUrl, channelId, channelHandle } = req.body;
+        
+        if (!channelUrl && !channelId && !channelHandle) {
+            return res.status(400).json({ msg: 'URL, ID ou Handle do canal é obrigatório.' });
+        }
+        
+        // Buscar API key do YouTube
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (!youtubeKeyData || !youtubeKeyData.api_key) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube não configurada. Configure nas Configurações.' });
+        }
+        
+        const apiKey = decrypt(youtubeKeyData.api_key);
+        
+        // Extrair channelId da URL se necessário
+        let finalChannelId = channelId;
+        if (channelUrl && !channelId) {
+            const urlMatch = channelUrl.match(/(?:youtube\.com\/(?:c\/|channel\/|user\/|@)|youtu\.be\/)([^\/\?]+)/);
+            if (urlMatch) {
+                finalChannelId = urlMatch[1];
+            }
+        }
+        if (!finalChannelId && channelHandle) {
+            finalChannelId = channelHandle;
+        }
+        
+        // Buscar informações do canal
+        const channelInfo = await getChannelInfo(finalChannelId, apiKey);
+        
+        // Verificar se já existe análise
+        const existing = await db.get('SELECT id FROM channel_viral_analysis WHERE user_id = ? AND channel_id = ?', [userId, channelInfo.channelId]);
+        
+        if (existing) {
+            return res.status(200).json({ 
+                msg: 'Canal já está sendo analisado.',
+                analysisId: existing.id,
+                channel: channelInfo
+            });
+        }
+        
+        // Obter folder_id se fornecido (niche e subniche serão detectados durante a análise)
+        const { folder_id } = req.body;
+        
+        // Criar nova análise (niche e subniche serão detectados durante a análise)
+        const result = await db.run(
+            `INSERT INTO channel_viral_analysis 
+            (user_id, channel_id, channel_name, channel_url, channel_handle, subscriber_count, total_videos, total_views, channel_age_days, channel_age_years, niche, subniche, folder_id, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [userId, channelInfo.channelId, channelInfo.channelName, channelUrl || `https://youtube.com/channel/${channelInfo.channelId}`, channelInfo.channelHandle, channelInfo.subscriberCount, channelInfo.videoCount, channelInfo.viewCount, channelInfo.daysSinceCreation || 0, channelInfo.yearsSinceCreation || 0, null, null, folder_id || null]
+        );
+        
+        res.status(201).json({
+            msg: 'Canal adicionado para análise com sucesso.',
+            analysisId: result.lastID,
+            channel: channelInfo
+        });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/channels]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao adicionar canal para análise.' });
+    }
+});
+
+// Listar canais em análise
+app.get('/api/viral-analysis/channels', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Verificar quais colunas existem na tabela
+        let tableInfo;
+        try {
+            tableInfo = await db.all("PRAGMA table_info(channel_viral_analysis)");
+        } catch (e) {
+            // Se a tabela não existir, retornar array vazio
+            return res.status(200).json({ channels: [] });
+        }
+        
+        const existingColumns = tableInfo.map(col => col.name);
+        
+        // Construir SELECT apenas com colunas que existem
+        const baseColumns = ['id', 'channel_id', 'channel_name', 'channel_url', 'channel_handle', 'subscriber_count', 'total_videos', 'total_views', 'analyzed_at', 'last_updated'];
+        const optionalColumns = ['channel_age_days', 'channel_age_years', 'avg_rpm_usd', 'avg_rpm_brl', 'niche', 'subniche', 'folder_id'];
+        
+        const selectColumns = [...baseColumns];
+        optionalColumns.forEach(col => {
+            if (existingColumns.includes(col)) {
+                selectColumns.push(col);
+            }
+        });
+        
+        const channels = await db.all(
+            `SELECT ${selectColumns.join(', ')}
+            FROM channel_viral_analysis 
+            WHERE user_id = ? 
+            ORDER BY analyzed_at DESC 
+            LIMIT 5`,
+            [userId]
+        );
+        
+        res.status(200).json({ channels });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/channels GET]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao listar canais.' });
+    }
+});
+
+// Analisar canal completo
+app.post('/api/viral-analysis/channels/:analysisId/analyze', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const analysisId = parseInt(req.params.analysisId);
+        const { ai_model = 'auto' } = req.body;
+        
+        // Verificar se a análise pertence ao usuário
+        const analysis = await db.get('SELECT * FROM channel_viral_analysis WHERE id = ? AND user_id = ?', [analysisId, userId]);
+        if (!analysis) {
+            return res.status(404).json({ msg: 'Análise não encontrada.' });
+        }
+        
+        // Buscar API keys
+        const youtubeKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, 'youtube']);
+        if (!youtubeKeyData || !youtubeKeyData.api_key) {
+            return res.status(400).json({ msg: 'Chave de API do YouTube não configurada.' });
+        }
+        const youtubeApiKey = decrypt(youtubeKeyData.api_key);
+        
+        // Buscar API key para IA
+        let apiKey = null;
+        let service = null;
+        let modelToUse = null;
+        
+        if (ai_model && ai_model !== 'auto') {
+            if (ai_model.includes('claude')) {
+                service = 'claude';
+                modelToUse = 'claude-3-7-sonnet-20250219';
+            } else if (ai_model.includes('gpt')) {
+                service = 'openai';
+                modelToUse = 'gpt-4o';
+            } else if (ai_model.includes('gemini')) {
+                service = 'gemini';
+                modelToUse = 'gemini-2.5-pro';
+            }
+        }
+        
+        if (!service) {
+            const services = ['claude', 'openai', 'gemini'];
+            for (const svc of services) {
+                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+                if (keyData && keyData.api_key) {
+                    try {
+                        apiKey = decrypt(keyData.api_key);
+                        service = svc;
+                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        else if (svc === 'openai') modelToUse = 'gpt-4o';
+                        else modelToUse = 'gemini-2.5-pro';
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+        } else {
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, service]);
+            if (keyData && keyData.api_key) {
+                apiKey = decrypt(keyData.api_key);
+            }
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Nenhuma API key de IA configurada.' });
+        }
+        
+        // Buscar informações atualizadas do canal
+        const channelInfo = await getChannelInfo(analysis.channel_id, youtubeApiKey);
+        
+        // Buscar top 20 vídeos mais vistos
+        const videos = await getChannelTopVideos(analysis.channel_id, youtubeApiKey, 20);
+        
+        // Buscar comentários dos top 5 vídeos
+        const allComments = [];
+        for (let i = 0; i < Math.min(5, videos.length); i++) {
+            const comments = await getVideoComments(videos[i].videoId, youtubeApiKey, 20);
+            // Adicionar videoId aos comentários para associação
+            comments.forEach(comment => {
+                comment.videoId = videos[i].videoId;
+            });
+            allComments.push(...comments);
+        }
+        
+        // Salvar vídeos no banco
+        for (const video of videos) {
+            await db.run(
+                `INSERT OR REPLACE INTO channel_viral_videos 
+                (analysis_id, video_id, video_url, title, description, thumbnail_url, view_count, like_count, comment_count, published_at, duration, tags_json, category_id, viral_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [analysisId, video.videoId, `https://youtube.com/watch?v=${video.videoId}`, video.title, video.description, video.thumbnail, video.viewCount, video.likeCount, video.commentCount, video.publishedAt, video.duration, JSON.stringify(video.tags), video.categoryId, video.viralScore]
+            );
+        }
+        
+        // Salvar comentários (associar aos vídeos salvos)
+        const savedVideos = await db.all('SELECT id, video_id FROM channel_viral_videos WHERE analysis_id = ?', [analysisId]);
+        const videoIdMap = {};
+        savedVideos.forEach(v => { videoIdMap[v.video_id] = v.id; });
+        
+        // Agrupar comentários por vídeo
+        const commentsByVideo = {};
+        for (const comment of allComments) {
+            if (!commentsByVideo[comment.videoId]) {
+                commentsByVideo[comment.videoId] = [];
+            }
+            commentsByVideo[comment.videoId].push(comment);
+        }
+        
+        // Salvar comentários associados aos vídeos corretos
+        for (const [youtubeVideoId, comments] of Object.entries(commentsByVideo)) {
+            const videoDbId = videoIdMap[youtubeVideoId];
+            if (videoDbId) {
+                for (const comment of comments) {
+                    await db.run(
+                        `INSERT OR IGNORE INTO channel_viral_comments 
+                        (video_id, comment_id, author_name, author_channel_id, text, like_count, published_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [videoDbId, comment.commentId, comment.authorName, comment.authorChannelId, comment.text, comment.likeCount, comment.publishedAt]
+                    );
+                }
+            }
+        }
+        
+        // Detectar nicho e subnicho durante a análise (mais preciso)
+        let detectedNiche = analysis.niche;
+        let detectedSubniche = analysis.subniche || null;
+        
+        if (!detectedNiche || !detectedSubniche) {
+            try {
+                // Usar IA para detectar nicho e subnicho baseado nos dados completos do canal
+                const nicheDetectionPrompt = `Analise as seguintes informações de um canal do YouTube e identifique o NICHO PRINCIPAL e o SUBNICHO do canal.
+
+INFORMAÇÕES DO CANAL:
+- Nome: ${channelInfo.channelName}
+- Descrição: ${channelInfo.description ? channelInfo.description.substring(0, 500) : 'N/A'}
+- Total de vídeos: ${channelInfo.videoCount}
+- Total de visualizações: ${channelInfo.viewCount.toLocaleString()}
+- Inscritos: ${channelInfo.subscriberCount.toLocaleString()}
+
+TOP 5 VÍDEOS MAIS VISTOS:
+${videos.slice(0, 5).map((v, i) => `
+${i + 1}. "${v.title}"
+   - Visualizações: ${(v.viewCount || 0).toLocaleString()}
+`).join('')}
+
+Com base nessas informações, identifique:
+1. NICHO PRINCIPAL: Uma palavra ou frase curta (máximo 2 palavras) que descreva o tema principal do conteúdo.
+2. SUBNICHO: Uma palavra ou frase que especifique melhor o foco dentro do nicho principal.
+
+Exemplos:
+- Nicho: "História", Subnicho: "História Antiga"
+- Nicho: "Tecnologia", Subnicho: "Inteligência Artificial"
+- Nicho: "Educação", Subnicho: "Matemática"
+
+Responda APENAS com um JSON válido no formato:
+{
+  "niche": "Nicho Principal",
+  "subniche": "Subnicho Específico"
+}`;
+
+                let nicheResponse;
+                if (service === 'claude') {
+                    nicheResponse = await callClaudeAPI(nicheDetectionPrompt, apiKey, modelToUse);
+                } else if (service === 'openai') {
+                    nicheResponse = await callOpenAIAPI(nicheDetectionPrompt, apiKey, modelToUse);
+                } else {
+                    nicheResponse = await callGeminiAPI(nicheDetectionPrompt, apiKey, modelToUse);
+                }
+                
+                const nicheText = typeof nicheResponse === 'string' ? nicheResponse : JSON.stringify(nicheResponse);
+                const parsedNiche = parseAIResponse(nicheText, service);
+                
+                if (parsedNiche && typeof parsedNiche === 'object') {
+                    if (parsedNiche.niche && !detectedNiche) {
+                        detectedNiche = parsedNiche.niche.trim();
+                    }
+                    if (parsedNiche.subniche) {
+                        detectedSubniche = parsedNiche.subniche.trim();
+                    }
+                } else if (typeof parsedNiche === 'string' && !detectedNiche) {
+                    detectedNiche = parsedNiche.trim();
+                }
+                
+                // Limpar e formatar
+                if (detectedNiche) {
+                    detectedNiche = detectedNiche.replace(/^["']|["']$/g, '').replace(/\.$/, '').trim();
+                    detectedNiche = detectedNiche.split(' ').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                    ).join(' ');
+                }
+                if (detectedSubniche) {
+                    detectedSubniche = detectedSubniche.replace(/^["']|["']$/g, '').replace(/\.$/, '').trim();
+                    detectedSubniche = detectedSubniche.split(' ').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                    ).join(' ');
+                }
+                
+                console.log('[Viral Analysis] Nicho detectado:', detectedNiche, 'Subnicho:', detectedSubniche);
+            } catch (err) {
+                console.error('[Viral Analysis] Erro ao detectar nicho/subnicho:', err);
+                // Continuar mesmo se falhar
+            }
+        }
+        
+        // Atualizar nicho e subnicho no banco
+        if (detectedNiche || detectedSubniche) {
+            await db.run(
+                'UPDATE channel_viral_analysis SET niche = COALESCE(?, niche), subniche = COALESCE(?, subniche) WHERE id = ?',
+                [detectedNiche, detectedSubniche, analysisId]
+            );
+        }
+        
+        // Analisar insights virais com IA
+        let insights;
+        try {
+            insights = await analyzeViralInsights(channelInfo, videos, allComments, apiKey, service, modelToUse);
+            console.log('[Viral Analysis] Insights gerados:', JSON.stringify(insights).substring(0, 200));
+        } catch (err) {
+            console.error('[Viral Analysis] Erro ao gerar insights:', err);
+            // Usar estrutura vazia se falhar
+            insights = {
+                title_patterns: {
+                    structure: 'Estrutura não identificada',
+                    keywords: [],
+                    hook_techniques: [],
+                    avg_length: 0
+                },
+                engagement_strategies: {
+                    comment_triggers: [],
+                    like_triggers: [],
+                    best_posting_times: 'Não identificado'
+                },
+                viral_insights: {
+                    why_viral: 'Análise não disponível',
+                    common_elements: [],
+                    differences: 'Não identificado'
+                },
+                recommendations: {
+                    replication_strategy: 'Estratégia não identificada',
+                    suggested_titles: [],
+                    content_strategies: []
+                }
+            };
+        }
+        
+        // Calcular RPM médio baseado no nicho (usar nicho atualizado)
+        const updatedNiche = detectedNiche || analysis.niche;
+        const rpmData = getRPMByNiche(updatedNiche || null);
+        
+        // Calcular RPM médio do canal (estimativa baseada em views totais)
+        const avgRPM = {
+            usd: rpmData.usd,
+            brl: rpmData.brl
+        };
+        
+        // Calcular valor total ganho estimado do canal
+        const totalRevenueUSD = (channelInfo.viewCount / 1000) * avgRPM.usd;
+        const totalRevenueBRL = (channelInfo.viewCount / 1000) * avgRPM.brl;
+        
+        // Analisar insights cruzados para novo canal (usar nicho atualizado)
+        const allAnalyses = await db.all(
+            `SELECT * FROM channel_viral_analysis WHERE user_id = ? AND niche = ? AND id != ? ORDER BY analyzed_at DESC`,
+            [userId, updatedNiche || '', analysisId]
+        );
+        
+        let newChannelInsights = null;
+        if (allAnalyses.length > 0) {
+            // Buscar insights de outros canais do mesmo nicho
+            const otherInsights = [];
+            for (const otherAnalysis of allAnalyses.slice(0, 4)) {
+                if (otherAnalysis.viral_insights_json) {
+                    try {
+                        const parsed = typeof otherAnalysis.viral_insights_json === 'string' 
+                            ? JSON.parse(otherAnalysis.viral_insights_json) 
+                            : otherAnalysis.viral_insights_json;
+                        otherInsights.push({
+                            channelName: otherAnalysis.channel_name,
+                            insights: parsed
+                        });
+                    } catch (e) {
+                        console.error('[Viral Analysis] Erro ao parsear insights de outro canal:', e);
+                    }
+                }
+            }
+            
+            if (otherInsights.length > 0) {
+                newChannelInsights = await analyzeNewChannelInsights(insights, otherInsights, channelInfo, apiKey, service, modelToUse);
+            }
+        }
+        
+        // Salvar insights
+        const insightsData = {
+            title_patterns: insights.title_patterns || {},
+            engagement_strategies: insights.engagement_strategies || {},
+            viral_insights: insights.viral_insights || {},
+            recommendations: insights.recommendations || {}
+        };
+        
+        console.log('[Viral Analysis] Salvando insights no banco:', {
+            analysisId,
+            hasTitlePatterns: !!insightsData.title_patterns && Object.keys(insightsData.title_patterns).length > 0,
+            hasEngagement: !!insightsData.engagement_strategies && Object.keys(insightsData.engagement_strategies).length > 0,
+            hasViralInsights: !!insightsData.viral_insights && Object.keys(insightsData.viral_insights).length > 0,
+            hasRecommendations: !!insightsData.recommendations && Object.keys(insightsData.recommendations).length > 0,
+            insightsDataPreview: JSON.stringify(insightsData).substring(0, 500)
+        });
+        
+        await db.run(
+            'UPDATE channel_viral_analysis SET analysis_data_json = ?, viral_insights_json = ?, new_channel_insights_json = ?, avg_rpm_usd = ?, avg_rpm_brl = ?, total_revenue_usd = ?, total_revenue_brl = ?, channel_age_days = ?, channel_age_years = ?, last_updated = CURRENT_TIMESTAMP WHERE id = ?',
+            [JSON.stringify({ channelInfo, videos: videos.slice(0, 10) }), JSON.stringify(insightsData), newChannelInsights ? JSON.stringify(newChannelInsights) : null, avgRPM.usd, avgRPM.brl, totalRevenueUSD, totalRevenueBRL, channelInfo.daysSinceCreation || 0, channelInfo.yearsSinceCreation || 0, analysisId]
+        );
+        
+        // Verificar se foi salvo corretamente
+        const saved = await db.get('SELECT viral_insights_json FROM channel_viral_analysis WHERE id = ?', [analysisId]);
+        console.log('[Viral Analysis] Verificação pós-salvamento:', {
+            saved: !!saved,
+            hasViralInsightsJson: !!saved?.viral_insights_json,
+            length: saved?.viral_insights_json?.length || 0,
+            preview: saved?.viral_insights_json?.substring(0, 200) || 'null'
+        });
+        
+        // Salvar insights individuais
+        if (insights.title_patterns) {
+            await db.run(
+                'INSERT INTO channel_viral_insights (analysis_id, insight_type, insight_title, insight_content, priority) VALUES (?, ?, ?, ?, ?)',
+                [analysisId, 'title_patterns', 'Padrões nos Títulos', JSON.stringify(insights.title_patterns), 1]
+            );
+        }
+        if (insights.engagement_strategies) {
+            await db.run(
+                'INSERT INTO channel_viral_insights (analysis_id, insight_type, insight_title, insight_content, priority) VALUES (?, ?, ?, ?, ?)',
+                [analysisId, 'engagement', 'Estratégias de Engagement', JSON.stringify(insights.engagement_strategies), 2]
+            );
+        }
+        if (insights.viral_insights) {
+            await db.run(
+                'INSERT INTO channel_viral_insights (analysis_id, insight_type, insight_title, insight_content, priority) VALUES (?, ?, ?, ?, ?)',
+                [analysisId, 'viral', 'Insights Virais', JSON.stringify(insights.viral_insights), 3]
+            );
+        }
+        if (insights.recommendations) {
+            await db.run(
+                'INSERT INTO channel_viral_insights (analysis_id, insight_type, insight_title, insight_content, priority) VALUES (?, ?, ?, ?, ?)',
+                [analysisId, 'recommendations', 'Recomendações', JSON.stringify(insights.recommendations), 4]
+            );
+        }
+        
+        res.status(200).json({
+            msg: 'Análise concluída com sucesso.',
+            analysis: {
+                channel: channelInfo,
+                videosCount: videos.length,
+                commentsCount: allComments.length,
+                insights: insightsData
+            }
+        });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/channels/:id/analyze]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao analisar canal.' });
+    }
+});
+
+// Obter análise completa
+app.get('/api/viral-analysis/channels/:analysisId', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const analysisId = parseInt(req.params.analysisId);
+        
+        const analysis = await db.get('SELECT * FROM channel_viral_analysis WHERE id = ? AND user_id = ?', [analysisId, userId]);
+        if (!analysis) {
+            return res.status(404).json({ msg: 'Análise não encontrada.' });
+        }
+        
+        const videos = await db.all('SELECT * FROM channel_viral_videos WHERE analysis_id = ? ORDER BY view_count DESC, viral_score DESC', [analysisId]);
+        const insights = await db.all('SELECT * FROM channel_viral_insights WHERE analysis_id = ? ORDER BY priority', [analysisId]);
+        
+        // Buscar comentários para cada vídeo
+        for (const video of videos) {
+            const comments = await db.all('SELECT * FROM channel_viral_comments WHERE video_id = ? ORDER BY like_count DESC LIMIT 10', [video.id]);
+            video.comments = comments;
+        }
+        
+        // Parsear JSONs se existirem
+        let analysisData = null;
+        let viralInsights = null;
+        
+        try {
+            if (analysis.analysis_data_json) {
+                analysisData = typeof analysis.analysis_data_json === 'string' 
+                    ? JSON.parse(analysis.analysis_data_json) 
+                    : analysis.analysis_data_json;
+            }
+        } catch (e) {
+            console.error('[Viral Analysis] Erro ao parsear analysis_data_json:', e);
+        }
+        
+        try {
+            if (analysis.viral_insights_json) {
+                viralInsights = typeof analysis.viral_insights_json === 'string' 
+                    ? JSON.parse(analysis.viral_insights_json) 
+                    : analysis.viral_insights_json;
+                console.log('[Viral Analysis GET] Insights parseados:', {
+                    hasTitlePatterns: !!viralInsights?.title_patterns,
+                    hasEngagement: !!viralInsights?.engagement_strategies,
+                    hasViralInsights: !!viralInsights?.viral_insights,
+                    hasRecommendations: !!viralInsights?.recommendations,
+                    titlePatternsKeys: viralInsights?.title_patterns ? Object.keys(viralInsights.title_patterns) : [],
+                    recommendationsKeys: viralInsights?.recommendations ? Object.keys(viralInsights.recommendations) : []
+                });
+            } else {
+                console.warn('[Viral Analysis GET] viral_insights_json está vazio ou null');
+            }
+        } catch (e) {
+            console.error('[Viral Analysis] Erro ao parsear viral_insights_json:', e);
+            console.error('[Viral Analysis] Conteúdo raw:', analysis.viral_insights_json?.substring(0, 500));
+        }
+        
+        // Parsear new_channel_insights se existir
+        let newChannelInsights = null;
+        try {
+            if (analysis.new_channel_insights_json) {
+                newChannelInsights = typeof analysis.new_channel_insights_json === 'string' 
+                    ? JSON.parse(analysis.new_channel_insights_json) 
+                    : analysis.new_channel_insights_json;
+            }
+        } catch (e) {
+            console.error('[Viral Analysis] Erro ao parsear new_channel_insights_json:', e);
+        }
+        
+        console.log('[Viral Analysis GET] Retornando análise:', {
+            hasViralInsights: !!viralInsights,
+            videosCount: videos.length,
+            insightsCount: insights.length
+        });
+        
+        res.status(200).json({
+            analysis: {
+                ...analysis,
+                analysis_data: analysisData,
+                viral_insights: viralInsights,
+                new_channel_insights: newChannelInsights,
+                total_revenue_usd: analysis.total_revenue_usd || null,
+                total_revenue_brl: analysis.total_revenue_brl || null
+            },
+            videos,
+            insights
+        });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/channels/:id]:', err);
+        res.status(500).json({ msg: 'Erro ao buscar análise.' });
+    }
+});
+
+// Remover canal da análise
+app.delete('/api/viral-analysis/channels/:analysisId', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const analysisId = parseInt(req.params.analysisId);
+        
+        const analysis = await db.get('SELECT id FROM channel_viral_analysis WHERE id = ? AND user_id = ?', [analysisId, userId]);
+        if (!analysis) {
+            return res.status(404).json({ msg: 'Análise não encontrada.' });
+        }
+        
+        await db.run('DELETE FROM channel_viral_analysis WHERE id = ?', [analysisId]);
+        
+        res.status(200).json({ msg: 'Canal removido da análise com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/channels/:id DELETE]:', err);
+        res.status(500).json({ msg: 'Erro ao remover canal.' });
+    }
+});
+
+// Cruzar análises de múltiplos canais e gerar conteúdo viral
+app.post('/api/viral-analysis/cross-analyze', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { analysisIds } = req.body;
+        
+        if (!analysisIds || !Array.isArray(analysisIds) || analysisIds.length < 2) {
+            return res.status(400).json({ msg: 'Selecione pelo menos 2 análises para cruzar.' });
+        }
+        
+        // Buscar todas as análises selecionadas
+        const placeholders = analysisIds.map(() => '?').join(',');
+        const analyses = await db.all(
+            `SELECT * FROM channel_viral_analysis WHERE id IN (${placeholders}) AND user_id = ?`,
+            [...analysisIds, userId]
+        );
+        
+        if (analyses.length < 2) {
+            return res.status(400).json({ msg: 'Não foi possível encontrar as análises selecionadas.' });
+        }
+        
+        // Buscar vídeos e insights de cada análise
+        const allVideos = [];
+        const allInsights = [];
+        
+        for (const analysis of analyses) {
+            const videos = await db.all(
+                'SELECT * FROM channel_viral_videos WHERE analysis_id = ? ORDER BY view_count DESC LIMIT 10',
+                [analysis.id]
+            );
+            allVideos.push(...videos.map(v => ({ ...v, channelName: analysis.channel_name, niche: analysis.niche })));
+            
+            const insights = await db.all(
+                'SELECT * FROM channel_viral_insights WHERE analysis_id = ?',
+                [analysis.id]
+            );
+            allInsights.push(...insights.map(i => ({ ...i, channelName: analysis.channel_name })));
+        }
+        
+        // Buscar chave de API do usuário
+        const user = await db.get('SELECT openai_api_key FROM users WHERE id = ?', [userId]);
+        if (!user || !user.openai_api_key) {
+            return res.status(400).json({ msg: 'Configure sua chave de API OpenAI nas configurações.' });
+        }
+        
+        // Preparar dados para análise cruzada
+        const topVideosByChannel = {};
+        analyses.forEach(analysis => {
+            const channelVideos = allVideos.filter(v => v.channelName === analysis.channel_name);
+            topVideosByChannel[analysis.channel_name] = channelVideos.slice(0, 5);
+        });
+        
+        // Identificar nicho comum entre os canais
+        const commonNiche = analyses[0].niche || 'Não identificado';
+        const allNiches = analyses.map(a => a.niche).filter(n => n);
+        const uniqueNiches = [...new Set(allNiches)];
+        
+        // Identificar vídeos mais virais de cada canal para análise de títulos e thumbnails
+        const mostViralVideos = analyses.map(analysis => {
+            const channelVideos = allVideos.filter(v => v.channelName === analysis.channel_name);
+            return channelVideos.reduce((max, v) => (v.view_count || 0) > (max.view_count || 0) ? v : max, channelVideos[0]);
+        }).filter(v => v);
+        
+        // Criar prompt para análise cruzada com foco em conteúdo inexplorado
+        const crossAnalysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE CANAIS VIRAIS DO YOUTUBE e IDENTIFICAÇÃO DE OPORTUNIDADES DE CONTEÚDO INEXPLORADO.
+
+CONTEXTO INICIAL:
+Quero criar um canal no YouTube dentro do nicho de "${commonNiche}". Analisei ${analyses.length} canais de sucesso neste nicho, mas percebi que já há bastante concorrência em alguns subnichos. Estou em busca de ideias de subnichos dentro de "${commonNiche}" que ainda estejam pouco exploradas no YouTube, com pouca ou nenhuma concorrência, mas que tenham ALTO VOLUME DE BUSCAS, INTERESSE CRESCENTE e BOM POTENCIAL DE MONETIZAÇÃO.
+
+O objetivo é encontrar uma OPORTUNIDADE ÚNICA para criar conteúdo relevante, com FORTE DEMANDA e BAIXA COMPETIÇÃO, gerando CONTEÚDO VIRAL INÉDITO que ainda não foi explorado no YouTube.
+
+DADOS DOS CANAIS ANALISADOS:
+
+${analyses.map((analysis, idx) => {
+    const channelVideos = topVideosByChannel[analysis.channel_name] || [];
+    const mostViral = mostViralVideos.find(v => v.channelName === analysis.channel_name);
+    return `
+CANAL ${idx + 1}: ${analysis.channel_name}
+- Inscritos: ${(analysis.subscriber_count || 0).toLocaleString()}
+- Vídeos: ${(analysis.total_videos || 0).toLocaleString()}
+- Visualizações: ${(analysis.total_views || 0).toLocaleString()}
+- Nicho: ${analysis.niche || 'Não identificado'}
+
+TOP 5 VÍDEOS MAIS VISTOS:
+${channelVideos.map((v, i) => `
+${i + 1}. "${v.title}"
+   - Visualizações: ${(v.view_count || 0).toLocaleString()}
+   - Likes: ${(v.like_count || 0).toLocaleString()}
+   - Comentários: ${(v.comment_count || 0).toLocaleString()}
+   - Score Viral: ${(v.viral_score || 0).toFixed(2)}
+   - Thumbnail: ${v.thumbnail_url || 'N/A'}
+`).join('') || 'Nenhum vídeo'}
+
+${mostViral ? `VÍDEO MAIS VIRAL DESTE CANAL:
+"${mostViral.title}"
+- Pegou ${(mostViral.view_count || 0).toLocaleString()} views
+- Thumbnail: ${mostViral.thumbnail_url || 'N/A'}
+- Este vídeo viralizou com este título e esta thumbnail. Analise profundamente por que funcionou.` : ''}
+`;
+}).join('\n')}
+
+ANÁLISE PROFUNDA REQUERIDA:
+
+1. IDENTIFICAÇÃO DE SUBNICHOS INEXPLORADOS:
+   - Com base nos dados atuais e tendências, identifique subnichos dentro de "${commonNiche}" que:
+     * Ainda estejam pouco explorados no YouTube
+     * Tenham ALTO VOLUME DE BUSCAS (alta demanda)
+     * Tenham INTERESSE CRESCENTE (tendência ascendente)
+     * Tenham BOM POTENCIAL DE MONETIZAÇÃO
+     * Tenham BAIXA OU NENHUMA CONCORRÊNCIA
+   - Priorize oportunidades que sejam ÚNICAS e ainda não exploradas
+
+2. PADRÕES COMUNS IDENTIFICADOS:
+   - Padrões nos títulos que aparecem em múltiplos canais e funcionam
+   - Padrões de engagement (o que gera mais comentários/likes)
+   - Temas de conteúdo comuns que performam bem
+   - Estruturas de títulos que funcionam consistentemente
+   - Padrões visuais nas thumbnails dos vídeos virais
+
+3. ANÁLISE DE TÍTULOS VIRAIS (PROMPT ESPECÍFICO):
+${mostViralVideos.map((v, idx) => `
+   - Este vídeo do canal "${v.channelName}" viralizou, pegou ${(v.view_count || 0).toLocaleString()} views com o título: "${v.title}"
+   - Preciso que você me dê variações MUITO CHAMATIVAS focadas em viralização para um canal subnichado
+   - Identifique os elementos-chave deste título que o tornaram viral
+`).join('')}
+
+4. ANÁLISE DE THUMBNAILS VIRAIS (PROMPT ESPECÍFICO):
+${mostViralVideos.map((v, idx) => `
+   - Este vídeo com esta thumbnail (${v.thumbnail_url || 'N/A'}) viralizou com o título: "${v.title}"
+   - Analise como a thumbnail complementa o título e identifique elementos visuais que contribuíram para o viral
+   - Quais adaptações desta thumbnail funcionariam para outros títulos virais?
+`).join('')}
+
+5. GERAÇÃO DE CONTEÚDO INÉDITO VIRAL:
+   - Gere 15 títulos ORIGINAIS e INÉDITOS baseados nos padrões identificados
+   - Os títulos devem ser para conteúdo que AINDA NÃO FOI EXPLORADO no YouTube
+   - Foque em subnichos com ALTA DEMANDA e BAIXA COMPETIÇÃO
+   - Combine os melhores elementos de cada canal analisado
+   - Crie títulos que sejam VIRAIS mas para conteúdo NOVO e INEXPLORADO
+
+6. ESTRATÉGIA DE CONTEÚDO:
+   - Estratégia que combine os melhores elementos de cada canal
+   - Foco em subnichos pouco explorados mas com alta demanda
+   - Identifique hooks virais que podem ser aplicados em conteúdo inédito
+   - Como estruturar conteúdo para maximizar viralização em nichos inexplorados
+
+7. RECOMENDAÇÕES ESPECÍFICAS:
+   - Como criar conteúdo relevante com forte demanda e baixa competição
+   - Oportunidades únicas identificadas
+   - Estratégias para monetização em subnichos inexplorados
+   - Roadmap inicial de conteúdo
+
+Retorne um JSON com a seguinte estrutura:
+{
+  "unexplored_opportunities": {
+    "subniches": [
+      {
+        "name": "nome do subnicho",
+        "demand_level": "alta/média/baixa",
+        "competition_level": "baixa/média/alta",
+        "monetization_potential": "alto/médio/baixo",
+        "why_unexplored": "explicação",
+        "trend_direction": "crescendo/estável/decrescendo"
+      }
+    ],
+    "content_gaps": ["gap 1", "gap 2", ...],
+    "unique_angles": ["ângulo único 1", "ângulo único 2", ...]
+  },
+  "common_patterns": {
+    "title_patterns": "Descrição detalhada dos padrões de títulos comuns que funcionam",
+    "engagement_patterns": "Descrição dos padrões de engagement comuns",
+    "content_themes": ["tema1", "tema2", "tema3"],
+    "thumbnail_patterns": "Padrões visuais das thumbnails virais",
+    "viral_title_elements": ["elemento 1", "elemento 2", ...]
+  },
+  "viral_title_analysis": {
+    "viral_titles": [
+      {
+        "original_title": "título original que viralizou",
+        "why_viral": "análise de por que viralizou",
+        "key_elements": ["elemento 1", "elemento 2", ...],
+        "variations": ["variação 1", "variação 2", "variação 3"]
+      }
+    ]
+  },
+  "thumbnail_analysis": {
+    "viral_thumbnails": [
+      {
+        "title": "título do vídeo",
+        "thumbnail_url": "url da thumbnail",
+        "visual_elements": ["elemento 1", "elemento 2", ...],
+        "thumbnail_title_synergy": "como trabalham juntos",
+        "adaptations": ["adaptação 1", "adaptação 2", ...]
+      }
+    ],
+    "recurring_patterns": ["padrão 1", "padrão 2", ...]
+  },
+  "generated_content": {
+    "titles": [
+      "título 1 INÉDITO para conteúdo não explorado",
+      "título 2 INÉDITO para conteúdo não explorado",
+      ... "título 15"
+    ],
+    "content_strategy": "Estratégia detalhada de conteúdo focado em subnichos inexplorados com alta demanda",
+    "hooks": ["hook viral 1", "hook viral 2", "hook viral 3"],
+    "unexplored_topics": ["tópico 1 inexplorado", "tópico 2 inexplorado", ...]
+  },
+  "recommendations": {
+    "strategic_recommendations": "Recomendações estratégicas para criar conteúdo viral em subnichos inexplorados",
+    "monetization_strategy": "Estratégia de monetização para conteúdo inédito",
+    "content_roadmap": ["vídeo 1", "vídeo 2", ...],
+    "competitive_advantages": ["vantagem 1", "vantagem 2", ...]
+  }
+}`;
+
+        // Chamar IA para análise cruzada
+        const aiResponse = await callOpenAIAPI(
+            crossAnalysisPrompt,
+            user.openai_api_key,
+            'gpt-4o',
+            null,
+            []
+        );
+        
+        let crossAnalysisData;
+        try {
+            if (typeof aiResponse === 'string') {
+                crossAnalysisData = JSON.parse(aiResponse);
+            } else {
+                crossAnalysisData = aiResponse;
+            }
+        } catch (e) {
+            console.error('[Cross Analysis] Erro ao parsear resposta da IA:', e);
+            crossAnalysisData = {
+                common_patterns: {
+                    title_patterns: 'Análise não disponível',
+                    engagement_patterns: 'Análise não disponível',
+                    content_themes: []
+                },
+                generated_content: {
+                    titles: [],
+                    content_strategy: 'Erro ao gerar estratégia',
+                    hooks: []
+                },
+                recommendations: 'Erro ao gerar recomendações'
+            };
+        }
+        
+        res.status(200).json(crossAnalysisData);
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/cross-analyze]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao cruzar análises.' });
+    }
+});
+
+// Analisar comentários de um vídeo e gerar títulos baseados nos comentários
+app.post('/api/viral-analysis/videos/:videoId/analyze-comments', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const videoId = req.params.videoId;
+        
+        // Buscar vídeo no banco
+        const video = await db.get(
+            'SELECT * FROM channel_viral_videos WHERE video_id = ? AND analysis_id IN (SELECT id FROM channel_viral_analysis WHERE user_id = ?)',
+            [videoId, userId]
+        );
+        
+        if (!video) {
+            return res.status(404).json({ msg: 'Vídeo não encontrado.' });
+        }
+        
+        // Buscar comentários do vídeo
+        const comments = await db.all(
+            `SELECT c.* FROM channel_viral_comments c
+             INNER JOIN channel_viral_videos v ON c.video_id = v.id
+             WHERE v.video_id = ? AND v.analysis_id IN (SELECT id FROM channel_viral_analysis WHERE user_id = ?)
+             ORDER BY c.like_count DESC
+             LIMIT 100`,
+            [videoId, userId]
+        );
+        
+        if (comments.length === 0) {
+            return res.status(400).json({ msg: 'Nenhum comentário encontrado para este vídeo.' });
+        }
+        
+        // Buscar API key para IA
+        let apiKey = null;
+        let service = null;
+        let modelToUse = null;
+        
+        const services = ['claude', 'openai', 'gemini'];
+        for (const svc of services) {
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+            if (keyData && keyData.api_key) {
+                try {
+                    apiKey = decrypt(keyData.api_key);
+                    service = svc;
+                    if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                    else if (svc === 'openai') modelToUse = 'gpt-4o';
+                    else modelToUse = 'gemini-2.5-pro';
+                    break;
+                } catch (e) {
+                    continue;
+                }
+            }
+        }
+        
+        if (!apiKey) {
+            return res.status(400).json({ msg: 'Nenhuma API key de IA configurada.' });
+        }
+        
+        // Buscar nicho do canal
+        const analysis = await db.get(
+            'SELECT niche, subniche FROM channel_viral_analysis WHERE id = (SELECT analysis_id FROM channel_viral_videos WHERE video_id = ?)',
+            [videoId]
+        );
+        
+        const niche = analysis?.niche || 'Não identificado';
+        const subniche = analysis?.subniche || '';
+        
+        // Criar prompt para análise de comentários
+        const commentsAnalysisPrompt = `Você é um ESPECIALISTA EM ANÁLISE DE COMENTÁRIOS DO YOUTUBE.
+
+Analise os comentários abaixo de um vídeo que viralizou e gere títulos baseados nos insights dos comentários.
+
+VÍDEO ANALISADO:
+- Título: "${video.title}"
+- Visualizações: ${(video.view_count || 0).toLocaleString()}
+- Likes: ${(video.like_count || 0).toLocaleString()}
+- Comentários: ${(video.comment_count || 0).toLocaleString()}
+- Nicho: ${niche}${subniche ? ` | Subnicho: ${subniche}` : ''}
+
+COMENTÁRIOS MAIS RELEVANTES (${comments.length} comentários):
+${comments.map((c, i) => `
+${i + 1}. "${c.text.substring(0, 300)}" - ${c.author_name} (${c.like_count} likes)
+`).join('')}
+
+ANÁLISE E GERAÇÃO:
+
+1. IDENTIFIQUE OS PADRÕES NOS COMENTÁRIOS:
+   - O que os comentários mais mencionam?
+   - Quais são as dúvidas mais frequentes?
+   - Quais são os pontos que geraram mais discussão?
+   - O que as pessoas querem saber mais sobre este tema?
+
+2. GERE 15 TÍTULOS BASEADOS NOS COMENTÁRIOS:
+   - Os títulos devem abordar os temas mais mencionados nos comentários
+   - Devem ser chamativos e focados em viralização
+   - Devem responder às dúvidas e curiosidades expressas nos comentários
+   - Devem ser para o nicho: ${niche}${subniche ? ` (subnicho: ${subniche})` : ''}
+
+3. FÓRMULA DE ESTRUTURA DO TÍTULO:
+   - Identifique a estrutura que funcionou neste vídeo
+   - Crie uma fórmula que pode ser replicada
+
+Retorne um JSON válido no formato:
+{
+  "comment_insights": {
+    "most_mentioned_topics": ["tema 1", "tema 2", "tema 3"],
+    "common_questions": ["pergunta 1", "pergunta 2", "pergunta 3"],
+    "discussion_points": ["ponto 1", "ponto 2", "ponto 3"],
+    "audience_interests": ["interesse 1", "interesse 2", "interesse 3"]
+  },
+  "generated_titles": [
+    "título 1 baseado nos comentários",
+    "título 2 baseado nos comentários",
+    ... "título 15"
+  ],
+  "title_structure_formula": "Fórmula de estrutura do título identificada (ex: Pergunta + Tema + Hook)"
+}`;
+
+        // Chamar IA
+        let aiResponse;
+        if (service === 'claude') {
+            aiResponse = await callClaudeAPI(commentsAnalysisPrompt, apiKey, modelToUse);
+        } else if (service === 'openai') {
+            aiResponse = await callOpenAIAPI(commentsAnalysisPrompt, apiKey, modelToUse);
+        } else {
+            aiResponse = await callGeminiAPI(commentsAnalysisPrompt, apiKey, modelToUse);
+        }
+        
+        const analysisText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+        const parsed = parseAIResponse(analysisText, service);
+        
+        res.status(200).json({
+            video: {
+                id: video.id,
+                title: video.title,
+                view_count: video.view_count,
+                comment_count: video.comment_count
+            },
+            comments_analyzed: comments.length,
+            analysis: parsed || {
+                comment_insights: {},
+                generated_titles: [],
+                title_structure_formula: 'Análise não disponível'
+            }
+        });
+    } catch (err) {
+        console.error('[ERRO /api/viral-analysis/videos/:videoId/analyze-comments]:', err);
+        res.status(500).json({ msg: err.message || 'Erro ao analisar comentários.' });
+    }
+});
 
 // Rota de tradução
 app.post('/api/translate', authenticateToken, async (req, res) => {
