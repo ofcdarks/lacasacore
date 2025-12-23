@@ -256,6 +256,18 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
 });
 
+// Rota para service worker (deve ser servido com tipo MIME correto)
+app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(__dirname, 'sw.js'));
+});
+
+// Rota para manifest.json
+app.get('/manifest.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.sendFile(path.join(__dirname, 'manifest.json'));
+});
+
 
 // --- FUNÇÕES AUXILIARES DE ENCRIPTAÇÃO ---
 function encrypt(text) {

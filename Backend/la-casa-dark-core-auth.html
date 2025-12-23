@@ -4,38 +4,354 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>La Casa Dark Core - Autenticação</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#f59e0b">
+    <meta name="description" content="La Casa Dark Core - Plataforma de criação de conteúdo">
+    <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    
     <!-- Tailwind CSS via CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <!-- Fonte Premium: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
-        /* Aplicando a fonte premium ao corpo */
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            /* Desativa a seleção de texto */
-            -webkit-user-select: none; /* Safari */
-            -ms-user-select: none; /* IE 10+ */
-            user-select: none; /* Padrão */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
         
-        /* Estilo customizado para o título focar em CORE */
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overflow-x: hidden;
+        }
+        
+        /* Background com carro de corrida */
+        .background-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+        
+        .background-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center right;
+            filter: brightness(0.3) contrast(1.2);
+        }
+        
+        .background-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.85) 0%, rgba(245, 158, 11, 0.1) 50%, rgba(59, 130, 246, 0.1) 100%);
+        }
+        
+        /* Login Form Container */
+        .login-container {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .login-form-card {
+            background: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 24px;
+            padding: 3.6rem;
+            width: 100%;
+            max-width: 576px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Efeito de spotlight no cursor - revela mais transparência */
+        .login-form-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                circle 350px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                rgba(245, 158, 11, 0.18) 0%,
+                rgba(59, 130, 246, 0.12) 35%,
+                transparent 65%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            border-radius: 24px;
+        }
+        
+        .login-form-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                circle 300px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+                transparent 0%,
+                rgba(17, 24, 39, 0.2) 40%,
+                rgba(17, 24, 39, 0.95) 100%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            border-radius: 24px;
+        }
+        
+        .login-form-card:hover::before,
+        .login-form-card:hover::after {
+            opacity: 0.85;
+        }
+        
+        .login-form-card > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .brand-header {
+            text-align: center;
+            margin-bottom: 2.4rem;
+        }
+        
+        .brand-tag {
+            display: inline-block;
+            background: rgba(212, 175, 55, 0.15);
+            border: 1px solid rgba(212, 175, 55, 0.4);
+            border-radius: 20px;
+            padding: 0.3rem 0.9rem;
+            font-size: 0.75rem;
+            color: #d4af37;
+            margin-bottom: 1.2rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+        }
+        
         .brand-title {
-            font-weight: 500; /* Peso médio para "La Casa Dark" */
-            color: #6b7280; /* Cinza */
-            letter-spacing: 0.05em;
+            font-size: 3rem;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 0.6rem;
+            letter-spacing: -0.02em;
         }
-        .brand-title-core {
-            font-weight: 800; /* ExtraBold para "CORE" */
-            color: #f59e0b; /* Âmbar/Dourado */
-            letter-spacing: 0.1em;
-            font-size: 1.25em; /* Ligeiramente maior */
+        
+        .brand-title .core {
+            color: #f59e0b;
         }
-
-        /* Ocultar formulários por padrão */
-        #register-form {
+        
+        .welcome-text {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 0.6rem;
+        }
+        
+        .subtitle-text {
+            font-size: 1.05rem;
+            color: #9ca3af;
+            margin-bottom: 2.4rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.8rem;
+        }
+        
+        .form-label {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 1.05rem;
+            font-weight: 500;
+            color: #e5e7eb;
+            margin-bottom: 0.6rem;
+        }
+        
+        .form-label i {
+            color: #f59e0b;
+            font-size: 1.2rem;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 1.05rem 1.2rem;
+            background: rgba(31, 41, 55, 0.6);
+            border: 1px solid rgba(75, 85, 99, 0.5);
+            border-radius: 12px;
+            color: #ffffff;
+            font-size: 1.2rem;
+            transition: all 0.3s ease;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: rgba(31, 41, 55, 0.8);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .form-input::placeholder {
+            color: #6b7280;
+        }
+        
+        .password-wrapper {
+            position: relative;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 1.125rem;
+            transition: color 0.2s;
+        }
+        
+        .password-toggle:hover {
+            color: #3b82f6;
+        }
+        
+        .forgot-password-link {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 1.05rem;
+            color: #3b82f6;
+            text-decoration: none;
+            margin-top: 0.6rem;
+            transition: color 0.2s;
+        }
+        
+        .forgot-password-link:hover {
+            color: #60a5fa;
+        }
+        
+        .login-button {
+            width: 100%;
+            padding: 1.2rem;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border: none;
+            border-radius: 12px;
+            color: #ffffff;
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px 0 rgba(245, 158, 11, 0.4);
+            margin-top: 1.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px 0 rgba(245, 158, 11, 0.5);
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        }
+        
+        .login-button:active {
+            transform: translateY(0);
+        }
+        
+        .login-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .security-footer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            margin-top: 2.4rem;
+            padding-top: 1.8rem;
+            border-top: 1px solid rgba(75, 85, 99, 0.3);
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+        
+        .security-footer i {
+            color: #3b82f6;
+        }
+        
+        .register-link {
+            text-align: center;
+            margin-top: 1.8rem;
+            font-size: 1.05rem;
+            color: #9ca3af;
+        }
+        
+        .register-link a {
+            color: #3b82f6;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+        
+        .register-link a:hover {
+            color: #60a5fa;
+        }
+        
+        /* Mensagens de erro/sucesso */
+        .error-message {
+            background-color: rgba(127, 29, 29, 0.3);
+            color: #fecaca;
+            border: 1px solid rgba(220, 38, 38, 0.5);
+            border-radius: 12px;
+            padding: 0.875rem 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            display: none;
+        }
+        
+        .success-message {
+            background-color: rgba(6, 78, 59, 0.3);
+            color: #d1fae5;
+            border: 1px solid rgba(5, 150, 105, 0.5);
+            border-radius: 12px;
+            padding: 0.875rem 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            text-align: center;
             display: none;
         }
         
@@ -45,8 +361,8 @@
             position: fixed;
             inset: 0;
             z-index: 50;
-            background: rgba(0, 0, 0, 0.75);
-            backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
             align-items: center;
             justify-content: center;
             padding: 1rem;
@@ -58,10 +374,11 @@
         }
         
         #forgot-modal-content {
-            background: #111827;
-            border: 1px solid #374151;
-            border-radius: 16px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            background: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
             width: 100%;
             max-width: 440px;
             padding: 2rem;
@@ -70,12 +387,8 @@
         }
         
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         
         @keyframes slideUp {
@@ -111,262 +424,373 @@
             color: #ffffff;
             transform: rotate(90deg);
         }
-
-        /* Mensagem de erro customizada */
-        .error-message {
-            background-color: #450a0a; /* Fundo vermelho escuro */
-            color: #fecaca; /* Texto vermelho claro */
-            border: 1px solid #991b1b; /* Borda vermelha */
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            font-size: 0.875rem;
-            display: none; /* Oculta por padrão */
+        
+        /* Formulário de Registro */
+        #register-form {
+            display: none;
         }
         
-        /* Mensagem de sucesso customizada */
-        .success-message {
-            background-color: #064e3b; /* Fundo verde escuro */
-            color: #d1fae5; /* Texto verde claro */
-            border: 1px solid #047857; /* Borda verde */
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            font-size: 0.875rem;
-            text-align: center;
-            display: none; /* Oculta por padrão */
+        /* Responsive */
+        @media (max-width: 640px) {
+            .login-form-card {
+                padding: 2.4rem 1.8rem;
+            }
+            
+            .brand-title {
+                font-size: 2.4rem;
+            }
+            
+            .welcome-text {
+                font-size: 1.5rem;
+            }
         }
     </style>
 </head>
-<body class="bg-black text-gray-300 flex items-center justify-center min-h-screen p-4">
-
-    <div class="w-full max-w-md">
-        <!-- Cabeçalho com o Título -->
-        <div class="text-center mb-8">
-            <h1 class="text-3xl brand-title">
-                La Casa Dark
-                <span class="brand-title-core">CORE</span>
-            </h1>
-        </div>
-
-        <!-- Card Principal -->
-        <div class="bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-8">
-
-            <!-- Formulário de Login (Padrão) -->
-            <div id="login-form">
-                <h2 class="text-2xl font-bold text-center text-white mb-6">Acesse sua conta</h2>
-                
-                <!-- Mensagem de Erro (Login) -->
-                <div id="login-error" class="error-message"></div>
-
-                <form onsubmit="handleLogin(event)">
-                    <div class="mb-4">
-                        <label for="login-email" class="block text-sm font-medium mb-2">Email</label>
-                        <input type="email" id="login-email" name="email" required
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <div class="mb-6">
-                        <div class="flex justify-between items-center mb-2">
-                            <label for="login-password" class="block text-sm font-medium">Senha</label>
-                            <a href="#" id="forgot-link" class="text-sm text-amber-500 hover:text-amber-400 font-medium">Esqueceu a senha?</a>
-                        </div>
-                        <input type="password" id="login-password" name="password" required
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <button type="submit" id="login-button"
-                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
-                        Entrar
-                    </button>
-                </form>
-                <p class="text-center text-sm mt-6">
-                    Não tem uma conta?
-                    <a href="#" id="register-link" class="font-medium text-amber-500 hover:text-amber-400">Crie uma agora</a>
-                </p>
-            </div>
-
-            <!-- Formulário de Cadastro (Oculto) -->
-            <div id="register-form">
-                <h2 class="text-2xl font-bold text-center text-white mb-6">Crie sua conta</h2>
-                
-                <!-- Mensagem de Sucesso (Cadastro) -->
-                <div id="register-success" class="success-message"></div>
-
-                <!-- Mensagem de Erro (Cadastro) -->
-                <div id="register-error" class="error-message"></div>
-
-                <form onsubmit="handleRegister(event)">
-                    <div class="mb-4">
-                        <label for="register-name" class="block text-sm font-medium mb-2">Nome</label>
-                        <input type="text" id="register-name" name="name" required
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <div class="mb-4">
-                        <label for="register-email" class="block text-sm font-medium mb-2">Email</label>
-                        <input type="email" id="register-email" name="email" required
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <div class="mb-4">
-                        <label for="register-whatsapp" class="block text-sm font-medium mb-2">WhatsApp (com DDD)</label>
-                        <input type="tel" id="register-whatsapp" name="whatsapp" required placeholder="(11) 99999-9999"
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <div class="mb-6">
-                        <label for="register-password" class="block text-sm font-medium mb-2">Crie uma senha</label>
-                        <input type="password" id="register-password" name="password" required minlength="6"
-                               class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                    </div>
-                    <button type="submit" id="register-button"
-                            class="w-full bg-amber-600 hover:bg-amber-500 text-black font-bold py-3 px-4 rounded-lg transition duration-300 shadow-lg">
-                        Criar nova conta
-                    </button>
-                </form>
-                <p class="text-center text-sm mt-6">
-                    Já tem uma conta?
-                    <a href="#" id="login-link-from-register" class="font-medium text-amber-500 hover:text-amber-400">Faça login</a>
-                </p>
-            </div>
-
-            <!-- Modal de Resetar Senha -->
-            <div id="forgot-modal" class="forgot-modal">
-                <div id="forgot-modal-content" class="forgot-modal-content">
-                    <button id="forgot-modal-close" class="modal-close-btn" onclick="closeForgotModal()">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                    
-                    <div class="text-center mb-6">
-                        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/10 mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7M3 22v-6h6M21 12a9 9 0 0 1-15 6.7"></path>
-                            </svg>
-                        </div>
-                        <h2 class="text-2xl font-bold text-white mb-2">Resetar sua senha</h2>
-                        <p class="text-sm text-gray-400">Digite seu email e enviaremos um link para você resetar sua senha.</p>
-                    </div>
-                
-                <!-- Mensagem de Erro (Reset) -->
-                    <div id="forgot-error" class="error-message mb-4"></div>
-                    
-                    <!-- Mensagem de Sucesso (Reset) -->
-                    <div id="forgot-success" class="success-message mb-4" style="display: none;"></div>
-
-                    <form onsubmit="handleForgot(event)" id="forgot-form">
-                    <div class="mb-6">
-                            <label for="forgot-email" class="block text-sm font-medium mb-2 text-gray-300">Email</label>
-                        <input type="email" id="forgot-email" name="email" required
-                                   class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
-                                   placeholder="seu@email.com">
-                    </div>
-                    <button type="submit" id="forgot-button"
-                                class="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black font-bold py-3 px-4 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
-                            <span id="forgot-button-text">Enviar link de reset</span>
-                            <span id="forgot-button-spinner" class="hidden inline-block ml-2">
-                                <svg class="animate-spin h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </span>
-                    </button>
-                </form>
-                    <p class="text-center text-sm mt-6 text-gray-400">
-                    Lembrou a senha?
-                        <a href="#" id="login-link-from-forgot" class="font-medium text-amber-500 hover:text-amber-400 transition-colors">Faça login</a>
-                </p>
+<body>
+    <!-- Background com carro de corrida -->
+    <div class="background-container">
+        <img src="https://images.unsplash.com/photo-1617531653332-bd46c24f2068?w=1920&q=80" alt="Racing Car Background" class="background-image" id="background-image">
+        <div class="background-overlay"></div>
+    </div>
+    
+    <!-- Login Container -->
+    <div class="login-container">
+        <div class="login-form-card">
+            <!-- Brand Header -->
+            <div class="brand-header">
+                <div class="brand-tag">
+                    <i class="fas fa-lock"></i> PRIVATE CORE
                 </div>
+                <h1 class="brand-title">
+                    LA CASA DARK <span class="core">CORE</span>
+                </h1>
+                <p class="welcome-text">Acesso ao Núcleo Privado</p>
+                <p class="subtitle-text">Ferramentas usadas por criadores que operam canais dark em escala</p>
+            </div>
+            
+            <!-- Formulário de Login -->
+            <div id="login-form">
+                <div id="login-error" class="error-message"></div>
+                
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label class="form-label" for="login-email">
+                            <i class="fas fa-envelope"></i>
+                            E-mail
+                        </label>
+                        <input 
+                            type="email" 
+                            id="login-email" 
+                            name="email" 
+                            required
+                            class="form-input"
+                            placeholder="seu@email.com"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="login-password">
+                            <i class="fas fa-lock"></i>
+                            Senha
+                        </label>
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="login-password" 
+                                name="password" 
+                                required
+                                class="form-input"
+                                placeholder="••••••••"
+                            >
+                            <button 
+                                type="button" 
+                                class="password-toggle" 
+                                onclick="togglePassword('login-password')"
+                            >
+                                <i class="fas fa-eye" id="login-password-icon"></i>
+                            </button>
+                        </div>
+                        <a href="#" id="forgot-link" class="forgot-password-link">
+                            Recuperar acesso ao Core
+                        </a>
+                        <p class="microcopy-text" style="margin-top: 0.5rem; font-size: 0.75rem; color: #6b7280; font-style: italic;">
+                            Sessão vinculada à infraestrutura do operador
+                        </p>
+                    </div>
+                    
+                    <button type="submit" id="login-button" class="login-button">
+                        <span style="opacity: 0.7;">▸</span>
+                        Acessar o Core
+                    </button>
+                    
+                    <p class="manifesto-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.875rem; color: #6b7280; font-style: italic; line-height: 1.5;">
+                        Canais dark não crescem por sorte. Crescem por sistema.
+                    </p>
+                </form>
+                
+                <div class="register-link">
+                    <span style="color: #9ca3af;">Acesso restrito · Validação obrigatória</span>
+                    <a href="#" id="register-link">Solicitar acesso ao Core</a>
+                </div>
+            </div>
+            
+            <!-- Formulário de Registro -->
+            <div id="register-form">
+                <div id="register-success" class="success-message"></div>
+                <div id="register-error" class="error-message"></div>
+                
+                <h2 class="welcome-text" style="margin-bottom: 1.5rem;">Solicitar Acesso ao Core</h2>
+                <p class="subtitle-text" style="margin-bottom: 1.5rem; font-size: 0.9rem;">Cadastro sujeito à validação</p>
+                
+                <form onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label class="form-label" for="register-name">
+                            <i class="fas fa-user"></i>
+                            Nome
+                        </label>
+                        <input 
+                            type="text" 
+                            id="register-name" 
+                            name="name" 
+                            required
+                            class="form-input"
+                            placeholder="Seu nome completo"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-email">
+                            <i class="fas fa-envelope"></i>
+                            E-mail
+                        </label>
+                        <input 
+                            type="email" 
+                            id="register-email" 
+                            name="email" 
+                            required
+                            class="form-input"
+                            placeholder="seu@email.com"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-whatsapp">
+                            <i class="fas fa-phone"></i>
+                            WhatsApp (com DDD)
+                        </label>
+                        <input 
+                            type="tel" 
+                            id="register-whatsapp" 
+                            name="whatsapp" 
+                            required
+                            class="form-input"
+                            placeholder="(11) 99999-9999"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="register-password">
+                            <i class="fas fa-lock"></i>
+                            Crie uma senha
+                        </label>
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="register-password" 
+                                name="password" 
+                                required
+                                minlength="6"
+                                class="form-input"
+                                placeholder="••••••••"
+                            >
+                            <button 
+                                type="button" 
+                                class="password-toggle" 
+                                onclick="togglePassword('register-password')"
+                            >
+                                <i class="fas fa-eye" id="register-password-icon"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" id="register-button" class="login-button">
+                        Enviar Solicitação
+                    </button>
+                </form>
+                
+                <div class="register-link">
+                    Já tem uma conta?
+                    <a href="#" id="login-link-from-register">Acessar o Core</a>
+                </div>
+            </div>
+            
+            <!-- Footer de Segurança -->
+            <div class="security-footer">
+                <i class="fas fa-shield-alt"></i>
+                <span>Ambiente isolado para operações dark</span>
+            </div>
+            
+            <!-- Linha final misteriosa (nível elite) - mais visível -->
+            <p class="elite-footer-text" style="text-align: center; margin-top: 1.2rem; font-size: 0.7rem; color: #6b7280; font-style: italic; letter-spacing: 0.08em; opacity: 0.75; line-height: 1.6;">
+                Operadores reconhecem operadores
+            </p>
+            
+            <!-- Linha ultra discreta (infraestrutura secreta) -->
+            <p class="secret-footer-text" style="text-align: center; margin-top: 0.8rem; font-size: 0.6rem; color: #4b5563; font-style: italic; letter-spacing: 0.03em; opacity: 0.4; line-height: 1.4;">
+                Este sistema não é documentado publicamente
+            </p>
+        </div>
+    </div>
+    
+    <!-- Modal de Reset de Senha -->
+    <div id="forgot-modal">
+        <div id="forgot-modal-content">
+            <button id="forgot-modal-close" class="modal-close-btn" onclick="closeForgotModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div style="text-align: center; margin-bottom: 1.5rem;">
+                <div style="display: inline-flex; align-items: center; justify-content: center; width: 4rem; height: 4rem; border-radius: 50%; background: rgba(245, 158, 11, 0.1); margin-bottom: 1rem;">
+                    <i class="fas fa-key" style="font-size: 2rem; color: #f59e0b;"></i>
+                </div>
+                <h2 style="font-size: 1.5rem; font-weight: 700; color: #ffffff; margin-bottom: 0.5rem;">Recuperar Acesso</h2>
+                <p style="font-size: 0.875rem; color: #9ca3af;">Digite seu email vinculado ao núcleo de operações para receber instruções de recuperação.</p>
+            </div>
+            
+            <div id="forgot-error" class="error-message mb-4"></div>
+            <div id="forgot-success" class="success-message mb-4" style="display: none;"></div>
+            
+            <form onsubmit="handleForgot(event)" id="forgot-form">
+                <div class="form-group">
+                    <label class="form-label" for="forgot-email">
+                        <i class="fas fa-envelope"></i>
+                        E-mail
+                    </label>
+                    <input 
+                        type="email" 
+                        id="forgot-email" 
+                        name="email" 
+                        required
+                        class="form-input"
+                        placeholder="seu@email.com"
+                    >
+                </div>
+                
+                <button type="submit" id="forgot-button" class="login-button">
+                    <span id="forgot-button-text">Solicitar Recuperação</span>
+                    <span id="forgot-button-spinner" style="display: none; margin-left: 0.5rem;">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                </button>
+            </form>
+            
+            <div class="register-link" style="margin-top: 1rem;">
+                Lembrou a senha?
+                <a href="#" id="login-link-from-forgot">Acessar o Core</a>
             </div>
         </div>
     </div>
-
+    
     <script>
-        // URLs da API - Detecta automaticamente a porta do backend
-        // Se estiver rodando no live-server (porta 5500) ou não estiver na porta 5001, usa o backend na porta 5001
+        // URLs da API
         const currentPort = window.location.port;
         const isBackendPort = currentPort === '5001' || currentPort === '';
         const API_BASE_URL = isBackendPort 
             ? '/api/auth' 
             : `http://${window.location.hostname}:5001/api/auth`;
-
-        // Seletores dos Formulários
+        
+        // Seletores
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
         const forgotModal = document.getElementById('forgot-modal');
-
-        // Seletores dos Links
+        
+        // Links de navegação
         const registerLink = document.getElementById('register-link');
         const forgotLink = document.getElementById('forgot-link');
         const loginLinkFromRegister = document.getElementById('login-link-from-register');
         const loginLinkFromForgot = document.getElementById('login-link-from-forgot');
-
-        // Função para mostrar um formulário e ocultar os outros
+        
+        // Função para mostrar/esconder formulários
         function showForm(formToShow) {
             loginForm.style.display = 'none';
             registerForm.style.display = 'none';
             formToShow.style.display = 'block';
         }
         
-        // Função para abrir o modal de reset de senha
+        // Função para toggle de senha
+        function togglePassword(inputId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(inputId + '-icon');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+        
+        // Função para abrir modal de reset
         function openForgotModal() {
             forgotModal.classList.add('show');
-            document.body.style.overflow = 'hidden'; // Previne scroll do body
-            // Limpar campos e mensagens
+            document.body.style.overflow = 'hidden';
             document.getElementById('forgot-email').value = '';
             document.getElementById('forgot-error').style.display = 'none';
             document.getElementById('forgot-success').style.display = 'none';
-            // Focar no campo de email
             setTimeout(() => {
                 document.getElementById('forgot-email').focus();
             }, 100);
         }
         
-        // Função para fechar o modal de reset de senha
+        // Função para fechar modal
         function closeForgotModal() {
             forgotModal.classList.remove('show');
-            document.body.style.overflow = ''; // Restaura scroll do body
+            document.body.style.overflow = '';
         }
         
-        // Fechar modal ao clicar no overlay
+        // Event listeners
         forgotModal.addEventListener('click', (e) => {
             if (e.target === forgotModal) {
                 closeForgotModal();
             }
         });
         
-        // Fechar modal com ESC
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && forgotModal.classList.contains('show')) {
                 closeForgotModal();
             }
         });
-
-        // Navegação entre formulários
+        
         registerLink.addEventListener('click', (e) => {
             e.preventDefault();
             showForm(registerForm);
         });
+        
         forgotLink.addEventListener('click', (e) => {
             e.preventDefault();
             openForgotModal();
         });
+        
         loginLinkFromRegister.addEventListener('click', (e) => {
             e.preventDefault();
             showForm(loginForm);
         });
+        
         loginLinkFromForgot.addEventListener('click', (e) => {
             e.preventDefault();
             closeForgotModal();
         });
-
-        // Função genérica para mostrar erros
+        
+        // Função para mostrar erros
         function showErrorMessage(errorElementId, message) {
             const errorBox = document.getElementById(errorElementId);
             errorBox.innerText = message;
             errorBox.style.display = 'block';
         }
-
-        // --- LÓGICA DE API ---
-
+        
         // Lógica de Login
         async function handleLogin(event) {
             event.preventDefault();
@@ -375,32 +799,24 @@
             const password = form.password.value;
             const button = document.getElementById('login-button');
             const errorBox = document.getElementById('login-error');
-
-            // Desabilitar botão e mostrar loading
+            
             button.disabled = true;
-            button.innerText = 'Entrando...';
-            errorBox.style.display = 'none'; // Ocultar erros antigos
-
+            button.innerHTML = '<span style="opacity: 0.7;">▸</span> Acessando o Core...';
+            errorBox.style.display = 'none';
+            
             try {
-                console.log('Tentando fazer login...', { email, API_BASE_URL });
-                
                 const response = await fetch(`${API_BASE_URL}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
-
-                console.log('Resposta recebida:', { status: response.status, statusText: response.statusText });
-
-                // Ler o texto da resposta uma única vez
+                
                 const text = await response.text();
                 
-                // Verificar se há conteúdo
                 if (!text || text.trim() === '') {
                     throw new Error('O servidor retornou uma resposta vazia. Verifique se o servidor está rodando.');
                 }
-
-                // Verificar se é JSON válido
+                
                 const contentType = response.headers.get('content-type');
                 let data;
                 
@@ -408,76 +824,50 @@
                     try {
                         data = JSON.parse(text);
                     } catch (parseError) {
-                        console.error('Erro ao parsear JSON:', text);
-                        throw new Error('Resposta do servidor inválida. Verifique se o servidor está funcionando corretamente.');
+                        throw new Error('Resposta do servidor inválida.');
                     }
                 } else {
-                    // Se não for JSON, mostrar o texto da resposta
                     throw new Error(`Erro no servidor: ${text.substring(0, 200)}`);
                 }
-
+                
                 if (!response.ok) {
-                    // Mensagens específicas para diferentes códigos de erro
                     if (response.status === 403) {
-                        throw new Error(data.msg || 'A sua conta está pendente de aprovação ou foi bloqueada. Entre em contacto com o suporte.');
+                        throw new Error(data.msg || 'A sua conta está pendente de aprovação ou foi bloqueada.');
                     } else if (response.status === 400) {
                         throw new Error(data.msg || 'Credenciais inválidas. Verifique seu email e senha.');
                     } else if (response.status === 503) {
-                        throw new Error(data.msg || 'Servidor ainda não está pronto. Aguarde alguns instantes e tente novamente.');
+                        throw new Error(data.msg || 'Servidor ainda não está pronto. Aguarde alguns instantes.');
                     } else {
                         throw new Error(data.msg || 'Erro ao tentar fazer login.');
                     }
                 }
                 
-                // Verificar se o token foi retornado
                 if (!data.token) {
-                    throw new Error('Token não foi retornado pelo servidor. Tente novamente.');
+                    throw new Error('Token não foi retornado pelo servidor.');
                 }
                 
-                // SUCESSO!
-                console.log('Login bem-sucedido!', { hasToken: !!data.token, isAdmin: data.isAdmin });
-                
-                // Salvar o token
                 localStorage.setItem('core_token', data.token);
+                button.innerHTML = '<span style="opacity: 0.7;">▸</span> Acesso autorizado. Redirecionando...';
                 
-                // Verificar se o token foi salvo corretamente
-                const savedToken = localStorage.getItem('core_token');
-                if (!savedToken || savedToken === 'undefined') {
-                    throw new Error('Erro ao salvar o token. Tente novamente.');
-                }
-                
-                console.log('Token salvo com sucesso!');
-                
-                // Mudar o botão para "Sucesso!" e redirecionar
-                button.innerText = 'Sucesso! Redirecionando...';
-                
-                // Redirecionar após um pequeno delay para garantir que o localStorage seja escrito
                 setTimeout(() => {
-                    console.log('Redirecionando para dashboard...');
                     window.location.href = 'dashboard.html';
-                }, 200); // Aumentado para 200ms para garantir
-
+                }, 200);
+                
             } catch (error) {
-                console.error('Erro no login:', error);
-                // Tratar diferentes tipos de erro
                 let errorMessage = error.message;
                 
                 if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001. Abra o terminal e execute: cd Backend && node server.js';
+                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001.';
                 } else if (error.message.includes('Unexpected end of JSON input')) {
-                    errorMessage = 'Erro na comunicação com o servidor. Verifique se o servidor está funcionando corretamente.';
-                } else if (error.message.includes('resposta vazia')) {
-                    errorMessage = 'O servidor não está respondendo. Verifique se o servidor está rodando.';
+                    errorMessage = 'Erro na comunicação com o servidor.';
                 }
                 
                 showErrorMessage('login-error', errorMessage);
-                
-                // Reabilitar o botão apenas em caso de erro
                 button.disabled = false;
-                button.innerText = 'Entrar';
+                button.innerHTML = '<span style="opacity: 0.7;">▸</span> Acessar o Core';
             }
         }
-
+        
         // Lógica de Cadastro
         async function handleRegister(event) {
             event.preventDefault();
@@ -489,10 +879,9 @@
             const button = document.getElementById('register-button');
             const errorBox = document.getElementById('register-error');
             const successBox = document.getElementById('register-success');
-
-            // Desabilitar botão e mostrar loading
+            
             button.disabled = true;
-            button.innerText = 'Criando...';
+            button.innerText = 'Enviando solicitação...';
             errorBox.style.display = 'none';
             successBox.style.display = 'none';
             
@@ -502,33 +891,24 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, email, whatsapp, password })
                 });
-
+                
                 const data = await response.json();
-
+                
                 if (!response.ok) {
-                    // Se a API retornar um erro (ex: email já existe)
                     throw new Error(data.msg || 'Erro ao criar conta.');
                 }
                 
-                // SUCESSO!
-                console.log('Registro bem-sucedido!', data);
-                
-                // Esconde o formulário
                 form.style.display = 'none';
-                
-                // Mostra a mensagem de sucesso do servidor
                 successBox.innerText = data.msg;
                 successBox.style.display = 'block';
-
+                
             } catch (error) {
-                console.error('Erro no registro:', error.message);
                 showErrorMessage('register-error', error.message);
-                // Reabilita o botão apenas em caso de erro
                 button.disabled = false;
-                button.innerText = 'Criar nova conta';
+                button.innerText = 'Enviar Solicitação';
             }
         }
-
+        
         // Lógica de Resetar Senha
         async function handleForgot(event) {
             event.preventDefault();
@@ -539,11 +919,10 @@
             const buttonSpinner = document.getElementById('forgot-button-spinner');
             const errorBox = document.getElementById('forgot-error');
             const successBox = document.getElementById('forgot-success');
-
-            // Desabilitar botão e mostrar loading
+            
             button.disabled = true;
             buttonText.textContent = 'Enviando...';
-            buttonSpinner.classList.remove('hidden');
+            buttonSpinner.style.display = 'inline-block';
             errorBox.style.display = 'none';
             successBox.style.display = 'none';
             
@@ -553,66 +932,211 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email })
                 });
-
+                
                 const data = await response.json();
-
+                
                 if (!response.ok) {
                     throw new Error(data.msg || 'Erro ao enviar email de reset.');
                 }
                 
-                // SUCESSO!
-                console.log('Email de reset enviado!', data);
-                
-                // Mostrar mensagem de sucesso
                 successBox.innerText = data.msg || 'Se este email estiver cadastrado, um link de reset será enviado!';
                 successBox.style.display = 'block';
-            
-                // Esconder formulário após sucesso
                 form.style.display = 'none';
                 
-                // Fechar modal após 3 segundos
-            setTimeout(() => {
+                setTimeout(() => {
                     closeForgotModal();
                     form.style.display = 'block';
                 }, 3000);
-
-            } catch (error) {
-                console.error('Erro ao enviar reset:', error.message);
-                showErrorMessage('forgot-error', error.message);
                 
-                // Reabilitar o botão
+            } catch (error) {
+                showErrorMessage('forgot-error', error.message);
                 button.disabled = false;
-                buttonText.textContent = 'Enviar link de reset';
-                buttonSpinner.classList.add('hidden');
+                buttonText.textContent = 'Solicitar Recuperação';
+                buttonSpinner.style.display = 'none';
             }
         }
-
-    </script>
-    
-    <!-- Script de Proteção de Código -->
-    <script>
-        // Desativa o clique com o botão direito
+        
+        // Proteção de código
         document.addEventListener('contextmenu', event => event.preventDefault());
-
-        // Desativa atalhos de teclado
         document.addEventListener('keydown', event => {
-            // Bloqueia F12 (Dev Tools)
-            if (event.key === 'F12') {
-                event.preventDefault();
-            }
-            // Bloqueia Ctrl+Shift+I (Dev Tools)
-            if (event.ctrlKey && event.shiftKey && event.key === 'I') {
-                event.preventDefault();
-            }
-            // Bloqueia Ctrl+U (Ver código-fonte)
-            if (event.ctrlKey && event.key === 'U') {
-                event.preventDefault();
-            }
-            // Bloqueia Ctrl+C (Copiar)
-            if (event.ctrlKey && event.key === 'C') {
+            if (event.key === 'F12' || 
+                (event.ctrlKey && event.shiftKey && event.key === 'I') ||
+                (event.ctrlKey && event.key === 'U') ||
+                (event.ctrlKey && event.key === 'C')) {
                 event.preventDefault();
             }
         });
+        
+        // Efeito de spotlight no cursor - versão suavizada
+        const loginCard = document.querySelector('.login-form-card');
+        if (loginCard) {
+            let mouseX = 50;
+            let mouseY = 50;
+            let targetX = 50;
+            let targetY = 50;
+            let rafId = null;
+            
+            // Função de interpolação suave
+            function smoothUpdate() {
+                // Interpolação linear com easing
+                mouseX += (targetX - mouseX) * 0.15;
+                mouseY += (targetY - mouseY) * 0.15;
+                
+                loginCard.style.setProperty('--mouse-x', mouseX + '%');
+                loginCard.style.setProperty('--mouse-y', mouseY + '%');
+                
+                // Continuar animação se ainda há diferença significativa
+                if (Math.abs(targetX - mouseX) > 0.1 || Math.abs(targetY - mouseY) > 0.1) {
+                    rafId = requestAnimationFrame(smoothUpdate);
+                } else {
+                    rafId = null;
+                }
+            }
+            
+            loginCard.addEventListener('mousemove', (e) => {
+                const rect = loginCard.getBoundingClientRect();
+                targetX = ((e.clientX - rect.left) / rect.width) * 100;
+                targetY = ((e.clientY - rect.top) / rect.height) * 100;
+                
+                // Iniciar animação suave se não estiver rodando
+                if (!rafId) {
+                    rafId = requestAnimationFrame(smoothUpdate);
+                }
+            });
+            
+            loginCard.addEventListener('mouseleave', () => {
+                targetX = 50;
+                targetY = 50;
+                // Continuar animação até chegar ao centro
+                if (!rafId) {
+                    rafId = requestAnimationFrame(smoothUpdate);
+                }
+            });
+        }
+        
+        // Service Worker Registration para PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('Service Worker registrado com sucesso:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Falha ao registrar Service Worker:', error);
+                    });
+            });
+        }
+        
+        // Prompt de Instalação do PWA
+        let deferredPrompt;
+        const installBanner = document.createElement('div');
+        installBanner.id = 'install-banner';
+        installBanner.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="fas fa-mobile-alt" style="font-size: 1.5rem; color: #f59e0b;"></i>
+                    <div>
+                        <div style="font-weight: 700; color: #ffffff; font-size: 0.875rem;">Instale La Casa Dark Core</div>
+                        <div style="font-size: 0.75rem; color: #9ca3af;">Tenha acesso rápido e use offline</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="install-btn" style="background: #f59e0b; color: #ffffff; border: none; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">
+                        Instalar
+                    </button>
+                    <button id="dismiss-install" style="background: transparent; color: #9ca3af; border: 1px solid #374151; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">
+                        Agora não
+                    </button>
+                </div>
+            </div>
+        `;
+        installBanner.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(17, 24, 39, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 16px;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            max-width: 90%;
+            width: 500px;
+            animation: slideUpBanner 0.5s ease-out;
+            display: none;
+        `;
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideUpBanner {
+                from {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(100px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+            }
+            #install-btn:hover {
+                background: #d97706;
+                transform: translateY(-1px);
+            }
+            #dismiss-install:hover {
+                background: rgba(55, 65, 81, 0.5);
+                color: #ffffff;
+            }
+        `;
+        document.head.appendChild(style);
+        document.body.appendChild(installBanner);
+        
+        // Detectar evento beforeinstallprompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Verificar se já foi instalado ou se o usuário já dispensou
+            const installDismissed = localStorage.getItem('pwa-install-dismissed');
+            const installDate = localStorage.getItem('pwa-install-date');
+            const dismissedDate = installDismissed ? new Date(installDismissed) : null;
+            const daysSinceDismissed = dismissedDate ? (Date.now() - dismissedDate.getTime()) / (1000 * 60 * 60 * 24) : null;
+            
+            // Mostrar banner se não foi instalado e não foi dispensado recentemente (menos de 7 dias)
+            if (!installDate && (!dismissedDate || daysSinceDismissed > 7)) {
+                setTimeout(() => {
+                    installBanner.style.display = 'block';
+                }, 2000); // Mostrar após 2 segundos
+            }
+        });
+        
+        // Botão de instalação
+        document.getElementById('install-btn')?.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            
+            if (outcome === 'accepted') {
+                localStorage.setItem('pwa-install-date', new Date().toISOString());
+                installBanner.style.display = 'none';
+            }
+            
+            deferredPrompt = null;
+        });
+        
+        // Botão de dispensar
+        document.getElementById('dismiss-install')?.addEventListener('click', () => {
+            installBanner.style.display = 'none';
+            localStorage.setItem('pwa-install-dismissed', new Date().toISOString());
+        });
+        
+        // Verificar se já está instalado
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+            installBanner.style.display = 'none';
+            localStorage.setItem('pwa-install-date', new Date().toISOString());
+        }
     </script>
 </body>
 </html>

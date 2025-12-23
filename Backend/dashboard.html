@@ -1051,14 +1051,14 @@
             <!-- VISÃO 1: Início (Visível por padrão) -->
             <div id="view-inicio">
                 <header class="mb-8">
-                    <h1 id="welcome-heading" class="text-3xl md:text-4xl font-bold text-white">Bem-vindo!</h1>
-                    <p class="text-lg text-gray-400">Aqui está o resumo da sua operação.</p>
+                    <h1 id="welcome-heading" class="text-3xl md:text-4xl font-bold text-white">Núcleo Operacional</h1>
+                    <p class="text-lg text-gray-400">Visão geral da sua execução ativa</p>
                 </header>
 
                 <!-- Dashboard de Estatísticas -->
                 <div id="dashboard-stats" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
                     <!-- Card: Total de Vídeos -->
-                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg relative">
                         <div class="flex items-center justify-between mb-4">
                             <div class="p-3 bg-amber-500/20 rounded-lg">
                                 <i data-lucide="video" class="w-6 h-6 text-amber-500"></i>
@@ -1066,10 +1066,11 @@
                         </div>
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Total de Vídeos</h3>
                         <p class="text-3xl font-bold text-white" id="stat-total-videos">0</p>
+                        <span class="absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider" id="stat-videos-status">SEM DADOS</span>
                     </div>
 
                     <!-- Card: Total de Views -->
-                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg relative">
                         <div class="flex items-center justify-between mb-4">
                             <div class="p-3 bg-blue-500/20 rounded-lg">
                                 <i data-lucide="eye" class="w-6 h-6 text-blue-500"></i>
@@ -1077,10 +1078,11 @@
                         </div>
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Total de Views</h3>
                         <p class="text-3xl font-bold text-white" id="stat-total-views">0</p>
+                        <span class="absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider" id="stat-views-status">SEM DADOS</span>
                     </div>
 
                     <!-- Card: Receita Total -->
-                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg relative">
                         <div class="flex items-center justify-between mb-4">
                             <div class="p-3 bg-green-500/20 rounded-lg">
                                 <i data-lucide="dollar-sign" class="w-6 h-6 text-green-500"></i>
@@ -1088,10 +1090,11 @@
                         </div>
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Receita Total</h3>
                         <p class="text-3xl font-bold text-white" id="stat-total-revenue">$0</p>
+                        <span class="absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider" id="stat-revenue-status">SEM DADOS</span>
                     </div>
 
                     <!-- Card: Créditos -->
-                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
+                    <div class="bg-gradient-to-br from-gray-900 to-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg relative">
                         <div class="flex items-center justify-between mb-4">
                             <div class="p-3 bg-yellow-500/20 rounded-lg">
                                 <i data-lucide="coins" class="w-6 h-6 text-yellow-500"></i>
@@ -1099,10 +1102,11 @@
                         </div>
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Créditos Disponíveis</h3>
                         <p class="text-3xl font-bold text-white" id="stat-credits-balance">0.00</p>
+                        <span class="absolute top-3 right-3 text-xs font-semibold text-amber-400 uppercase tracking-wider" id="stat-credits-status">ATIVO</span>
                         <div class="mt-3 space-y-2">
                             <a href="javascript:void(0)" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                                 <i data-lucide="zap" class="w-4 h-4 inline-block mr-1"></i>
-                                Comprar Créditos
+                                Reabastecer Créditos
                             </a>
                             <button id="view-credits-history-btn" class="w-full text-xs text-yellow-400 hover:text-yellow-300 underline text-center">Ver Histórico</button>
                         </div>
@@ -1170,7 +1174,7 @@
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
                         <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
                             <i data-lucide="activity" class="w-5 h-5 mr-2 text-amber-500"></i>
-                            Atividade Recente
+                            Registros Operacionais
                         </h2>
                         <div id="recent-activity" class="space-y-3">
                             <div class="text-center text-gray-400 py-4">
@@ -1187,13 +1191,13 @@
                     <div class="lg:col-span-1 bg-gradient-to-br from-amber-900/30 to-amber-800/20 border border-amber-700/50 rounded-lg p-4">
                         <h2 class="text-lg font-semibold text-white mb-3 flex items-center">
                             <i data-lucide="lightbulb" class="w-5 h-5 mr-2 text-amber-400"></i>
-                            Dicas
+                            Diretivas
                         </h2>
                         <div id="ai-tips" class="space-y-2 max-h-[500px] overflow-y-auto pr-2" style="scrollbar-width: thin; scrollbar-color: rgba(251, 191, 36, 0.5) transparent;">
                             <div class="bg-gray-800/50 rounded-lg p-3 border border-amber-700/30">
                                 <div class="flex items-start space-x-2">
                                     <i data-lucide="loader" class="w-4 h-4 text-amber-400 mt-0.5 animate-spin flex-shrink-0"></i>
-                                    <p class="text-gray-300 text-xs">Analisando seus dados para gerar dicas personalizadas...</p>
+                                    <p class="text-gray-300 text-xs">Analisando telemetria para gerar diretivas operacionais...</p>
                                 </div>
                             </div>
                         </div>
@@ -17910,6 +17914,30 @@ Equipe La Casa Dark Core</textarea>
                     if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
                     if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
                     
+                    // Atualizar status dos cards
+                    const statVideosStatus = document.getElementById('stat-videos-status');
+                    const statViewsStatus = document.getElementById('stat-views-status');
+                    const statRevenueStatus = document.getElementById('stat-revenue-status');
+                    
+                    if (statVideosStatus) {
+                        statVideosStatus.textContent = (data.stats.totalVideos || 0) > 0 ? 'ATIVO' : 'SEM DADOS';
+                        statVideosStatus.className = (data.stats.totalVideos || 0) > 0 
+                            ? 'absolute top-3 right-3 text-xs font-semibold text-green-400 uppercase tracking-wider' 
+                            : 'absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider';
+                    }
+                    if (statViewsStatus) {
+                        statViewsStatus.textContent = (data.stats.totalViews || 0) > 0 ? 'ATIVO' : 'SEM DADOS';
+                        statViewsStatus.className = (data.stats.totalViews || 0) > 0 
+                            ? 'absolute top-3 right-3 text-xs font-semibold text-green-400 uppercase tracking-wider' 
+                            : 'absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider';
+                    }
+                    if (statRevenueStatus) {
+                        statRevenueStatus.textContent = (data.stats.totalRevenue || 0) > 0 ? 'ATIVO' : 'SEM DADOS';
+                        statRevenueStatus.className = (data.stats.totalRevenue || 0) > 0 
+                            ? 'absolute top-3 right-3 text-xs font-semibold text-green-400 uppercase tracking-wider' 
+                            : 'absolute top-3 right-3 text-xs font-semibold text-gray-500 uppercase tracking-wider';
+                    }
+                    
                     // Carregar saldo de créditos
                     loadCreditsBalance();
                     loadCurrentPlan();
@@ -17950,8 +17978,8 @@ Equipe La Casa Dark Core</textarea>
                     container.innerHTML = `
                         <div class="text-center text-gray-400 py-8">
                             <i data-lucide="video-off" class="w-12 h-12 mx-auto mb-3 text-gray-600"></i>
-                            <p class="text-sm">Nenhum vídeo encontrado ainda.</p>
-                            <p class="text-xs mt-2 text-gray-500">Comece analisando vídeos virais para ver suas estatísticas aqui.</p>
+                            <p class="text-sm">Nenhuma execução registrada</p>
+                            <p class="text-xs mt-2 text-gray-500">Inicie uma análise para alimentar o núcleo operacional</p>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -18027,7 +18055,7 @@ Equipe La Casa Dark Core</textarea>
                     container.innerHTML = `
                         <div class="text-center text-gray-400 py-4">
                             <i data-lucide="activity" class="w-8 h-8 mx-auto mb-2 text-gray-600"></i>
-                            <p class="text-sm">Nenhuma atividade ainda.</p>
+                            <p class="text-sm">Nenhum registro operacional ainda.</p>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -29361,6 +29389,13 @@ Equipe La Casa Dark Core</textarea>
             }
         });
     </script>
+
+    <!-- Rodapé Elite (Sistema Fechado) -->
+    <footer class="mt-12 pb-6 text-center">
+        <p class="text-xs text-gray-600 font-light tracking-wider" style="letter-spacing: 0.1em; opacity: 0.5;">
+            Sistema privado · Acesso controlado
+        </p>
+    </footer>
 
 </body>
 </html>
