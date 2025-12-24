@@ -578,9 +578,12 @@ function extractCompleteJson(text, startPattern = /\{/) {
 
 // --- Helper para analisar resposta JSON da IA ---
 function parseAIResponse(responseText, serviceName) {
+    const rawText = (typeof responseText === 'string')
+        ? responseText
+        : (responseText === null || responseText === undefined ? '' : String(responseText));
     try {
         // Limpar o texto removendo possíveis markdown code blocks
-        let cleanedText = responseText.trim();
+        let cleanedText = rawText.trim();
         
         // Remover markdown code blocks se existirem
         cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
@@ -619,22 +622,22 @@ function parseAIResponse(responseText, serviceName) {
         return JSON.parse(cleanedText);
     } catch (e) {
         console.error(`[Análise-${serviceName}] Falha ao parsear JSON da IA:`, e);
-        console.error(`[Análise-${serviceName}] Texto recebido (primeiros 2000 caracteres):`, responseText.substring(0, 2000));
+        console.error(`[Análise-${serviceName}] Texto recebido (primeiros 2000 caracteres):`, rawText.substring(0, 2000));
         
         // Tentar uma última abordagem: usar regex para extrair campos específicos
         try {
             // Regex mais robusta que lida com quebras de linha dentro de strings
-            const nicheMatch = responseText.match(/"niche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-            const subnicheMatch = responseText.match(/"subniche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            const nicheMatch = rawText.match(/"niche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            const subnicheMatch = rawText.match(/"subniche"\s*:\s*"((?:[^"\\]|\\.)*)"/);
             // Usar [\s\S] em vez de . com flag s para compatibilidade
-            const motivoMatch = responseText.match(/"motivoSucesso"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
-            const formulaMatch = responseText.match(/"formulaTitulo"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
+            const motivoMatch = rawText.match(/"motivoSucesso"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
+            const formulaMatch = rawText.match(/"formulaTitulo"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"/);
             
             if (nicheMatch && motivoMatch) {
                 console.warn(`[Análise-${serviceName}] Usando fallback de parsing regex devido a JSON malformado`);
                 
                 // Extrair títulos sugeridos usando regex (mais robusta)
-                const titulosMatches = [...responseText.matchAll(/"titulo"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
+                const titulosMatches = [...rawText.matchAll(/"titulo"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
                 const titulos = titulosMatches.map(m => m[1]).filter(t => t.length > 0);
                 
                 // Limpar quebras de linha dos valores extraídos
@@ -660,6 +663,546 @@ function parseAIResponse(responseText, serviceName) {
         
         throw new Error(`A IA (${serviceName}) retornou um formato JSON inválido.`);
     }
+}
+
+// --- Helper específico para Análise de Títulos ---
+// Aceita JSON (formato antigo) OU lista numerada (1..5) conforme "PROMPT UNIVERSAL — CLONAGEM DE TÍTULOS VIRAIS".
+function parseNumberedTitles(responseText, expectedCount = 5) {
+    const cleaned = String(responseText || '')
+        .trim()
+        .replace(/^```[a-z]*\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+    const titles = [];
+    const seen = new Set();
+
+    const pushTitle = (t) => {
+        let rawText = String(t || '').trim().replace(/^["']|["']$/g, '').trim();
+        if (!rawText) return;
+        
+        // Extrair título e fórmula se presente (formato: "TÍTULO | FÓRMULA: descrição")
+        let title = rawText;
+        let formula = null;
+        
+        const formulaMatch = rawText.match(/^(.+?)\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
+        if (formulaMatch) {
+            title = formulaMatch[1].trim();
+            formula = formulaMatch[2].trim();
+        }
+        
+        const key = title.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        titles.push({ title, formula });
+    };
+
+    // Normalizar alguns formatos comuns (ex: 1️⃣, travessões)
+    const normalized = cleaned
+        .replace(/1️⃣/g, '1.')
+        .replace(/2️⃣/g, '2.')
+        .replace(/3️⃣/g, '3.')
+        .replace(/4️⃣/g, '4.')
+        .replace(/5️⃣/g, '5.')
+        .replace(/6️⃣/g, '6.')
+        .replace(/7️⃣/g, '7.')
+        .replace(/8️⃣/g, '8.')
+        .replace(/9️⃣/g, '9.')
+        .replace(/10️⃣/g, '10.')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'");
+
+    // 0) Se vier como JSON array simples, aceitar (["t1","t2",...])
+    try {
+        const maybeJson = JSON.parse(normalized);
+        if (Array.isArray(maybeJson)) {
+            maybeJson.forEach(item => {
+                if (typeof item === 'string') pushTitle(item);
+            });
+            if (titles.length >= expectedCount) return titles.slice(0, expectedCount);
+        }
+    } catch {}
+
+    // Preferência: linhas numeradas
+    const lines = normalized.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+        const m = line.match(/^(\d{1,2})\s*[\)\.\:\-\–\—\]\>]\s*(.+)$/);
+        if (m && m[2]) pushTitle(m[2]);
+    }
+
+    // Fallback: bullets
+    if (titles.length === 0) {
+        for (const line of lines) {
+            const m = line.match(/^(?:[-•*])\s*(.+)$/);
+            if (m && m[1]) pushTitle(m[1]);
+        }
+    }
+
+    // Fallback 2: se veio em uma linha com separadores comuns
+    if (titles.length < expectedCount) {
+        const chunks = normalized
+            .split(/\r?\n|(?:\s*\|\s*)|(?:\s*;\s*)|(?:\s*\/\s*)/g)
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        // não duplicar trabalho: evitar incluir linhas que já eram só contexto
+        if (chunks.length >= expectedCount) {
+            for (const c of chunks) {
+                // se estiver numerado, remove o prefixo
+                const m = c.match(/^(\d{1,2})\s*[\)\.\:\-\–\—\]\>]\s*(.+)$/);
+                pushTitle(m && m[2] ? m[2] : c);
+                if (titles.length >= expectedCount) break;
+            }
+        }
+    }
+
+    // Fallback 3: vários títulos na mesma linha com numeração interna (1... 2... 3...)
+    if (titles.length < expectedCount) {
+        const pattern = /(\d{1,2})\s*[\)\.\:\-\–\—]\s*([\s\S]*?)(?=(\d{1,2})\s*[\)\.\:\-\–\—]|$)/g;
+        const matches = [...normalized.matchAll(pattern)];
+        if (matches.length > 0) {
+            for (const m of matches) {
+                pushTitle(m[2]);
+                if (titles.length >= expectedCount) break;
+            }
+        }
+    }
+
+    // Último fallback: pegar as primeiras linhas não vazias
+    if (titles.length === 0) {
+        for (const line of lines) pushTitle(line);
+    }
+
+    if (titles.length < expectedCount) return null;
+    return titles.slice(0, expectedCount);
+}
+
+function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5) {
+    const raw = (typeof responseText === 'string')
+        ? responseText
+        : (responseText === null || responseText === undefined ? '' : String(responseText));
+    const trimmed = raw.trim();
+
+    // Atalho: se parece lista numerada, NÃO tentar JSON primeiro (evita logs/erros do parseAIResponse)
+    if (/^(?:\s*(?:\d{1,2}|[1-9]️⃣|10️⃣)\s*[\)\.\:\-\–\—])/.test(trimmed)) {
+        const titles = parseNumberedTitles(trimmed, expectedCount);
+        if (titles) {
+            return {
+                niche: null,
+                subniche: null,
+                analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                titulosSugeridos: titles.map(item => ({ 
+                    titulo: item.title, 
+                    pontuacao: 9, 
+                    explicacao: '', 
+                    formula: item.formula 
+                }))
+            };
+        }
+        throw new Error(`A IA (${serviceName}) retornou lista numerada inválida (<${expectedCount}).`);
+    }
+
+    // 1) Tentar JSON padrão (compat)
+    try {
+        const parsed = parseAIResponse(raw, serviceName);
+        // 1.a) Formato antigo completo
+        if (parsed && Array.isArray(parsed.titulosSugeridos) && parsed.titulosSugeridos.length > 0) {
+            return parsed;
+        }
+        // 1.b) JSON array simples: ["t1","t2"...]
+        if (Array.isArray(parsed)) {
+            const titles = parsed.filter(x => typeof x === 'string').slice(0, expectedCount);
+            if (titles.length >= expectedCount) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                };
+            }
+        }
+        // 1.c) JSON com array em outros campos comuns
+        const altArr = parsed && (
+            (Array.isArray(parsed.titles) ? parsed.titles : null) ||
+            (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
+            (Array.isArray(parsed.result) ? parsed.result : null)
+        );
+        if (altArr) {
+            const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
+            if (titles.length >= expectedCount) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                };
+            }
+        }
+    } catch (e) {
+        // ignorar: vamos tentar lista numerada
+    }
+
+    // 2) Tentar lista numerada 1..5 (novo prompt)
+    const titles = parseNumberedTitles(raw, expectedCount);
+    if (titles) {
+        return {
+            niche: null,
+            subniche: null,
+            analiseOriginal: {
+                motivoSucesso: 'N/A',
+                formulaTitulo: 'N/A'
+            },
+            titulosSugeridos: titles.map(item => ({
+                titulo: item.title,
+                pontuacao: 9,
+                explicacao: '',
+                formula: item.formula
+            }))
+        };
+    }
+
+    throw new Error(`A IA (${serviceName}) retornou um formato inválido para títulos. Esperado: JSON ou lista numerada com ${expectedCount} títulos.`);
+}
+
+// --- Score 2: Impacto Visual (0–10) ---
+// Não avalia verdade histórica. Avalia força competitiva no feed: CAIXA ALTA, loop mental, contraste, clareza em 3s, thumb-friendly.
+function computeImpactVisualScore(titleText) {
+    const text = String(titleText || '').trim();
+    if (!text) return 0;
+
+    const upperMatches = text.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,}(?:\s+[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,})*/g) || [];
+    const uniqueUpper = Array.from(new Set(upperMatches.map(s => s.trim()))).filter(Boolean);
+
+    const letters = (text.match(/[A-Za-zÁÉÍÓÚÃÕÂÊÎÔÛÇáéíóúãõâêîôûç]/g) || []).length;
+    const upperLetters = (text.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]/g) || []).length;
+    const isMostlyAllCaps = letters > 0 && (upperLetters / letters) > 0.85;
+
+    // 1) CAIXA ALTA (0–3)
+    let scoreCaps = 0;
+    if (uniqueUpper.length === 0) {
+        scoreCaps = 0;
+    } else if (isMostlyAllCaps) {
+        // poluição visual: tudo em caps
+        scoreCaps = 0;
+    } else if (uniqueUpper.length === 1) {
+        scoreCaps = 1;
+    } else if (uniqueUpper.length === 2) {
+        scoreCaps = 2;
+    } else {
+        scoreCaps = 3;
+    }
+
+    // 2) Loop mental (0–2)
+    // Mais alinhado ao critério: palavras de "lacuna" contam forte mesmo sem interrogação.
+    const strongLoop = /(N[ÃA]O\s+DEVERIA|NUNCA\s+DEVERIA|NINGU[ÉE]M\s+EXPLICA|N[ÃA]O\s+CONSEGUE\s+EXPLICAR|DETALHE\s+(IGNORADO|OCULTO)|COMO\s+FOI\s+POSS[ÍI]VEL|O\s+SEGREDO|MIST[ÉE]RIO|VERDADE\s+(OCULTA|SOBRE)|NINGU[ÉE]M\s+(CONTA|TE\s+CONTA))/i.test(text);
+    const softLoop = /(\?|COMO|POR\s+QUE|O\s+QUE|QUASE\s+NINGU[ÉE]M|NINGU[ÉE]M|SEGREDO|DETALHE|REVELA|IMPOSS[ÍI]VEL|NUNCA)/i.test(text);
+    const scoreLoop = strongLoop ? 2 : (softLoop ? 1 : 0);
+
+    // 3) Contraste / tensão visual (0–2)
+    const hasArrow = /→|->/i.test(text);
+    const hasContrastWord = /\b(MAS|POR[ÉE]M|S[ÓO]\s+QUE|MESMO\s+ASSIM|AINDA\s+ASSIM|APESAR|CONTRA)\b/i.test(text);
+    const hasTwoClauses = /[.!?].+/.test(text) || hasArrow || /:\s*\S+/.test(text);
+    const hasTensionEnv = /\b(HOSTIL|PIOR\s+LUGAR|P[ÂA]NTANO|LAGO|DEBAIXO\s+D['’]?[ÁA]GUA|PROIBIDO|MORTAL)\b/i.test(text);
+    let scoreContrast = 0;
+    if (hasArrow) scoreContrast = 2;
+    else if (hasContrastWord && hasTwoClauses) scoreContrast = 2;
+    else if (hasTwoClauses || hasContrastWord || hasTensionEnv) scoreContrast = 1;
+
+    // 4) Clareza em até 3s (0–2)
+    const words = text.split(/\s+/).filter(Boolean);
+    let scoreClarity = 0;
+    // Um pouco mais permissivo (Claude/Gemini tendem a ser levemente mais longos)
+    if (words.length <= 14) scoreClarity = 2;
+    else if (words.length <= 18) scoreClarity = 1;
+    else scoreClarity = 0;
+    // Penalizar excesso de complexidade: muitas vírgulas/termos técnicos longos
+    const commas = (text.match(/,/g) || []).length;
+    if (commas >= 3 && scoreClarity > 0) scoreClarity -= 1;
+
+    // 5) Compatibilidade com thumb (0–1)
+    // Thumb-friendly quando há 1+ termo em caps e a leitura não é longa demais
+    const scoreThumb = (scoreCaps > 0 && words.length <= 18) ? 1 : 0;
+
+    const total = scoreCaps + scoreLoop + scoreContrast + scoreClarity + scoreThumb;
+    return Math.max(0, Math.min(10, Math.round(total)));
+}
+
+function enforceImpactGate(titles, { minImpact = 7, expectedCount = 5 } = {}) {
+    const normalized = Array.isArray(titles) ? titles : [];
+    const withScore = normalized.map(t => ({
+        ...t,
+        impact_score: typeof t.impact_score === 'number' ? t.impact_score : computeImpactVisualScore(t.titulo)
+    }));
+    const passing = withScore
+        .filter(t => Number(t.impact_score || 0) >= minImpact)
+        .sort((a, b) => Number(b.impact_score || 0) - Number(a.impact_score || 0));
+    return { passing: passing.slice(0, expectedCount), withScore };
+}
+
+function buildTitleRefinePrompt({
+    originalTitle,
+    translatedTitle,
+    performanceContext,
+    descriptionStart,
+    transcriptStart,
+    languageInstruction,
+    titlesRequired = 5,
+    minImpact = 7,
+    avoidTitles = [],
+    attemptLevel = 1
+}) {
+    const avoidBlock = avoidTitles && avoidTitles.length
+        ? `\nTÍTULOS JÁ ACEITOS (NÃO REPETIR IDEIA/NEM FRASE):\n${avoidTitles.map(t => `- ${t}`).join('\n')}\n`
+        : '';
+    const level = Number(attemptLevel || 1);
+    const attemptBlock = () => {
+        if (level <= 1) return '';
+        if (level === 2) {
+            return `\nAUTO-FALLBACK (2ª tentativa — relaxar 1 regra)\n- CAIXA ALTA pode ser apenas 1 palavra (a mais forte)\n- Contraste pode ser sutil (não precisa ser extremo)\n`;
+        }
+        return `\nAUTO-FALLBACK (3ª tentativa — generalizar cenário)\n- Se houver risco factual, GENERALIZE cenário/povo/local (ex: “uma CIVILIZAÇÃO ANTIGA”, “uma cidade improvável”, “um AMBIENTE HOSTIL”)\n`;
+    };
+    return `PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS (≥ ${minImpact} COM AUTO-FALLBACK)
+
+Você receberá o título de um vídeo que JÁ VIRALIZOU, comprovadamente com alto CTR e retenção.
+
+OBJETIVO CENTRAL (REGRA ABSOLUTA)
+
+Gerar ${titlesRequired} títulos ALTAMENTE COMPETITIVOS, focados em:
+- CTR alto
+- Retenção inicial
+- Impacto visual no feed
+
+👉 Somente títulos com IMPACTO VISUAL ESTIMADO ≥ ${minImpact}/10 podem ser entregues ao frontend.
+
+PRINCÍPIO-CHAVE
+
+O título original já venceu o algoritmo.
+Sua função é clonar a fórmula psicológica vencedora, intensificando impacto,
+variando o cenário, sem quebrar fidelidade temática.
+
+REGRAS OBRIGATÓRIAS DE IMPACTO
+
+Cada título precisa conter:
+
+1️⃣ GATILHOS EM CAIXA ALTA (OBRIGATÓRIO)
+
+Use 1 a 3 termos em CAIXA ALTA
+
+Priorize gatilhos fortes:
+
+IMPOSSÍVEL
+NUNCA
+SEGREDO
+NINGUÉM
+VERDADE
+GENIALIDADE
+OBRA IMPOSSÍVEL
+NÃO DEVERIA EXISTIR
+
+Sem CAIXA ALTA estratégica → impacto insuficiente.
+
+2️⃣ LOOP MENTAL INCOMPLETO
+
+O título não pode explicar tudo.
+Deve criar expectativa clara de revelação após o clique.
+
+Exemplos válidos:
+
+“NUNCA DEVERIA TER FUNCIONADO”
+“NINGUÉM EXPLICA ISSO”
+“O DETALHE IGNORADO”
+
+3️⃣ CONTRASTE OU TENSÃO
+
+Cada título deve conter ao menos um contraste:
+
+ambiente hostil × sucesso
+impossível × realizado
+esquecido × grandioso
+antigo × avançado
+
+4️⃣ VARIAÇÃO OBRIGATÓRIA DE CENÁRIO
+
+Entre os ${titlesRequired} títulos:
+
+NO MÍNIMO 3 DEVEM trocar explicitamente:
+
+local
+povo / civilização
+cenário ambiental ou contextual
+
+Se houver risco factual, GENERALIZE:
+
+“uma CIVILIZAÇÃO ANTIGA”
+“uma CIDADE ESQUECIDA”
+“um AMBIENTE HOSTIL”
+
+5️⃣ LEITURA EM ATÉ 3 SEGUNDOS
+
+Frases curtas
+Estrutura simples
+Impacto imediato
+
+6️⃣ VARIAÇÃO CONTEXTUAL UNIVERSAL (OBRIGATÓRIA)
+
+Entre os ${titlesRequired} títulos gerados, você DEVE variar explicitamente os ELEMENTOS CONTEXTUAIS,
+independentemente do nicho.
+
+Distribua os títulos para que cada um enfatize um eixo diferente:
+
+1. Um título com foco no ATOR (quem fez / quem viveu)
+2. Um título com foco no AMBIENTE ou CONTEXTO (onde / em que situação)
+3. Um título com foco no DESAFIO ou LIMITAÇÃO (o que tornava difícil)
+4. Um título com foco na SOLUÇÃO ou AÇÃO (o que foi feito)
+5. Um título com foco no RESULTADO ou IMPACTO (o que mudou)
+
+Não reutilize o mesmo elemento contextual como foco principal em mais de um título.
+Se houver risco de imprecisão, generalize (ex: "alguém", "um grupo", "uma situação extrema").
+
+Execute silenciosamente.
+
+7️⃣ VARIAÇÃO DE ATOR (OBRIGATÓRIA)
+
+Entre os ${titlesRequired} títulos gerados, você DEVE variar explicitamente o ATOR principal.
+O ATOR é quem executa a ação central do título.
+
+Cada título deve usar um ATOR DIFERENTE, escolhendo entre:
+
+- um povo
+- uma civilização
+- um grupo
+- uma sociedade
+- uma organização
+- um ator genérico (ex: "um povo esquecido", "uma civilização perdida", "um grupo improvável")
+
+É PROIBIDO que mais de dois títulos usem o mesmo ATOR implícito ou explícito.
+Se detectar repetição do mesmo ATOR (mesmo que sem nome), você DEVE reescrever antes de entregar.
+
+Se houver risco factual, use ATOR genérico, mas DIFERENTE do anterior.
+
+Execute silenciosamente.
+
+AUTO-REFINO OBRIGATÓRIO (CRÍTICO)
+
+Antes de entregar os títulos:
+
+Avalie mentalmente o IMPACTO VISUAL (0–10) de cada título
+
+Se algum título ficar < ${minImpact}, você DEVE:
+
+reescrevê-lo imediatamente
+reforçar CAIXA ALTA, contraste ou loop mental
+
+Repita esse processo internamente até que:
+
+todos os ${titlesRequired} títulos estejam com impacto ≥ ${minImpact}
+
+⚠️ Nunca entregue títulos < ${minImpact}.
+    ⚠️ Não explique o processo. Apenas entregue o resultado final.
+${attemptBlock()}
+
+IDIOMA
+- Todos os títulos devem estar ${languageInstruction}.
+
+CONTEXTO DO VÍDEO (para fidelidade — não copie texto literalmente)
+${performanceContext ? performanceContext : ''}
+- Título original (idioma original): "${originalTitle}"
+- Título traduzido (PT-BR): "${translatedTitle || originalTitle}"
+- Descrição (início): ${descriptionStart || 'N/A'}...
+- Transcrição (início): ${transcriptStart || 'N/A'}...
+${avoidBlock}
+FORMATO DE SAÍDA (OBRIGATÓRIO)
+
+Retorne EXATAMENTE ${titlesRequired} títulos, numerados de 1 a ${titlesRequired}.
+
+Cada linha deve seguir este formato:
+NÚMERO. TÍTULO | FÓRMULA: [descrição breve da estrutura usada]
+
+A FÓRMULA deve identificar:
+- Qual ATOR foi usado (ex: "povo esquecido", "civilização antiga", "grupo improvável")
+- Qual EIXO CONTEXTUAL foi enfatizado (ATOR/AMBIENTE/DESAFIO/SOLUÇÃO/IMPACTO)
+- Qual GATILHO PSICOLÓGICO dominante (MISTÉRIO/CONTRASTE/IMPOSSÍVEL/SEGREDO/REVELAÇÃO)
+
+Exemplo de formato válido:
+1. A GENIALIDADE que criou uma CIDADE no NADA | FÓRMULA: Civilização antiga + DESAFIO + Contraste impossível
+2. O SEGREDO por trás de uma OBRA PROIBIDA | FÓRMULA: Grupo desconhecido + SOLUÇÃO + Mistério oculto
+
+Sem explicações adicionais.
+Sem emojis.
+SEM JSON.`;
+}
+
+function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, descriptionStart, transcriptStart }) {
+    const hay = `${originalTitle || ''}\n${translatedTitle || ''}\n${descriptionStart || ''}\n${transcriptStart || ''}`.toLowerCase();
+    // Heurística simples (fallback) — evita "N/A" na UI
+    if (/(hist[oó]ria|civiliza|imp[eé]rio|antigo|antiga|aztec|astec|tenocht|maia|inca|roma|egito|eg[ipí]cio)/i.test(hay)) {
+        return { niche: 'História', subniche: 'Civilizações Antigas' };
+    }
+    if (/(finan|dinheiro|invest|renda|bitcoin|cripto|a[cç][aã]o|bolsa)/i.test(hay)) {
+        return { niche: 'Finanças', subniche: 'Investimentos' };
+    }
+    if (/(sa[uú]de|fitness|treino|dieta|emagrec|ansiedade|depress)/i.test(hay)) {
+        return { niche: 'Saúde', subniche: 'Bem-estar' };
+    }
+    return { niche: 'Entretenimento', subniche: 'N/A' };
+}
+
+function deriveTitleAnalysis({ originalTitle, translatedTitle, views, days }) {
+    const t = String(translatedTitle || originalTitle || '').trim();
+    const lower = t.toLowerCase();
+    const isList = /\b(\d+)\b/.test(lower) || /(pilares|raz[õo]es|fundamentos|segredos|passos)/i.test(lower);
+    const hasHow = /(como|how)/i.test(lower);
+    const hasWhy = /(por que|porque|why)/i.test(lower);
+    const hasBigWord = /(genial|imposs[ií]vel|segredo|mist[eé]rio|verdade|ningu[eé]m|nunca)/i.test(lower);
+    const vpd = days ? Math.round((views || 0) / Math.max(days, 1)) : null;
+
+    const motivoSucesso = [
+        vpd ? `Ganhou tração por consistência de interesse (≈${vpd.toLocaleString()} views/dia).` : 'Ganhou tração por consistência de interesse.',
+        isList ? 'Promessa clara de estrutura (lista) ajuda clique e retenção.' : 'Promessa clara do tema ajuda clique.',
+        hasHow || hasWhy ? 'Ângulo de curiosidade (“como/por que”) aumenta expectativa inicial.' : (hasBigWord ? 'Palavra de impacto aumenta o stop-scroll.' : 'Tema forte sustenta o clique.')
+    ].join(' ');
+
+    const formulaTitulo = [
+        isList ? 'Estrutura de lista + promessa de clareza' : 'Promessa central + benefício',
+        hasHow ? '+ gancho “COMO FOI POSSÍVEL”' : '',
+        hasWhy ? '+ gancho “POR QUE”' : '',
+        '+ 1–3 termos em CAIXA ALTA (gatilho principal)',
+        '+ loop mental (o detalhe/segredo/verdade) sem inventar fatos',
+        '+ contraste leve (antes vs depois / hostil vs feito) quando aplicável'
+    ].filter(Boolean).join(' ');
+
+    return { motivoSucesso, formulaTitulo };
+}
+
+async function generatePassingTitlesWithRefine({
+    apiFunc,
+    apiKey,
+    model,
+    serviceName,
+    basePromptBuilder,
+    buildArgs,
+    titlesRequired = 5,
+    minImpact = 7,
+    maxRefines = 3
+}) {
+    let accepted = [];
+    for (let attempt = 0; attempt <= maxRefines; attempt++) {
+        const prompt = basePromptBuilder({
+            ...buildArgs,
+            titlesRequired,
+            minImpact,
+            avoidTitles: accepted.map(t => t.titulo),
+            attemptLevel: Math.min(3, attempt + 1) // 1ª, 2ª, 3ª (fallback)
+        });
+        const resp = await apiFunc(prompt, apiKey, model);
+        const text = typeof resp === 'string' ? resp : (resp?.titles || '');
+        const parsed = parseTitleAnalysisResponse(text, serviceName, titlesRequired);
+        const merged = [...accepted, ...parsed.titulosSugeridos];
+        accepted = enforceImpactGate(merged, { minImpact, expectedCount: titlesRequired }).passing;
+        if (accepted.length >= titlesRequired) break;
+    }
+    return accepted;
 }
 
 
@@ -4526,12 +5069,30 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 title_text TEXT NOT NULL,
                 model_used TEXT,
                 pontuacao INTEGER DEFAULT 0,
+                impact_score INTEGER DEFAULT NULL,
                 explicacao TEXT,
+                formula TEXT DEFAULT NULL,
                 is_checked BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (video_analysis_id) REFERENCES analyzed_videos (id) ON DELETE CASCADE
             );
         `);
+
+        // Migração: adicionar impact_score se não existir (SCORE 2 - Impacto Visual)
+        try {
+            const tableInfo = await db.all("PRAGMA table_info(generated_titles)");
+            const existingColumns = tableInfo.map(col => col.name);
+            if (!existingColumns.includes('impact_score')) {
+                await db.run('ALTER TABLE generated_titles ADD COLUMN impact_score INTEGER DEFAULT NULL');
+                console.log('[MIGRATION] Adicionado campo impact_score em generated_titles');
+            }
+            if (!existingColumns.includes('formula')) {
+                await db.run('ALTER TABLE generated_titles ADD COLUMN formula TEXT DEFAULT NULL');
+                console.log('[MIGRATION] Adicionado campo formula em generated_titles');
+            }
+        } catch (migrationErr) {
+            console.warn('[MIGRATION] Falha ao migrar generated_titles:', migrationErr.message);
+        }
         
         // Tabelas para análise de canais virais
         await db.exec(`
@@ -13190,6 +13751,15 @@ Tradução em PT-BR:`;
             
             // Limpar a resposta (remover markdown, aspas, etc)
             translatedTitle = translateText.replace(/^["']|["']$/g, '').replace(/```json|```/g, '').trim();
+            // Alguns modelos podem devolver array JSON ["..."]; normalizar para string
+            if (translatedTitle.startsWith('[')) {
+                try {
+                    const arr = JSON.parse(translatedTitle);
+                    if (Array.isArray(arr) && typeof arr[0] === 'string') {
+                        translatedTitle = arr[0].trim();
+                    }
+                } catch {}
+            }
             if (translatedTitle.length > 200) {
                 translatedTitle = translatedTitle.substring(0, 200);
             }
@@ -13232,109 +13802,32 @@ Tradução em PT-BR:`;
         // Quantidade de títulos a gerar: sempre 5 por modelo
         // No modo multimodal, cada modelo gera 5 títulos, totalizando 15 (5 x 3)
         const titlesRequired = 5;
+        const languageInstruction = language === 'Português'
+            ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)'
+            : language === 'Inglês'
+                ? 'EM INGLÊS (EN)'
+                : language === 'Espanhol'
+                    ? 'EM ESPANHOL (ES)'
+                    : 'EM PORTUGUÊS BRASILEIRO (PT-BR)';
+        const languageExplanation = language === 'Português'
+            ? 'EM PORTUGUÊS BRASILEIRO'
+            : language === 'Inglês'
+                ? 'EM INGLÊS'
+                : language === 'Espanhol'
+                    ? 'EM ESPANHOL'
+                    : 'EM PORTUGUÊS BRASILEIRO';
 
-        const titlePrompt = `
-            Você é um ESPECIALISTA EM VIRALIZAÇÃO NO YOUTUBE com experiência comprovada em criar títulos que geram MILHÕES DE VIEWS e ALTO CTR (taxa de cliques acima de 25%). Sua missão é analisar um vídeo ${isViral ? 'que VIRALIZOU' : 'de referência'} e criar variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para canais subnichados.
-
-            🚀 CONTEXTO DO VÍDEO ${isViral ? 'VIRAL' : 'DE REFERÊNCIA'}:
-            ${performanceContext}
-            
-            DADOS DO VÍDEO ORIGINAL:
-            - Título Original (traduzido para PT-BR): "${translatedTitle}"
-            - Título Original (idioma original): "${videoDetails.title}"
-            - Visualizações: ${videoDetails.views.toLocaleString()} views
-            - Comentários: ${videoDetails.comments.toLocaleString()} comentários
-            - Dias desde publicação: ${videoDetails.days} dias
-            - Thumbnail URL: ${videoDetails.thumbnailUrl}
-            - Descrição (início): ${videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A'}...
-            - Transcrição (início): ${transcriptText.substring(0, 500)}...
-
-            🎯 PROMPT DE ANÁLISE DE TÍTULOS ${isViral ? 'VIRAIS' : 'DE REFERÊNCIA'} (DIRETO DO VÍDEO):
-            Este vídeo do canal ${isViral ? 'viralizou, pegou' : 'tem'} ${videoDetails.views.toLocaleString()} VIEWS${videoDetails.days > 0 ? ` EM ${videoDetails.days} DIAS` : ''} com o título: "${videoDetails.title}"
-            
-            OBJETIVO: Criar títulos e canais MILIONÁRIOS com MILHÕES DE VIEWS e ALTO CTR (acima de 25%).
-            
-            Preciso que você me dê variações MUITO CHAMATIVAS focadas em VIRALIZAÇÃO para meu canal subnichado. Cada título deve ter POTENCIAL PARA GERAR MILHÕES DE VIEWS, não apenas alguns milhares. Foque em criar títulos que se tornem virais e gerem engajamento massivo.
-
-            🎯 SUA TAREFA (FOCO EM VIRALIZAÇÃO E MILHÕES DE VIEWS):
-            1.  **Análise Profunda de Nicho e Subnicho:** 
-                - Identifique o "nicho" exato e o "subniche" específico do vídeo.
-                - Analise por que esse subnicho funcionou tão bem e qual o público-alvo que gerou essa viralização.
-                - Identifique oportunidades de subnichos pouco explorados com alto potencial de viralização.
-
-            2.  **Análise do Título ${isViral ? 'Viral' : 'de Referência'} (Por que ${isViral ? 'funcionou' : 'não funcionou tão bem'}?):** 
-                Analise PROFUNDAMENTE o título ${isViral ? 'que viralizou' : 'de referência'} e identifique:
-                - Explique o "motivoSucesso" detalhado: ${isViral ? `Por que esse título específico gerou ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que tornou ele tão viral?` : `Por que esse título gerou apenas ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias? O que faltou para ele viralizar? Quais elementos podem ser melhorados?`}
-                - Identifique a "formulaTitulo" (a estrutura exata, gatilhos mentais, palavras-chave ${isViral ? 'virais' : 'que podem ser otimizadas'}, padrões emocionais ${isViral ? 'que fizeram esse título viralizar e gerar milhões de views' : 'que podem ser melhorados para criar versões com maior potencial viral'}).
-                - Analise a PSICOLOGIA POR TRÁS DO SUCESSO: Qual emoção ele despertou? Que curiosidade ele criou? Que gatilho mental ele acionou? Que palavra-chave teve maior impacto? Por que as pessoas CLICARAM nele?
-                - Identifique os PADRÕES VIRAIS COMPROVADOS: números impactantes, perguntas intrigantes, segredos revelados, contrastes, FOMO, prova social, urgência, escassez.
-                - Analise a ESTRUTURA DO TÍTULO: Quantas palavras? Qual é a ordem das palavras-chave? Onde estão os gatilhos mentais? Qual é o ritmo de leitura?
-                - Identifique PALAVRAS-CHAVE PODEROSAS que geraram cliques: quais palavras específicas fizeram a diferença? Quais palavras emocionais criaram conexão?
-
-            3.  **Geração de Títulos Virais (FOCO EM MILHÕES DE VIEWS E ALTO CTR):** 
-                Usando a "formulaTitulo" identificada como base, crie 5 variações MUITO CHAMATIVAS de títulos ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'} que:
-                - TENHAM ALTO POTENCIAL VIRAL (capazes de gerar MILHÕES DE VIEWS como o original, não apenas milhares)
-                - USEM GATILHOS MENTAIS PODEROSOS E COMPROVADOS (curiosidade, FOMO, surpresa, urgência, escassez, autoridade, prova social, emoção intensa)
-                - INCLUAM PALAVRAS-CHAVE VIRAIS E PODEROSAS (números impactantes, palavras emocionais, perguntas que prendem atenção, palavras que geram cliques)
-                - SEJAM OTIMIZADOS PARA ALTO CTR (taxa de cliques acima de 25%, preferencialmente 30% ou mais)
-                - MANTENHAM A ESSÊNCIA E PODER VIRAL DO TÍTULO ORIGINAL mas com MELHORIAS para maior viralização e mais views
-                - SEJAM ADAPTADOS PARA O SUBNICHO identificado, mas mantendo o PODER VIRAL e a capacidade de gerar milhões de views
-                - SIGAM A MESMA ESTRUTURA que funcionou no título original (ordem das palavras, ritmo, gatilhos mentais)
-                - TENHAM POTENCIAL PARA VIRALIZAR e gerar engajamento massivo (compartilhamentos, comentários, views orgânicas)
-
-                Para cada novo título, forneça:
-                - "titulo": O novo título ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'}, otimizado para viralização e milhões de views, seguindo a fórmula que funcionou no título original.
-                - "pontuacao": Uma nota de 0 a 10, avaliando o potencial viral e de CTR (10 = capaz de gerar milhões de views como o original com CTR acima de 25%, 9-10 = alto potencial viral com milhões de views, 7-8 = bom potencial mas pode melhorar, abaixo de 7 = precisa ser reescrito).
-                - "explicacao": Uma justificativa detalhada ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : language === 'Inglês' ? 'EM INGLÊS' : language === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO'} explicando: 
-                  * Por que esse título tem potencial para gerar MILHÕES DE VIEWS? 
-                  * Quais gatilhos mentais específicos ele usa e por que eles funcionam?
-                  * Por que ele pode gerar alto CTR (acima de 25%)?
-                  * Como ele se compara ao título original que viralizou?
-                  * Quais elementos da "formulaTitulo" ele aplica?
-                  * Por que as pessoas vão CLICAR nele?
-                  * Qual é o potencial de viralização (compartilhamentos, engajamento)?
-
-            📊 ESTRATÉGIAS DE VIRALIZAÇÃO PARA TÍTULOS (APLIQUE ESSAS TÉCNICAS):
-            - **Números e Estatísticas Impactantes:** Use números específicos, grandes, ou surpreendentes (ex: "5000 anos", "1 milhão de views", "3 segundos", "10 segredos", "5 coisas que ninguém sabe").
-            - **Gatilhos de Curiosidade:** Crie perguntas, mistérios, segredos revelados, coisas escondidas ou proibidas (ex: "O que ninguém te conta sobre...", "O segredo que...", "O que aconteceu com...").
-            - **FOMO (Medo de Perder):** Urgência, exclusividade, oportunidade única, tempo limitado (ex: "Antes que seja tarde", "O que você está perdendo", "A última chance de...").
-            - **Prova Social:** "Todo mundo está falando", "viralizou", "ninguém sabe", "revelado", "descoberto", "exclusivo" (ex: "O que todo mundo quer saber", "A verdade que ninguém conhece").
-            - **Emoções Intensas:** Choque, surpresa, medo, alegria, raiva, curiosidade (ex: "Chocante", "Inacreditável", "Você não vai acreditar", "Preparado para isso?").
-            - **Contraste e Oposição:** "Parecia X mas era Y", "Todo mundo pensa X mas a verdade é Y" (ex: "Você pensava que era X, mas na verdade é Y", "O que todos acreditam está errado").
-            - **Palavras Poderosas:** "SECRETO", "REVELADO", "ESCONDIDO", "PROIBIDO", "NUNCA VISTO", "CHOCANTE", "INCRÍVEL", "IMPERDÍVEL", "EXCLUSIVO", "DESCOBERTO", "REAL", "VERDADEIRO".
-            - **Personalização:** "Você não sabia", "Isso vai mudar sua vida", "O que ninguém te conta", "O que você precisa saber" (ex: "O que você não sabia sobre...", "Isso vai mudar como você vê...").
-
-            ⚠️ REGRAS CRÍTICAS PARA TÍTULOS VIRAIS (CRIAR CANAIS MILIONÁRIOS):
-            - TODOS os títulos sugeridos DEVEM estar ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : language === 'Inglês' ? 'EM INGLÊS (EN)' : language === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)'}.
-            - A "explicacao" de cada título também deve estar ${language === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : language === 'Inglês' ? 'EM INGLÊS' : language === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO'}.
-            - Mantenha o IMPACTO, CURIOSIDADE e GATILHOS MENTAIS do título original, mas MELHORE-OS para maior viralização e mais views.
-            - Foque APENAS em títulos que TENHAM POTENCIAL PARA GERAR MILHÕES DE VIEWS, não apenas alguns milhares. Rejeite títulos que não tenham potencial viral alto.
-            - Cada título deve ter um POTENCIAL VIRAL MUITO ALTO (pontuação 9-10, preferencialmente 10). Títulos com pontuação abaixo de 9 devem ser reescritos.
-            - Os títulos devem ser OTIMIZADOS PARA ALTO CTR (acima de 25%, preferencialmente 30% ou mais).
-            - Adapte para o SUBNICHO identificado, mas SEMPRE mantenha o PODER VIRAL do título original e a capacidade de gerar milhões de views.
-            - Use a mesma "formulaTitulo" que funcionou no título viral, mas com variações criativas e melhorias que aumentem o potencial de viralização.
-            - Cada título deve seguir a ESTRUTURA COMPROVADA do título original (ordem das palavras, ritmo, posicionamento dos gatilhos mentais).
-            - Foque em criar títulos que VIRALIZEM e gerem engajamento massivo (compartilhamentos, comentários, views orgânicas).
-            - Priorize títulos que TENHAM POTENCIAL PARA CRIAR CANAIS MILIONÁRIOS com milhões de views e alto CTR.
-            - Gere EXATAMENTE ${titlesRequired} títulos diferentes no array "titulosSugeridos" (sem repetir ideia ou estrutura). O array deve conter ${titlesRequired} itens.
-
-            IMPORTANTE: A sua resposta completa deve ser APENAS o objeto JSON, sem nenhum texto, comentário ou formatação markdown à volta.
-            {
-              "niche": "...",
-              "subniche": "...",
-              "analiseOriginal": {
-                "motivoSucesso": "...",
-                "formulaTitulo": "..."
-              },
-              "titulosSugeridos": [
-                { "titulo": "...", "pontuacao": 9, "explicacao": "..." },
-                { "titulo": "...", "pontuacao": 8, "explicacao": "..." },
-                { "titulo": "...", "pontuacao": 10, "explicacao": "..." },
-                { "titulo": "...", "pontuacao": 7, "explicacao": "..." },
-                { "titulo": "...", "pontuacao": 9, "explicacao": "..." }
-              ]
-            }
-        `;
+        const MIN_IMPACT_SCORE = 7;
+        const titlePrompt = buildTitleRefinePrompt({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            performanceContext,
+            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+            languageInstruction,
+            titlesRequired,
+            minImpact: MIN_IMPACT_SCORE
+        });
         
         let allGeneratedTitles = [];
         let modelUsedForDisplay = model;
@@ -13355,35 +13848,105 @@ Tradução em PT-BR:`;
             }
 
             console.log('[Análise-All] A chamar IA em paralelo (APIs próprias)...');
-            const pGemini = callGeminiAPI(titlePrompt, keys.gemini, 'gemini-2.5-pro');
-            const pClaude = callClaudeAPI(titlePrompt, keys.claude, 'claude-3-7-sonnet-20250219');
-            const pOpenAI = callOpenAIAPI(titlePrompt, keys.openai, 'gpt-4o');
-
-            const results = await Promise.allSettled([pGemini, pClaude, pOpenAI]);
+            const MIN_IMPACT_SCORE = 7;
+            const serviceConfigs = [
+                { name: 'Gemini', apiFunc: callGeminiAPI, apiKey: keys.gemini, model: 'gemini-2.5-pro' },
+                { name: 'Claude', apiFunc: callClaudeAPI, apiKey: keys.claude, model: 'claude-3-7-sonnet-20250219' },
+                { name: 'OpenAI', apiFunc: callOpenAIAPI, apiKey: keys.openai, model: 'gpt-4o' }
+            ];
+            // Primeiro round em paralelo
+            const promises = serviceConfigs.map(cfg => cfg.apiFunc(titlePrompt, cfg.apiKey, cfg.model));
+            const results = await Promise.allSettled(promises);
 
             let firstSuccessfulAnalysis = null;
-            results.forEach((result, index) => {
-                let serviceName = ['Gemini', 'Claude', 'OpenAI'][index];
-                if (result.status === 'fulfilled') {
-                    const parsedData = parseAIResponse(result.value.titles, serviceName);
-                    if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
-                    
-                    // Cada modelo deve gerar EXATAMENTE 5 títulos (total: 15)
-                    const titlesFromThisModel = parsedData.titulosSugeridos.length;
-                    console.log(`[Análise Multimodal] ${serviceName}: ${titlesFromThisModel} títulos gerados (esperado: 5)`);
-                    
-                    parsedData.titulosSugeridos.forEach(t => {
-                        allGeneratedTitles.push({ ...t, model: serviceName });
-                    });
-                } else {
-                    console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason.message);
-                    allGeneratedTitles.push({
-                        titulo: `Falhou: ${result.reason.message}`, pontuacao: 0, explicacao: "A API falhou.", model: serviceName
-                    });
+            for (let index = 0; index < results.length; index++) {
+                const result = results[index];
+                const cfg = serviceConfigs[index];
+                const serviceName = cfg?.name || ['Gemini', 'Claude', 'OpenAI'][index];
+
+                // Se o 1º round falhar, não derrubar a rota: apenas registrar e seguir (vamos tentar preencher com outras IAs)
+                if (result.status !== 'fulfilled') {
+                    console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason?.message || result.reason);
+                    continue;
                 }
-            });
+
+                // extrair texto do 1º round
+                const rawText = typeof result.value === 'string'
+                    ? result.value
+                    : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
+                const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
+                if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
+
+                // Completar 5 aprovados com até 3 refinamentos por IA
+                const passing = await generatePassingTitlesWithRefine({
+                    apiFunc: cfg.apiFunc,
+                    apiKey: cfg.apiKey,
+                    model: cfg.model,
+                    serviceName,
+                    basePromptBuilder: buildTitleRefinePrompt,
+                    buildArgs: {
+                        originalTitle: videoDetails.title,
+                        translatedTitle,
+                        performanceContext,
+                        descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                        transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                        languageInstruction
+                    },
+                    titlesRequired,
+                    minImpact: MIN_IMPACT_SCORE,
+                    maxRefines: 2
+                });
+
+                // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
+                console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
+                passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
+            }
             
             if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
+
+            // Se alguma IA não conseguiu 5, tentar preencher até 15 usando as IAs que funcionaram
+            const targetTotal = titlesRequired * 3; // 15
+            const maxFillRounds = 3; // no máximo 3 rodadas extras para preencher
+            let fillRound = 0;
+            while (allGeneratedTitles.length < targetTotal && fillRound < maxFillRounds) {
+                const remaining = targetTotal - allGeneratedTitles.length;
+                // Preferir IAs que já responderam (mantém consistência)
+                for (const cfg of serviceConfigs) {
+                    if (allGeneratedTitles.length >= targetTotal) break;
+                    const needNow = Math.min(remaining, titlesRequired);
+                    const avoidAll = allGeneratedTitles.map(t => t.titulo);
+                    try {
+                        const more = await generatePassingTitlesWithRefine({
+                            apiFunc: cfg.apiFunc,
+                            apiKey: cfg.apiKey,
+                            model: cfg.model,
+                            serviceName: cfg.name,
+                            basePromptBuilder: buildTitleRefinePrompt,
+                            buildArgs: {
+                                originalTitle: videoDetails.title,
+                                translatedTitle,
+                                performanceContext,
+                                descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                                transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                                languageInstruction,
+                                avoidTitles: avoidAll
+                            },
+                            titlesRequired: needNow,
+                            minImpact: MIN_IMPACT_SCORE,
+                            maxRefines: 2
+                        });
+                        more.forEach(t => allGeneratedTitles.push({ ...t, model: cfg.name }));
+                    } catch (e) {
+                        console.warn(`[Análise Multimodal] Não foi possível preencher com ${cfg.name}:`, e.message);
+                    }
+                }
+                fillRound++;
+            }
+
+            // Garantia: não exceder 15
+            if (allGeneratedTitles.length > targetTotal) {
+                allGeneratedTitles = allGeneratedTitles.slice(0, targetTotal);
+            }
             
             // Verificar se a análise tem os dados necessários
             if (!firstSuccessfulAnalysis.analiseOriginal) {
@@ -13394,11 +13957,20 @@ Tradução em PT-BR:`;
             console.log(`[Análise Multimodal] ✅ Total combinado: ${allGeneratedTitles.length} títulos (esperado: 15 = 5 de cada modelo)`);
             
             // Garantir que o nicho sempre existe (usar padrão se não detectado)
-            finalNicheData = { 
-                niche: firstSuccessfulAnalysis.niche || 'Entretenimento', 
-                subniche: firstSuccessfulAnalysis.subniche || 'N/A' 
-            };
-            finalAnalysisData = firstSuccessfulAnalysis.analiseOriginal;
+            // Preencher nicho/subnicho + análise do título original pelo backend (não depender da IA)
+            const derivedNiche = deriveNicheAndSubnicheFromContext({
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+                transcriptStart: transcriptText || ''
+            });
+            finalNicheData = derivedNiche;
+            finalAnalysisData = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
         } else {
             // --- LÓGICA DE MODELO ÚNICO (opcionalmente laozhang) ---
             let service;
@@ -13481,10 +14053,10 @@ Tradução em PT-BR:`;
             // --- ETAPA 2.1: Extrair dados da resposta ---
             let parsedData;
             try {
-                parsedData = parseAIResponse(rawResponse, service === 'laozhang' ? 'Laozhang.ai' : service);
+                parsedData = parseTitleAnalysisResponse(rawResponse, service === 'laozhang' ? 'Laozhang.ai' : service, titlesRequired);
             } catch (parseErr) {
                 console.error('[Análise] Erro ao parsear resposta:', parseErr.message);
-                throw new Error('A resposta da IA não contém JSON válido.');
+                throw new Error('A resposta da IA não está no formato esperado.');
             }
             
             // Verificar se há títulos sugeridos
@@ -13492,8 +14064,31 @@ Tradução em PT-BR:`;
                 throw new Error('A IA não retornou títulos sugeridos.');
             }
             
-            // Registrar títulos
-            allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({
+            // Registrar títulos (SCORE 2 por backend) + gate Impacto>=7 com até 3 refinamentos
+            const MIN_IMPACT_SCORE = 7;
+            const passing = await generatePassingTitlesWithRefine({
+                apiFunc: apiCallFunction,
+                apiKey: decryptedKey,
+                model,
+                serviceName: service === 'laozhang' ? 'Laozhang.ai' : service,
+                basePromptBuilder: buildTitleRefinePrompt,
+                buildArgs: {
+                    originalTitle: videoDetails.title,
+                    translatedTitle,
+                    performanceContext,
+                    descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                    transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                    languageInstruction
+                },
+                titlesRequired,
+                minImpact: MIN_IMPACT_SCORE,
+                maxRefines: 2
+            });
+            if (passing.length < titlesRequired) {
+                throw new Error(`Não foi possível gerar ${titlesRequired} títulos com 🔥 Impacto ≥ ${MIN_IMPACT_SCORE}/10. Tente novamente.`);
+            }
+
+            allGeneratedTitles = passing.map(t => ({
                 ...t,
                 model: service === 'laozhang' ? 'Laozhang.ai' : model
             }));
@@ -13506,11 +14101,19 @@ Tradução em PT-BR:`;
                 };
             }
             
-            finalNicheData = { 
-                niche: parsedData.niche || 'Entretenimento', 
-                subniche: parsedData.subniche || 'N/A' 
-            };
-            finalAnalysisData = parsedData.analiseOriginal;
+            const derivedNiche = deriveNicheAndSubnicheFromContext({
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+                transcriptStart: transcriptText || ''
+            });
+            finalNicheData = derivedNiche;
+            finalAnalysisData = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
@@ -13546,8 +14149,8 @@ Tradução em PT-BR:`;
             for (const titleData of allGeneratedTitles) {
                 try {
                     await db.run(
-                        'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, explicacao) VALUES (?, ?, ?, ?, ?)',
-                        [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.explicacao]
+                        'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null]
                     );
                     savedCount++;
                 } catch (saveErr) {
@@ -13620,7 +14223,7 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 5: Enviar Resposta (com IDs dos títulos, receita e RPM) ---
-        const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
+        const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
 
         // NÃO salvar automaticamente - apenas quando o usuário marcar o checkbox
         // O salvamento será feito quando o usuário marcar o título como selecionado
@@ -13848,46 +14451,19 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         const isViral = isViralVideo(videoDetails.views, videoDetails.days, viewsPerDay);
         
         const languageInstruction = selectedLanguage === 'Português' ? 'EM PORTUGUÊS BRASILEIRO (PT-BR)' : selectedLanguage === 'Inglês' ? 'EM INGLÊS (EN)' : selectedLanguage === 'Espanhol' ? 'EM ESPANHOL (ES)' : 'EM PORTUGUÊS BRASILEIRO (PT-BR)';
-        const languageExplanation = selectedLanguage === 'Português' ? 'EM PORTUGUÊS BRASILEIRO' : selectedLanguage === 'Inglês' ? 'EM INGLÊS' : selectedLanguage === 'Espanhol' ? 'EM ESPANHOL' : 'EM PORTUGUÊS BRASILEIRO';
-        
-        const titlePrompt = `Você é um ESPECIALISTA EM TÍTULOS VIRAIS PARA YOUTUBE com experiência em criar canais milionários.
-
-ANÁLISE DO VÍDEO VIRAL:
-- Título Original: "${videoDetails.title}"
-- Título Traduzido: "${translatedTitle}"
-- Visualizações: ${videoDetails.views.toLocaleString()}
-- Comentários: ${videoDetails.comments.toLocaleString()}
-- Dias desde publicação: ${videoDetails.days}
-- Visualizações por dia: ${viewsPerDay.toLocaleString()}
-- Status: ${isViral ? 'VIRAL' : 'Popular'}
-${transcriptText ? `\n- Transcrição (início): "${transcriptText.substring(0, 500)}..."` : ''}
-
-SUA TAREFA:
-1. Analise POR QUE este título viralizou
-2. Identifique a FÓRMULA EXATA do título
-3. Gere 5 títulos novos usando a mesma fórmula, mas com variações criativas
-
-⚠️ REGRAS CRÍTICAS DE IDIOMA:
-- TODOS os títulos sugeridos DEVEM estar ${languageInstruction}.
-- A "explicacao" de cada título também deve estar ${languageExplanation}.
-- Mantenha o IMPACTO, CURIOSIDADE e GATILHOS MENTAIS do título original, mas MELHORE-OS para maior viralização e mais views.
-
-FORMATO DE RESPOSTA (JSON):
-{
-  "niche": "Nicho detectado",
-  "subniche": "Subnicho detectado",
-  "analiseOriginal": {
-    "motivoSucesso": "Por que viralizou",
-    "formulaTitulo": "Fórmula identificada"
-  },
-  "titulosSugeridos": [
-    { "titulo": "Título 1 ${languageInstruction}", "pontuacao": 10, "explicacao": "Por que funciona ${languageExplanation}" },
-    { "titulo": "Título 2 ${languageInstruction}", "pontuacao": 9, "explicacao": "Por que funciona ${languageExplanation}" },
-    ...
-  ]
-}
-
-IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
+        const titlesRequired = 5;
+        const MIN_IMPACT_SCORE = 7;
+        const performanceContext = `Este vídeo tem ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) e foi classificado como ${isViral ? 'VIRAL' : 'Popular'}.`;
+        const titlePrompt = buildTitleRefinePrompt({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            performanceContext,
+            descriptionStart: 'N/A',
+            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+            languageInstruction,
+            titlesRequired,
+            minImpact: MIN_IMPACT_SCORE
+        });
 
         // Chamar API apropriada (Laozhang ou API própria)
         let response;
@@ -13914,7 +14490,26 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
         }
         console.log(`[Análise Laozhang] Resposta recebida (primeiros 500 chars):`, responseText.substring(0, 500));
         const serviceNameForParse = useLaozhang ? 'Laozhang.ai' : (serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'claude' ? 'Claude' : 'Gemini');
-        const parsedData = parseAIResponse(responseText, serviceNameForParse);
+        const parsedData = parseTitleAnalysisResponse(responseText, serviceNameForParse, 5);
+        const passing = await generatePassingTitlesWithRefine({
+            apiFunc: apiCallFunction,
+            apiKey: apiKeyToUse,
+            model: modelToUse,
+            serviceName: serviceNameForParse,
+            basePromptBuilder: buildTitleRefinePrompt,
+            buildArgs: {
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                performanceContext,
+                descriptionStart: 'N/A',
+                transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                languageInstruction
+            },
+            titlesRequired,
+            minImpact: MIN_IMPACT_SCORE,
+            maxRefines: 2
+        });
+        if (passing.length < titlesRequired) throw new Error(`Não foi possível gerar ${titlesRequired} títulos com 🔥 Impacto ≥ ${MIN_IMPACT_SCORE}/10. Tente novamente.`);
         
         if (!parsedData.analiseOriginal) {
             throw new Error("A IA retornou uma análise incompleta.");
@@ -13953,7 +14548,11 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
         // modelToUse vem do req.body.model que é o modelo selecionado no frontend
         const modelNameForDisplay = formatModelForDisplay(modelToUse);
         console.log(`[Análise Laozhang] Modelo para exibição: "${modelToUse}" -> Formatado: "${modelNameForDisplay}"`);
-        const allGeneratedTitles = parsedData.titulosSugeridos.map(t => ({ ...t, model: modelNameForDisplay }));
+        const allGeneratedTitles = passing.map(t => ({
+            ...t,
+            impact_score: computeImpactVisualScore(t.titulo),
+            model: modelNameForDisplay
+        }));
 
         // Salvar no banco
         let analysisId;
@@ -13971,8 +14570,8 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
 
             for (const titleData of allGeneratedTitles) {
                 await db.run(
-                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, explicacao) VALUES (?, ?, ?, ?, ?)',
-                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.explicacao]
+                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null]
                 );
             }
             console.log(`[Análise Laozhang] Análise ${analysisId} salva no histórico.`);
@@ -14036,7 +14635,7 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
         
         // Buscar informações do título antes de atualizar
         const titleData = await db.get(`
-            SELECT gt.id, gt.title_text, gt.pontuacao, gt.video_analysis_id, av.detected_niche, av.detected_subniche, av.original_views, av.analysis_data_json
+            SELECT gt.id, gt.title_text, gt.pontuacao, gt.impact_score, gt.video_analysis_id, av.detected_niche, av.detected_subniche, av.original_views, av.analysis_data_json
             FROM generated_titles gt
             INNER JOIN analyzed_videos av ON gt.video_analysis_id = av.id
             WHERE gt.id = ? AND av.user_id = ?
@@ -19461,16 +20060,41 @@ app.post('/api/generate/scene-prompts/laozhang', authenticateToken, async (req, 
                 return res.status(500).json({ msg: 'Falha ao descriptografar a chave de API.' });
             }
             
+            // Calcular uma estimativa segura de cenas PARA timeout (não usar estimatedScenes aqui,
+            // porque ele só é inicializado mais abaixo e causava TDZ: "Cannot access 'estimatedScenes' before initialization")
+            const wordCountForTimeout = script.trim().split(/\s+/).filter(Boolean).length;
+            const estimatedScenesForTimeout = (() => {
+                const explicit = parseInt(expectedScenes, 10);
+                if (!Number.isNaN(explicit) && explicit > 0) return explicit;
+                
+                if (mode === 'manual' && wordsPerScene) {
+                    const value = parseInt(wordsPerScene, 10);
+                    if (!Number.isNaN(value) && value > 0) {
+                        const unitType = unit || 'words'; // 'words' ou 'seconds'
+                        if (unitType === 'seconds') {
+                            // ~2.5 palavras por segundo de narração
+                            const wordsPerSecond = 2.5;
+                            const wordsPerInterval = value * wordsPerSecond;
+                            return Math.max(1, Math.round(wordCountForTimeout / wordsPerInterval));
+                        }
+                        return Math.max(1, Math.round(wordCountForTimeout / value));
+                    }
+                }
+                
+                // Fallback automático: ~1 cena a cada 90 palavras
+                return Math.max(1, Math.round(wordCountForTimeout / 90));
+            })();
+            
             // Calcular timeout dinamicamente baseado no número de cenas esperadas
             // Base: 5 minutos (300s) + 2 segundos por cena adicional acima de 20
             const baseTimeout = 300000; // 5 minutos
             const timeoutPerScene = 2000; // 2 segundos por cena
             const baseScenes = 20;
-            const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenes - baseScenes) * timeoutPerScene);
+            const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenesForTimeout - baseScenes) * timeoutPerScene);
             // Limitar a 20 minutos máximo (1200000ms) para evitar timeouts muito longos
             const scenePromptsTimeout = Math.min(1200000, Math.max(300000, calculatedTimeout));
             
-            console.log(`[Scene Prompts] Timeout calculado: ${scenePromptsTimeout/1000}s (${estimatedScenes} cenas esperadas)`);
+            console.log(`[Scene Prompts] Timeout calculado: ${scenePromptsTimeout/1000}s (${estimatedScenesForTimeout} cenas esperadas)`);
             
             if (service === 'gemini') {
                 apiCallFunction = callGeminiAPI;
@@ -28507,7 +29131,7 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
         console.log(`[Histórico] Total de títulos no banco para análise ${analysisId}: ${totalCount?.total || 0}`);
         
         const titles = await db.all(
-            'SELECT id, title_text as titulo, model_used as model, pontuacao, explicacao, is_checked FROM generated_titles WHERE video_analysis_id = ? ORDER BY id ASC',
+            'SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, is_checked FROM generated_titles WHERE video_analysis_id = ? ORDER BY id ASC',
             [analysisId]
         );
         
