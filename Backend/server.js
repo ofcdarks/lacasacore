@@ -16724,31 +16724,41 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             });
         }
 
-        // Usar prompt_variant se fornecido, senão usar o prompt_selected, senão usar 1
-        const selectedNum = prompt_variant || promptData.prompt_selected || 1;
-        let basePrompt = null;
-        if (selectedNum === 1 && promptData.prompt_1) basePrompt = promptData.prompt_1;
-        else if (selectedNum === 2 && promptData.prompt_2) basePrompt = promptData.prompt_2;
-        else if (selectedNum === 3 && promptData.prompt_3) basePrompt = promptData.prompt_3;
-        else basePrompt = promptData.standard_prompt || promptData.prompt_1 || promptData.prompt_2 || promptData.prompt_3;
+        // Preparar os 3 prompts de referência + 1 com junção dos 3
+        const prompt1 = promptData.prompt_1 || '';
+        const prompt2 = promptData.prompt_2 || '';
+        const prompt3 = promptData.prompt_3 || '';
         
-        console.log('[Thumbnail Complete] Prompt selecionado:', {
-            prompt_variant: prompt_variant,
-            prompt_selected: promptData.prompt_selected,
-            selectedNum,
-            hasPrompt1: !!promptData.prompt_1,
-            hasPrompt2: !!promptData.prompt_2,
-            hasPrompt3: !!promptData.prompt_3
+        // Criar prompt combinado (junção dos 3)
+        const combinedPrompt = [prompt1, prompt2, prompt3]
+            .filter(p => p && p.trim().length > 0)
+            .join('\n\n---\n\n'); // Separador entre prompts
+        
+        console.log('[Thumbnail Complete] Prompts disponíveis:', {
+            hasPrompt1: !!prompt1,
+            hasPrompt2: !!prompt2,
+            hasPrompt3: !!prompt3,
+            hasCombinedPrompt: !!combinedPrompt,
+            prompt1Length: prompt1.length,
+            prompt2Length: prompt2.length,
+            prompt3Length: prompt3.length,
+            combinedPromptLength: combinedPrompt.length
         });
         
-        if (!basePrompt) {
-            return res.status(400).json({ msg: 'Prompt padrão vazio.' });
+        // Verificar se temos pelo menos um prompt
+        if (!prompt1 && !prompt2 && !prompt3) {
+            return res.status(400).json({ msg: 'Nenhum prompt de referência encontrado. Faça upload de thumbnails de referência primeiro.' });
         }
 
         // 2. Detectar tema e ambientação do título
         const titleText = title.trim();
         const theme = (() => {
             const s = titleText.toLowerCase();
+            // Detectar Petra/Nabateus primeiro (antes de egito, pois pode ter palavras similares)
+            if (s.includes('petra') || s.includes('nabateu') || s.includes('nabataean') || s.includes('nabataeus') || 
+                (s.includes('deserto') && (s.includes('império') || s.includes('imperio') || s.includes('cidade')))) {
+                return 'petra';
+            }
             if (s.includes('faraó') || s.includes('egito') || s.includes('egip') || s.includes('pirâmide') || s.includes('piramide')) return 'egito';
             if (s.includes('neandertal') || s.includes('neanderthal') || s.includes('neandertais') || s.includes('neandertales')) return 'prehistoria';
             if (s.includes('inca') || s.includes('atahualpa') || s.includes('moctezuma') || s.includes('azteca') || s.includes('aztecas') || s.includes('mexica')) return 'america_pre_colombiana';
@@ -16758,6 +16768,8 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             if (s.includes('cristandade') || s.includes('cristão') || s.includes('cristian') || s.includes('cathedral') || s.includes('catedral')) return 'cristandade';
             return 'default';
         })();
+        
+        console.log('[Thumbnail Complete] Tema detectado:', theme, 'para título:', titleText);
 
         // 3. Buscar ambientação do banco de dados ou usar mapeamento padrão
         let dbMatch = null;
@@ -16771,6 +16783,12 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
 
         // 4. Mapeamento de temas com personagens e elementos
         const themes = {
+            petra: {
+                subject: 'Nabataean figure with traditional desert attire and ornate jewelry',
+                acessorios: 'gold and silver jewelry, ornate headdress, desert robes',
+                ambiente: 'desert cliffs, carved stone monuments, Petra\'s Al-Khazneh, rose-red sandstone',
+                elementos: 'ancient carved facades, desert canyons, Nabataean architecture, rock-cut tombs'
+            },
             egito: { 
                 subject: 'ancient Egyptian figure with royal collar and nemes headdress', 
                 acessorios: 'gold necklaces and ceremonial regalia', 
@@ -16821,199 +16839,211 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             }
         };
 
-        // 5. EXTRAIR APENAS ELEMENTOS DE ESTILO DO PROMPT PADRÃO
-        // Remover TODOS os elementos de conteúdo (personagens, cenários, objetos específicos)
-        // Manter APENAS: composição, cores, tipografia, efeitos, distribuição, transparência, iluminação
-        let adaptedPrompt = basePrompt;
-        
-        // Lista completa de remoções - qualquer referência a personagens, cenários, objetos específicos
-        const contentRemovals = [
-            // Personagens e figuras específicas
-            /(?:native american|indigenous|mexican|aztec|inca|maya|mesoamerican|pre-columbian)[^.]*?\./gi,
-            /(?:leader|warrior|king|ruler|pharaoh|emperor|centurion|soldier|figure|person|character)[^,\.]*?(?:with|wearing|holding|standing|sitting)[^,\.]*?\./gi,
-            /(?:atahualpa|moctezuma|malinche|cortes|conquistador|spanish|roman|egyptian|viking|neanderthal|greek|medieval)[^,\.]*?\./gi,
-            /(?:feathered headdress|plumes|jaguar|eagle|serpent|snake|bird)[^,\.]*?\./gi,
-            /(?:close-up portrait of|featuring|depicting|showing)[^,\.]*?(?:leader|figure|person|warrior|king)[^,\.]*?\./gi,
-            
-            // Cenários e locais específicos
-            /(?:mesoamerican|aztec|inca|maya|pyramid|temple|ruins|tenochtitlan|machu picchu)[^,\.]*?\./gi,
-            /(?:spanish ships|galleons|conquistador ships|longships|viking ships)[^,\.]*?\./gi,
-            /(?:colosseum|roman columns|marble statues|ancient rome|egyptian pyramids|desert dunes)[^,\.]*?\./gi,
-            /(?:jungle|selva|andes|fjords|glaciers|ice age)[^,\.]*?\./gi,
-            
-            // Objetos e elementos específicos
-            /(?:jade|gold jewelry|ceremonial|ritual|sacrifice|offering|hieroglyph|glyph)[^,\.]*?\./gi,
-            /(?:spear|shield|sword|axe|bow|arrow|weapon|armor|helmet)[^,\.]*?\./gi,
-            /(?:burning ships|warriors|battle|conflict|invasion|conquest)[^,\.]*?\./gi,
-            
-            // Frases completas que mencionam conteúdo específico
-            /(?:in the background|behind|surrounding|around)[^,\.]*?(?:ships|warriors|pyramids|temples|ruins|battle)[^,\.]*?\./gi,
-            /(?:faded scenes of|scenes of|showing|depicting)[^,\.]*?(?:conflict|war|invasion|conquest|ritual)[^,\.]*?\./gi
-        ];
-        
-        // Remover todas as referências a conteúdo específico
-        for (const pattern of contentRemovals) {
-            adaptedPrompt = adaptedPrompt.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
-        }
-        
-        // Remover frases que começam com descrições de personagens/cenários
-        adaptedPrompt = adaptedPrompt.replace(/^[^,\.]*(?:featuring|depicting|showing|with|portrait of)[^,\.]*?\.\s*/gi, '');
-        
-        // Limpar múltiplos espaços e pontos
-        adaptedPrompt = adaptedPrompt.replace(/\s{2,}/g, ' ').replace(/\.\s*\./g, '.').trim();
-
-        // 6. Obter elementos do tema detectado
+        // 5. Obter elementos do tema detectado
+        // Priorizar o tema detectado do título sobre dados do banco
         let themeData = themes[theme] || themes.default;
+        
+        // Se o banco retornou dados, usar apenas se não conflitar com o tema detectado
         if (dbMatch) {
-            themeData = {
-                subject: dbMatch.subject || themeData.subject,
-                acessorios: dbMatch.acessorios || themeData.acessorios,
-                ambiente: dbMatch.ambiente || themeData.ambiente,
-                elementos: dbMatch.elementos || themeData.elementos
-            };
-        }
-
-        // 7. Substituir placeholders ou adicionar elementos do tema
-        const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
-        for (const rx of placeholders) {
-            if (rx.test(adaptedPrompt)) {
-                adaptedPrompt = adaptedPrompt.replace(rx, `"${titleText}"`);
+            // Se o tema detectado é específico (não 'default'), priorizar os dados do tema
+            if (theme !== 'default' && themes[theme]) {
+                themeData = {
+                    subject: dbMatch.subject && dbMatch.subject.toLowerCase().includes(themeData.subject.toLowerCase().split(' ')[0]) 
+                        ? dbMatch.subject : themeData.subject,
+                    acessorios: dbMatch.acessorios || themeData.acessorios,
+                    ambiente: dbMatch.ambiente && dbMatch.ambiente.toLowerCase().includes(themeData.ambiente.toLowerCase().split(',')[0].trim())
+                        ? dbMatch.ambiente : themeData.ambiente,
+                    elementos: dbMatch.elementos || themeData.elementos
+                };
+            } else {
+                // Se tema é 'default', usar dados do banco se disponíveis
+                themeData = {
+                    subject: dbMatch.subject || themeData.subject,
+                    acessorios: dbMatch.acessorios || themeData.acessorios,
+                    ambiente: dbMatch.ambiente || themeData.ambiente,
+                    elementos: dbMatch.elementos || themeData.elementos
+                };
             }
         }
-
-        // 7. Substituir placeholders de personagem, ambiente, elementos (se existirem)
-        adaptedPrompt = adaptedPrompt.replace(/\{PERSONAGEM\}/gi, themeData.subject);
-        adaptedPrompt = adaptedPrompt.replace(/\{ACESSORIOS\}/gi, themeData.acessorios || '');
-        adaptedPrompt = adaptedPrompt.replace(/\{AMBIENTE\}/gi, themeData.ambiente);
-        adaptedPrompt = adaptedPrompt.replace(/\{ELEMENTOS_DE_FUNDO\}/gi, themeData.elementos);
-
-        // 8. ADICIONAR DINAMICAMENTE PERSONAGEM E AMBIENTAÇÃO BASEADO NO TÍTULO
-        // Sempre adicionar elementos dinâmicos, independente do que estava no prompt padrão
         
-        // Verificar se o prompt já menciona algum personagem genérico (para não duplicar)
-        const hasGenericSubject = /(?:featuring|depicting|showing|portrait of|subject|character|figure)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central|main)[^,\.]*/gi.test(adaptedPrompt);
-        
-        if (!hasGenericSubject || !adaptedPrompt.toLowerCase().includes(themeData.subject.toLowerCase().split(' ')[0])) {
-            // Procurar por padrões de descrição de personagem genérica e substituir
-            const personPatterns = [
-                /(?:featuring|depicting|showing|with)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central|main)[^,\.]*(?:figure|person|character|subject|portrait)[^,\.]*/gi,
-                /(?:subject|character|person|figure|portrait of)\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic|central)[^,\.]*/gi,
-                /close-up portrait of\s+(?:a|an|the)?\s*(?:historical|dramatic|cinematic)[^,\.]*/gi
+        console.log('[Thumbnail Complete] ThemeData usado:', {
+            theme: theme,
+            subject: themeData.subject?.substring(0, 50),
+            ambiente: themeData.ambiente?.substring(0, 50)
+        });
+
+        // Função para adaptar um prompt baseado no título e tema
+        // IMPORTANTE: Preservar TODAS as instruções de estilo visual do prompt de referência
+        // Mas adaptar o conteúdo específico (estruturas, personagens) para o tema do título
+        const adaptPromptForTitle = (promptToAdapt) => {
+            if (!promptToAdapt) return '';
+            
+            let adapted = String(promptToAdapt);
+            
+            // 1. Substituir placeholders do título (se existirem)
+            const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
+            for (const rx of placeholders) {
+                if (rx.test(adapted)) {
+                    adapted = adapted.replace(rx, `"${titleText}"`);
+                }
+            }
+            
+            // 2. Substituir placeholders de personagem, ambiente, elementos (se existirem)
+            adapted = adapted.replace(/\{PERSONAGEM\}/gi, themeData.subject);
+            adapted = adapted.replace(/\{ACESSORIOS\}/gi, themeData.acessorios || '');
+            adapted = adapted.replace(/\{AMBIENTE\}/gi, themeData.ambiente);
+            adapted = adapted.replace(/\{ELEMENTOS_DE_FUNDO\}/gi, themeData.elementos);
+            
+            // 3. ADAPTAR CONTEÚDO ESPECÍFICO do prompt de referência para o tema do título
+            // Substituir referências a temas diferentes (maya, aztec, etc.) por elementos do tema atual
+            
+            // Adaptar estruturas antigas genéricas para o tema específico
+            if (theme === 'petra' || titleText.toLowerCase().includes('petra') || titleText.toLowerCase().includes('nabateu')) {
+                // Para Petra: substituir referências a pirâmides maias/astecas por estruturas de Petra
+                // Corrigir artigo "a" para "an" quando substituir por "ancient"
+                adapted = adapted.replace(/like\s+a\s+(?:mayan\/aztec|mayan|aztec|maya)\s+pyramid/gi, 'like an ancient Nabataean carved stone structure like Petra\'s Al-Khazneh');
+                adapted = adapted.replace(/mayan\/aztec pyramid/gi, 'ancient Nabataean carved stone structure like Petra\'s Al-Khazneh');
+                adapted = adapted.replace(/mayan|aztec|maya pyramid/gi, 'ancient Nabataean carved stone monument');
+                adapted = adapted.replace(/monumental ancient structure.*?like.*?pyramid/gi, 'monumental ancient Nabataean carved stone structure like Petra\'s Treasury');
+                adapted = adapted.replace(/like\s+a\s+pyramid/gi, 'like an ancient Nabataean carved stone monument');
+                adapted = adapted.replace(/pyramid/gi, (match, offset, string) => {
+                    // Verificar contexto - se está falando de estrutura antiga, adaptar para Petra
+                    const before = string.substring(Math.max(0, offset - 50), offset).toLowerCase();
+                    const after = string.substring(offset + match.length, Math.min(string.length, offset + match.length + 50)).toLowerCase();
+                    if (before.includes('ancient') || before.includes('structure') || before.includes('monumental') || before.includes('like a')) {
+                        // Corrigir artigo se necessário
+                        if (before.trim().endsWith('like a')) {
+                            return 'an ancient Nabataean carved stone monument';
+                        }
+                        return 'ancient Nabataean carved stone monument';
+                    }
+                    return match;
+                });
+                
+                // Corrigir "like a ancient" para "like an ancient"
+                adapted = adapted.replace(/like\s+a\s+ancient/gi, 'like an ancient');
+                
+                // Adaptar cidade circular para cidade nabateia
+                adapted = adapted.replace(/circular island city/gi, 'ancient Nabataean city carved into rose-red desert cliffs');
+                adapted = adapted.replace(/island city/gi, 'ancient Nabataean desert city');
+                adapted = adapted.replace(/cityscape/gi, 'ancient Nabataean cityscape carved into stone');
+            } else if (theme === 'egito') {
+                // Para Egito: substituir referências a pirâmides maias/astecas por estruturas egípcias
+                adapted = adapted.replace(/mayan\/aztec pyramid/gi, 'ancient Egyptian pyramid');
+                adapted = adapted.replace(/mayan|aztec|maya pyramid/gi, 'ancient Egyptian pyramid');
+                adapted = adapted.replace(/circular island city/gi, 'ancient Egyptian city');
+                adapted = adapted.replace(/island city/gi, 'ancient Egyptian city');
+            }
+            
+            // 4. ADICIONAR PERSONAGEM E AMBIENTAÇÃO do tema detectado se não estiverem presentes
+            // Verificar se já menciona personagem do tema específico
+            const subjectKeywords = themeData.subject.toLowerCase().split(' ').filter(w => w.length > 4);
+            const hasThemeSubject = subjectKeywords.some(keyword => adapted.toLowerCase().includes(keyword));
+            
+            // Verificar se já menciona estruturas/ambientação do tema
+            const ambienteKeywords = themeData.ambiente.toLowerCase().split(',').map(w => w.trim()).filter(w => w.length > 3);
+            const hasAmbiente = ambienteKeywords.some(keyword => adapted.toLowerCase().includes(keyword));
+            
+            // Verificar se o prompt já menciona o tema de forma genérica (ancient structure, monument, etc.)
+            const hasGenericAncient = /(?:ancient|monumental|historical).*?(?:structure|monument|building|city|civilization)/gi.test(adapted);
+            
+            // Só adicionar personagem/ambiente se NÃO estiver presente E se o prompt não for muito específico sobre outro tema
+            // Não adicionar se o prompt já tem conteúdo rico sobre estruturas antigas
+            // DESABILITADO: Adicionar personagem estava cortando o texto original
+            // As substituições de conteúdo (pyramid -> Nabataean structure) já adaptam o prompt suficiente
+            /*
+            if (!hasThemeSubject && !hasGenericAncient && themeData.subject) {
+                // Verificar se o prompt começa com verbo de ação
+                const actionVerbMatch = adapted.match(/^(create|design|generate|position|feature|address)\s+/i);
+                
+                if (actionVerbMatch) {
+                    // Se começa com "Create a high-impact..." ou similar, inserir após "a/an/the"
+                    const articleMatch = adapted.match(/^(create|design|generate|position|feature|address)\s+(?:a|an|the)\s+/i);
+                    if (articleMatch) {
+                        // Inserir personagem após o artigo
+                        adapted = adapted.replace(/^(create|design|generate|position|feature|address)\s+(?:a|an|the)\s+/i, 
+                            `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
+                    } else {
+                        // Inserir após o verbo
+                        adapted = adapted.replace(/^(create|design|generate|position|feature|address)\s+/i, 
+                            `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
+                    }
+                } else {
+                    // Adicionar no início se não começar com verbo de ação
+                    adapted = `Generate a cinematic thumbnail featuring ${themeData.subject}, ${adapted}`;
+                }
+            }
+            */
+            
+            // DESABILITADO: Adicionar ambientação estava criando duplicações e cortando texto
+            // As substituições de conteúdo (city -> Nabataean city, etc.) já adaptam o prompt suficiente
+            /*
+            if (!hasAmbiente && !hasGenericAncient && themeData.ambiente) {
+                // Adicionar ambientação de forma integrada, não no final
+                // Procurar por menções de "background" ou "setting" para inserir próximo
+                if (adapted.toLowerCase().includes('background') || adapted.toLowerCase().includes('setting')) {
+                    // Já tem menção a background, não adicionar duplicado
+                } else if (adapted.toLowerCase().includes('position') || adapted.toLowerCase().includes('frame')) {
+                    // Inserir após menção de posicionamento
+                    adapted = adapted.replace(/(position|frame|occupying).*?(?:\n|\.|,)/i, 
+                        `$& Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`);
+                } else {
+                    // Adicionar de forma integrada no meio do prompt, não no final
+                    // Procurar primeira menção de "structure" ou "monument" para inserir após
+                    const structureMatch = adapted.match(/(?:structure|monument|building|city).*?(?:\n|\.|,)/i);
+                    if (structureMatch) {
+                        adapted = adapted.replace(/(?:structure|monument|building|city).*?(?:\n|\.|,)/i, 
+                            `$& Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`);
+                    }
+                }
+            }
+            */
+            
+            // 5. Remover apenas padrões de erro de renderização
+            const errorTextPatterns = [
+                /(?:MPITELOW|ALLCAPES|FRIGH|YELAPOS|NOT NOT|EXTRAD|BOLAPS|FRIGHT|YFDLOW|ALLLAPS|IMPOSSICTLC|COPELIITIACOM|PELTOS).*?\./gi,
+                /CRITICAL.*?REMOVE.*?CORNER.*?MARKNGS.*?\./gi,
+                /HEADLINDE.*?\./gi
             ];
             
-            let replaced = false;
-            for (const pattern of personPatterns) {
-                if (pattern.test(adaptedPrompt)) {
-                    adaptedPrompt = adaptedPrompt.replace(pattern, (match) => {
-                        // Substituir por personagem dinâmico do título
-                        if (match.includes('featuring')) {
-                            return `featuring ${themeData.subject}`;
-                        } else if (match.includes('depicting')) {
-                            return `depicting ${themeData.subject}`;
-                        } else if (match.includes('portrait')) {
-                            return `close-up portrait of ${themeData.subject}`;
-                        } else {
-                            return match.replace(/[^,\.]*(?:figure|person|character|subject)[^,\.]*/i, themeData.subject);
-                        }
-                    });
-                    replaced = true;
-                    break;
-                }
+            for (const pattern of errorTextPatterns) {
+                adapted = adapted.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
             }
             
-            // Se não encontrou padrão genérico, adicionar personagem dinâmico no início
-            if (!replaced) {
-                // Verificar se o prompt começa com instruções de estilo ou composição
-                const styleStarters = ['design', 'create', 'generate', 'compose', 'arrange', 'layout'];
-                const startsWithStyle = styleStarters.some(starter => adaptedPrompt.toLowerCase().startsWith(starter));
-                
-                if (startsWithStyle) {
-                    // Adicionar personagem após o verbo de estilo
-                    adaptedPrompt = adaptedPrompt.replace(/^(design|create|generate|compose|arrange|layout)\s+/i, `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
-                } else {
-                    // Adicionar no início com personagem dinâmico
-                    adaptedPrompt = `Generate a cinematic thumbnail featuring ${themeData.subject}, ${adaptedPrompt}`;
-                }
-            }
-        }
+            // 6. Limpar apenas espaços múltiplos, preservando toda a estrutura do prompt
+            adapted = adapted.replace(/\s{3,}/g, ' ').trim();
+            
+            return adapted;
+        };
         
-        // 9. ADICIONAR AMBIENTAÇÃO DINÂMICA (sempre, mesmo se já tiver alguma menção)
-        // Verificar se já menciona ambiente genérico
-        const ambienteWords = themeData.ambiente.toLowerCase().split(',').map(w => w.trim()).filter(w => w.length > 3);
-        const hasAmbiente = ambienteWords.some(word => adaptedPrompt.toLowerCase().includes(word));
+        // Adaptar cada um dos 4 prompts
+        const adaptedPrompt1 = adaptPromptForTitle(prompt1);
+        const adaptedPrompt2 = adaptPromptForTitle(prompt2);
+        const adaptedPrompt3 = adaptPromptForTitle(prompt3);
+        const adaptedCombinedPrompt = adaptPromptForTitle(combinedPrompt);
         
-        if (!hasAmbiente) {
-            // Adicionar ambiente dinâmico do título
-            adaptedPrompt += `. Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`;
-        } else {
-            // Se já tem ambiente, apenas adicionar elementos se não estiverem presentes
-            const elementosWords = themeData.elementos.toLowerCase().split(',').map(w => w.trim()).filter(w => w.length > 3);
-            const hasElementos = elementosWords.some(word => adaptedPrompt.toLowerCase().includes(word));
-            if (!hasElementos) {
-                adaptedPrompt += ` Include elements: ${themeData.elementos}.`;
-            }
-        }
-        
-        // 10. GARANTIR ACESSÓRIOS DINÂMICOS
-        if (themeData.acessorios && !adaptedPrompt.toLowerCase().includes(themeData.acessorios.toLowerCase().split(' ')[0])) {
-            // Adicionar acessórios se não estiverem presentes
-            adaptedPrompt = adaptedPrompt.replace(/(wearing|with|and)\s+[^,\.]+(?:accessories|jewelry|regalia|attire)/gi, `$1 ${themeData.acessorios}`);
-            if (!adaptedPrompt.includes(themeData.acessorios)) {
-                adaptedPrompt += ` Accessories: ${themeData.acessorios}.`;
-            }
-        }
-
-        basePrompt = adaptedPrompt;
-        
-        // Limpar APENAS instruções de texto que podem ser renderizadas
-        // NÃO remover instruções de estilo visual (cores, composição, overlay visual, etc.)
-        // Apenas remover instruções específicas sobre TEXTO/TYPOGRAPHY
-        const textOnlyInstructionPatterns = [
-            // Apenas instruções que mencionam explicitamente texto/título/headline
-            /(?:Add|Include|Display|Render|Show|Place|Put|Position).*?(?:text|title|headline|subtitle|label).*?(?:at bottom|at top|in|with|font|size|color|bold|italic|serif|sans-serif|metallic|glow|stroke|outline|ALL CAPS|uppercase|lowercase).*?\./gi,
-            /(?:Typography|Text overlay|Title text|Headline text|Subtitle).*?(?:must|should|follow|structure|position|size|color|font|percentage|width|height|pt|px|em|%).*?\./gi,
-            /(?:PRIMARY HEADLINE|SECONDARY SUBTITLE|main title|subtitle).*?(?:white|yellow|black|gold|#|color|font|size|position|width|percentage|%).*?\./gi,
-            /(?:Bebas Neue|Arial|serif|sans-serif).*?(?:font|size|color|position|width|percentage).*?\./gi,
-            /(?:two-tier|two tier).*?(?:structure|title|subtitle|text).*?\./gi,
-            /(?:30-35%|40-45%|\d+-\d+%|\d+%).*?(?:of|width|image width|text|title|headline).*?\./gi,
-            // Padrões específicos de texto que aparecem nas imagens (erros de renderização)
-            /(?:MPITELOW|ALLCAPES|FRIGH|YELAPOS|NOT NOT|EXTRAD|BOLAPS|FRIGHT|YFDLOW|ALLLAPS|CRITICAL.*?REMOVE.*?CORNER|HEADLINDE).*?\./gi
-        ];
-        
-        // Aplicar limpeza apenas nas partes que são claramente instruções de texto
-        for (const pattern of textOnlyInstructionPatterns) {
-            basePrompt = basePrompt.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
-        }
-        
-        // Remover apenas linhas que são EXCLUSIVAMENTE instruções de texto
-        const lines = basePrompt.split('\n');
-        const cleanedLines = lines.filter(line => {
-            const lower = line.toLowerCase().trim();
-            // Remover APENAS se a linha é PRINCIPALMENTE sobre texto/typography
-            // NÃO remover se menciona cores, composição, overlay visual, etc. (estilo visual)
-            if ((lower.includes('display only') || 
-                lower.includes('render only')) && (lower.includes('text') || lower.includes('headline') || lower.includes('title')) ||
-                (lower.includes('add text') || lower.includes('include text') || lower.includes('text overlay')) ||
-                (lower.includes('title text') || lower.includes('headline text')) ||
-                (lower.includes('typography') && (lower.includes('must') || lower.includes('should') || lower.includes('follow'))) ||
-                (lower.includes('font') && (lower.includes('size') || lower.includes('color') || lower.includes('family')) && (lower.includes('text') || lower.includes('title') || lower.includes('headline'))) ||
-                (lower.match(/\d+-\d+%/) && (lower.includes('text') || lower.includes('title') || lower.includes('headline') || lower.includes('width'))) ||
-                (lower.includes('badge') && (lower.includes('text') || lower.includes('title') || lower.includes('corner'))) ||
-                (lower.includes('two-tier') || lower.includes('two tier')) ||
-                lower.includes('all caps') && (lower.includes('text') || lower.includes('title') || lower.includes('headline'))) {
-                return false;
-            }
-            return true;
+        console.log('[Thumbnail Complete] Prompts adaptados:', {
+            prompt1Length: adaptedPrompt1.length,
+            prompt2Length: adaptedPrompt2.length,
+            prompt3Length: adaptedPrompt3.length,
+            combinedPromptLength: adaptedCombinedPrompt.length
         });
-        basePrompt = cleanedLines.join('\n').replace(/\s{2,}/g, ' ').trim();
         
-        console.log('[Thumbnail Complete] Prompt adaptado (após limpeza de instruções de texto):', {
-            theme,
-            subject: themeData.subject,
-            ambiente: themeData.ambiente,
-            elementos: themeData.elementos,
-            promptPreview: basePrompt.substring(0, 200) + '...'
-        });
+        // Manter basePrompt para compatibilidade (usar prompt1 como padrão)
+        const basePrompt = adaptedPrompt1;
+        
+        console.log('[Thumbnail Complete] Prompts adaptados e prontos:');
+        console.log('[Thumbnail Complete] Prompt 1 original length:', prompt1.length);
+        console.log('[Thumbnail Complete] Prompt 1 adaptado length:', adaptedPrompt1.length);
+        console.log('[Thumbnail Complete] Prompt 1 original (primeiros 500 chars):', prompt1.substring(0, 500));
+        console.log('[Thumbnail Complete] Prompt 1 adaptado (primeiros 500 chars):', adaptedPrompt1.substring(0, 500));
+        console.log('[Thumbnail Complete] Verificando preservação de elementos importantes:');
+        console.log('  - Tem "holographic":', adaptedPrompt1.toLowerCase().includes('holographic'));
+        console.log('  - Tem "blueprint":', adaptedPrompt1.toLowerCase().includes('blueprint'));
+        console.log('  - Tem "teal":', adaptedPrompt1.toLowerCase().includes('teal'));
+        console.log('  - Tem "golden":', adaptedPrompt1.toLowerCase().includes('golden'));
+        console.log('  - Tem "4K" ou "ULTRAHD":', /4k|ultrahd/i.test(adaptedPrompt1));
+        console.log('  - Tem cores hex (#):', /#[0-9a-f]{6}/i.test(adaptedPrompt1));
 
         // 4. Gerar headline de impacto e descrição SEO usando IA
         let apiKey = null;
@@ -17121,10 +17151,26 @@ RESPONDA APENAS COM JSON:
         const seoText = typeof seoResponse === 'string' ? seoResponse : (seoResponse.titles || JSON.stringify(seoResponse));
         const parsedSEO = parseAIResponse(seoText, service);
         
-        // Extrair as 3 headlines geradas
-        const headline1 = parsedSEO.headline1 || parsedSEO.headline || titleText.split(':')[0].trim();
-        const headline2 = parsedSEO.headline2 || titleText.split(':')[0].trim();
-        const headline3 = parsedSEO.headline3 || titleText.split(':')[0].trim();
+        console.log('[Thumbnail Complete] SEO parseado:', {
+            hasHeadline1: !!parsedSEO.headline1,
+            hasHeadline2: !!parsedSEO.headline2,
+            hasHeadline3: !!parsedSEO.headline3,
+            hasHeadline: !!parsedSEO.headline,
+            hasSeoDescription: !!parsedSEO.seoDescription,
+            hasTags: !!parsedSEO.tags,
+            parsedKeys: Object.keys(parsedSEO)
+        });
+        
+        // Extrair as 3 headlines geradas com fallbacks melhorados
+        const headline1 = parsedSEO.headline1 || parsedSEO.headline || parsedSEO.headline_1 || titleText.split(':')[0].trim();
+        const headline2 = parsedSEO.headline2 || parsedSEO.headline_2 || headline1; // Se não tiver, usar headline1 como fallback
+        const headline3 = parsedSEO.headline3 || parsedSEO.headline_3 || headline1; // Se não tiver, usar headline1 como fallback
+        
+        console.log('[Thumbnail Complete] Headlines extraídas:', {
+            headline1: headline1,
+            headline2: headline2,
+            headline3: headline3
+        });
         
         // Gerar descrição SEO e tags base para todas as variações
         const baseSeoDescription = parsedSEO.seoDescription || `Descubra tudo sobre ${titleText}. Conteúdo exclusivo e detalhado.`;
@@ -17135,18 +17181,31 @@ RESPONDA APENAS COM JSON:
             if (!headline) return { description: baseSeoDescription, tags: baseTags };
             
             try {
-                const variationSeoPrompt = `Com base no título do vídeo: "${titleText}" e na headline: "${headline}"
+                const variationSeoPrompt = `Você é um especialista em SEO e marketing de conteúdo.
+
+TÍTULO DO VÍDEO: "${titleText}"
+HEADLINE ESPECÍFICA: "${headline}"
 
 IDIOMA DE RESPOSTA: ${languageName}
 
-Gere NO IDIOMA ${languageName}:
-1. Uma DESCRIÇÃO SEO otimizada (2-3 frases) que combine o título com esta headline específica
-2. PRINCIPAIS TAGS (10-15 tags separadas por vírgula) relevantes
+IMPORTANTE: Esta é a variação ${index} de 4. Cada variação DEVE ter uma descrição SEO e tags ÚNICAS e DIFERENTES das outras.
 
-RESPONDA APENAS COM JSON:
+Gere NO IDIOMA ${languageName}:
+1. Uma DESCRIÇÃO SEO otimizada (2-3 frases bem formatadas, com pontuação correta) que:
+   - Combine o título do vídeo com esta headline específica "${headline}"
+   - Seja persuasiva e gere curiosidade
+   - Use palavras-chave relevantes
+   - Seja DIFERENTE das outras variações
+   
+2. PRINCIPAIS TAGS (10-15 tags separadas por vírgula) que:
+   - Sejam relevantes ao título E à headline específica
+   - Incluam palavras-chave relacionadas a "${headline}"
+   - Sejam DIFERENTES das outras variações
+
+RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
 {
-  "seoDescription": "Descrição SEO específica para esta headline...",
-  "tags": "tag1, tag2, tag3..."
+  "seoDescription": "Descrição SEO única e formatada corretamente para esta headline específica...",
+  "tags": "tag1, tag2, tag3, tag4, tag5..."
 }`;
                 
                 let variationSeoResponse;
@@ -17161,9 +17220,42 @@ RESPONDA APENAS COM JSON:
                 const variationSeoText = typeof variationSeoResponse === 'string' ? variationSeoResponse : (variationSeoResponse.titles || JSON.stringify(variationSeoResponse));
                 const parsedVariationSEO = parseAIResponse(variationSeoText, service);
                 
+                // Garantir que temos descrição e tags válidas
+                const finalDescription = parsedVariationSEO.seoDescription || parsedVariationSEO.description || baseSeoDescription;
+                
+                // Processar tags: pode vir como string ou array
+                let finalTags;
+                if (parsedVariationSEO.tags) {
+                    if (typeof parsedVariationSEO.tags === 'string') {
+                        // Se for string, dividir por vírgula e limpar
+                        finalTags = parsedVariationSEO.tags.split(',').map(t => t.trim()).filter(Boolean);
+                    } else if (Array.isArray(parsedVariationSEO.tags)) {
+                        // Se já for array, usar diretamente
+                        finalTags = parsedVariationSEO.tags.map(t => typeof t === 'string' ? t.trim() : String(t)).filter(Boolean);
+                    } else {
+                        // Se for outro tipo, converter para string e processar
+                        finalTags = String(parsedVariationSEO.tags).split(',').map(t => t.trim()).filter(Boolean);
+                    }
+                } else {
+                    finalTags = baseTags;
+                }
+                
+                // Garantir que temos pelo menos algumas tags
+                if (!finalTags || finalTags.length === 0) {
+                    finalTags = baseTags;
+                }
+                
+                console.log(`[Thumbnail Complete] SEO gerado para variação ${index}:`, {
+                    hasDescription: !!finalDescription,
+                    descriptionLength: finalDescription.length,
+                    descriptionPreview: finalDescription.substring(0, 100) + '...',
+                    tagsCount: finalTags.length,
+                    tagsPreview: finalTags.slice(0, 5).join(', ') + '...'
+                });
+                
                 return {
-                    description: parsedVariationSEO.seoDescription || baseSeoDescription,
-                    tags: parsedVariationSEO.tags ? parsedVariationSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : baseTags
+                    description: finalDescription.trim(), // Garantir que está limpo
+                    tags: finalTags // Manter como array para facilitar manipulação
                 };
             } catch (err) {
                 console.warn(`[Thumbnail Complete] Erro ao gerar SEO para variação ${index}, usando base:`, err.message);
@@ -17175,43 +17267,55 @@ RESPONDA APENAS COM JSON:
         const variation1SEO = await generateVariationSEO(headline1, 1);
         const variation2SEO = await generateVariationSEO(headline2, 2);
         const variation3SEO = await generateVariationSEO(headline3, 3);
-        const variation4SEO = { description: baseSeoDescription, tags: baseTags }; // Sem headline, usar base
+        const variation4SEO = await generateVariationSEO(headline1, 4); // Usar headline1 para a 4ª variação (junção)
 
-        // 5. Preparar as 4 variações: 3 com headlines diferentes + 1 sem headline
+        // 5. Preparar as 4 variações: 
+        // - Variação 1: Prompt 1 + headline1
+        // - Variação 2: Prompt 2 + headline2
+        // - Variação 3: Prompt 3 + headline3
+        // - Variação 4: Prompt Combinado (junção dos 3) + headline1
+        // IMPORTANTE: Usar o prompt de referência quase inteiro, apenas adicionando a headline
         // Instruções mínimas para não interferir com o prompt padrão de referência
-        // O prompt padrão já contém todas as instruções de estilo visual
         const negativeBlock = `Remove corner markings, logos, watermarks.`;
         
-        // Instruções MUITO simplificadas para evitar que sejam renderizadas como texto
-        // Formato mínimo que a IA entende sem renderizar as instruções
+        // Instruções MUITO simplificadas para adicionar apenas a headline
+        // O prompt de referência já tem todas as instruções de estilo visual
         const variations_data = [
             {
+                promptBase: adaptedPrompt1, // Prompt 1 (preservado quase inteiro)
                 headline: headline1,
                 hasHeadline: true,
-                headlineLine: `Bottom text: "${headline1}"`,
+                headlineLine: `Bottom text overlay: "${headline1}"`,
                 seoDescription: variation1SEO.description,
-                tags: variation1SEO.tags
+                tags: variation1SEO.tags,
+                promptName: 'Prompt 1'
             },
             {
+                promptBase: adaptedPrompt2, // Prompt 2 (preservado quase inteiro)
                 headline: headline2,
                 hasHeadline: true,
-                headlineLine: `Bottom text: "${headline2}"`,
+                headlineLine: `Bottom text overlay: "${headline2}"`,
                 seoDescription: variation2SEO.description,
-                tags: variation2SEO.tags
+                tags: variation2SEO.tags,
+                promptName: 'Prompt 2'
             },
             {
+                promptBase: adaptedPrompt3, // Prompt 3 (preservado quase inteiro)
                 headline: headline3,
                 hasHeadline: true,
-                headlineLine: `Bottom text: "${headline3}"`,
+                headlineLine: `Bottom text overlay: "${headline3}"`,
                 seoDescription: variation3SEO.description,
-                tags: variation3SEO.tags
+                tags: variation3SEO.tags,
+                promptName: 'Prompt 3'
             },
             {
-                headline: null,
-                hasHeadline: false,
-                headlineLine: `No text overlay`,
+                promptBase: adaptedCombinedPrompt, // Prompt Combinado (preservado quase inteiro)
+                headline: headline1, // Usar headline1 para a junção
+                hasHeadline: true,
+                headlineLine: `Bottom text overlay: "${headline1}"`,
                 seoDescription: variation4SEO.description,
-                tags: variation4SEO.tags
+                tags: variation4SEO.tags,
+                promptName: 'Prompt Combinado'
             }
         ];
 
@@ -17221,16 +17325,28 @@ RESPONDA APENAS COM JSON:
         
         for (let i = 0; i < variations_data.length; i++) {
             const variation = variations_data[i];
-            // Construir prompt final: prompt padrão PRIMEIRO (estilo de referência), depois adicionar apenas headline
-            // O prompt padrão já tem todas as instruções de estilo, não precisamos adicionar styleLock que pode conflitar
-            const finalPrompt = variation.hasHeadline 
-                ? `${basePrompt}\n\n${variation.headlineLine}\n\n${negativeBlock}`
-                : `${basePrompt}\n\n${variation.headlineLine}\n\n${negativeBlock}`;
+            // Construir prompt final usando o promptBase específico de cada variação
+            // IMPORTANTE: O prompt de referência deve ser usado quase inteiro
+            // Apenas adicionar a headline de forma que não interfira com as instruções de estilo
+            const promptBase = variation.promptBase || basePrompt;
+            
+            // Se o prompt já menciona texto/headline, substituir ou adicionar no final
+            // Caso contrário, adicionar a headline no final de forma sutil
+            let finalPrompt;
+            if (promptBase.toLowerCase().includes('text overlay') || promptBase.toLowerCase().includes('headline') || promptBase.toLowerCase().includes('title text')) {
+                // Se já tem instruções de texto, adicionar apenas a headline específica no final
+                finalPrompt = `${promptBase}\n\nFor the text overlay, use exactly: "${variation.headline}"\n\n${negativeBlock}`;
+            } else {
+                // Se não tem instruções de texto, adicionar a headline de forma sutil
+                finalPrompt = `${promptBase}\n\n${variation.headlineLine}\n\n${negativeBlock}`;
+            }
             
             try {
                 console.log(`[Thumbnail Complete] Gerando variação ${i + 1}/${variations_data.length}...`);
+                console.log(`[Thumbnail Complete] Prompt usado: ${variation.promptName || 'Padrão'}`);
                 console.log(`[Thumbnail Complete] Headline: ${variation.headline || 'SEM HEADLINE'}`);
-                console.log(`[Thumbnail Complete] Prompt final (primeiros 200 chars): ${finalPrompt.substring(0, 200)}...`);
+                console.log(`[Thumbnail Complete] Tamanho do prompt base: ${promptBase.length} caracteres`);
+                console.log(`[Thumbnail Complete] Prompt final (primeiros 300 chars): ${finalPrompt.substring(0, 300)}...`);
                 
                 // Usar URL mais confiável (127.0.0.1 ao invés de localhost)
                 const imageFxUrl = `http://127.0.0.1:${PORT}/api/generate/imagefx`;
@@ -17260,9 +17376,29 @@ RESPONDA APENAS COM JSON:
                     clearTimeout(timeoutId);
                 
                     if (!genResp.ok) {
-                        const errorText = await genResp.text();
-                        console.error(`[Thumbnail Complete] Erro HTTP ${genResp.status} ao gerar imagem ${i + 1}:`, errorText);
-                        throw new Error(`Erro ao gerar imagem ${i + 1}: ${genResp.status} - ${errorText.substring(0, 200)}`);
+                        let errorText = await genResp.text();
+                        let errorMessage = errorText;
+                        
+                        // Tentar parsear como JSON para extrair mensagem mais específica
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            if (errorJson.msg) {
+                                errorMessage = errorJson.msg;
+                            } else if (errorJson.message) {
+                                errorMessage = errorJson.message;
+                            }
+                        } catch (e) {
+                            // Se não for JSON, usar o texto como está
+                        }
+                        
+                        console.error(`[Thumbnail Complete] Erro HTTP ${genResp.status} ao gerar imagem ${i + 1}:`, errorMessage);
+                        
+                        // Se for erro 401, incluir informação específica
+                        if (genResp.status === 401) {
+                            throw new Error(`Erro ao gerar imagem ${i + 1}: ${genResp.status} - ${errorMessage}`);
+                        }
+                        
+                        throw new Error(`Erro ao gerar imagem ${i + 1}: ${genResp.status} - ${errorMessage.substring(0, 200)}`);
                     }
                     
                     const genData = await genResp.json();
@@ -17293,18 +17429,36 @@ RESPONDA APENAS COM JSON:
                     
                     console.log(`[Thumbnail Complete] URL da imagem ${i + 1}: ${imageUrl.substring(0, 100)}...`);
                     
+                    // Garantir que temos a headline correta - usar diretamente da variação
+                    // Variação 0 = headline1, Variação 1 = headline2, Variação 2 = headline3, Variação 3 = null
+                    const headlineMap = [headline1, headline2, headline3, null];
+                    const headlineValue = variation.headline !== undefined ? variation.headline : headlineMap[i];
+                    const seoDescValue = variation.seoDescription || baseSeoDescription;
+                    const tagsValue = Array.isArray(variation.tags) ? variation.tags.join(', ') : (variation.tags || baseTags.join(', '));
+                    
+                    console.log(`[Thumbnail Complete] Dados da variação ${i + 1}:`, {
+                        variationHeadline: variation.headline,
+                        mappedHeadline: headlineMap[i],
+                        finalHeadline: headlineValue,
+                        hasHeadline: variation.hasHeadline,
+                        seoDescriptionLength: seoDescValue ? seoDescValue.length : 0,
+                        tagsLength: tagsValue ? tagsValue.length : 0,
+                        tagsPreview: tagsValue ? tagsValue.substring(0, 100) : 'N/A'
+                    });
+                    
                     images.push({
                         imageUrl: imageUrl,
                         image: imageUrl, // Compatibilidade: também incluir como 'image'
                         savedToLibrary: !!genData.savedToLibrary,
                         libraryId: genData.libraryId || null,
-                        headline: variation.headline,
+                        headline: headlineValue, // Headline específica desta variação
+                        headlineText: headlineValue, // Para o campo "Headline de Impacto" - CRÍTICO: sempre retornar a headline correta
                         hasHeadline: variation.hasHeadline,
-                        seoDescription: variation.seoDescription || baseSeoDescription,
-                        tags: variation.tags || baseTags
+                        seoDescription: seoDescValue,
+                        tags: tagsValue // Formatar tags como string
                     });
                     
-                    console.log(`[Thumbnail Complete] ✅ Variação ${i + 1} gerada com sucesso`);
+                    console.log(`[Thumbnail Complete] ✅ Variação ${i + 1} gerada com sucesso - Headline: "${headlineValue || 'SEM HEADLINE'}"`);
                 } catch (imgError) {
                     clearTimeout(timeoutId);
                     if (imgError.name === 'AbortError') {
@@ -17318,10 +17472,11 @@ RESPONDA APENAS COM JSON:
                         imageUrl: null,
                         savedToLibrary: false,
                         libraryId: null,
-                        headline: variation.headline,
+                        headline: variation.headline || null,
+                        headlineText: variation.headline || null,
                         hasHeadline: variation.hasHeadline,
                         seoDescription: variation.seoDescription || baseSeoDescription,
-                        tags: variation.tags || baseTags,
+                        tags: Array.isArray(variation.tags) ? variation.tags.join(', ') : (variation.tags || baseTags.join(', ')),
                         error: imgError.message
                     });
                 }
@@ -17331,10 +17486,11 @@ RESPONDA APENAS COM JSON:
                     imageUrl: null,
                     savedToLibrary: false,
                     libraryId: null,
-                    headline: variation.headline,
+                    headline: variation.headline || null,
+                    headlineText: variation.headline || null,
                     hasHeadline: variation.hasHeadline,
                     seoDescription: variation.seoDescription || baseSeoDescription,
-                    tags: variation.tags || baseTags,
+                    tags: Array.isArray(variation.tags) ? variation.tags.join(', ') : (variation.tags || baseTags.join(', ')),
                     error: outerError.message
                 });
             }
@@ -17344,6 +17500,34 @@ RESPONDA APENAS COM JSON:
         const successfulImages = images.filter(img => img.imageUrl !== null);
         if (successfulImages.length === 0) {
             console.error('[Thumbnail Complete] ❌ Nenhuma imagem foi gerada com sucesso');
+            
+            // Verificar se todos os erros são de autenticação (401)
+            const allAuthErrors = images.every(img => {
+                const errorMsg = (img.error || '').toLowerCase();
+                return errorMsg.includes('401') || 
+                       errorMsg.includes('authentication') || 
+                       errorMsg.includes('cookies do imagefx') ||
+                       errorMsg.includes('expirados') ||
+                       errorMsg.includes('invalid authentication');
+            });
+            
+            // Verificar se algum erro específico menciona cookies do ImageFX
+            const hasImageFxAuthError = images.some(img => {
+                const errorMsg = (img.error || '').toLowerCase();
+                return errorMsg.includes('cookies do imagefx') || 
+                       errorMsg.includes('imagefx expirados');
+            });
+            
+            if (allAuthErrors || hasImageFxAuthError) {
+                // Retornar erro 401 específico para autenticação
+                return res.status(401).json({ 
+                    msg: 'Cookies do ImageFX expirados ou inválidos. Por favor, atualize os cookies nas Configurações.',
+                    requiresAuth: true,
+                    errors: images.map((img, idx) => ({ variation: idx + 1, error: img.error || 'Erro de autenticação' }))
+                });
+            }
+            
+            // Caso contrário, retornar erro 500 genérico
             return res.status(500).json({ 
                 msg: 'Nenhuma imagem foi gerada. Verifique se o serviço de geração de imagens está funcionando e se há API keys configuradas.',
                 errors: images.map((img, idx) => ({ variation: idx + 1, error: img.error || 'Erro desconhecido' }))
@@ -17362,22 +17546,136 @@ RESPONDA APENAS COM JSON:
 
         // 7. Retornar resultado completo com as 3 headlines e variação sem headline
         // Cada variação já tem sua própria seoDescription e tags
+        // Função auxiliar para formatar descrição (remover quebras de linha extras, espaços múltiplos)
+        const formatDescription = (desc) => {
+            if (!desc) return '';
+            return String(desc)
+                .replace(/\n{2,}/g, '\n') // Remover múltiplas quebras de linha
+                .replace(/\s{2,}/g, ' ') // Remover múltiplos espaços
+                .trim();
+        };
+        
+        // Função auxiliar para formatar tags (sempre retornar string)
+        const formatTags = (tags) => {
+            if (!tags) return '';
+            if (Array.isArray(tags)) {
+                return tags.filter(Boolean).join(', ');
+            }
+            if (typeof tags === 'string') {
+                return tags.trim();
+            }
+            return String(tags).trim();
+        };
+        
         const responseData = {
             success: true,
             title: titleText,
             headlines: {
                 headline1: headline1,
                 headline2: headline2,
-                headline3: headline3
+                headline3: headline3,
+                none: null // Opção para sem headline
             },
+            // Lista de headlines para seleção (incluindo opção "sem headline")
+            // IMPORTANTE: Estas são as "frases de impacto" que o usuário pode selecionar para gerar novamente
+            headlineOptions: [
+                { id: 'headline1', text: headline1 || 'Headline 1', value: headline1 || null },
+                { id: 'headline2', text: headline2 || 'Headline 2', value: headline2 || null },
+                { id: 'headline3', text: headline3 || 'Headline 3', value: headline3 || null },
+                { id: 'none', text: 'Sem Headline', value: null }
+            ],
             // Manter descrição e tags base para compatibilidade, mas cada variação tem suas próprias
-            seoDescription: baseSeoDescription,
-            tags: baseTags,
-            variations: successfulVariations,
-            images: successfulVariations // Compatibilidade: também retornar como 'images'
+            seoDescription: formatDescription(baseSeoDescription),
+            tags: formatTags(baseTags),
+            variations: successfulVariations.map((v, idx) => {
+                // Mapear headlines baseado no índice: 
+                // 0=headline1 (Prompt 1), 1=headline2 (Prompt 2), 2=headline3 (Prompt 3), 3=headline1 (Prompt Combinado)
+                const headlineMap = [headline1, headline2, headline3, headline1];
+                
+                // Priorizar: 1) headline da variação, 2) headlineText da variação, 3) mapeamento por índice
+                let headlineValue = v.headline !== undefined && v.headline !== null ? v.headline : 
+                                   (v.headlineText !== undefined && v.headlineText !== null ? v.headlineText : 
+                                   headlineMap[idx]);
+                
+                // Se ainda não tiver, usar o mapeamento por índice como fallback final
+                if (!headlineValue) {
+                    headlineValue = headlineMap[idx];
+                }
+                
+                const finalSeoDesc = formatDescription(v.seoDescription || baseSeoDescription);
+                const finalTags = formatTags(v.tags || baseTags);
+                
+                console.log(`[Thumbnail Complete] Formatando variação ${idx + 1}:`, {
+                    promptName: v.promptName || `Variação ${idx + 1}`,
+                    vHeadline: v.headline,
+                    vHeadlineText: v.headlineText,
+                    mappedHeadline: headlineMap[idx],
+                    finalHeadline: headlineValue,
+                    hasHeadline: v.hasHeadline,
+                    seoDescLength: finalSeoDesc.length,
+                    tagsLength: finalTags.length
+                });
+                
+                return {
+                    ...v,
+                    // CRÍTICO: Garantir que headlineText está sempre presente e correto
+                    headline: headlineValue,
+                    headlineText: headlineValue, // Este é o campo que o frontend usa para "Headline de Impacto"
+                    hasHeadline: true, // Todas as 4 variações têm headline agora
+                    promptName: v.promptName || `Variação ${idx + 1}`, // Nome do prompt usado
+                    // Formatar descrição corretamente
+                    seoDescription: finalSeoDesc,
+                    // Formatar tags corretamente (sempre string)
+                    tags: finalTags
+                };
+            }),
+            images: successfulVariations.map((v, idx) => {
+                // Mapear headlines baseado no índice: 
+                // 0=headline1 (Prompt 1), 1=headline2 (Prompt 2), 2=headline3 (Prompt 3), 3=headline1 (Prompt Combinado)
+                const headlineMap = [headline1, headline2, headline3, headline1];
+                
+                // Priorizar: 1) headline da variação, 2) headlineText da variação, 3) mapeamento por índice
+                let headlineValue = v.headline !== undefined && v.headline !== null ? v.headline : 
+                                   (v.headlineText !== undefined && v.headlineText !== null ? v.headlineText : 
+                                   headlineMap[idx]);
+                
+                // Se ainda não tiver, usar o mapeamento por índice como fallback final
+                if (!headlineValue) {
+                    headlineValue = headlineMap[idx];
+                }
+                
+                return {
+                    ...v,
+                    headline: headlineValue,
+                    headlineText: headlineValue, // CRÍTICO: Campo usado pelo frontend
+                    hasHeadline: true, // Todas as 4 variações têm headline agora
+                    promptName: v.promptName || `Variação ${idx + 1}`, // Nome do prompt usado
+                    seoDescription: formatDescription(v.seoDescription || baseSeoDescription),
+                    tags: formatTags(v.tags || baseTags)
+                };
+            }) // Compatibilidade: também retornar como 'images'
         };
         
         console.log(`[Thumbnail Complete] Enviando resposta com ${responseData.variations.length} variações`);
+        console.log(`[Thumbnail Complete] Headlines disponíveis:`, {
+            headline1: headline1,
+            headline2: headline2,
+            headline3: headline3
+        });
+        console.log(`[Thumbnail Complete] HeadlineOptions:`, responseData.headlineOptions);
+        console.log(`[Thumbnail Complete] Resumo das variações:`);
+        responseData.variations.forEach((v, idx) => {
+            console.log(`  Variação ${idx + 1}:`, {
+                headline: v.headline || 'NULL/SEM HEADLINE',
+                headlineText: v.headlineText || 'NULL/SEM HEADLINE',
+                hasHeadline: v.hasHeadline,
+                headlineType: typeof v.headlineText,
+                headlineLength: v.headlineText ? v.headlineText.length : 0,
+                seoDescPreview: v.seoDescription ? v.seoDescription.substring(0, 50) + '...' : 'N/A',
+                tagsPreview: v.tags ? v.tags.substring(0, 50) + '...' : 'N/A'
+            });
+        });
+        
         res.status(200).json(responseData);
 
     } catch (err) {
