@@ -1516,6 +1516,10 @@
                                             <option value="vhs-nostalgic">📼 VHS Nostálgico - Estética anos 80/90</option>
                                     </optgroup>
                                 </select>
+                                <div class="mt-3 flex items-center gap-2">
+                                    <input id="toggle-4k-badge" type="checkbox" class="h-4 w-4 rounded border-gray-600 text-amber-500 focus:ring-amber-500">
+                                    <label for="toggle-4k-badge" class="text-sm text-gray-300">Adicionar selo 4K no canto superior direito</label>
+                                </div>
                             </div>
                         </div>
                         
@@ -14231,10 +14235,11 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 const title = titleInput.value.trim();
-                const language = languageSelect?.value || 'pt-BR';
+                                const language = languageSelect?.value || 'pt-BR';
                 const style = styleSelect?.value || 'photorealistic';
                 const aiModelSelect = document.getElementById('thumb-ai-model-simple');
                 const aiModel = aiModelSelect?.value || 'gpt-4o';
+                const include4kBadge = document.getElementById('toggle-4k-badge')?.checked || false;
                 const token = safeLocalStorageGet('core_token') || localStorage.getItem('core_token');
                 const currentNiche = currentAnalysisData?.niche || null;
                 const currentSubniche = currentAnalysisData?.subniche || null;
@@ -14286,7 +14291,8 @@ Equipe La Casa Dark Core</textarea>
                             style, 
                             ai_model: aiModel,
                             prompt_variant: promptVariant,
-                            variations: 2 
+                            variations: 2,
+                            include_4k_badge: include4kBadge
                         })
                     });
                     
@@ -14300,7 +14306,7 @@ Equipe La Casa Dark Core</textarea>
                         return;
                     }
                     
-                    // Exibir resultados completos
+                    // Exibir resultados completos (versão original)
                     resultsDiv.innerHTML = data.images.map((imgObj, i) => `
                         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
                             <h4 class="text-lg font-semibold text-white">Variação ${i + 1}</h4>
@@ -14323,12 +14329,12 @@ Equipe La Casa Dark Core</textarea>
                             <div>
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="text-sm font-medium text-amber-400">📢 Headline de Impacto</label>
-                                    <button title="Copiar Headline" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.headline || ''}">
+                                    <button title="Copiar Headline" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.headline || data.headlines?.[i] || ''}">
                                         <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                     </button>
                                 </div>
                                 <div class="px-4 py-3 bg-gray-900 border border-amber-700/50 rounded-lg">
-                                    <p class="text-lg font-bold text-amber-300">${data.headline || 'N/A'}</p>
+                                    <p class="text-lg font-bold text-amber-300">${imgObj.headline || data.headlines?.[i] || 'N/A'}</p>
                                 </div>
                             </div>
                             
@@ -14336,23 +14342,23 @@ Equipe La Casa Dark Core</textarea>
                             <div>
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="text-sm font-medium text-amber-400">🔍 Descrição SEO</label>
-                                    <button title="Copiar Descrição SEO" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.seoDescription || ''}">
+                                    <button title="Copiar Descrição SEO" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.seoDescription || ''}">
                                         <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                     </button>
                                 </div>
-                                <textarea readonly class="w-full h-24 text-sm p-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 resize-none">${data.seoDescription || 'N/A'}</textarea>
+                                <textarea readonly class="w-full h-24 text-sm p-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 resize-none">${imgObj.seoDescription || 'N/A'}</textarea>
                             </div>
                             
                             <!-- Tags -->
                             <div>
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="text-sm font-medium text-amber-400">🏷️ Tags Principais</label>
-                                    <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${Array.isArray(data.tags) ? data.tags.join(', ') : data.tags || ''}">
+                                    <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.tags || ''}">
                                         <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                     </button>
                                 </div>
                                 <div class="px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg">
-                                    <p class="text-sm text-gray-300">${Array.isArray(data.tags) ? data.tags.join(', ') : data.tags || 'N/A'}</p>
+                                    <p class="text-sm text-gray-300">${imgObj.tags || 'N/A'}</p>
                                 </div>
                             </div>
                         </div>

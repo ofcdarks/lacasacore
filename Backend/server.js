@@ -16628,7 +16628,7 @@ app.delete('/api/thumbnail-references/:id', authenticateToken, async (req, res) 
 app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        let { title, niche, subniche, folder_id, language = 'pt-BR', style = 'photorealistic', theme_key, variations = 2, ai_model, prompt_variant } = req.body;
+        let { title, niche, subniche, folder_id, language = 'pt-BR', style = 'photorealistic', theme_key, variations = 2, ai_model, prompt_variant, include_4k_badge = false } = req.body;
 
         if (!title || !title.trim()) {
             return res.status(400).json({ msg: 'Título é obrigatório.' });
@@ -17107,8 +17107,13 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
         // Mapeamento de idiomas para o prompt
         const languageMap = {
             'pt-BR': 'Português (Brasil)',
-            'pt': 'Português',
+            'pt-PT': 'Português (Portugal)',
+            'pt': 'Português (Brasil)',
+            'en-US': 'English',
+            'en-GB': 'English',
             'en': 'English',
+            'es-ES': 'Español',
+            'es-419': 'Español',
             'es': 'Español',
             'fr': 'Français',
             'de': 'Deutsch',
@@ -17181,31 +17186,42 @@ RESPONDA APENAS COM JSON:
             if (!headline) return { description: baseSeoDescription, tags: baseTags };
             
             try {
-                const variationSeoPrompt = `Você é um especialista em SEO e marketing de conteúdo.
+                const variationSeoPrompt = `Você é um especialista em SEO, marketing de conteúdo e viralização no YouTube.
 
 TÍTULO DO VÍDEO: "${titleText}"
 HEADLINE ESPECÍFICA: "${headline}"
 
 IDIOMA DE RESPOSTA: ${languageName}
 
-IMPORTANTE: Esta é a variação ${index} de 4. Cada variação DEVE ter uma descrição SEO e tags ÚNICAS e DIFERENTES das outras.
+IMPORTANTE: Esta é a variação ${index} de 4. Cada variação DEVE ter uma descrição SEO e tags ÚNICAS e DIFERENTES das outras, otimizadas para ALTA VIRALIZAÇÃO no YouTube.
+
+REGRAS DO YOUTUBE:
+- Descrições devem ser autênticas e não enganosas
+- Não usar clickbait excessivo
+- Focar em valor real para o espectador
+- Usar palavras-chave naturalmente
 
 Gere NO IDIOMA ${languageName}:
-1. Uma DESCRIÇÃO SEO otimizada (2-3 frases bem formatadas, com pontuação correta) que:
+1. Uma DESCRIÇÃO SEO otimizada para VIRALIZAÇÃO (2–3 frases bem formatadas, com pontuação correta, usando vírgulas e pontos) que:
    - Combine o título do vídeo com esta headline específica "${headline}"
-   - Seja persuasiva e gere curiosidade
-   - Use palavras-chave relevantes
-   - Seja DIFERENTE das outras variações
+   - Seja EXTREMAMENTE persuasiva e gere CURIOSIDADE máxima
+   - Use palavras-chave de ALTO VOLUME de busca no YouTube
+   - Crie URGÊNCIA e INTERESSE IMEDIATO
+   - Use gatilhos mentais (mistério, segredo, verdade, revelação, ninguém explica, etc.)
+   - Seja DIFERENTE e ÚNICA das outras variações
+   - Seja otimizada para ALGORITMO do YouTube (engajamento, retenção, CTR)
    
-2. PRINCIPAIS TAGS (10-15 tags separadas por vírgula) que:
-   - Sejam relevantes ao título E à headline específica
-   - Incluam palavras-chave relacionadas a "${headline}"
-   - Sejam DIFERENTES das outras variações
+2. PRINCIPAIS TAGS (string separada por vírgulas) que:
+   - Sejam relevantes ao título E à headline específica "${headline}"
+   - Incluam palavras-chave de ALTO VOLUME relacionadas a "${headline}" e ao contexto do vídeo
+   - Sejam DIFERENTES e ÚNICAS das outras variações
+   - Tenham ENTRE 400 e 500 CARACTERES no TOTAL (conte o número de caracteres da string completa)
+   - Não usar hashtags, não repetir termos consecutivamente e manter idioma ${languageName}
 
 RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
 {
-  "seoDescription": "Descrição SEO única e formatada corretamente para esta headline específica...",
-  "tags": "tag1, tag2, tag3, tag4, tag5..."
+  "seoDescription": "Descrição SEO única, formatada corretamente e otimizada para viralização no YouTube para esta headline específica...",
+  "tags": "tag1, tag2, tag3, tag4, tag5, ... (string entre 400 e 500 caracteres no total)"
 }`;
                 
                 let variationSeoResponse;
@@ -17245,6 +17261,29 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                     finalTags = baseTags;
                 }
                 
+                // Ajustar comprimento da string de tags para 400–500 caracteres
+                const toWordPool = (txt) => Array.from(new Set(String(txt).toLowerCase().split(/[^a-zA-ZÀ-ÿ0-9]+/).filter(w => w && w.length > 2)));
+                const pool = Array.from(new Set([
+                    ...toWordPool(titleText),
+                    ...toWordPool(headline),
+                    'história','mistério','arqueologia','segredos','civilização','antigas','verdade','descoberta','expedição','deserto','rocha','templo'
+                ]));
+                let tagsStr = finalTags.join(', ');
+                const minLen = 400, maxLen = 500;
+                if (tagsStr.length < minLen) {
+                    for (let w of pool) {
+                        if (!tagsStr.includes(w)) {
+                            tagsStr += (tagsStr ? ', ' : '') + w;
+                        }
+                        if (tagsStr.length >= minLen) break;
+                    }
+                }
+                if (tagsStr.length > maxLen) {
+                    // cortar no último separador antes de maxLen
+                    const cut = tagsStr.lastIndexOf(', ', maxLen);
+                    tagsStr = cut > 0 ? tagsStr.slice(0, cut) : tagsStr.slice(0, maxLen);
+                }
+                
                 console.log(`[Thumbnail Complete] SEO gerado para variação ${index}:`, {
                     hasDescription: !!finalDescription,
                     descriptionLength: finalDescription.length,
@@ -17255,7 +17294,7 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                 
                 return {
                     description: finalDescription.trim(), // Garantir que está limpo
-                    tags: finalTags // Manter como array para facilitar manipulação
+                    tags: tagsStr // Manter como string com 400–500 caracteres
                 };
             } catch (err) {
                 console.warn(`[Thumbnail Complete] Erro ao gerar SEO para variação ${index}, usando base:`, err.message);
@@ -17264,10 +17303,34 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
         };
         
         // Gerar SEO para cada variação
+        console.log('[Thumbnail Complete] Gerando SEO único para cada variação...');
         const variation1SEO = await generateVariationSEO(headline1, 1);
+        console.log('[Thumbnail Complete] Variação 1 SEO:', {
+            descriptionLength: variation1SEO.description?.length || 0,
+            tagsCount: Array.isArray(variation1SEO.tags) ? variation1SEO.tags.length : (variation1SEO.tags ? variation1SEO.tags.split(',').length : 0),
+            descriptionPreview: variation1SEO.description?.substring(0, 100) || 'N/A'
+        });
+        
         const variation2SEO = await generateVariationSEO(headline2, 2);
+        console.log('[Thumbnail Complete] Variação 2 SEO:', {
+            descriptionLength: variation2SEO.description?.length || 0,
+            tagsCount: Array.isArray(variation2SEO.tags) ? variation2SEO.tags.length : (variation2SEO.tags ? variation2SEO.tags.split(',').length : 0),
+            descriptionPreview: variation2SEO.description?.substring(0, 100) || 'N/A'
+        });
+        
         const variation3SEO = await generateVariationSEO(headline3, 3);
+        console.log('[Thumbnail Complete] Variação 3 SEO:', {
+            descriptionLength: variation3SEO.description?.length || 0,
+            tagsCount: Array.isArray(variation3SEO.tags) ? variation3SEO.tags.length : (variation3SEO.tags ? variation3SEO.tags.split(',').length : 0),
+            descriptionPreview: variation3SEO.description?.substring(0, 100) || 'N/A'
+        });
+        
         const variation4SEO = await generateVariationSEO(headline1, 4); // Usar headline1 para a 4ª variação (junção)
+        console.log('[Thumbnail Complete] Variação 4 SEO:', {
+            descriptionLength: variation4SEO.description?.length || 0,
+            tagsCount: Array.isArray(variation4SEO.tags) ? variation4SEO.tags.length : (variation4SEO.tags ? variation4SEO.tags.split(',').length : 0),
+            descriptionPreview: variation4SEO.description?.substring(0, 100) || 'N/A'
+        });
 
         // 5. Preparar as 4 variações: 
         // - Variação 1: Prompt 1 + headline1
@@ -17276,16 +17339,14 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
         // - Variação 4: Prompt Combinado (junção dos 3) + headline1
         // IMPORTANTE: Usar o prompt de referência quase inteiro, apenas adicionando a headline
         // Instruções mínimas para não interferir com o prompt padrão de referência
-        const negativeBlock = `Remove corner markings, logos, watermarks.`;
+        const negativeBlock = `Remove corner markings, logos, watermarks, labels and badges. Do not render any text, words, letters, captions, typography, font names or color codes anywhere in the image.`;
         
-        // Instruções MUITO simplificadas para adicionar apenas a headline
-        // O prompt de referência já tem todas as instruções de estilo visual
+        // Instruções sem overlay de texto: manter estilo e impedir qualquer legenda/texto
         const variations_data = [
             {
                 promptBase: adaptedPrompt1, // Prompt 1 (preservado quase inteiro)
                 headline: headline1,
-                hasHeadline: true,
-                headlineLine: `Bottom text overlay: "${headline1}"`,
+                hasHeadline: false,
                 seoDescription: variation1SEO.description,
                 tags: variation1SEO.tags,
                 promptName: 'Prompt 1'
@@ -17293,8 +17354,7 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
             {
                 promptBase: adaptedPrompt2, // Prompt 2 (preservado quase inteiro)
                 headline: headline2,
-                hasHeadline: true,
-                headlineLine: `Bottom text overlay: "${headline2}"`,
+                hasHeadline: false,
                 seoDescription: variation2SEO.description,
                 tags: variation2SEO.tags,
                 promptName: 'Prompt 2'
@@ -17302,8 +17362,7 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
             {
                 promptBase: adaptedPrompt3, // Prompt 3 (preservado quase inteiro)
                 headline: headline3,
-                hasHeadline: true,
-                headlineLine: `Bottom text overlay: "${headline3}"`,
+                hasHeadline: false,
                 seoDescription: variation3SEO.description,
                 tags: variation3SEO.tags,
                 promptName: 'Prompt 3'
@@ -17311,8 +17370,7 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
             {
                 promptBase: adaptedCombinedPrompt, // Prompt Combinado (preservado quase inteiro)
                 headline: headline1, // Usar headline1 para a junção
-                hasHeadline: true,
-                headlineLine: `Bottom text overlay: "${headline1}"`,
+                hasHeadline: false,
                 seoDescription: variation4SEO.description,
                 tags: variation4SEO.tags,
                 promptName: 'Prompt Combinado'
@@ -17322,6 +17380,19 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
         // 6. Gerar imagens para cada variação
         const images = [];
         console.log(`[Thumbnail Complete] Iniciando geração de ${variations_data.length} variações de imagens...`);
+        console.log(`[Thumbnail Complete] 🔍 Verificando dados das variações antes de gerar imagens:`);
+        variations_data.forEach((v, idx) => {
+            console.log(`  Variação ${idx + 1} (${v.promptName}):`, {
+                headline: v.headline || 'N/A',
+                hasSeoDesc: !!v.seoDescription,
+                seoDescLength: v.seoDescription ? v.seoDescription.length : 0,
+                seoDescPreview: v.seoDescription ? v.seoDescription.substring(0, 100) + '...' : 'N/A',
+                hasTags: !!v.tags,
+                tagsType: Array.isArray(v.tags) ? 'array' : typeof v.tags,
+                tagsLength: Array.isArray(v.tags) ? v.tags.length : (v.tags ? String(v.tags).length : 0),
+                tagsPreview: Array.isArray(v.tags) ? v.tags.slice(0, 3).join(', ') + '...' : (v.tags ? String(v.tags).substring(0, 100) + '...' : 'N/A')
+            });
+        });
         
         for (let i = 0; i < variations_data.length; i++) {
             const variation = variations_data[i];
@@ -17330,16 +17401,48 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
             // Apenas adicionar a headline de forma que não interfira com as instruções de estilo
             const promptBase = variation.promptBase || basePrompt;
             
-            // Se o prompt já menciona texto/headline, substituir ou adicionar no final
-            // Caso contrário, adicionar a headline no final de forma sutil
+            // Construir prompt final sem qualquer overlay/legenda/texto na imagem
             let finalPrompt;
-            if (promptBase.toLowerCase().includes('text overlay') || promptBase.toLowerCase().includes('headline') || promptBase.toLowerCase().includes('title text')) {
-                // Se já tem instruções de texto, adicionar apenas a headline específica no final
-                finalPrompt = `${promptBase}\n\nFor the text overlay, use exactly: "${variation.headline}"\n\n${negativeBlock}`;
-            } else {
-                // Se não tem instruções de texto, adicionar a headline de forma sutil
-                finalPrompt = `${promptBase}\n\n${variation.headlineLine}\n\n${negativeBlock}`;
-            }
+            
+            let cleanedPrompt = promptBase;
+            
+            // Remover placeholders de texto genéricos e qualquer instrução de overlay
+            cleanedPrompt = cleanedPrompt
+                .replace(/\[TITLE\]|\[TÍTULO\]|\{TITLE\}|\{TÍTULO\}/gi, '')
+                .replace(/text\s*overlay.*$/gim, '')
+                .replace(/add\s*text.*$/gim, '')
+                .replace(/caption.*$/gim, '')
+                .replace(/font.*montserrat.*$/gim, '')
+                .replace(/#[0-9a-f]{3,6}/gim, '')
+                .replace(/\b(32pt|tracking|kerning|stroke|outline|drop\s*shadow|glow)\b/gi, '');
+            // Remover indicadores visuais comuns de texto/etiquetas
+            cleanedPrompt = cleanedPrompt
+                .replace(/\b(4k|badge|label|corner\s*markings)\b/gi, '')
+                .replace(/impossible\s+engineering/gi, '')
+                .replace(/\bno\s+[a-z][a-z]+/gi, '');
+            
+            // Regras de texto/caption conforme seletor de 4K
+            const allow4k = !!include_4k_badge;
+            const textRules = allow4k 
+                ? `Renderize APENAS um pequeno selo "4K" no canto superior direito. NÃO RENDERIZE nenhum outro texto, legendas, números, nomes de fontes ou códigos de cor.`
+                : `NÃO RENDERIZE QUALQUER TEXTO, LEGENDAS, NÚMEROS, LETRAS, TIPOGRAFIA, NOMES DE FONTES OU CÓDIGOS DE COR NA IMAGEM.`;
+            
+            // Negativos padrões (sempre remover logos e watermarks; badges/labels só quando não permitir 4K)
+            const negativeBlockFinal = allow4k 
+                ? `Remove logos and watermarks.` 
+                : negativeBlock;
+            
+            // Instrução opcional do selo 4K (quando permitido)
+            const badgeInstruction = allow4k 
+                ? `Adicione um selo "4K" discreto no canto superior direito (pequeno, alta legibilidade, sem outros textos).`
+                : ``;
+            
+            finalPrompt = `${cleanedPrompt}
+
+${textRules}
+${badgeInstruction}
+
+${negativeBlockFinal}`;
             
             try {
                 console.log(`[Thumbnail Complete] Gerando variação ${i + 1}/${variations_data.length}...`);
@@ -17430,18 +17533,28 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                     console.log(`[Thumbnail Complete] URL da imagem ${i + 1}: ${imageUrl.substring(0, 100)}...`);
                     
                     // Garantir que temos a headline correta - usar diretamente da variação
-                    // Variação 0 = headline1, Variação 1 = headline2, Variação 2 = headline3, Variação 3 = null
-                    const headlineMap = [headline1, headline2, headline3, null];
-                    const headlineValue = variation.headline !== undefined ? variation.headline : headlineMap[i];
+                    // Variação 0 = headline1 (Prompt 1), Variação 1 = headline2 (Prompt 2), 
+                    // Variação 2 = headline3 (Prompt 3), Variação 3 = headline1 (Prompt Combinado)
+                    const headlineMap = [headline1, headline2, headline3, headline1];
+                    // Priorizar o headline da variação, depois usar o mapeamento
+                    const headlineValue = (variation.headline !== undefined && variation.headline !== null) 
+                        ? variation.headline 
+                        : headlineMap[i];
+                    // IMPORTANTE: Usar os dados de SEO específicos da variação, não os base
+                    // As variações já têm seoDescription e tags únicos gerados por generateVariationSEO
                     const seoDescValue = variation.seoDescription || baseSeoDescription;
-                    const tagsValue = Array.isArray(variation.tags) ? variation.tags.join(', ') : (variation.tags || baseTags.join(', '));
+                    // Tags já vêm como string ajustada (400–500 chars) de generateVariationSEO
+                    let tagsValue = variation.tags ? String(variation.tags) : (Array.isArray(baseTags) ? baseTags.join(', ') : (baseTags || ''));
                     
                     console.log(`[Thumbnail Complete] Dados da variação ${i + 1}:`, {
                         variationHeadline: variation.headline,
+                        variationSeoDescription: variation.seoDescription ? variation.seoDescription.substring(0, 100) : 'N/A',
+                        variationTags: tagsValue.substring(0, 100),
                         mappedHeadline: headlineMap[i],
                         finalHeadline: headlineValue,
                         hasHeadline: variation.hasHeadline,
                         seoDescriptionLength: seoDescValue ? seoDescValue.length : 0,
+                        seoDescriptionPreview: seoDescValue ? seoDescValue.substring(0, 100) : 'N/A',
                         tagsLength: tagsValue ? tagsValue.length : 0,
                         tagsPreview: tagsValue ? tagsValue.substring(0, 100) : 'N/A'
                     });
@@ -17453,9 +17566,19 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                         libraryId: genData.libraryId || null,
                         headline: headlineValue, // Headline específica desta variação
                         headlineText: headlineValue, // Para o campo "Headline de Impacto" - CRÍTICO: sempre retornar a headline correta
-                        hasHeadline: variation.hasHeadline,
-                        seoDescription: seoDescValue,
-                        tags: tagsValue // Formatar tags como string
+                        hasHeadline: variation.hasHeadline !== false, // Garantir que seja true se tiver headline
+                        seoDescription: seoDescValue, // Descrição SEO única desta variação
+                        tags: tagsValue, // Tags únicas desta variação (formato string)
+                        promptUsed: finalPrompt, // Prompt completo usado para gerar esta imagem (para copiar)
+                        promptName: variation.promptName || `Variação ${i + 1}` // Nome do prompt usado
+                    });
+                    
+                    console.log(`[Thumbnail Complete] ✅ Variação ${i + 1} adicionada ao array:`, {
+                        headline: headlineValue || 'NULL',
+                        headlineText: headlineValue || 'NULL',
+                        seoDescLength: seoDescValue ? seoDescValue.length : 0,
+                        tagsLength: tagsValue ? tagsValue.length : 0,
+                        promptName: variation.promptName || 'N/A'
                     });
                     
                     console.log(`[Thumbnail Complete] ✅ Variação ${i + 1} gerada com sucesso - Headline: "${headlineValue || 'SEM HEADLINE'}"`);
@@ -17616,17 +17739,42 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                     tagsLength: finalTags.length
                 });
                 
+                // IMPORTANTE: SEMPRE usar os dados específicos da variação se existirem
+                // Priorizar: 1) dados da variação (v.seoDescription, v.tags), 2) dados formatados, 3) dados base
+                const finalSeoDescToUse = v.seoDescription 
+                    ? formatDescription(v.seoDescription) 
+                    : (finalSeoDesc || formatDescription(baseSeoDescription));
+                const finalTagsToUse = v.tags 
+                    ? formatTags(v.tags) 
+                    : (finalTags || formatTags(baseTags));
+                
+                // Garantir que o promptUsed esteja presente
+                const promptUsedValue = v.promptUsed || null;
+                
+                console.log(`[Thumbnail Complete] 🔍 Mapeando variação ${idx + 1}:`, {
+                    vHeadline: v.headline,
+                    vHeadlineText: v.headlineText,
+                    finalHeadline: headlineValue,
+                    vSeoDesc: v.seoDescription ? v.seoDescription.substring(0, 50) + '...' : 'N/A',
+                    finalSeoDesc: finalSeoDescToUse ? finalSeoDescToUse.substring(0, 50) + '...' : 'N/A',
+                    vTags: v.tags ? (typeof v.tags === 'string' ? v.tags.substring(0, 50) : String(v.tags).substring(0, 50)) + '...' : 'N/A',
+                    finalTags: finalTagsToUse ? finalTagsToUse.substring(0, 50) + '...' : 'N/A',
+                    hasPromptUsed: !!promptUsedValue,
+                    promptName: v.promptName
+                });
+                
                 return {
                     ...v,
                     // CRÍTICO: Garantir que headlineText está sempre presente e correto
                     headline: headlineValue,
-                    headlineText: headlineValue, // Este é o campo que o frontend usa para "Headline de Impacto"
-                    hasHeadline: true, // Todas as 4 variações têm headline agora
+                    headlineText: headlineValue || 'N/A', // Este é o campo que o frontend usa para "Headline de Impacto" - NUNCA deve ser null/undefined
+                    hasHeadline: headlineValue && headlineValue !== 'N/A' ? true : false, // true se tiver headline válida
                     promptName: v.promptName || `Variação ${idx + 1}`, // Nome do prompt usado
-                    // Formatar descrição corretamente
-                    seoDescription: finalSeoDesc,
-                    // Formatar tags corretamente (sempre string)
-                    tags: finalTags
+                    promptUsed: promptUsedValue, // Prompt completo usado para gerar esta imagem (para copiar)
+                    // Formatar descrição corretamente - SEMPRE usar dados específicos da variação se existirem
+                    seoDescription: finalSeoDescToUse,
+                    // Formatar tags corretamente (sempre string) - SEMPRE usar dados específicos da variação se existirem
+                    tags: finalTagsToUse
                 };
             }),
             images: successfulVariations.map((v, idx) => {
@@ -17644,14 +17792,27 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                     headlineValue = headlineMap[idx];
                 }
                 
+                // IMPORTANTE: SEMPRE usar os dados específicos da variação se existirem
+                // Priorizar: 1) dados da variação (v.seoDescription, v.tags), 2) dados base formatados
+                const finalSeoDescToUse = v.seoDescription 
+                    ? formatDescription(v.seoDescription) 
+                    : formatDescription(v.seoDescription || baseSeoDescription);
+                const finalTagsToUse = v.tags 
+                    ? formatTags(v.tags) 
+                    : formatTags(v.tags || baseTags);
+                
+                // Garantir que o promptUsed esteja presente
+                const promptUsedValue = v.promptUsed || null;
+                
                 return {
                     ...v,
                     headline: headlineValue,
-                    headlineText: headlineValue, // CRÍTICO: Campo usado pelo frontend
-                    hasHeadline: true, // Todas as 4 variações têm headline agora
+                    headlineText: headlineValue || 'N/A', // CRÍTICO: Campo usado pelo frontend - NUNCA deve ser null/undefined
+                    hasHeadline: headlineValue && headlineValue !== 'N/A' ? true : false, // true se tiver headline válida
                     promptName: v.promptName || `Variação ${idx + 1}`, // Nome do prompt usado
-                    seoDescription: formatDescription(v.seoDescription || baseSeoDescription),
-                    tags: formatTags(v.tags || baseTags)
+                    promptUsed: promptUsedValue, // Prompt completo usado para gerar esta imagem (para copiar)
+                    seoDescription: finalSeoDescToUse, // SEMPRE usar dados específicos da variação se existirem
+                    tags: finalTagsToUse // SEMPRE usar dados específicos da variação se existirem
                 };
             }) // Compatibilidade: também retornar como 'images'
         };
@@ -17671,9 +17832,48 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
                 hasHeadline: v.hasHeadline,
                 headlineType: typeof v.headlineText,
                 headlineLength: v.headlineText ? v.headlineText.length : 0,
+                promptName: v.promptName || 'N/A',
+                hasPromptUsed: !!v.promptUsed,
+                promptUsedLength: v.promptUsed ? v.promptUsed.length : 0,
+                promptUsedPreview: v.promptUsed ? v.promptUsed.substring(0, 100) + '...' : 'N/A',
                 seoDescPreview: v.seoDescription ? v.seoDescription.substring(0, 50) + '...' : 'N/A',
-                tagsPreview: v.tags ? v.tags.substring(0, 50) + '...' : 'N/A'
+                seoDescLength: v.seoDescription ? v.seoDescription.length : 0,
+                tagsPreview: v.tags ? v.tags.substring(0, 50) + '...' : 'N/A',
+                tagsLength: v.tags ? v.tags.length : 0
             });
+        });
+        
+        // Log detalhado da primeira variação para debug
+        if (responseData.variations.length > 0) {
+            const firstVar = responseData.variations[0];
+            console.log(`[Thumbnail Complete] 🔍 DEBUG - Primeira variação completa:`, JSON.stringify({
+                headline: firstVar.headline,
+                headlineText: firstVar.headlineText,
+                promptName: firstVar.promptName,
+                promptUsed: firstVar.promptUsed ? firstVar.promptUsed.substring(0, 200) + '...' : null,
+                seoDescription: firstVar.seoDescription ? firstVar.seoDescription.substring(0, 200) + '...' : null,
+                tags: firstVar.tags ? firstVar.tags.substring(0, 200) + '...' : null
+            }, null, 2));
+        }
+        
+        // Log final antes de retornar - verificar estrutura completa
+        console.log(`[Thumbnail Complete] 📤 Retornando resposta final:`, {
+            totalVariations: responseData.variations.length,
+            totalImages: responseData.images.length,
+            hasHeadlines: {
+                headline1: !!responseData.headlines.headline1,
+                headline2: !!responseData.headlines.headline2,
+                headline3: !!responseData.headlines.headline3
+            },
+            variationsWithData: responseData.variations.map((v, idx) => ({
+                index: idx + 1,
+                hasHeadline: !!v.headlineText && v.headlineText !== 'N/A',
+                headlineText: v.headlineText || 'N/A',
+                hasPromptUsed: !!v.promptUsed,
+                hasSeoDesc: !!v.seoDescription,
+                hasTags: !!v.tags,
+                promptName: v.promptName
+            }))
         });
         
         res.status(200).json(responseData);
