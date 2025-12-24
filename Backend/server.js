@@ -588,8 +588,11 @@ function parseAIResponse(responseText, serviceName) {
         // Remover markdown code blocks se existirem
         cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
         
-        // Tenta encontrar um objeto JSON dentro de uma string maior (comum com Claude)
-        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        // Tenta encontrar JSON (objeto {...} ou array [...]) dentro de uma string maior
+        let jsonMatch = cleanedText.match(/\[[\s\S]*\]/);  // Primeiro tenta array
+        if (!jsonMatch) {
+            jsonMatch = cleanedText.match(/\{[\s\S]*\}/);  // Depois tenta objeto
+        }
         if (jsonMatch) {
             let jsonString = jsonMatch[0];
             
@@ -603,14 +606,26 @@ function parseAIResponse(responseText, serviceName) {
                     return JSON.parse(fixedJson);
                 } catch (secondError) {
                     // Última tentativa: usar uma abordagem mais robusta
-                    // Extrair apenas o conteúdo entre as primeiras chaves
-                    const firstBrace = jsonString.indexOf('{');
-                    const lastBrace = jsonString.lastIndexOf('}');
-                    
-                    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                        let extractedJson = jsonString.substring(firstBrace, lastBrace + 1);
-                        extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
-                        return JSON.parse(extractedJson);
+                    // Verificar se é array ou objeto
+                    const isArray = jsonString.trim().startsWith('[');
+                    if (isArray) {
+                        // Extrair array completo
+                        const firstBracket = jsonString.indexOf('[');
+                        const lastBracket = jsonString.lastIndexOf(']');
+                        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+                            let extractedJson = jsonString.substring(firstBracket, lastBracket + 1);
+                            extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
+                            return JSON.parse(extractedJson);
+                        }
+                    } else {
+                        // Extrair objeto completo
+                        const firstBrace = jsonString.indexOf('{');
+                        const lastBrace = jsonString.lastIndexOf('}');
+                        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                            let extractedJson = jsonString.substring(firstBrace, lastBrace + 1);
+                            extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
+                            return JSON.parse(extractedJson);
+                        }
                     }
                     
                     throw parseError;
@@ -668,11 +683,19 @@ function parseAIResponse(responseText, serviceName) {
 // --- Helper específico para Análise de Títulos ---
 // Aceita JSON (formato antigo) OU lista numerada (1..5) conforme "PROMPT UNIVERSAL — CLONAGEM DE TÍTULOS VIRAIS".
 function parseNumberedTitles(responseText, expectedCount = 5) {
-    const cleaned = String(responseText || '')
+    let cleaned = String(responseText || '')
         .trim()
         .replace(/^```[a-z]*\s*/i, '')
         .replace(/\s*```$/i, '')
         .trim();
+    
+    // Remover texto introdutório comum antes da lista numerada
+    cleaned = cleaned.replace(/^(?:aqui estão?|segue|seguem|títulos?|lista|resultado).*?(?=\n\s*\d)/is, '');
+    cleaned = cleaned.replace(/^.*?(?=\n?\s*1[\.\)\:\-])/is, (match) => {
+        // Só remove se não tiver muitas linhas (evita remover títulos)
+        return match.split('\n').length <= 2 ? '' : match;
+    });
+    cleaned = cleaned.trim();
 
     const titles = [];
     const seen = new Set();
@@ -712,12 +735,22 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         .replace(/[“”]/g, '"')
         .replace(/[‘’]/g, "'");
 
-    // 0) Se vier como JSON array simples, aceitar (["t1","t2",...])
+    // 0) Se vier como JSON array, aceitar (["t1","t2",...] ou [{title:"...", formula:"..."}])
     try {
         const maybeJson = JSON.parse(normalized);
         if (Array.isArray(maybeJson)) {
             maybeJson.forEach(item => {
-                if (typeof item === 'string') pushTitle(item);
+                if (typeof item === 'string') {
+                    pushTitle(item);
+                } else if (typeof item === 'object' && item !== null) {
+                    // Array de objetos: [{id: 1, title: "...", formula: "..."}]
+                    const titleText = item.title || item.titulo || item.text;
+                    const formulaText = item.formula || item.fórmula;
+                    if (titleText) {
+                        const fullText = formulaText ? `${titleText} | FÓRMULA: ${formulaText}` : titleText;
+                        pushTitle(fullText);
+                    }
+                }
             });
             if (titles.length >= expectedCount) return titles.slice(0, expectedCount);
         }
@@ -773,7 +806,13 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         for (const line of lines) pushTitle(line);
     }
 
-    if (titles.length < expectedCount) return null;
+    if (titles.length < expectedCount) {
+        console.warn(`[PARSE] parseNumberedTitles: esperado ${expectedCount}, extraído ${titles.length}`);
+        if (titles.length > 0) {
+            console.warn(`[PARSE] Títulos extraídos:`, titles.map(t => `"${t.title}"`).join(', '));
+        }
+        return null;
+    }
     return titles.slice(0, expectedCount);
 }
 
@@ -783,7 +822,84 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
         : (responseText === null || responseText === undefined ? '' : String(responseText));
     const trimmed = raw.trim();
 
-    // Atalho: se parece lista numerada, NÃO tentar JSON primeiro (evita logs/erros do parseAIResponse)
+    // PRIORIDADE 1: Se parece JSON (começa com [ ou {), tentar parsear JSON primeiro
+    const looksLikeJson = trimmed.startsWith('[') || trimmed.startsWith('{');
+    
+    if (looksLikeJson) {
+        try {
+            const parsed = parseAIResponse(raw, serviceName);
+            // 1.a) Formato antigo completo
+            if (parsed && Array.isArray(parsed.titulosSugeridos) && parsed.titulosSugeridos.length > 0) {
+                return parsed;
+            }
+            // 1.b) JSON array simples: ["t1","t2"...] ou [{id:1, title:"..."}]
+            if (Array.isArray(parsed)) {
+                // Verificar se são strings ou objetos
+                const hasObjects = parsed.some(x => typeof x === 'object' && x !== null);
+                if (hasObjects) {
+                    // Array de objetos: [{id: 1, title: "...", formula: "..."}]
+                    const titlesData = parsed
+                        .map(item => {
+                            if (typeof item === 'object' && item !== null) {
+                                const titulo = item.title || item.titulo || item.text;
+                                const formula = item.formula || item.fórmula;
+                                if (titulo) return { titulo, formula };
+                            }
+                            return null;
+                        })
+                        .filter(Boolean)
+                        .slice(0, expectedCount);
+                    
+                    if (titlesData.length >= expectedCount) {
+                        return {
+                            niche: null,
+                            subniche: null,
+                            analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                            titulosSugeridos: titlesData.map(({ titulo, formula }) => ({ 
+                                titulo, 
+                                pontuacao: 9, 
+                                explicacao: '', 
+                                formula: formula || null 
+                            }))
+                        };
+                    }
+                } else {
+                    // Array de strings simples
+                    const titles = parsed.filter(x => typeof x === 'string').slice(0, expectedCount);
+                    if (titles.length >= expectedCount) {
+                        return {
+                            niche: null,
+                            subniche: null,
+                            analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                            titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                        };
+                    }
+                }
+            }
+            // 1.c) JSON com array em outros campos comuns
+            const altArr = parsed && (
+                (Array.isArray(parsed.titles) ? parsed.titles : null) ||
+                (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
+                (Array.isArray(parsed.result) ? parsed.result : null)
+            );
+            if (altArr) {
+                const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
+                if (titles.length >= expectedCount) {
+                    return {
+                        niche: null,
+                        subniche: null,
+                        analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                        titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                    };
+                }
+            }
+        } catch (e) {
+            // Se JSON falhar, tentar lista numerada abaixo
+            console.warn(`[PARSE] Tentativa de JSON falhou, tentando lista numerada:`, e.message);
+        }
+    }
+
+    // PRIORIDADE 2: Se parece lista numerada, tentar parsear como lista
     if (/^(?:\s*(?:\d{1,2}|[1-9]️⃣|10️⃣)\s*[\)\.\:\-\–\—])/.test(trimmed)) {
         const titles = parseNumberedTitles(trimmed, expectedCount);
         if (titles) {
@@ -799,50 +915,9 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                 }))
             };
         }
-        throw new Error(`A IA (${serviceName}) retornou lista numerada inválida (<${expectedCount}).`);
     }
 
-    // 1) Tentar JSON padrão (compat)
-    try {
-        const parsed = parseAIResponse(raw, serviceName);
-        // 1.a) Formato antigo completo
-        if (parsed && Array.isArray(parsed.titulosSugeridos) && parsed.titulosSugeridos.length > 0) {
-            return parsed;
-        }
-        // 1.b) JSON array simples: ["t1","t2"...]
-        if (Array.isArray(parsed)) {
-            const titles = parsed.filter(x => typeof x === 'string').slice(0, expectedCount);
-            if (titles.length >= expectedCount) {
-                return {
-                    niche: null,
-                    subniche: null,
-                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
-                };
-            }
-        }
-        // 1.c) JSON com array em outros campos comuns
-        const altArr = parsed && (
-            (Array.isArray(parsed.titles) ? parsed.titles : null) ||
-            (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
-            (Array.isArray(parsed.result) ? parsed.result : null)
-        );
-        if (altArr) {
-            const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
-            if (titles.length >= expectedCount) {
-                return {
-                    niche: null,
-                    subniche: null,
-                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
-                };
-            }
-        }
-    } catch (e) {
-        // ignorar: vamos tentar lista numerada
-    }
-
-    // 2) Tentar lista numerada 1..5 (novo prompt)
+    // 3) Tentar lista numerada como último recurso
     const titles = parseNumberedTitles(raw, expectedCount);
     if (titles) {
         return {
@@ -861,6 +936,9 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
         };
     }
 
+    // Debug: log da resposta bruta quando falhar
+    console.error(`[PARSE ERROR] IA: ${serviceName}, Resposta recebida (primeiros 500 chars):`);
+    console.error(raw.substring(0, 500));
     throw new Error(`A IA (${serviceName}) retornou um formato inválido para títulos. Esperado: JSON ou lista numerada com ${expectedCount} títulos.`);
 }
 
@@ -981,6 +1059,29 @@ O título original já venceu o algoritmo.
 Sua função é clonar a fórmula psicológica vencedora, intensificando impacto,
 variando o cenário, sem quebrar fidelidade temática.
 
+⚠️ REGRA FUNDAMENTAL (NÃO NEGOCIÁVEL)
+
+Todos os títulos gerados DEVEM:
+
+✓ Replicar a FÓRMULA PSICOLÓGICA do título original viralizado
+  (estrutura, gancho, curiosidade, promessa, tensão, contraste)
+
+✓ Manter o mesmo TIPO DE PROMESSA e NÍVEL DE CURIOSIDADE
+
+✓ MAS aplicar essa fórmula em um CONTEXTO DIFERENTE, alterando explicitamente:
+  • LOCAL (onde acontece)
+  • POVO / ATOR COLETIVO (quem fez)
+  • CIVILIZAÇÃO / SISTEMA (em que mundo isso existe)
+
+❌ É PROIBIDO reutilizar o mesmo contexto do título original.
+❌ Se detectar repetição de mundo narrativo, você DEVE reescrever antes de entregar.
+
+Modelo mental correto:
+"Inspirado no que viralizou, não preso ao mesmo contexto."
+Mesma FÓRMULA → Mundo diferente.
+
+Execute silenciosamente.
+
 REGRAS OBRIGATÓRIAS DE IMPACTO
 
 Cada título precisa conter:
@@ -1083,6 +1184,19 @@ Se houver risco factual, use ATOR genérico, mas DIFERENTE do anterior.
 
 Execute silenciosamente.
 
+8️⃣ EQUILÍBRIO CONCRETO vs GENÉRICO (OBRIGATÓRIO)
+
+Ao variar LOCAL, POVO e CIVILIZAÇÃO entre os ${titlesRequired} títulos:
+
+✓ Pelo menos 2 títulos devem usar referências CONCRETAS (nomes reais, povos específicos, locais identificáveis)
+✓ Pelo menos 2 títulos devem usar referências GENÉRICAS ("um povo", "uma ordem", "uma sociedade", "uma civilização")
+✓ Nenhum título pode ser totalmente vago em TODOS os elementos
+
+Se um título estiver excessivamente genérico (todos os elementos vagos), você DEVE reescrevê-lo
+para torná-lo mais tangível, sem perder impacto.
+
+Execute silenciosamente.
+
 AUTO-REFINO OBRIGATÓRIO (CRÍTICO)
 
 Antes de entregar os títulos:
@@ -1130,22 +1244,44 @@ Exemplo de formato válido:
 
 Sem explicações adicionais.
 Sem emojis.
-SEM JSON.`;
+Formato de lista numerada (não JSON).`;
 }
 
 function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, descriptionStart, transcriptStart }) {
     const hay = `${originalTitle || ''}\n${translatedTitle || ''}\n${descriptionStart || ''}\n${transcriptStart || ''}`.toLowerCase();
-    // Heurística simples (fallback) — evita "N/A" na UI
-    if (/(hist[oó]ria|civiliza|imp[eé]rio|antigo|antiga|aztec|astec|tenocht|maia|inca|roma|egito|eg[ipí]cio)/i.test(hay)) {
+    
+    // História e Civilizações
+    if (/(hist[oó]ria|civiliza|imp[eé]rio|antigo|antiga|aztec|astec|tenocht|maia|inca|roma|egito|eg[ipí]cio|templo|pir[âa]mide|conquista|descobr|explora)/i.test(hay)) {
         return { niche: 'História', subniche: 'Civilizações Antigas' };
     }
-    if (/(finan|dinheiro|invest|renda|bitcoin|cripto|a[cç][aã]o|bolsa)/i.test(hay)) {
+    
+    // Finanças e Investimentos
+    if (/(finan|dinheiro|invest|renda|bitcoin|cripto|a[cç][aã]o|bolsa|neg[óo]cio|empreend)/i.test(hay)) {
         return { niche: 'Finanças', subniche: 'Investimentos' };
     }
-    if (/(sa[uú]de|fitness|treino|dieta|emagrec|ansiedade|depress)/i.test(hay)) {
+    
+    // Saúde e Bem-estar
+    if (/(sa[uú]de|fitness|treino|dieta|emagrec|ansiedade|depress|m[uú]sculo|nutri[cç])/i.test(hay)) {
         return { niche: 'Saúde', subniche: 'Bem-estar' };
     }
-    return { niche: 'Entretenimento', subniche: 'N/A' };
+    
+    // Engenharia e Construção
+    if (/(engenharia|constru|obra|arquitetura|edif[ií]cio|estrutura|projeto|engenh)/i.test(hay)) {
+        return { niche: 'Educação', subniche: 'Engenharia' };
+    }
+    
+    // Mistérios e Enigmas
+    if (/(mist[eé]rio|enigma|inexplicável|segredo|oculto|conspira|paranormal)/i.test(hay)) {
+        return { niche: 'Entretenimento', subniche: 'Mistérios' };
+    }
+    
+    // Ciência e Tecnologia
+    if (/(ci[eê]ncia|tecnologia|inven[cç]|descoberta|pesquisa|cientista|inova)/i.test(hay)) {
+        return { niche: 'Educação', subniche: 'Ciência' };
+    }
+    
+    // Fallback: Entretenimento Geral
+    return { niche: 'Entretenimento', subniche: 'Geral' };
 }
 
 function deriveTitleAnalysis({ originalTitle, translatedTitle, views, days }) {
@@ -1296,13 +1432,18 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
     // Sempre adicionar o texto por último
     parts.push({ text: prompt });
 
-    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    // Detectar tipo de resposta esperada
     const isScriptRequest = typeof prompt === 'string' && (
         prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
         prompt.includes('roteiro em TEXTO SIMPLES') ||
         prompt.includes('NÃO use JSON') ||
         prompt.includes('Escreva APENAS o texto') ||
         prompt.includes('SEM JSON')
+    );
+    
+    const isTitleListRequest = typeof prompt === 'string' && (
+        prompt.includes('PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS') ||
+        prompt.includes('Formato de lista numerada (não JSON)')
     );
 
     const generationConfig = {
@@ -1312,8 +1453,9 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
             maxOutputTokens: 32000  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
     };
     
-    // CRÍTICO: Só adicionar responseMimeType se NÃO for pedido de roteiro
-    if (!isScriptRequest) {
+    // CRÍTICO: Só adicionar responseMimeType JSON se NÃO for pedido de roteiro OU lista de títulos
+    // Para lista de títulos, deixar o Gemini retornar texto livre (lista numerada)
+    if (!isScriptRequest && !isTitleListRequest) {
         generationConfig.responseMimeType = "application/json";
     }
 
@@ -1369,7 +1511,8 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
                     console.log('[La Casa Dark Core] Retornando texto puro de script');
                     return content; // Retorna string diretamente
                 } else {
-                    // Para JSON, manter comportamento antigo
+                    // Para JSON ou lista numerada, retornar conteúdo para parsing posterior
+                    // O parseTitleAnalysisResponse vai detectar automaticamente o formato
                     return { titles: content, model: model };
                 }
             } else {
@@ -1433,13 +1576,18 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
     // Sempre adicionar o texto por último
     content.push({ type: "text", text: prompt });
 
-    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    // Detectar tipo de resposta esperada
     const isScriptRequest = typeof prompt === 'string' && (
         prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
         prompt.includes('roteiro em TEXTO SIMPLES') ||
         prompt.includes('NÃO use JSON') ||
         prompt.includes('Escreva APENAS o texto') ||
         prompt.includes('SEM JSON')
+    );
+    
+    const isTitleListRequest = typeof prompt === 'string' && (
+        prompt.includes('PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS') ||
+        prompt.includes('Formato de lista numerada (não JSON)')
     );
 
     // Determinar max_tokens baseado no modelo
@@ -1467,7 +1615,9 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
                 role: "system", 
                 content: isScriptRequest 
                     ? "You are a professional scriptwriter. Respond ONLY with the script text in plain text format. Do NOT use JSON, objects, or special formatting. Write natural, flowing text."
-                    : "You are a helpful assistant designed to output JSON."
+                    : isTitleListRequest
+                        ? "You are a viral YouTube title expert. Respond ONLY with a numbered list of titles following the exact format specified in the prompt. Do NOT use JSON, just a numbered list."
+                        : "You are a helpful assistant designed to output JSON."
             },
             { role: "user", content: content }
         ],
@@ -1475,8 +1625,8 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
         max_tokens: maxTokens,
     };
     
-    // CRÍTICO: Só adicionar response_format se NÃO for pedido de roteiro
-    if (!isScriptRequest) {
+    // CRÍTICO: Só adicionar response_format JSON se NÃO for pedido de roteiro OU lista de títulos
+    if (!isScriptRequest && !isTitleListRequest) {
         payload.response_format = { type: "json_object" };
     }
 
@@ -1651,18 +1801,25 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
     // Sempre adicionar o texto por último
     content.push({ type: "text", text: prompt });
 
-    // Detectar se é pedido de roteiro (texto puro) ou JSON
+    // Detectar tipo de resposta esperada
     const isScriptRequest = typeof prompt === 'string' && (
         prompt.includes('RESPOSTA FINAL - CRÍTICO') ||
         prompt.includes('roteiro em TEXTO SIMPLES') ||
         prompt.includes('NÃO use JSON')
+    );
+    
+    const isTitleListRequest = typeof prompt === 'string' && (
+        prompt.includes('PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS') ||
+        prompt.includes('Formato de lista numerada (não JSON)')
     );
 
     const payload = {
         model: modelName,
         system: isScriptRequest 
             ? "Você é um roteirista profissional. Responda APENAS com o texto do roteiro, sem usar JSON, objetos ou formatações especiais. Escreva texto corrido e natural."
-            : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.",
+            : isTitleListRequest
+                ? "Você é um especialista em títulos virais para YouTube. Responda APENAS com a lista numerada de títulos solicitada, seguindo exatamente o formato especificado no prompt. Não use JSON, apenas lista numerada."
+                : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.",
         messages: [{ role: "user", content: content }],
         temperature: 0.7,
         max_tokens: 32000,  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
@@ -13725,6 +13882,29 @@ Tradução em PT-BR:`;
                 // Fallback: usar sistema de preferência se não tiver chave do modelo escolhido
                 let translateProvider = await getPreferredAIProvider(userId, ['claude', 'openai', 'gemini']);
                 
+                // Verificar se realmente deve usar laozhang (evitar uso indevido)
+                if (translateProvider && translateProvider.service === 'laozhang') {
+                    const creditsCheck = await shouldUseCredits(userId, ['claude', 'openai', 'gemini']);
+                    if (!creditsCheck.shouldUse) {
+                        // Não deve usar laozhang, tentar buscar API própria diretamente
+                        console.log('[Análise] Laozhang retornado mas usuário não deve usar créditos, buscando API própria...');
+                        translateProvider = null;
+                        // Buscar diretamente as chaves do usuário
+                        for (const svc of ['claude', 'openai', 'gemini']) {
+                            try {
+                                const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+                                if (keyData && keyData.api_key) {
+                                    const key = decrypt(keyData.api_key);
+                                    if (key) {
+                                        translateProvider = { service: svc, apiKey: key, model: svc === 'claude' ? 'claude-3-7-sonnet-20250219' : (svc === 'openai' ? 'gpt-4o' : 'gemini-2.5-pro') };
+                                        break;
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
+                }
+                
                 if (translateProvider && translateProvider.service === 'laozhang') {
                     const translateResponse = await callLaozhangAPI(
                         translatePrompt, 
@@ -13870,36 +14050,43 @@ Tradução em PT-BR:`;
                     continue;
                 }
 
-                // extrair texto do 1º round
-                const rawText = typeof result.value === 'string'
-                    ? result.value
-                    : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
-                const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
-                if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
+                // Envolver todo o processamento em try-catch para não quebrar o multimodal se uma IA falhar
+                try {
+                    // extrair texto do 1º round
+                    const rawText = typeof result.value === 'string'
+                        ? result.value
+                        : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
+                    const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
+                    if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
 
-                // Completar 5 aprovados com até 3 refinamentos por IA
-                const passing = await generatePassingTitlesWithRefine({
-                    apiFunc: cfg.apiFunc,
-                    apiKey: cfg.apiKey,
-                    model: cfg.model,
-                    serviceName,
-                    basePromptBuilder: buildTitleRefinePrompt,
-                    buildArgs: {
-                        originalTitle: videoDetails.title,
-                        translatedTitle,
-                        performanceContext,
-                        descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
-                        transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                        languageInstruction
-                    },
-                    titlesRequired,
-                    minImpact: MIN_IMPACT_SCORE,
-                    maxRefines: 2
-                });
+                    // Completar 5 aprovados com refinamento rápido (modo multimodal otimizado)
+                    const passing = await generatePassingTitlesWithRefine({
+                        apiFunc: cfg.apiFunc,
+                        apiKey: cfg.apiKey,
+                        model: cfg.model,
+                        serviceName,
+                        basePromptBuilder: buildTitleRefinePrompt,
+                        buildArgs: {
+                            originalTitle: videoDetails.title,
+                            translatedTitle,
+                            performanceContext,
+                            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                            languageInstruction
+                        },
+                        titlesRequired,
+                        minImpact: MIN_IMPACT_SCORE,
+                        maxRefines: 1  // Reduzido para 1 tentativa extra (modo multimodal mais rápido)
+                    });
 
-                // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
-                console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
-                passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
+                    // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
+                    console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
+                    passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
+                } catch (parseError) {
+                    console.error(`[Análise Multimodal] Erro ao processar ${serviceName}:`, parseError.message);
+                    // Continuar com as outras IAs mesmo se esta falhar
+                    continue;
+                }
             }
             
             if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
@@ -13933,7 +14120,7 @@ Tradução em PT-BR:`;
                             },
                             titlesRequired: needNow,
                             minImpact: MIN_IMPACT_SCORE,
-                            maxRefines: 2
+                            maxRefines: 0  // Sem refinamento extra no preenchimento (mais rápido)
                         });
                         more.forEach(t => allGeneratedTitles.push({ ...t, model: cfg.name }));
                     } catch (e) {
@@ -13948,16 +14135,11 @@ Tradução em PT-BR:`;
                 allGeneratedTitles = allGeneratedTitles.slice(0, targetTotal);
             }
             
-            // Verificar se a análise tem os dados necessários
-            if (!firstSuccessfulAnalysis.analiseOriginal) {
-                throw new Error("A IA retornou uma análise incompleta. Verifique as chaves de API e tente novamente.");
-            }
-            
             // Log final do total de títulos multimodal
             console.log(`[Análise Multimodal] ✅ Total combinado: ${allGeneratedTitles.length} títulos (esperado: 15 = 5 de cada modelo)`);
             
-            // Garantir que o nicho sempre existe (usar padrão se não detectado)
-            // Preencher nicho/subnicho + análise do título original pelo backend (não depender da IA)
+            // SEMPRE usar dados derivados pelo backend (não depender da IA para análise e nicho)
+            // Isso garante que análise e subnicho sempre estarão presentes
             const derivedNiche = deriveNicheAndSubnicheFromContext({
                 originalTitle: videoDetails.title,
                 translatedTitle,
@@ -13971,6 +14153,15 @@ Tradução em PT-BR:`;
                 views: videoDetails.views,
                 days: videoDetails.days
             });
+            
+            // Se a primeira análise da IA tiver dados válidos, mesclar com os derivados (priorizar derivados)
+            if (firstSuccessfulAnalysis && firstSuccessfulAnalysis.analiseOriginal) {
+                // Manter análise derivada como principal, mas pode usar dados adicionais da IA se necessário
+                console.log(`[Análise Multimodal] Análise da IA disponível, usando dados derivados como principal`);
+            }
+            
+            console.log(`[Análise Multimodal] Dados derivados - Nicho: ${finalNicheData.niche}, Subnicho: ${finalNicheData.subniche}`);
+            console.log(`[Análise Multimodal] Análise gerada:`, finalAnalysisData);
         } else {
             // --- LÓGICA DE MODELO ÚNICO (opcionalmente laozhang) ---
             let service;
@@ -14093,14 +14284,7 @@ Tradução em PT-BR:`;
                 model: service === 'laozhang' ? 'Laozhang.ai' : model
             }));
             
-            // Garantir que analiseOriginal existe
-            if (!parsedData.analiseOriginal) {
-                parsedData.analiseOriginal = {
-                    motivoSucesso: 'Motivo não fornecido',
-                    formulaTitulo: 'Fórmula não fornecida'
-                };
-            }
-            
+            // SEMPRE usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
             const derivedNiche = deriveNicheAndSubnicheFromContext({
                 originalTitle: videoDetails.title,
                 translatedTitle,
@@ -14114,6 +14298,14 @@ Tradução em PT-BR:`;
                 views: videoDetails.views,
                 days: videoDetails.days
             });
+            
+            // Se a análise da IA tiver dados válidos, pode mesclar (mas usar derivados como principal)
+            if (parsedData && parsedData.analiseOriginal && parsedData.analiseOriginal.motivoSucesso !== 'N/A') {
+                console.log(`[Análise] Análise da IA disponível, usando dados derivados como principal`);
+            }
+            
+            console.log(`[Análise] Dados derivados - Nicho: ${finalNicheData.niche}, Subnicho: ${finalNicheData.subniche}`);
+            console.log(`[Análise] Análise gerada:`, finalAnalysisData);
         }
         // --- FIM DA LÓGICA DO DISTRIBUIDOR ---
 
@@ -14272,13 +14464,36 @@ Tradução em PT-BR:`;
             folderId: folderId || null
         };
         
-        // Log para debug
+        // Log para debug - garantir que análise e subnicho estão presentes
         console.log('[Análise] Enviando resposta:', {
+            niche: responseData.niche,
+            subniche: responseData.subniche,
+            hasAnaliseOriginal: !!responseData.analiseOriginal,
+            analiseOriginal: responseData.analiseOriginal,
             hasEstimatedRevenueUSD: typeof responseData.videoDetails.estimatedRevenueUSD !== 'undefined',
             estimatedRevenueUSD: responseData.videoDetails.estimatedRevenueUSD,
             hasRpmUSD: typeof responseData.videoDetails.rpmUSD !== 'undefined',
             rpmUSD: responseData.videoDetails.rpmUSD
         });
+
+        // Garantir que análise e subnicho sempre estão presentes na resposta
+        if (!responseData.analiseOriginal || Object.keys(responseData.analiseOriginal).length === 0) {
+            console.warn('[Análise] ⚠️ Análise vazia detectada, usando dados derivados');
+            responseData.analiseOriginal = finalAnalysisData || {
+                motivoSucesso: 'Análise gerada automaticamente pelo sistema',
+                formulaTitulo: 'Fórmula derivada do título original'
+            };
+        }
+        
+        if (!responseData.niche || responseData.niche === 'N/A') {
+            console.warn('[Análise] ⚠️ Nicho não detectado, usando dados derivados');
+            responseData.niche = finalNicheData?.niche || 'Entretenimento';
+        }
+        
+        if (!responseData.subniche || responseData.subniche === 'N/A') {
+            console.warn('[Análise] ⚠️ Subnicho não detectado, usando dados derivados');
+            responseData.subniche = finalNicheData?.subniche || 'Geral';
+        }
 
         res.status(200).json(responseData);
 
@@ -16750,7 +16965,49 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
 
         basePrompt = adaptedPrompt;
         
-        console.log('[Thumbnail Complete] Prompt adaptado:', {
+        // Limpar APENAS instruções de texto que podem ser renderizadas
+        // NÃO remover instruções de estilo visual (cores, composição, overlay visual, etc.)
+        // Apenas remover instruções específicas sobre TEXTO/TYPOGRAPHY
+        const textOnlyInstructionPatterns = [
+            // Apenas instruções que mencionam explicitamente texto/título/headline
+            /(?:Add|Include|Display|Render|Show|Place|Put|Position).*?(?:text|title|headline|subtitle|label).*?(?:at bottom|at top|in|with|font|size|color|bold|italic|serif|sans-serif|metallic|glow|stroke|outline|ALL CAPS|uppercase|lowercase).*?\./gi,
+            /(?:Typography|Text overlay|Title text|Headline text|Subtitle).*?(?:must|should|follow|structure|position|size|color|font|percentage|width|height|pt|px|em|%).*?\./gi,
+            /(?:PRIMARY HEADLINE|SECONDARY SUBTITLE|main title|subtitle).*?(?:white|yellow|black|gold|#|color|font|size|position|width|percentage|%).*?\./gi,
+            /(?:Bebas Neue|Arial|serif|sans-serif).*?(?:font|size|color|position|width|percentage).*?\./gi,
+            /(?:two-tier|two tier).*?(?:structure|title|subtitle|text).*?\./gi,
+            /(?:30-35%|40-45%|\d+-\d+%|\d+%).*?(?:of|width|image width|text|title|headline).*?\./gi,
+            // Padrões específicos de texto que aparecem nas imagens (erros de renderização)
+            /(?:MPITELOW|ALLCAPES|FRIGH|YELAPOS|NOT NOT|EXTRAD|BOLAPS|FRIGHT|YFDLOW|ALLLAPS|CRITICAL.*?REMOVE.*?CORNER|HEADLINDE).*?\./gi
+        ];
+        
+        // Aplicar limpeza apenas nas partes que são claramente instruções de texto
+        for (const pattern of textOnlyInstructionPatterns) {
+            basePrompt = basePrompt.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
+        }
+        
+        // Remover apenas linhas que são EXCLUSIVAMENTE instruções de texto
+        const lines = basePrompt.split('\n');
+        const cleanedLines = lines.filter(line => {
+            const lower = line.toLowerCase().trim();
+            // Remover APENAS se a linha é PRINCIPALMENTE sobre texto/typography
+            // NÃO remover se menciona cores, composição, overlay visual, etc. (estilo visual)
+            if ((lower.includes('display only') || 
+                lower.includes('render only')) && (lower.includes('text') || lower.includes('headline') || lower.includes('title')) ||
+                (lower.includes('add text') || lower.includes('include text') || lower.includes('text overlay')) ||
+                (lower.includes('title text') || lower.includes('headline text')) ||
+                (lower.includes('typography') && (lower.includes('must') || lower.includes('should') || lower.includes('follow'))) ||
+                (lower.includes('font') && (lower.includes('size') || lower.includes('color') || lower.includes('family')) && (lower.includes('text') || lower.includes('title') || lower.includes('headline'))) ||
+                (lower.match(/\d+-\d+%/) && (lower.includes('text') || lower.includes('title') || lower.includes('headline') || lower.includes('width'))) ||
+                (lower.includes('badge') && (lower.includes('text') || lower.includes('title') || lower.includes('corner'))) ||
+                (lower.includes('two-tier') || lower.includes('two tier')) ||
+                lower.includes('all caps') && (lower.includes('text') || lower.includes('title') || lower.includes('headline'))) {
+                return false;
+            }
+            return true;
+        });
+        basePrompt = cleanedLines.join('\n').replace(/\s{2,}/g, ' ').trim();
+        
+        console.log('[Thumbnail Complete] Prompt adaptado (após limpeza de instruções de texto):', {
             theme,
             subject: themeData.subject,
             ambiente: themeData.ambiente,
@@ -16817,17 +17074,37 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             return res.status(400).json({ msg: 'Nenhuma API key configurada. Configure pelo menos uma API nas Configurações.' });
         }
 
-        // Prompt para gerar headline e SEO
+        // Mapeamento de idiomas para o prompt
+        const languageMap = {
+            'pt-BR': 'Português (Brasil)',
+            'pt': 'Português',
+            'en': 'English',
+            'es': 'Español',
+            'fr': 'Français',
+            'de': 'Deutsch',
+            'it': 'Italiano',
+            'ja': '日本語',
+            'ko': '한국어',
+            'zh': '中文',
+            'ru': 'Русский'
+        };
+        const languageName = languageMap[language] || languageMap['pt-BR'];
+
+        // Prompt para gerar 3 headlines e SEO
         const seoPrompt = `Com base no título do vídeo: "${titleText}"
 
-Gere:
-1. Uma HEADLINE DE IMPACTO (máximo 6 palavras, chamativa, viral, que gere curiosidade)
-2. Uma DESCRIÇÃO SEO otimizada (2-3 frases, inclua palavras-chave relevantes, seja persuasiva)
-3. PRINCIPAIS TAGS (10-15 tags separadas por vírgula, relevantes ao tema)
+IDIOMA DE RESPOSTA: ${languageName}
+
+Gere TUDO NO IDIOMA ${languageName}:
+1. TRÊS VARIAÇÕES DE HEADLINES DE IMPACTO (máximo 6 palavras cada, chamativas, virais, que gerem curiosidade) - cada uma com um ângulo diferente
+2. Uma DESCRIÇÃO SEO otimizada (2-3 frases, inclua palavras-chave relevantes, seja persuasiva) no idioma ${languageName}
+3. PRINCIPAIS TAGS (10-15 tags separadas por vírgula, relevantes ao tema) no idioma ${languageName}
 
 RESPONDA APENAS COM JSON:
 {
-  "headline": "HEADLINE DE IMPACTO AQUI",
+  "headline1": "PRIMEIRA HEADLINE DE IMPACTO",
+  "headline2": "SEGUNDA HEADLINE DE IMPACTO",
+  "headline3": "TERCEIRA HEADLINE DE IMPACTO",
   "seoDescription": "Descrição SEO otimizada aqui...",
   "tags": "tag1, tag2, tag3, tag4, tag5..."
 }`;
@@ -16844,47 +17121,264 @@ RESPONDA APENAS COM JSON:
         const seoText = typeof seoResponse === 'string' ? seoResponse : (seoResponse.titles || JSON.stringify(seoResponse));
         const parsedSEO = parseAIResponse(seoText, service);
         
-        const headline = parsedSEO.headline || titleText.split(':')[0].trim();
-        const seoDescription = parsedSEO.seoDescription || `Descubra tudo sobre ${titleText}. Conteúdo exclusivo e detalhado.`;
-        const tags = parsedSEO.tags ? parsedSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-
-        // 5. Adaptar prompt visual com headline (APENAS HEADLINE, SEM SUBHEADLINE OU OUTROS TEXTOS)
-        const headlineText = headline;
-        // Instrução clara: apenas a headline deve aparecer, sem outros textos
-        const headlineLine = `Display ONLY the headline text "${headlineText}" (translate to ${language}) in large, bold, gold metallic serif font with subtle glow effect at the bottom of the image. Do NOT render the word 'Headline' or 'Subheadline' or any other labels. Do NOT add any subheadline, subtitle, or additional text. Only the headline text itself should be visible.`;
-        const styleLock = 'Keep composition, subject placement, palette, typography and lighting exactly as in channel references. Do not change layout. Maintain gold title text at bottom with dramatic lighting. Do not render any literal text from these instructions.';
-        // Instruções específicas para remover marcações nos 4 cantos
-        const negativeBlock = `CRITICAL - REMOVE ALL CORNER MARKINGS: Exclude any logos, watermarks, channel badges, branding marks, corner icons, decorative elements, or any visual elements in the four corners of the image (top-left, top-right, bottom-left, bottom-right). The image must be completely clean in all four corners. Do not render channel names, corner marks, badges, icons, symbols, text, or any decorative elements in the corners. Do NOT render any text except the headline. Do NOT add subheadlines, subtitles, or any additional text labels. The entire image area must be free of any corner markings, branding elements, or visual clutter in the corners.`;
+        // Extrair as 3 headlines geradas
+        const headline1 = parsedSEO.headline1 || parsedSEO.headline || titleText.split(':')[0].trim();
+        const headline2 = parsedSEO.headline2 || titleText.split(':')[0].trim();
+        const headline3 = parsedSEO.headline3 || titleText.split(':')[0].trim();
         
-        let finalPrompt = `${basePrompt}\n\n${headlineLine}\n\n${negativeBlock}\n\n${styleLock}`;
+        // Gerar descrição SEO e tags base para todas as variações
+        const baseSeoDescription = parsedSEO.seoDescription || `Descubra tudo sobre ${titleText}. Conteúdo exclusivo e detalhado.`;
+        const baseTags = parsedSEO.tags ? parsedSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+        
+        // Gerar descrições e tags específicas para cada headline
+        const generateVariationSEO = async (headline, index) => {
+            if (!headline) return { description: baseSeoDescription, tags: baseTags };
+            
+            try {
+                const variationSeoPrompt = `Com base no título do vídeo: "${titleText}" e na headline: "${headline}"
 
-        // 6. Gerar imagens
+IDIOMA DE RESPOSTA: ${languageName}
+
+Gere NO IDIOMA ${languageName}:
+1. Uma DESCRIÇÃO SEO otimizada (2-3 frases) que combine o título com esta headline específica
+2. PRINCIPAIS TAGS (10-15 tags separadas por vírgula) relevantes
+
+RESPONDA APENAS COM JSON:
+{
+  "seoDescription": "Descrição SEO específica para esta headline...",
+  "tags": "tag1, tag2, tag3..."
+}`;
+                
+                let variationSeoResponse;
+                if (service === 'claude') {
+                    variationSeoResponse = await callClaudeAPI(variationSeoPrompt, apiKey, modelToUse);
+                } else if (service === 'openai') {
+                    variationSeoResponse = await callOpenAIAPI(variationSeoPrompt, apiKey, modelToUse);
+                } else {
+                    variationSeoResponse = await callGeminiAPI(variationSeoPrompt, apiKey, modelToUse);
+                }
+                
+                const variationSeoText = typeof variationSeoResponse === 'string' ? variationSeoResponse : (variationSeoResponse.titles || JSON.stringify(variationSeoResponse));
+                const parsedVariationSEO = parseAIResponse(variationSeoText, service);
+                
+                return {
+                    description: parsedVariationSEO.seoDescription || baseSeoDescription,
+                    tags: parsedVariationSEO.tags ? parsedVariationSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : baseTags
+                };
+            } catch (err) {
+                console.warn(`[Thumbnail Complete] Erro ao gerar SEO para variação ${index}, usando base:`, err.message);
+                return { description: baseSeoDescription, tags: baseTags };
+            }
+        };
+        
+        // Gerar SEO para cada variação
+        const variation1SEO = await generateVariationSEO(headline1, 1);
+        const variation2SEO = await generateVariationSEO(headline2, 2);
+        const variation3SEO = await generateVariationSEO(headline3, 3);
+        const variation4SEO = { description: baseSeoDescription, tags: baseTags }; // Sem headline, usar base
+
+        // 5. Preparar as 4 variações: 3 com headlines diferentes + 1 sem headline
+        // Instruções mínimas para não interferir com o prompt padrão de referência
+        // O prompt padrão já contém todas as instruções de estilo visual
+        const negativeBlock = `Remove corner markings, logos, watermarks.`;
+        
+        // Instruções MUITO simplificadas para evitar que sejam renderizadas como texto
+        // Formato mínimo que a IA entende sem renderizar as instruções
+        const variations_data = [
+            {
+                headline: headline1,
+                hasHeadline: true,
+                headlineLine: `Bottom text: "${headline1}"`,
+                seoDescription: variation1SEO.description,
+                tags: variation1SEO.tags
+            },
+            {
+                headline: headline2,
+                hasHeadline: true,
+                headlineLine: `Bottom text: "${headline2}"`,
+                seoDescription: variation2SEO.description,
+                tags: variation2SEO.tags
+            },
+            {
+                headline: headline3,
+                hasHeadline: true,
+                headlineLine: `Bottom text: "${headline3}"`,
+                seoDescription: variation3SEO.description,
+                tags: variation3SEO.tags
+            },
+            {
+                headline: null,
+                hasHeadline: false,
+                headlineLine: `No text overlay`,
+                seoDescription: variation4SEO.description,
+                tags: variation4SEO.tags
+            }
+        ];
+
+        // 6. Gerar imagens para cada variação
         const images = [];
-        for (let i = 0; i < Math.max(1, Math.min(variations, 4)); i++) {
-            const genResp = await fetch(`http://localhost:${PORT}/api/generate/imagefx`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': req.headers['authorization'] || '' },
-                body: JSON.stringify({ prompt: finalPrompt, niche, subniche, style, saveToLibrary: true })
-            });
-            const genData = await genResp.json();
-            if (!genResp.ok) throw new Error(genData.msg || 'Erro ao gerar imagem');
-            images.push({
-                imageUrl: genData.imageUrl || genData.image || genData.result || null,
-                savedToLibrary: !!genData.savedToLibrary,
-                libraryId: genData.libraryId || null
+        console.log(`[Thumbnail Complete] Iniciando geração de ${variations_data.length} variações de imagens...`);
+        
+        for (let i = 0; i < variations_data.length; i++) {
+            const variation = variations_data[i];
+            // Construir prompt final: prompt padrão PRIMEIRO (estilo de referência), depois adicionar apenas headline
+            // O prompt padrão já tem todas as instruções de estilo, não precisamos adicionar styleLock que pode conflitar
+            const finalPrompt = variation.hasHeadline 
+                ? `${basePrompt}\n\n${variation.headlineLine}\n\n${negativeBlock}`
+                : `${basePrompt}\n\n${variation.headlineLine}\n\n${negativeBlock}`;
+            
+            try {
+                console.log(`[Thumbnail Complete] Gerando variação ${i + 1}/${variations_data.length}...`);
+                console.log(`[Thumbnail Complete] Headline: ${variation.headline || 'SEM HEADLINE'}`);
+                console.log(`[Thumbnail Complete] Prompt final (primeiros 200 chars): ${finalPrompt.substring(0, 200)}...`);
+                
+                // Usar URL mais confiável (127.0.0.1 ao invés de localhost)
+                const imageFxUrl = `http://127.0.0.1:${PORT}/api/generate/imagefx`;
+                console.log(`[Thumbnail Complete] Chamando endpoint: ${imageFxUrl}`);
+                
+                // Criar AbortController para timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutos
+                
+                try {
+                    const genResp = await fetch(imageFxUrl, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json', 
+                            'Authorization': req.headers['authorization'] || '' 
+                        },
+                        body: JSON.stringify({ 
+                            prompt: finalPrompt, 
+                            niche: niche || 'Entretenimento', 
+                            subniche: subniche || 'Geral', 
+                            style: style || 'photorealistic', 
+                            saveToLibrary: true 
+                        }),
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                
+                    if (!genResp.ok) {
+                        const errorText = await genResp.text();
+                        console.error(`[Thumbnail Complete] Erro HTTP ${genResp.status} ao gerar imagem ${i + 1}:`, errorText);
+                        throw new Error(`Erro ao gerar imagem ${i + 1}: ${genResp.status} - ${errorText.substring(0, 200)}`);
+                    }
+                    
+                    const genData = await genResp.json();
+                    console.log(`[Thumbnail Complete] Resposta da geração ${i + 1}:`, {
+                        hasImageUrl: !!genData.imageUrl,
+                        hasImage: !!genData.image,
+                        hasResult: !!genData.result,
+                        savedToLibrary: !!genData.savedToLibrary,
+                        imageUrlType: typeof genData.imageUrl,
+                        imageType: typeof genData.image,
+                        imageUrlLength: genData.imageUrl ? String(genData.imageUrl).length : 0,
+                        imageLength: genData.image ? String(genData.image).length : 0
+                    });
+                    
+                    // Priorizar imageUrl (URL completa), depois image (base64), depois result
+                    let imageUrl = genData.imageUrl || genData.image || genData.result || null;
+                    
+                    // Se imageUrl é base64 mas não tem prefixo data:, adicionar
+                    if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+                        imageUrl = `data:image/png;base64,${imageUrl}`;
+                    }
+                    
+                    if (!imageUrl) {
+                        console.error(`[Thumbnail Complete] Nenhuma URL de imagem retornada para variação ${i + 1}`);
+                        console.error(`[Thumbnail Complete] Dados recebidos:`, JSON.stringify(genData).substring(0, 500));
+                        throw new Error(`Nenhuma imagem foi gerada para a variação ${i + 1}`);
+                    }
+                    
+                    console.log(`[Thumbnail Complete] URL da imagem ${i + 1}: ${imageUrl.substring(0, 100)}...`);
+                    
+                    images.push({
+                        imageUrl: imageUrl,
+                        image: imageUrl, // Compatibilidade: também incluir como 'image'
+                        savedToLibrary: !!genData.savedToLibrary,
+                        libraryId: genData.libraryId || null,
+                        headline: variation.headline,
+                        hasHeadline: variation.hasHeadline,
+                        seoDescription: variation.seoDescription || baseSeoDescription,
+                        tags: variation.tags || baseTags
+                    });
+                    
+                    console.log(`[Thumbnail Complete] ✅ Variação ${i + 1} gerada com sucesso`);
+                } catch (imgError) {
+                    clearTimeout(timeoutId);
+                    if (imgError.name === 'AbortError') {
+                        console.error(`[Thumbnail Complete] Timeout ao gerar variação ${i + 1} (2 minutos)`);
+                        imgError.message = `Timeout: A geração da imagem ${i + 1} demorou mais de 2 minutos`;
+                    }
+                    console.error(`[Thumbnail Complete] Erro ao gerar variação ${i + 1}:`, imgError.message);
+                    // Continuar gerando outras variações mesmo se uma falhar
+                    // Mas adicionar erro na resposta
+                    images.push({
+                        imageUrl: null,
+                        savedToLibrary: false,
+                        libraryId: null,
+                        headline: variation.headline,
+                        hasHeadline: variation.hasHeadline,
+                        seoDescription: variation.seoDescription || baseSeoDescription,
+                        tags: variation.tags || baseTags,
+                        error: imgError.message
+                    });
+                }
+            } catch (outerError) {
+                console.error(`[Thumbnail Complete] Erro externo ao gerar variação ${i + 1}:`, outerError.message);
+                images.push({
+                    imageUrl: null,
+                    savedToLibrary: false,
+                    libraryId: null,
+                    headline: variation.headline,
+                    hasHeadline: variation.hasHeadline,
+                    seoDescription: variation.seoDescription || baseSeoDescription,
+                    tags: variation.tags || baseTags,
+                    error: outerError.message
+                });
+            }
+        }
+        
+        // Verificar se pelo menos uma imagem foi gerada
+        const successfulImages = images.filter(img => img.imageUrl !== null);
+        if (successfulImages.length === 0) {
+            console.error('[Thumbnail Complete] ❌ Nenhuma imagem foi gerada com sucesso');
+            return res.status(500).json({ 
+                msg: 'Nenhuma imagem foi gerada. Verifique se o serviço de geração de imagens está funcionando e se há API keys configuradas.',
+                errors: images.map((img, idx) => ({ variation: idx + 1, error: img.error || 'Erro desconhecido' }))
             });
         }
+        
+        console.log(`[Thumbnail Complete] ✅ ${successfulImages.length}/${variations_data.length} imagens geradas com sucesso`);
+        
+        // Filtrar apenas imagens bem-sucedidas para retornar ao frontend
+        const successfulVariations = images.filter(img => img.imageUrl !== null);
+        
+        console.log(`[Thumbnail Complete] Preparando resposta com ${successfulVariations.length} variações:`);
+        successfulVariations.forEach((img, idx) => {
+            console.log(`  - Variação ${idx + 1}: ${img.headline || 'SEM HEADLINE'}, URL: ${img.imageUrl ? 'SIM' : 'NÃO'}`);
+        });
 
-        // 7. Retornar resultado completo
-        res.status(200).json({
+        // 7. Retornar resultado completo com as 3 headlines e variação sem headline
+        // Cada variação já tem sua própria seoDescription e tags
+        const responseData = {
             success: true,
             title: titleText,
-            headline: headline,
-            seoDescription: seoDescription,
-            tags: tags,
-            images: images,
-            promptUsed: finalPrompt
-        });
+            headlines: {
+                headline1: headline1,
+                headline2: headline2,
+                headline3: headline3
+            },
+            // Manter descrição e tags base para compatibilidade, mas cada variação tem suas próprias
+            seoDescription: baseSeoDescription,
+            tags: baseTags,
+            variations: successfulVariations,
+            images: successfulVariations // Compatibilidade: também retornar como 'images'
+        };
+        
+        console.log(`[Thumbnail Complete] Enviando resposta com ${responseData.variations.length} variações`);
+        res.status(200).json(responseData);
 
     } catch (err) {
         console.error('[Thumbnail Complete] Erro:', err);
@@ -29155,10 +29649,34 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
         const estimatedRevenueUSD = (views / 1000) * rpm.usd;
         const estimatedRevenueBRL = (views / 1000) * rpm.brl;
 
+        // Garantir que analiseOriginal sempre tenha dados válidos
+        let analiseOriginal;
+        try {
+            analiseOriginal = JSON.parse(analysis.analysis_data_json || '{}');
+            // Se o JSON estiver vazio ou não tiver os campos necessários, gerar novamente
+            if (!analiseOriginal.motivoSucesso || !analiseOriginal.formulaTitulo) {
+                console.log(`[Histórico] analysis_data_json vazio ou inválido para análise ${analysisId}, gerando novamente...`);
+                analiseOriginal = deriveTitleAnalysis({
+                    originalTitle: analysis.original_title,
+                    translatedTitle: analysis.translated_title,
+                    views: analysis.original_views,
+                    days: analysis.original_days
+                });
+            }
+        } catch (err) {
+            console.warn(`[Histórico] Erro ao parsear analysis_data_json para análise ${analysisId}, gerando novamente:`, err.message);
+            analiseOriginal = deriveTitleAnalysis({
+                originalTitle: analysis.original_title,
+                translatedTitle: analysis.translated_title,
+                views: analysis.original_views,
+                days: analysis.original_days
+            });
+        }
+
         const responseData = {
-            niche: analysis.detected_niche,
-            subniche: analysis.detected_subniche,
-            analiseOriginal: JSON.parse(analysis.analysis_data_json || '{}'),
+            niche: analysis.detected_niche || 'N/A',
+            subniche: analysis.detected_subniche || 'N/A',
+            analiseOriginal: analiseOriginal,
             titulosSugeridos: titles,
             modelUsed: titles.length > 0 ? titles[0].model : 'Carregado',
             videoDetails: {

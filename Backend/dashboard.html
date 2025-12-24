@@ -12686,9 +12686,12 @@ Equipe La Casa Dark Core</textarea>
                                     </label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
-                                    <p class="text-sm text-gray-400 flex-1">
-                                        ${titleObj.explicacao || ''}
-                                    </p>
+                                    <div class="flex-1">
+                                        ${titleObj.formula ? `<p class="text-xs text-purple-400 mb-1 font-medium bg-purple-500/10 px-2 py-1 rounded border border-purple-500/30 inline-block">📋 ${titleObj.formula}</p>` : ''}
+                                        <p class="text-sm text-gray-400">
+                                            ${titleObj.explicacao || ''}
+                                        </p>
+                                    </div>
                                     <div class="flex items-center ml-4">
                                         ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">Qualidade ${titleObj.pontuacao}/10</span>` : ''}
                                         ${impactScore > 0 ? `<span class="ml-2 text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${impactColor}">🔥 Impacto ${impactScore}/10</span>` : ''}
