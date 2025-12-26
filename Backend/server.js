@@ -221,6 +221,65 @@ app.use(express.static(__dirname, {
     }
 }));
 
+// Servir arquivos estáticos da landing page
+const landingDistPath = path.join(__dirname, 'landing-dist');
+if (fs.existsSync(landingDistPath)) {
+    app.use(express.static(landingDistPath, {
+        setHeaders: (res, path) => {
+            if (path.endsWith('.html')) {
+                res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+                res.setHeader('Pragma', 'no-cache');
+                res.setHeader('Expires', '0');
+            }
+        }
+    }));
+}
+
+// Middleware para detectar host e definir contexto (landing ou app)
+app.use((req, res, next) => {
+    const host = req.get('host') || req.hostname || '';
+    
+    // Detectar se é subdomínio app (produção)
+    const isAppSubdomainProd = host.includes('app.canaisdarks.com.br') || 
+                               (host.includes('canaisdarks.com.br') && host.startsWith('app.'));
+    
+    // Detectar se é domínio principal (produção) - landing page
+    const isLandingDomainProd = host === 'canaisdarks.com.br' || 
+                                (host.includes('canaisdarks.com.br') && !host.startsWith('app.'));
+    
+    // Em desenvolvimento: usar query parameter ou header
+    const isDev = process.env.NODE_ENV !== 'production' && 
+                  (host === 'localhost' || host.includes('127.0.0.1') || host.includes('localhost:'));
+    const isAppSubdomainDev = isDev && (req.query.subdomain === 'app' || req.get('x-subdomain') === 'app');
+    const isLandingDomainDev = isDev && !isAppSubdomainDev;
+    
+    req.isAppSubdomain = isAppSubdomainProd || isAppSubdomainDev;
+    req.isLandingDomain = isLandingDomainProd || isLandingDomainDev;
+    
+    next();
+});
+
+// Middleware para proteger arquivos HTML da aplicação (só no subdomínio app)
+// Arquivos da aplicação: dashboard.html, la-casa-dark-core-auth.html, etc.
+app.use((req, res, next) => {
+    const appHtmlFiles = ['dashboard.html', 'la-casa-dark-core-auth.html', 'privacy.html', 'terms.html'];
+    const isAppHtmlFile = appHtmlFiles.some(file => req.path.endsWith(file) || req.path === '/' + file);
+    
+    // Se for um arquivo HTML da aplicação e não estiver no subdomínio app, bloquear
+    if (isAppHtmlFile && !req.isAppSubdomain && req.path !== '/politica-de-privacidade' && req.path !== '/termos-de-uso') {
+        // Redirecionar para landing page ou retornar 404
+        if (req.path === '/' || req.path === '/la-casa-dark-core-auth.html') {
+            const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
+            if (fs.existsSync(landingIndexPath)) {
+                return res.sendFile(landingIndexPath);
+            }
+        }
+        return res.status(404).send('Not found');
+    }
+    
+    next();
+});
+
 // Middleware para garantir que todas as respostas sejam JSON válido
 app.use((req, res, next) => {
     // Interceptar res.json para garantir formato válido
@@ -248,23 +307,60 @@ app.use((err, req, res, next) => {
     }
 });
 
-// Rota para redirecionar o acesso direto ao arquivo de autenticação
+// Rota para redirecionar o acesso direto ao arquivo de autenticação (apenas no app)
 app.get('/la-casa-dark-core-auth.html', (req, res) => {
-    res.redirect('/');
+    if (req.isAppSubdomain) {
+        res.redirect('/');
+    } else {
+        res.status(404).send('Not found');
+    }
 });
 
-// Rota principal para servir a página de autenticação
+// Rota principal - Landing page ou App conforme o host
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
+    if (req.isAppSubdomain) {
+        // Subdomínio app: servir página de autenticação da aplicação
+        res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
+    } else {
+        // Domínio principal: servir landing page React
+        const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
+        if (fs.existsSync(landingIndexPath)) {
+            res.sendFile(landingIndexPath);
+        } else {
+            // Fallback: se não tiver landing page, servir app (para desenvolvimento)
+            res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
+        }
+    }
 });
 
-// Páginas legais (domínio principal)
+// Páginas legais - funcionam em ambos os domínios
+// No domínio principal, a landing page já tem essas rotas, mas mantemos aqui como fallback
 app.get('/politica-de-privacidade', (req, res) => {
-    res.sendFile(path.join(__dirname, 'privacy.html'));
+    if (req.isLandingDomain) {
+        // Se for landing page, deixar o React Router lidar (SPA)
+        const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
+        if (fs.existsSync(landingIndexPath)) {
+            res.sendFile(landingIndexPath);
+        } else {
+            res.sendFile(path.join(__dirname, 'privacy.html'));
+        }
+    } else {
+        res.sendFile(path.join(__dirname, 'privacy.html'));
+    }
 });
 
 app.get('/termos-de-uso', (req, res) => {
-    res.sendFile(path.join(__dirname, 'terms.html'));
+    if (req.isLandingDomain) {
+        // Se for landing page, deixar o React Router lidar (SPA)
+        const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
+        if (fs.existsSync(landingIndexPath)) {
+            res.sendFile(landingIndexPath);
+        } else {
+            res.sendFile(path.join(__dirname, 'terms.html'));
+        }
+    } else {
+        res.sendFile(path.join(__dirname, 'terms.html'));
+    }
 });
 
 // Rota para service worker (deve ser servido com tipo MIME correto)
@@ -279,6 +375,30 @@ app.get('/manifest.json', (req, res) => {
     res.sendFile(path.join(__dirname, 'manifest.json'));
 });
 
+// Rota catch-all para landing page (SPA) - deve vir ANTES das rotas de API
+// Isso permite que o React Router funcione corretamente
+app.get('*', (req, res, next) => {
+    // Se for uma rota de API, passar para o próximo middleware
+    if (req.path.startsWith('/api/')) {
+        return next();
+    }
+    
+    // Se for arquivo estático (assets, imagens, etc.), deixar o express.static lidar
+    if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|json)$/)) {
+        return next();
+    }
+    
+    // Se for domínio da landing page e não for subdomínio app, servir index.html da landing
+    if (req.isLandingDomain && !req.isAppSubdomain) {
+        const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
+        if (fs.existsSync(landingIndexPath)) {
+            return res.sendFile(landingIndexPath);
+        }
+    }
+    
+    // Para outros casos, passar para o próximo middleware
+    next();
+});
 
 // --- FUNÇÕES AUXILIARES DE ENCRIPTAÇÃO ---
 function encrypt(text) {
