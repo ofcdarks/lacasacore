@@ -8,6 +8,7 @@ const sqlite3 = require('sqlite3');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs'); // Importando o módulo File System
+const https = require('https'); // Para suporte HTTPS
 require('dotenv').config(); // Carrega as variáveis do ficheiro .env
 
 // Usar @distube/ytdl-core diretamente do GitHub (master branch) - versão mais atualizada
@@ -66,6 +67,10 @@ console.log(`[Sistema] FFprobe configurado: ${ffprobeInstaller.path}`);
 const app = express();
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'seu-segredo-jwt-super-secreto-trocar-em-prod';
+
+// Configurar trust proxy para reconhecer corretamente o host quando há proxy reverso (Nginx, Caddy, etc)
+// Isso é importante para que req.hostname e req.get('host') funcionem corretamente
+app.set('trust proxy', true);
 
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'abc123def456ghi789jkl012mno345pqr'; // 32 caracteres
 const ALGORITHM = 'aes-256-cbc';
@@ -238,23 +243,41 @@ if (fs.existsSync(landingDistPath)) {
 // Middleware para detectar host e definir contexto (landing ou app)
 app.use((req, res, next) => {
     const host = req.get('host') || req.hostname || '';
+    const hostname = req.hostname || '';
+    
+    // Normalizar host (remover porta se existir)
+    const hostWithoutPort = host.split(':')[0].toLowerCase();
+    const hostnameLower = hostname.toLowerCase();
     
     // Detectar se é subdomínio app (produção)
-    const isAppSubdomainProd = host.includes('app.canaisdarks.com.br') || 
-                               (host.includes('canaisdarks.com.br') && host.startsWith('app.'));
+    // Verifica se começa com "app." ou contém "app.canaisdarks.com.br"
+    const isAppSubdomainProd = hostWithoutPort === 'app.canaisdarks.com.br' ||
+                               hostnameLower === 'app.canaisdarks.com.br' ||
+                               hostWithoutPort.startsWith('app.') ||
+                               hostnameLower.startsWith('app.');
     
     // Detectar se é domínio principal (produção) - landing page
-    const isLandingDomainProd = host === 'canaisdarks.com.br' || 
-                                (host.includes('canaisdarks.com.br') && !host.startsWith('app.'));
+    // Deve ser exatamente "canaisdarks.com.br" (sem "app.")
+    const isLandingDomainProd = (hostWithoutPort === 'canaisdarks.com.br' || 
+                                 hostnameLower === 'canaisdarks.com.br') && 
+                                 !isAppSubdomainProd;
     
     // Em desenvolvimento: usar query parameter ou header
     const isDev = process.env.NODE_ENV !== 'production' && 
-                  (host === 'localhost' || host.includes('127.0.0.1') || host.includes('localhost:'));
+                  (hostWithoutPort === 'localhost' || 
+                   hostWithoutPort.includes('127.0.0.1') || 
+                   hostnameLower === 'localhost' ||
+                   hostnameLower.includes('127.0.0.1'));
     const isAppSubdomainDev = isDev && (req.query.subdomain === 'app' || req.get('x-subdomain') === 'app');
     const isLandingDomainDev = isDev && !isAppSubdomainDev;
     
     req.isAppSubdomain = isAppSubdomainProd || isAppSubdomainDev;
     req.isLandingDomain = isLandingDomainProd || isLandingDomainDev;
+    
+    // Debug log (apenas em desenvolvimento)
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Host Detection] host="${host}", hostname="${hostname}", isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+    }
     
     next();
 });
@@ -318,9 +341,20 @@ app.get('/la-casa-dark-core-auth.html', (req, res) => {
 
 // Rota principal - Landing page ou App conforme o host
 app.get('/', (req, res) => {
+    // Debug log
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Route /] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}, host="${req.get('host')}", hostname="${req.hostname}"`);
+    }
+    
     if (req.isAppSubdomain) {
         // Subdomínio app: servir página de autenticação da aplicação
-        res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
+        const authPath = path.join(__dirname, 'la-casa-dark-core-auth.html');
+        if (fs.existsSync(authPath)) {
+            res.sendFile(authPath);
+        } else {
+            console.error('[ERROR] Arquivo la-casa-dark-core-auth.html não encontrado!');
+            res.status(500).send('Arquivo de autenticação não encontrado');
+        }
     } else {
         // Domínio principal: servir landing page React
         const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
@@ -328,6 +362,7 @@ app.get('/', (req, res) => {
             res.sendFile(landingIndexPath);
         } else {
             // Fallback: se não tiver landing page, servir app (para desenvolvimento)
+            console.warn('[WARN] Landing page não encontrada, servindo app como fallback');
             res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
         }
     }
@@ -38417,10 +38452,40 @@ function startServer() {
     // Marcar como iniciado ANTES de tentar iniciar (previne race condition)
     serverStarted = true;
     
-    // Iniciar servidor
+    // Verificar se há certificados SSL configurados
+    const SSL_CERT_PATH = process.env.SSL_CERT_PATH || path.join(__dirname, 'ssl', 'cert.pem');
+    const SSL_KEY_PATH = process.env.SSL_KEY_PATH || path.join(__dirname, 'ssl', 'key.pem');
+    const HTTPS_PORT = process.env.HTTPS_PORT || 443;
+    const USE_HTTPS = process.env.USE_HTTPS === 'true' || process.env.USE_HTTPS === '1';
+    
+    let hasSSLCerts = false;
+    if (USE_HTTPS) {
+        try {
+            if (fs.existsSync(SSL_CERT_PATH) && fs.existsSync(SSL_KEY_PATH)) {
+                hasSSLCerts = true;
+                console.log('✅ Certificados SSL encontrados. HTTPS será habilitado.');
+            } else {
+                console.warn('⚠️  USE_HTTPS=true mas certificados não encontrados.');
+                console.warn(`   Certificado esperado em: ${SSL_CERT_PATH}`);
+                console.warn(`   Chave esperada em: ${SSL_KEY_PATH}`);
+                console.warn('   Servidor iniciará apenas em HTTP.');
+            }
+        } catch (err) {
+            console.warn('⚠️  Erro ao verificar certificados SSL:', err.message);
+        }
+    }
+    
+    // Iniciar servidor HTTP
     try {
         const server = app.listen(PORT, () => {
-            console.log(`🚀 Servidor "La Casa Dark Core" a rodar na porta ${PORT}`);
+            console.log(`🚀 Servidor "La Casa Dark Core" a rodar na porta ${PORT} (HTTP)`);
+            if (hasSSLCerts) {
+                console.log(`🔒 HTTPS também disponível na porta ${HTTPS_PORT}`);
+            } else {
+                console.log(`💡 Para habilitar HTTPS, configure USE_HTTPS=true e coloque os certificados em:`);
+                console.log(`   - Certificado: ${SSL_CERT_PATH}`);
+                console.log(`   - Chave: ${SSL_KEY_PATH}`);
+            }
             if (!db) {
                 console.log(`⚠️  Banco de dados ainda não está pronto. Algumas funcionalidades podem não estar disponíveis.`);
             } else {
@@ -38454,6 +38519,41 @@ function startServer() {
             // Resetar flag em caso de erro para permitir nova tentativa
             serverStarted = false;
         });
+        
+        // Iniciar servidor HTTPS se certificados estiverem disponíveis
+        if (hasSSLCerts) {
+            try {
+                const httpsOptions = {
+                    cert: fs.readFileSync(SSL_CERT_PATH),
+                    key: fs.readFileSync(SSL_KEY_PATH)
+                };
+                
+                const httpsServer = https.createServer(httpsOptions, app);
+                httpsServer.listen(HTTPS_PORT, () => {
+                    console.log(`🔒 Servidor HTTPS rodando na porta ${HTTPS_PORT}`);
+                });
+                
+                httpsServer.on('error', (err) => {
+                    if (err.code === 'EADDRINUSE') {
+                        console.error(`❌ Erro: A porta ${HTTPS_PORT} (HTTPS) já está em uso.`);
+                    } else {
+                        console.error('❌ Erro ao iniciar servidor HTTPS:', err.message);
+                    }
+                });
+            } catch (httpsErr) {
+                console.error('❌ Erro ao iniciar servidor HTTPS:', httpsErr.message);
+            }
+        }
+        
+        // Middleware para redirecionar HTTP para HTTPS em produção (se HTTPS estiver habilitado)
+        if (hasSSLCerts && process.env.NODE_ENV === 'production') {
+            app.use((req, res, next) => {
+                if (!req.secure && req.get('x-forwarded-proto') !== 'https') {
+                    return res.redirect(`https://${req.get('host')}${req.url}`);
+                }
+                next();
+            });
+        }
     } catch (err) {
         console.error('❌ Erro ao iniciar servidor:', err.message);
         serverStarted = false;
