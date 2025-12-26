@@ -65,7 +65,7 @@ console.log(`[Sistema] FFprobe configurado: ${ffprobeInstaller.path}`);
 
 // --- CONFIGURAÇÃO ---
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'seu-segredo-jwt-super-secreto-trocar-em-prod';
 
 // Configurar trust proxy para reconhecer corretamente o host quando há proxy reverso (Nginx, Caddy, etc)
@@ -215,6 +215,29 @@ app.use((req, res, next) => {
 }); // Aumentar limite para suportar URLs de imagens grandes
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Rota de debug para ver todos os headers (DEVE estar ANTES dos middlewares estáticos)
+app.get('/debug-headers', (req, res) => {
+    const headers = {
+        host: req.get('host'),
+        hostname: req.hostname,
+        'x-forwarded-host': req.get('x-forwarded-host'),
+        'x-forwarded-for': req.get('x-forwarded-for'),
+        'x-forwarded-proto': req.get('x-forwarded-proto'),
+        referer: req.get('referer'),
+        origin: req.get('origin'),
+        'user-agent': req.get('user-agent'),
+        url: req.url,
+        originalUrl: req.originalUrl,
+        protocol: req.protocol,
+        secure: req.secure,
+        query: req.query,
+        isAppSubdomain: req.isAppSubdomain,
+        isLandingDomain: req.isLandingDomain,
+        allHeaders: req.headers
+    };
+    res.json(headers);
+});
+
 // Desabilitar cache para arquivos HTML durante desenvolvimento
 app.use(express.static(__dirname, {
     setHeaders: (res, path) => {
@@ -246,18 +269,43 @@ app.use((req, res, next) => {
     const hostHeader = req.get('host') || '';
     const hostname = req.hostname || '';
     const xForwardedHost = req.get('x-forwarded-host') || '';
+    const referer = req.get('referer') || '';
+    const origin = req.get('origin') || '';
     const originalUrl = req.originalUrl || req.url || '';
     
+    // Verificar também em referer e origin (fallback se proxy não passar Host corretamente)
+    let refererHost = '';
+    let originHost = '';
+    try {
+        if (referer) refererHost = new URL(referer).hostname;
+    } catch (e) {
+        // Ignorar erros de URL inválida no referer
+    }
+    try {
+        if (origin) originHost = new URL(origin).hostname;
+    } catch (e) {
+        // Ignorar erros de URL inválida no origin
+    }
+    
     // Priorizar x-forwarded-host se existir (proxy reverso)
-    const host = xForwardedHost || hostHeader || hostname || '';
+    // Se não tiver, tentar referer/origin, depois hostHeader, depois hostname
+    let host = xForwardedHost || hostHeader || hostname || '';
+    
+    // Se host não contém "app." mas referer ou origin contém, usar esses
+    if (!host.includes('app.') && (refererHost.includes('app.') || originHost.includes('app.'))) {
+        host = refererHost.includes('app.') ? refererHost : originHost;
+    }
     
     // Normalizar host (remover porta se existir)
     const hostWithoutPort = host.split(':')[0].toLowerCase();
     const hostnameLower = hostname.toLowerCase();
+    const refererHostLower = refererHost.toLowerCase();
+    const originHostLower = originHost.toLowerCase();
     
     // Debug: logar informações do host (apenas primeira requisição para não poluir logs)
     if (!req._hostLogged) {
         console.log(`[Host Detection] host="${host}", hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", hostWithoutPort="${hostWithoutPort}"`);
+        console.log(`[Host Detection] referer="${referer}", origin="${origin}", refererHost="${refererHost}", originHost="${originHost}"`);
         req._hostLogged = true;
     }
     
@@ -267,6 +315,7 @@ app.use((req, res, next) => {
     const hostLower = host.toLowerCase();
     const xForwardedHostLower = xForwardedHost.toLowerCase();
     
+    // Verificar em todas as fontes possíveis
     const isAppSubdomainProd = 
         hostWithoutPort === 'app.canaisdarks.com.br' ||
         hostnameLower === 'app.canaisdarks.com.br' ||
@@ -276,7 +325,35 @@ app.use((req, res, next) => {
         (hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br')) ||
         (hostnameLower.startsWith('app.') && hostnameLower.includes('canaisdarks.com.br')) ||
         xForwardedHostLower.includes('app.canaisdarks.com.br') ||
-        hostHeader.toLowerCase().includes('app.canaisdarks.com.br');
+        hostHeader.toLowerCase().includes('app.canaisdarks.com.br') ||
+        refererHostLower.includes('app.canaisdarks.com.br') ||
+        originHostLower.includes('app.canaisdarks.com.br') ||
+        referer.toLowerCase().includes('app.canaisdarks.com.br') ||
+        origin.toLowerCase().includes('app.canaisdarks.com.br');
+    
+    // PRIORIDADE MÁXIMA: Query parameter force (sobrescreve tudo)
+    const forceApp = req.query.force === 'app' || req.query.subdomain === 'app';
+    const forceLanding = req.query.force === 'landing';
+    
+    // Se forceApp estiver presente, forçar app subdomain (ignorar detecção de host)
+    if (forceApp) {
+        req.isAppSubdomain = true;
+        req.isLandingDomain = false;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Query parameter force=app detectado - FORÇANDO app subdomain`);
+        }
+        return next();
+    }
+    
+    // Se forceLanding estiver presente, forçar landing (ignorar detecção de host)
+    if (forceLanding) {
+        req.isAppSubdomain = false;
+        req.isLandingDomain = true;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Query parameter force=landing detectado - FORÇANDO landing domain`);
+        }
+        return next();
+    }
     
     // Detectar se é domínio principal (produção) - landing page
     // Deve ser exatamente "canaisdarks.com.br" ou "www.canaisdarks.com.br" (sem "app.")
@@ -304,7 +381,7 @@ app.use((req, res, next) => {
     
     // Debug: logar resultado (apenas primeira vez)
     if (!req._hostResultLogged) {
-        console.log(`[Host Detection Result] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+        console.log(`[Host Detection Result] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}, forceApp=${forceApp}, forceLanding=${forceLanding}`);
         req._hostResultLogged = true;
     }
     
@@ -370,29 +447,22 @@ app.get('/la-casa-dark-core-auth.html', (req, res) => {
 
 // Rota principal - Landing page ou App conforme o host
 app.get('/', (req, res) => {
-    // Obter host novamente para verificação adicional
-    const hostHeader = req.get('host') || '';
-    const hostname = req.hostname || '';
-    const xForwardedHost = req.get('x-forwarded-host') || '';
-    const host = xForwardedHost || hostHeader || hostname || '';
-    const hostLower = host.toLowerCase();
-    const hostWithoutPort = hostLower.split(':')[0];
-    
-    // Verificação adicional direta: se contém "app.canaisdarks.com.br", forçar isAppSubdomain
-    const isAppSubdomainDirect = hostWithoutPort.includes('app.canaisdarks.com.br') || 
-                                  hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br');
-    
-    // Usar detecção do middleware OU verificação direta
-    const shouldServeApp = req.isAppSubdomain || isAppSubdomainDirect;
+    // O middleware já definiu req.isAppSubdomain e req.isLandingDomain
+    // Incluindo verificação de query parameter force=app
     
     // Log apenas na primeira requisição para debug
     if (!req._routeLogged) {
-        console.log(`[Route /] host="${host}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", hostWithoutPort="${hostWithoutPort}"`);
-        console.log(`[Route /] isAppSubdomain=${req.isAppSubdomain}, isAppSubdomainDirect=${isAppSubdomainDirect}, shouldServeApp=${shouldServeApp}`);
+        const hostHeader = req.get('host') || '';
+        const hostname = req.hostname || '';
+        const xForwardedHost = req.get('x-forwarded-host') || '';
+        const forceApp = req.query.force === 'app' || req.query.subdomain === 'app';
+        console.log(`[Route /] hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}"`);
+        console.log(`[Route /] query.force="${req.query.force}", query.subdomain="${req.query.subdomain}", forceApp=${forceApp}`);
+        console.log(`[Route /] req.isAppSubdomain=${req.isAppSubdomain}, req.isLandingDomain=${req.isLandingDomain}`);
         req._routeLogged = true;
     }
     
-    if (shouldServeApp) {
+    if (req.isAppSubdomain) {
         // Subdomínio app: servir página de autenticação da aplicação
         const authPath = path.join(__dirname, 'la-casa-dark-core-auth.html');
         if (fs.existsSync(authPath)) {
@@ -461,6 +531,11 @@ app.get('/manifest.json', (req, res) => {
 // Rota catch-all para landing page (SPA) - deve vir ANTES das rotas de API
 // Isso permite que o React Router funcione corretamente
 app.get('*', (req, res, next) => {
+    // Se for rota de debug, passar (já foi tratada antes)
+    if (req.path === '/debug-headers') {
+        return next();
+    }
+    
     // Se for uma rota de API, passar para o próximo middleware
     if (req.path.startsWith('/api/')) {
         return next();
