@@ -242,25 +242,45 @@ if (fs.existsSync(landingDistPath)) {
 
 // Middleware para detectar host e definir contexto (landing ou app)
 app.use((req, res, next) => {
-    const host = req.get('host') || req.hostname || '';
+    // Obter host de múltiplas fontes (importante para proxy reverso como EasyPanel)
+    const hostHeader = req.get('host') || '';
     const hostname = req.hostname || '';
+    const xForwardedHost = req.get('x-forwarded-host') || '';
+    const originalUrl = req.originalUrl || req.url || '';
+    
+    // Priorizar x-forwarded-host se existir (proxy reverso)
+    const host = xForwardedHost || hostHeader || hostname || '';
     
     // Normalizar host (remover porta se existir)
     const hostWithoutPort = host.split(':')[0].toLowerCase();
     const hostnameLower = hostname.toLowerCase();
     
+    // Debug: logar informações do host (apenas primeira requisição para não poluir logs)
+    if (!req._hostLogged) {
+        console.log(`[Host Detection] host="${host}", hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", hostWithoutPort="${hostWithoutPort}"`);
+        req._hostLogged = true;
+    }
+    
     // Detectar se é subdomínio app (produção)
-    // Verifica se começa com "app." ou contém "app.canaisdarks.com.br"
-    const isAppSubdomainProd = hostWithoutPort === 'app.canaisdarks.com.br' ||
-                               hostnameLower === 'app.canaisdarks.com.br' ||
-                               hostWithoutPort.startsWith('app.') ||
-                               hostnameLower.startsWith('app.');
+    // Verifica múltiplas formas de detectar app.canaisdarks.com.br
+    const isAppSubdomainProd = 
+        hostWithoutPort === 'app.canaisdarks.com.br' ||
+        hostnameLower === 'app.canaisdarks.com.br' ||
+        hostWithoutPort.includes('app.canaisdarks.com.br') ||
+        hostnameLower.includes('app.canaisdarks.com.br') ||
+        (hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br')) ||
+        (hostnameLower.startsWith('app.') && hostnameLower.includes('canaisdarks.com.br')) ||
+        xForwardedHost.toLowerCase().includes('app.canaisdarks.com.br');
     
     // Detectar se é domínio principal (produção) - landing page
-    // Deve ser exatamente "canaisdarks.com.br" (sem "app.")
-    const isLandingDomainProd = (hostWithoutPort === 'canaisdarks.com.br' || 
-                                 hostnameLower === 'canaisdarks.com.br') && 
-                                 !isAppSubdomainProd;
+    // Deve ser exatamente "canaisdarks.com.br" ou "www.canaisdarks.com.br" (sem "app.")
+    const isLandingDomainProd = 
+        (hostWithoutPort === 'canaisdarks.com.br' || 
+         hostnameLower === 'canaisdarks.com.br' ||
+         hostWithoutPort === 'www.canaisdarks.com.br' ||
+         hostnameLower === 'www.canaisdarks.com.br' ||
+         (hostWithoutPort.includes('canaisdarks.com.br') && !hostWithoutPort.includes('app.'))) && 
+        !isAppSubdomainProd;
     
     // Em desenvolvimento: usar query parameter ou header
     const isDev = process.env.NODE_ENV !== 'production' && 
@@ -274,9 +294,10 @@ app.use((req, res, next) => {
     req.isAppSubdomain = isAppSubdomainProd || isAppSubdomainDev;
     req.isLandingDomain = isLandingDomainProd || isLandingDomainDev;
     
-    // Debug log (apenas em desenvolvimento)
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`[Host Detection] host="${host}", hostname="${hostname}", isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+    // Debug: logar resultado (apenas primeira vez)
+    if (!req._hostResultLogged) {
+        console.log(`[Host Detection Result] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+        req._hostResultLogged = true;
     }
     
     next();
@@ -341,9 +362,13 @@ app.get('/la-casa-dark-core-auth.html', (req, res) => {
 
 // Rota principal - Landing page ou App conforme o host
 app.get('/', (req, res) => {
-    // Debug log
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`[Route /] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}, host="${req.get('host')}", hostname="${req.hostname}"`);
+    // Log apenas na primeira requisição para debug
+    if (!req._routeLogged) {
+        const host = req.get('host') || '';
+        const hostname = req.hostname || '';
+        const xForwardedHost = req.get('x-forwarded-host') || '';
+        console.log(`[Route /] host="${host}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+        req._routeLogged = true;
     }
     
     if (req.isAppSubdomain) {
@@ -5813,7 +5838,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             const hasPrompt1 = thumbnailStylePromptsInfo.some(c => c.name === 'prompt_1');
             const hasStandardPrompt = thumbnailStylePromptsInfo.some(c => c.name === 'standard_prompt');
             if (!hasPrompt1 && hasStandardPrompt) {
-                console.log('MIGRATION: Migrando dados de standard_prompt para prompt_1...');
+                console.log('MIGRATION: Migrando dados de standard_prompt para prompt_1');
                 await db.exec(`UPDATE thumbnail_style_prompts SET prompt_1 = standard_prompt, prompt_selected = 1 WHERE prompt_1 IS NULL`);
             }
         } catch (err) {
