@@ -263,24 +263,32 @@ app.use((req, res, next) => {
     
     // Detectar se é subdomínio app (produção)
     // Verifica múltiplas formas de detectar app.canaisdarks.com.br
+    // PRIORIDADE: Verificar primeiro se contém "app." antes de verificar domínio principal
+    const hostLower = host.toLowerCase();
+    const xForwardedHostLower = xForwardedHost.toLowerCase();
+    
     const isAppSubdomainProd = 
         hostWithoutPort === 'app.canaisdarks.com.br' ||
         hostnameLower === 'app.canaisdarks.com.br' ||
+        hostLower.includes('app.canaisdarks.com.br') ||
         hostWithoutPort.includes('app.canaisdarks.com.br') ||
         hostnameLower.includes('app.canaisdarks.com.br') ||
         (hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br')) ||
         (hostnameLower.startsWith('app.') && hostnameLower.includes('canaisdarks.com.br')) ||
-        xForwardedHost.toLowerCase().includes('app.canaisdarks.com.br');
+        xForwardedHostLower.includes('app.canaisdarks.com.br') ||
+        hostHeader.toLowerCase().includes('app.canaisdarks.com.br');
     
     // Detectar se é domínio principal (produção) - landing page
     // Deve ser exatamente "canaisdarks.com.br" ou "www.canaisdarks.com.br" (sem "app.")
+    // IMPORTANTE: Só é landing se NÃO for app subdomain
     const isLandingDomainProd = 
-        (hostWithoutPort === 'canaisdarks.com.br' || 
-         hostnameLower === 'canaisdarks.com.br' ||
-         hostWithoutPort === 'www.canaisdarks.com.br' ||
-         hostnameLower === 'www.canaisdarks.com.br' ||
-         (hostWithoutPort.includes('canaisdarks.com.br') && !hostWithoutPort.includes('app.'))) && 
-        !isAppSubdomainProd;
+        !isAppSubdomainProd && (
+            hostWithoutPort === 'canaisdarks.com.br' || 
+            hostnameLower === 'canaisdarks.com.br' ||
+            hostWithoutPort === 'www.canaisdarks.com.br' ||
+            hostnameLower === 'www.canaisdarks.com.br' ||
+            (hostWithoutPort.includes('canaisdarks.com.br') && !hostWithoutPort.includes('app.') && !hostWithoutPort.startsWith('app.'))
+        );
     
     // Em desenvolvimento: usar query parameter ou header
     const isDev = process.env.NODE_ENV !== 'production' && 
@@ -362,19 +370,33 @@ app.get('/la-casa-dark-core-auth.html', (req, res) => {
 
 // Rota principal - Landing page ou App conforme o host
 app.get('/', (req, res) => {
+    // Obter host novamente para verificação adicional
+    const hostHeader = req.get('host') || '';
+    const hostname = req.hostname || '';
+    const xForwardedHost = req.get('x-forwarded-host') || '';
+    const host = xForwardedHost || hostHeader || hostname || '';
+    const hostLower = host.toLowerCase();
+    const hostWithoutPort = hostLower.split(':')[0];
+    
+    // Verificação adicional direta: se contém "app.canaisdarks.com.br", forçar isAppSubdomain
+    const isAppSubdomainDirect = hostWithoutPort.includes('app.canaisdarks.com.br') || 
+                                  hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br');
+    
+    // Usar detecção do middleware OU verificação direta
+    const shouldServeApp = req.isAppSubdomain || isAppSubdomainDirect;
+    
     // Log apenas na primeira requisição para debug
     if (!req._routeLogged) {
-        const host = req.get('host') || '';
-        const hostname = req.hostname || '';
-        const xForwardedHost = req.get('x-forwarded-host') || '';
-        console.log(`[Route /] host="${host}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}`);
+        console.log(`[Route /] host="${host}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", hostWithoutPort="${hostWithoutPort}"`);
+        console.log(`[Route /] isAppSubdomain=${req.isAppSubdomain}, isAppSubdomainDirect=${isAppSubdomainDirect}, shouldServeApp=${shouldServeApp}`);
         req._routeLogged = true;
     }
     
-    if (req.isAppSubdomain) {
+    if (shouldServeApp) {
         // Subdomínio app: servir página de autenticação da aplicação
         const authPath = path.join(__dirname, 'la-casa-dark-core-auth.html');
         if (fs.existsSync(authPath)) {
+            console.log(`[Route /] ✅ Servindo página de login (app subdomain)`);
             res.sendFile(authPath);
         } else {
             console.error('[ERROR] Arquivo la-casa-dark-core-auth.html não encontrado!');
@@ -384,6 +406,7 @@ app.get('/', (req, res) => {
         // Domínio principal: servir landing page React
         const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
         if (fs.existsSync(landingIndexPath)) {
+            console.log(`[Route /] ✅ Servindo landing page (main domain)`);
             res.sendFile(landingIndexPath);
         } else {
             // Fallback: se não tiver landing page, servir app (para desenvolvimento)
