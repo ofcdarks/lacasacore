@@ -64,6 +64,48 @@
             100% { background-position: 0% 50%; }
         }
         
+        /* --- CARDS DE TÍTULOS PREMIUM --- */
+        #generated-titles-list li {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #generated-titles-list li::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.3), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        #generated-titles-list li:hover::before {
+            opacity: 1;
+        }
+        
+        .title-checkbox:checked {
+            background-color: #f59e0b;
+            border-color: #f59e0b;
+        }
+        
+        .title-checkbox:checked:hover {
+            background-color: #fbbf24;
+            border-color: #fbbf24;
+        }
+        
+        /* Badge animations */
+        #generated-titles-list .rounded-md {
+            transition: all 0.2s ease;
+        }
+        
+        #generated-titles-list .rounded-md:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        
         /* --- FORMULÁRIOS E INPUTS --- */
         select.styled-select {
             -webkit-appearance: none;
@@ -139,7 +181,7 @@
             color: #fecaca;
             font-weight: 600;
         }
-
+        
         /* --- ANIMAÇÕES PARA MODAL --- */
         @keyframes fadeOut {
             from { opacity: 1; }
@@ -1105,6 +1147,7 @@
                         <h3 class="text-sm font-medium text-gray-400 mb-1">Créditos Disponíveis</h3>
                         <p class="text-3xl font-bold text-white" id="stat-credits-balance">0.00</p>
                         <span class="absolute top-3 right-3 text-xs font-semibold text-amber-400 uppercase tracking-wider" id="stat-credits-status">ATIVO</span>
+                        <div id="additional-credits-badge-container" class="mt-2"></div>
                         <div class="mt-3 space-y-2">
                             <a href="javascript:void(0)" id="main-buy-credits-btn" class="block w-full px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-sm font-semibold rounded-lg transition duration-200 text-center cursor-pointer btn-credits-pulse">
                                 <i data-lucide="zap" class="w-4 h-4 inline-block mr-1"></i>
@@ -4378,7 +4421,15 @@
                                 <div id="add-credits-user-results" class="mt-2 hidden"></div>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-2">Quantidade de Créditos</label>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Quantidade de Créditos ou Pacote</label>
+                                <select id="add-credits-package-select" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 mb-2">
+                                    <option value="custom">Valor Personalizado</option>
+                                    <option value="1000">Pacote 1.000 Créditos</option>
+                                    <option value="2500">Pacote 2.500 Créditos</option>
+                                    <option value="5000">Pacote 5.000 Créditos</option>
+                                    <option value="10000">Pacote 10.000 Créditos</option>
+                                    <option value="20000">Pacote 20.000 Créditos</option>
+                                </select>
                                 <input type="number" id="add-credits-amount" step="0.01" min="0" class="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200" placeholder="Ex: 1000">
                             </div>
                             <div>
@@ -6057,6 +6108,11 @@ Equipe La Casa Dark Core</textarea>
                         </select>
                     </div>
                 </div>
+                <div>
+                    <label for="edit-user-tags" class="block text-sm font-medium mb-2">Tags (separadas por vírgula)</label>
+                    <input type="text" id="edit-user-tags" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: vip, beta, premium">
+                    <p class="text-xs text-gray-400 mt-1">Digite as tags separadas por vírgula. Ex: vip, beta, premium</p>
+                </div>
                 <div class="pt-4">
                     <button type="submit" id="btn-save-user" class="w-full py-3 px-4 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center space-x-2">
                         <span>Salvar Alterações</span>
@@ -7136,6 +7192,7 @@ Equipe La Casa Dark Core</textarea>
                 document.getElementById('edit-user-name').value = user.name;
                 document.getElementById('edit-user-email').value = user.email;
                 document.getElementById('edit-user-whatsapp').value = user.whatsapp || '';
+                document.getElementById('edit-user-tags').value = user.tags || '';
                 document.getElementById('edit-user-role').value = user.isAdmin ? 'admin' : 'user';
                 
                 const statusSelect = document.getElementById('edit-user-status');
@@ -7181,6 +7238,7 @@ Equipe La Casa Dark Core</textarea>
                     const userId = document.getElementById('edit-user-id').value;
                     const name = document.getElementById('edit-user-name').value;
                     const whatsapp = document.getElementById('edit-user-whatsapp').value;
+                    const tags = document.getElementById('edit-user-tags').value.trim();
                     const isAdmin = document.getElementById('edit-user-role').value === 'admin';
                     const status = document.getElementById('edit-user-status').value;
                     
@@ -7197,7 +7255,7 @@ Equipe La Casa Dark Core</textarea>
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${userToken}`
                             },
-                            body: JSON.stringify({ name, whatsapp, isAdmin, isApproved, isBlocked })
+                            body: JSON.stringify({ name, whatsapp, isAdmin, isApproved, isBlocked, tags: tags || null })
                         });
                         const data = await response.json();
                         if (!response.ok) throw new Error(data.msg || 'Erro ao atualizar utilizador.');
@@ -7472,7 +7530,7 @@ Equipe La Casa Dark Core</textarea>
                         }
 
                         const roleText = user.isAdmin ? 'Admin' : 'Utilizador';
-                        const tags = 'N/A'; // Placeholder for tags
+                        const tags = user.tags || 'N/A';
                         const whatsappLink = createWhatsAppLink(user.whatsapp);
                         
                         // Formatar plano
@@ -8589,19 +8647,52 @@ Equipe La Casa Dark Core</textarea>
                 }
             });
             
+            // Listener para mudança no select de pacotes
+            document.getElementById('add-credits-package-select')?.addEventListener('change', (e) => {
+                const packageSelect = e.target;
+                const amountInput = document.getElementById('add-credits-amount');
+                if (packageSelect.value === 'custom') {
+                    amountInput.disabled = false;
+                    amountInput.value = '';
+                    amountInput.placeholder = 'Ex: 1000';
+                } else {
+                    amountInput.disabled = true;
+                    amountInput.value = packageSelect.value;
+                }
+            });
+            
             document.getElementById('add-credits-btn')?.addEventListener('click', async () => {
                 if (!selectedUserIdForCredits) {
                     showMessage('admin-error-message', 'Selecione um usuário primeiro', true);
                     return;
                 }
                 
-                const amount = parseFloat(document.getElementById('add-credits-amount').value);
+                const packageSelect = document.getElementById('add-credits-package-select');
+                const packageValue = packageSelect?.value || 'custom';
+                let amount = parseFloat(document.getElementById('add-credits-amount').value);
                 const description = document.getElementById('add-credits-description').value;
                 
+                // Se selecionou um pacote, usar o valor do pacote
+                if (packageValue !== 'custom' && packageValue) {
+                    amount = parseFloat(packageValue);
+                }
+                
                 if (!amount || amount <= 0) {
-                    showMessage('admin-error-message', 'Digite uma quantidade válida', true);
+                    showMessage('admin-error-message', 'Selecione um pacote ou digite uma quantidade válida', true);
                     return;
                 }
+                
+                const packageNames = {
+                    '1000': 'Pacote 1.000 Créditos',
+                    '2500': 'Pacote 2.500 Créditos',
+                    '5000': 'Pacote 5.000 Créditos',
+                    '10000': 'Pacote 10.000 Créditos',
+                    '20000': 'Pacote 20.000 Créditos'
+                };
+                
+                const finalDescription = packageValue !== 'custom' && packageNames[packageValue] 
+                    ? `${packageNames[packageValue]} - ${description || 'Adicionado pelo administrador'}`
+                    : description || 'Créditos adicionados pelo administrador';
                 
                 try {
                     const response = await fetch(`${API_BASE}/api/admin/credits/add`, {
@@ -8613,7 +8704,7 @@ Equipe La Casa Dark Core</textarea>
                         body: JSON.stringify({
                             user_id: selectedUserIdForCredits,
                             amount: amount,
-                            description: description || 'Créditos adicionados pelo administrador'
+                            description: finalDescription
                         })
                     });
                     
@@ -8622,6 +8713,12 @@ Equipe La Casa Dark Core</textarea>
                         document.getElementById('add-credits-amount').value = '';
                         document.getElementById('add-credits-description').value = '';
                         document.getElementById('add-credits-user-search').value = '';
+                        const packageSelect = document.getElementById('add-credits-package-select');
+                        if (packageSelect) {
+                            packageSelect.value = 'custom';
+                            document.getElementById('add-credits-amount').disabled = false;
+                            document.getElementById('add-credits-amount').placeholder = 'Ex: 1000';
+                        }
                         selectedUserIdForCredits = null;
                         loadAdminCreditsTable();
                     } else {
@@ -8660,7 +8757,7 @@ Equipe La Casa Dark Core</textarea>
                                         <td class="p-3"><input type="checkbox" class="user-checkbox bg-gray-700 border-gray-600 rounded" data-user-id="${user.id}"></td>
                                         <td class="p-3 text-sm text-gray-200">${user.email}</td>
                                         <td class="p-3 text-sm text-gray-200">${user.whatsapp || 'N/A'}</td>
-                                        <td class="p-3 text-sm text-gray-200">N/A</td>
+                                        <td class="p-3 text-sm text-gray-200">${user.tags || 'N/A'}</td>
                                         <td class="p-3 text-sm font-bold text-yellow-400">${parseFloat(user.balance || 0).toFixed(2)}</td>
                                         <td class="p-3 text-sm text-gray-400">${lastUpdated}</td>
                                         <td class="p-3">
@@ -13109,7 +13206,7 @@ Equipe La Casa Dark Core</textarea>
                         </div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${formatModelNameForDisplay(data.modelUsed || 'GPT-4o')})`}</h3>
+                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${window.formatModelNameForDisplay ? window.formatModelNameForDisplay(data.modelUsed || 'GPT-4o') : (() => { const m = String(data.modelUsed || 'GPT-4o').toLowerCase(); if (m.includes('gemini')) return 'Gemini'; if (m.includes('claude')) return 'Claude'; if (m.includes('openai') || m.includes('gpt')) return 'GPT-4o'; return data.modelUsed || 'GPT-4o'; })()})`}</h3>
                             <button type="button" id="btn-generate-more-titles" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                 <i data-lucide="refresh-cw" class="w-4 h-4 mr-1.5"></i>
                                 <span>Gerar Mais Títulos</span>
@@ -13118,7 +13215,7 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     `;
                     
-                    let titlesHtml = '<ul id="generated-titles-list" class="space-y-4">';
+                    let titlesHtml = '<ul id="generated-titles-list" class="space-y-5">';
                     
                     // Verificar se thumbTitleSelect existe antes de usar (pode não existir quando carregado do histórico)
                     if (thumbTitleSelect) {
@@ -13137,39 +13234,137 @@ Equipe La Casa Dark Core</textarea>
                         else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
                         else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
                         
+                        // Badge de impacto (impact_score)
+                        let impactColor = 'bg-gray-600 text-gray-200';
+                        const impactScore = titleObj.impact_score || 0;
+                        if (impactScore >= 8) impactColor = 'bg-purple-600 text-purple-100';
+                        else if (impactScore >= 6) impactColor = 'bg-blue-600 text-blue-100';
+                        else if (impactScore >= 4) impactColor = 'bg-orange-600 text-orange-100';
+                        else if (impactScore > 0) impactColor = 'bg-gray-600 text-gray-200';
+                        
                         // Remover prefixo do modelo (ex: "[Claude] Título" -> "Título")
-                        let cleanTitle = titleObj.titulo.replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '');
+                        // Também remove badges de modelo que possam estar no início do título
+                        let cleanTitle = titleObj.titulo
+                            .replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '')
+                            .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
+                            .trim();
                         const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
                         const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
                         const isCheckedLabelClass = titleObj.is_checked ? 'line-through' : '';
                         
-                        // Formatar nome do modelo para exibição
+                        // Formatar nome do modelo para exibição e obter cor
                         const formatModelNameForDisplay = (model) => {
-                            if (!model) return '';
+                            if (!model) return { name: '', color: 'amber' };
                             const m = String(model).toLowerCase();
-                            if (m.includes('gemini')) return 'Gemini';
-                            if (m.includes('claude')) return 'Claude';
-                            if (m.includes('openai') || m.includes('gpt')) return 'GPT-4o';
-                            return model;
+                            if (m.includes('gemini')) return { name: 'Gemini', color: 'blue' };
+                            if (m.includes('claude')) return { name: 'Claude', color: 'orange' };
+                            if (m.includes('openai') || m.includes('gpt')) return { name: 'GPT-4o', color: 'green' };
+                            return { name: model, color: 'amber' };
                         };
+                        
+                        const modelInfo = formatModelNameForDisplay(titleObj.model);
+                        const modelBadgeColors = {
+                            blue: 'text-blue-400 bg-gradient-to-r from-blue-500/20 via-blue-500/15 to-blue-500/10 border-blue-500/30 shadow-blue-500/10',
+                            orange: 'text-orange-400 bg-gradient-to-r from-orange-500/20 via-orange-500/15 to-orange-500/10 border-orange-500/30 shadow-orange-500/10',
+                            green: 'text-green-400 bg-gradient-to-r from-green-500/20 via-green-500/15 to-green-500/10 border-green-500/30 shadow-green-500/10',
+                            amber: 'text-amber-400 bg-gradient-to-r from-amber-500/20 via-amber-500/15 to-amber-500/10 border-amber-500/30 shadow-amber-500/10'
+                        };
+                        const modelBadgeClass = modelBadgeColors[modelInfo.color] || modelBadgeColors.amber;
+
+                        // Escapar fórmula/estrutura para HTML
+                        const escapedFormula = (titleObj.formula || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>');
 
                         titlesHtml += `
-                            <li class="bg-gray-800 p-4 rounded-lg border border-gray-700 transition-opacity ${isCheckedClass}">
-                                <div class="flex items-center space-x-3 flex-1">
-                                    <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700 border-gray-600 rounded text-amber-600 focus:ring-amber-500" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
-                                    <label for="check-${index}" class="text-gray-100 font-medium transition-all ${isCheckedLabelClass}">
-                                        ${titleObj.model ? `<span class="text-amber-500 font-semibold text-xs px-2 py-0.5 bg-amber-500/20 rounded border border-amber-500/30">${formatModelNameForDisplay(titleObj.model)}</span> ` : ''}${cleanTitle}
-                                    </label>
-                                </div>
-                                <div class="flex items-center justify-between mt-2 pl-8">
-                                    <p class="text-sm text-gray-400 flex-1">
-                                        ${titleObj.explicacao || ''}
-                                    </p>
-                                    <div class="flex items-center ml-4">
-                                        ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">${titleObj.pontuacao}/10</span>` : ''}
-                                        <button title="Copiar Título" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedTitle}">
-                                            <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
-                                        </button>
+                            <li class="group relative bg-gradient-to-br from-gray-800 via-gray-800/95 to-gray-900 p-5 rounded-xl border border-gray-700/50 shadow-lg shadow-black/20 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 hover:border-amber-500/30 ${isCheckedClass}">
+                                <!-- Decorative gradient overlay -->
+                                <div class="absolute inset-0 rounded-xl bg-gradient-to-br from-amber-500/0 via-transparent to-transparent opacity-0 group-hover:opacity-5 transition-opacity duration-300 pointer-events-none"></div>
+                                
+                                <!-- Content -->
+                                <div class="relative">
+                                    <!-- Title Section -->
+                                    <div class="flex items-start gap-4 mb-4">
+                                        <div class="flex-shrink-0 mt-0.5">
+                                            <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700/80 border-gray-600 rounded-md text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all cursor-pointer" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <label for="check-${index}" class="flex items-center gap-2.5 cursor-pointer group/label">
+                                                ${titleObj.model ? `
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${modelBadgeClass} border shadow-sm whitespace-nowrap">
+                                                        ${modelInfo.name}
+                                                    </span>
+                                                ` : ''}
+                                                <span class="text-gray-100 font-semibold text-base leading-snug ${isCheckedLabelClass} group-hover/label:text-white transition-colors">
+                                                    ${cleanTitle}
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Formula Section - Detalhada como análise do título original -->
+                                    ${titleObj.formula || titleObj.explicacao ? `
+                                    <div class="mb-4 pl-9">
+                                        <div class="relative bg-gradient-to-br from-gray-900/80 via-gray-900/60 to-gray-900/80 rounded-lg p-5 border border-gray-700/50 shadow-inner">
+                                            <div class="absolute top-4 left-4 w-1.5 h-1.5 rounded-full bg-amber-500/60 animate-pulse"></div>
+                                            <h5 class="text-base font-bold text-white mb-4 flex items-center gap-2">
+                                                <span class="text-amber-500">📐</span>
+                                                Análise da Estrutura/Fórmula
+                                            </h5>
+                                            
+                                            ${titleObj.explicacao ? `
+                                            <div class="mb-4">
+                                                <p class="text-sm text-gray-300 mb-2">
+                                                    <strong>Motivo do Sucesso:</strong> ${titleObj.explicacao.replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>')}
+                                                </p>
+                                            </div>
+                                            ` : ''}
+                                            
+                                            ${titleObj.formula ? `
+                                            <div class="pt-3 border-t border-gray-700/50">
+                                                <p class="text-sm text-gray-300 mb-2">
+                                                    <strong>Fórmula:</strong> <code class="text-amber-400">${escapedFormula}</code>
+                                                </p>
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                    
+                                    <!-- Bottom Section: Badges -->
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pl-9 pt-3 border-t border-gray-700/50">
+                                        <div class="flex items-center gap-4 flex-wrap">
+                                            ${titleObj.pontuacao > 0 ? `
+                                                <div class="flex flex-col bg-gray-800/30 rounded-lg border border-gray-700/50 overflow-hidden">
+                                                    <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-900/50">
+                                                        <span class="text-xs font-medium text-gray-300">Pontuação Viral</span>
+                                                        <span class="text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${scoreColor} shadow-sm">${titleObj.pontuacao}/10</span>
+                                                    </div>
+                                                    <div class="px-2.5 py-1.5 bg-gray-800/50">
+                                                        <p class="text-[10px] text-gray-400 leading-tight">
+                                                            Mede o potencial de viralização do título baseado em elementos psicológicos e gatilhos virais
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            ${impactScore > 0 ? `
+                                                <div class="flex flex-col bg-gray-800/30 rounded-lg border border-gray-700/50 overflow-hidden">
+                                                    <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-900/50">
+                                                        <span class="text-xs font-medium text-gray-300">Impacto Visual</span>
+                                                        <span class="text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${impactColor} shadow-sm flex items-center gap-1">
+                                                            <span>🔥</span>
+                                                            <span>${impactScore}/10</span>
+                                                        </span>
+                                                    </div>
+                                                    <div class="px-2.5 py-1.5 bg-gray-800/50">
+                                                        <p class="text-[10px] text-gray-400 leading-tight">
+                                                            Avalia o impacto visual do título no feed, considerando caixa alta estratégica e elementos de destaque
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            <button title="Copiar Título" class="btn-copy p-2 rounded-lg bg-gray-700/50 hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 border border-gray-700/50 hover:border-amber-500/50 transition-all duration-200 shadow-sm hover:shadow-md" data-copy-text="${escapedTitle}">
+                                                <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </li>
@@ -14293,9 +14488,17 @@ Equipe La Casa Dark Core</textarea>
                         let titleText = null;
                         
                         if (listItem) {
+                            // Tentar pegar apenas o texto do span do título, não do badge
                             const label = listItem.querySelector('label');
-                        if (label) {
-                                titleText = label.innerText.trim();
+                            if (label) {
+                                // Procurar pelo span que contém o título (geralmente o último span dentro do label)
+                                const titleSpan = label.querySelector('span:last-child');
+                                if (titleSpan && titleSpan.innerText) {
+                                    titleText = titleSpan.innerText.trim();
+                                } else {
+                                    // Fallback: pegar todo o texto do label e limpar
+                                    titleText = label.innerText.trim();
+                                }
                             } else {
                                 // Se não encontrar label, tentar pegar do próximo elemento
                                 const nextElement = checkbox.nextElementSibling;
@@ -14307,10 +14510,11 @@ Equipe La Casa Dark Core</textarea>
                         
                         if (titleText) {
                             // Remover o prefixo do modelo se existir (ex: [Gemini 2.5 Pro] Título)
-                            const modelMatch = titleText.match(/^\[.*?\]\s*(.+)$/);
-                            if (modelMatch) {
-                                titleText = modelMatch[1];
-                            }
+                            // Também remove badges de modelo que possam estar no início
+                            titleText = titleText
+                                .replace(/^\[.*?\]\s*/i, '') // Remove [Modelo]
+                                .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '') // Remove modelo sem colchetes
+                                .trim();
                             
                             // Atualizar o input do gerador de thumbnails completo
                             const thumbTitleInput = document.getElementById('thumb-title-input');
@@ -18049,6 +18253,27 @@ Equipe La Casa Dark Core</textarea>
                         console.log('[CRÉDITOS] Saldo atualizado no elemento:', parseFloat(data.balance || 0).toFixed(2));
                     } else {
                         console.error('[CRÉDITOS] Elemento stat-credits-balance não encontrado!');
+                    }
+                    
+                    // Atualizar badge de créditos adicionais
+                    const additionalCreditsContainer = document.getElementById('additional-credits-badge-container');
+                    if (additionalCreditsContainer) {
+                        if (data.additionalCredits > 0) {
+                            additionalCreditsContainer.innerHTML = `
+                                <div class="flex items-center justify-center gap-2">
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold text-green-400 bg-gradient-to-r from-green-500/20 via-green-500/15 to-green-500/10 border border-green-500/30 shadow-sm shadow-green-500/10">
+                                        <i data-lucide="zap" class="w-3 h-3 mr-1"></i>
+                                        +${parseFloat(data.additionalCredits || 0).toFixed(0)} Créditos Adicionais
+                                    </span>
+                                </div>
+                            `;
+                            // Inicializar ícones Lucide
+                            if (typeof lucide !== 'undefined') {
+                                lucide.createIcons();
+                            }
+                        } else {
+                            additionalCreditsContainer.innerHTML = '';
+                        }
                     }
                     
                     // Atualizar também no sidebar se existir

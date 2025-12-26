@@ -5604,7 +5604,42 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 isApproved BOOLEAN NOT NULL DEFAULT 0,
                 last_login_at DATETIME,
                 plan TEXT DEFAULT 'plan-free',
-                subscription_plan TEXT DEFAULT 'plan-free'
+                subscription_plan TEXT DEFAULT 'plan-free',
+                tags TEXT DEFAULT NULL
+            );
+        `);
+        
+        // Migração: adicionar coluna tags se não existir
+        try {
+            const usersInfo = await db.all("PRAGMA table_info(users)");
+            const existingColumns = usersInfo.map(col => col.name);
+            if (!existingColumns.includes('tags')) {
+                await db.run('ALTER TABLE users ADD COLUMN tags TEXT DEFAULT NULL');
+                console.log('[MIGRATION] Adicionado campo tags em users');
+            }
+        } catch (migrationErr) {
+            console.warn('[MIGRATION] Falha ao migrar users (tags):', migrationErr.message);
+        }
+        
+        // Criar tabela de assinaturas
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                stripe_subscription_id TEXT,
+                stripe_customer_id TEXT,
+                plan_name TEXT NOT NULL,
+                plan_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                monthly_amount REAL NOT NULL DEFAULT 0,
+                total_paid REAL NOT NULL DEFAULT 0,
+                start_date DATETIME NOT NULL,
+                next_billing_date DATETIME,
+                canceled_at DATETIME,
+                duration_days INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         `);
         
@@ -8404,10 +8439,21 @@ app.get('/api/credits/balance', authenticateToken, async (req, res) => {
         const storageUsed = await calculateUserStorage(req.user.id);
         const storageLimit = await getStorageLimit(userPlan, isAdmin, req.user.id);
         
+        // Calcular créditos adicionais (compras de pacotes)
+        // Buscar transações de créditos adicionais (pacotes comprados)
+        const additionalCredits = await db.get(`
+            SELECT COALESCE(SUM(amount), 0) as total 
+            FROM credit_transactions 
+            WHERE user_id = ? AND transaction_type = 'package_purchase'
+        `, [req.user.id]);
+        const additionalCreditsAmount = additionalCredits?.total || 0;
+        
         console.log('[CRÉDITOS API] Saldo encontrado:', credits.balance);
+        console.log('[CRÉDITOS API] Créditos adicionais:', additionalCreditsAmount);
         console.log('[CRÉDITOS API] Armazenamento - Usado:', (storageUsed / (1024*1024)).toFixed(2), 'MB, Limite:', (storageLimit / (1024*1024*1024)).toFixed(2), 'GB, isAdmin:', isAdmin);
         res.json({ 
             balance: credits.balance,
+            additionalCredits: additionalCreditsAmount,
             storageUsed: storageUsed,
             storageLimit: storageLimit,
             plan: userPlan,
@@ -9830,6 +9876,7 @@ app.get('/api/admin/credits/users-with-balance', authenticateToken, isAdmin, asy
                 u.email,
                 u.whatsapp,
                 u.name,
+                u.tags,
                 COALESCE(uc.balance, 0) as balance,
                 uc.updated_at as last_updated
             FROM users u
@@ -10864,7 +10911,7 @@ app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res)
             }
         ];
         
-        // Tentar buscar dados reais se existir tabela de assinaturas
+        // Tentar buscar dados reais se existir tabela de assinaturas ou dados na tabela users
         try {
             // Verificar se existe tabela de assinaturas
             const tableExists = await db.get(`
@@ -10872,7 +10919,142 @@ app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res)
                 WHERE type='table' AND name='subscriptions'
             `);
             
+            // Verificar se há assinaturas na tabela subscriptions
+            let hasSubscriptionsData = false;
             if (tableExists) {
+                const countResult = await db.get(`SELECT COUNT(*) as count FROM subscriptions`);
+                hasSubscriptionsData = (countResult?.count || 0) > 0;
+            }
+            
+            // Se não tem tabela ou dados, buscar da tabela users
+            if (!tableExists || !hasSubscriptionsData) {
+                // Buscar usuários com planos pagos (não free)
+                const usersWithPlans = await db.all(`
+                    SELECT 
+                        u.id,
+                        u.email,
+                        u.name,
+                        u.subscription_plan,
+                        u.plan,
+                        u.created_at,
+                        u.last_login_at
+                    FROM users u
+                    WHERE (u.subscription_plan IS NOT NULL AND u.subscription_plan != 'plan-free' AND u.subscription_plan != '')
+                       OR (u.plan IS NOT NULL AND u.plan != 'plan-free' AND u.plan != '')
+                    ORDER BY u.created_at DESC
+                `);
+                
+                if (usersWithPlans && usersWithPlans.length > 0) {
+                    // Mapear planos para valores mensais (ajuste conforme seus preços reais)
+                    const planPrices = {
+                        'plan-start': 97.00,
+                        'plan-turbo': 197.00,
+                        'plan-master': 297.00,
+                        'plan-start-annual': 970.00 / 12, // Preço anual dividido por 12
+                        'plan-turbo-annual': 1970.00 / 12,
+                        'plan-master-annual': 2970.00 / 12
+                    };
+                    
+                    const planNames = {
+                        'plan-start': 'START CREATOR',
+                        'plan-turbo': 'TURBO MAKER',
+                        'plan-master': 'MASTER PRO',
+                        'plan-start-annual': 'START CREATOR Anual',
+                        'plan-turbo-annual': 'TURBO MAKER Anual',
+                        'plan-master-annual': 'MASTER PRO Anual'
+                    };
+                    
+                    // Converter usuários em assinaturas
+                    subscriptions.length = 0; // Limpar array mockado
+                    
+                    let totalMRR = 0;
+                    let activeCount = 0;
+                    let newCount = 0;
+                    let cancelCount = 0;
+                    let totalPaid = 0;
+                    
+                    usersWithPlans.forEach(user => {
+                        const planKey = user.subscription_plan || user.plan || 'plan-free';
+                        if (planKey === 'plan-free') return;
+                        
+                        const monthlyAmount = planPrices[planKey] || 0;
+                        const planName = planNames[planKey] || planKey;
+                        const startDate = new Date(user.created_at);
+                        const nextBilling = new Date(startDate);
+                        if (planKey.includes('annual')) {
+                            nextBilling.setFullYear(nextBilling.getFullYear() + 1);
+                        } else {
+                            nextBilling.setMonth(nextBilling.getMonth() + 1);
+                        }
+                        
+                        const durationDays = Math.floor((new Date() - startDate) / (1000 * 60 * 60 * 24));
+                        const totalPaidForUser = monthlyAmount * Math.max(1, Math.floor(durationDays / (planKey.includes('annual') ? 365 : 30)));
+                        
+                        subscriptions.push({
+                            user_id: user.id,
+                            user_email: user.email,
+                            user_name: user.name,
+                            plan_name: planName,
+                            plan_key: planKey,
+                            status: 'active',
+                            monthly_amount: monthlyAmount,
+                            total_paid: totalPaidForUser,
+                            start_date: startDate.toISOString(),
+                            next_billing_date: nextBilling.toISOString(),
+                            duration_days: durationDays,
+                            created_at: user.created_at
+                        });
+                        
+                        const userCreatedDate = new Date(user.created_at);
+                        if (userCreatedDate >= startDate) {
+                            newCount++;
+                        }
+                        activeCount++;
+                        totalMRR += monthlyAmount;
+                        totalPaid += totalPaidForUser;
+                    });
+                    
+                    // Atualizar KPIs
+                    kpis.mrr = totalMRR;
+                    kpis.arr = totalMRR * 12;
+                    kpis.active_subscribers = activeCount;
+                    kpis.new_subscribers = newCount;
+                    kpis.cancellations = cancelCount;
+                    kpis.total_revenue = totalPaid;
+                    kpis.monthly_revenue = totalMRR;
+                    kpis.total_subscriptions = activeCount;
+                    kpis.ltv = activeCount > 0 ? totalPaid / activeCount : 0;
+                    kpis.avg_duration = subscriptions.length > 0 
+                        ? subscriptions.reduce((sum, s) => sum + (s.duration_days || 0), 0) / subscriptions.length 
+                        : 0;
+                    
+                    // Calcular métricas mensais
+                    const now = new Date();
+                    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                    kpis.monthly_new = subscriptions.filter(s => new Date(s.created_at) >= monthStart).length;
+                    kpis.monthly_canceled = 0; // Não há cancelamentos se não há tabela
+                    
+                    // Calcular crescimento mensal
+                    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+                    const lastMonthNew = subscriptions.filter(s => {
+                        const created = new Date(s.created_at);
+                        return created >= lastMonthStart && created <= lastMonthEnd;
+                    }).length;
+                    kpis.monthly_growth = lastMonthNew > 0 ? ((kpis.monthly_new - lastMonthNew) / lastMonthNew) * 100 : 0;
+                    
+                    // Taxa de conversão
+                    const totalUsersResult = await db.get(`SELECT COUNT(*) as count FROM users`);
+                    const totalUsers = parseInt(totalUsersResult?.count || 1);
+                    kpis.conversion_rate = totalUsers > 0 ? (activeCount / totalUsers) * 100 : 0;
+                    
+                    // Ticket médio
+                    kpis.avg_ticket = subscriptions.length > 0 ? totalPaid / subscriptions.length : 0;
+                    
+                    // Taxa de retenção
+                    kpis.retention_rate = activeCount > 0 ? 100 : 0; // Assumindo que todos estão ativos
+                }
+            } else if (tableExists) {
                 // Verificar quais colunas existem na tabela
                 const tableInfo = await db.all(`PRAGMA table_info(subscriptions)`);
                 const columns = tableInfo.map(col => col.name);
@@ -11434,9 +11616,24 @@ app.post('/api/stripe/create-checkout', authenticateToken, async (req, res) => {
         
         // Obter dados do usuário
         const userId = req.user.id;
-        const userData = await db.get("SELECT email FROM users WHERE id = ?", [userId]);
+        const userData = await db.get("SELECT email, subscription_plan, plan FROM users WHERE id = ?", [userId]);
         if (!userData) {
             return res.status(404).json({ success: false, message: 'Usuário não encontrado' });
+        }
+        
+        // VALIDAÇÃO: Usuários free não podem comprar pacotes de créditos
+        const isPackage = planKey.startsWith('package-');
+        if (isPackage) {
+            const currentPlan = userData.subscription_plan || userData.plan || 'plan-free';
+            if (currentPlan === 'plan-free' || !currentPlan || currentPlan === null) {
+                console.log(`[STRIPE] ❌ Usuário ${userId} tentou comprar pacote ${planKey} mas tem plano free`);
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'Usuários com conta gratuita não podem comprar pacotes de créditos. Assine um plano primeiro.',
+                    error: 'FREE_PLAN_NOT_ALLOWED'
+                });
+            }
+            console.log(`[STRIPE] ✅ Usuário ${userId} pode comprar pacote ${planKey} (plano atual: ${currentPlan})`);
         }
         
         // Mapear planKey para nome do plano (ANTES de criar URLs)
@@ -11624,6 +11821,53 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                         [systemPlan, systemPlan, userId]
                     );
                     
+                    // Buscar dados da assinatura do Stripe para obter preço mensal
+                    let monthlyAmount = 0;
+                    let stripeSubscriptionId = null;
+                    let stripeCustomerId = session.customer || null;
+                    let nextBillingDateStripe = null;
+                    
+                    try {
+                        if (session.subscription) {
+                            stripeSubscriptionId = session.subscription;
+                            const subscription = await stripe.subscriptions.retrieve(session.subscription);
+                            if (subscription && subscription.items && subscription.items.data.length > 0) {
+                                monthlyAmount = (subscription.items.data[0].price.unit_amount || 0) / 100; // Converter centavos para reais
+                                if (subscription.current_period_end) {
+                                    nextBillingDateStripe = new Date(subscription.current_period_end * 1000);
+                                }
+                            }
+                        }
+                    } catch (stripeError) {
+                        console.warn('[STRIPE WEBHOOK] Erro ao buscar dados da assinatura:', stripeError.message);
+                        // Se não conseguir buscar do Stripe, usar valor da sessão
+                        monthlyAmount = parseFloat(amount);
+                    }
+                    
+                    // Se não conseguiu buscar do Stripe, tentar obter do banco de dados de configurações
+                    if (monthlyAmount === 0) {
+                        try {
+                            const planConfigRow = await db.get(
+                                "SELECT value FROM app_settings WHERE key = ?",
+                                [`stripe_${planKey}`]
+                            );
+                            if (planConfigRow && planConfigRow.value) {
+                                const planConfig = JSON.parse(planConfigRow.value);
+                                // Tentar obter preço do Stripe usando o price_id
+                                if (planConfig && planConfig.price_id) {
+                                    try {
+                                        const price = await stripe.prices.retrieve(planConfig.price_id);
+                                        monthlyAmount = (price.unit_amount || 0) / 100;
+                                    } catch (priceError) {
+                                        console.warn('[STRIPE WEBHOOK] Erro ao buscar preço:', priceError.message);
+                                    }
+                                }
+                            }
+                        } catch (configError) {
+                            console.warn('[STRIPE WEBHOOK] Erro ao buscar configuração do plano:', configError.message);
+                        }
+                    }
+                    
                     // Recarregar créditos baseado no plano
                     const planCreditsRow = await db.get(
                         "SELECT monthly_credits FROM plan_credits WHERE plan_name = ?",
@@ -11638,13 +11882,60 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     }
                     
                     // Calcular próxima cobrança (30 dias para mensal, 365 para anual)
-                    const nextBillingDate = new Date();
-                    if (planKey.includes('annual')) {
-                        nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
-                    } else {
-                        nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-                    }
+                    const nextBillingDate = nextBillingDateStripe || (() => {
+                        const date = new Date();
+                        if (planKey.includes('annual')) {
+                            date.setFullYear(date.getFullYear() + 1);
+                        } else {
+                            date.setMonth(date.getMonth() + 1);
+                        }
+                        return date;
+                    })();
                     const nextBilling = nextBillingDate.toLocaleDateString('pt-BR');
+                    
+                    // Salvar ou atualizar assinatura na tabela subscriptions
+                    const startDate = new Date();
+                    const existingSubscription = await db.get(
+                        "SELECT id FROM subscriptions WHERE user_id = ? AND plan_key = ? AND status = 'active'",
+                        [userId, planKey]
+                    );
+                    
+                    if (existingSubscription) {
+                        // Atualizar assinatura existente
+                        await db.run(`
+                            UPDATE subscriptions 
+                            SET stripe_subscription_id = ?, stripe_customer_id = ?, plan_name = ?, 
+                                monthly_amount = ?, total_paid = total_paid + ?, 
+                                next_billing_date = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `, [
+                            stripeSubscriptionId || null,
+                            stripeCustomerId || null,
+                            planName,
+                            monthlyAmount,
+                            parseFloat(amount),
+                            nextBillingDate.toISOString(),
+                            existingSubscription.id
+                        ]);
+                    } else {
+                        // Criar nova assinatura
+                        await db.run(`
+                            INSERT INTO subscriptions 
+                            (user_id, stripe_subscription_id, stripe_customer_id, plan_name, plan_key, 
+                             status, monthly_amount, total_paid, start_date, next_billing_date, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        `, [
+                            userId,
+                            stripeSubscriptionId || null,
+                            stripeCustomerId || null,
+                            planName,
+                            planKey,
+                            monthlyAmount,
+                            parseFloat(amount),
+                            startDate.toISOString(),
+                            nextBillingDate.toISOString()
+                        ]);
+                    }
                     
                     // Enviar email de assinatura (usar template específico do plano ou genérico)
                     try {
@@ -11678,6 +11969,20 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     }
                 } else {
                     // Pagamento único - adicionar créditos
+                    // VALIDAÇÃO: Verificar se usuário tem plano ativo antes de processar pacote
+                    const userPlanData = await db.get("SELECT subscription_plan, plan FROM users WHERE id = ?", [userId]);
+                    const currentPlan = userPlanData?.subscription_plan || userPlanData?.plan || 'plan-free';
+                    
+                    if (planKey.startsWith('package-')) {
+                        if (currentPlan === 'plan-free' || !currentPlan || currentPlan === null) {
+                            console.error(`[STRIPE WEBHOOK] ❌ Usuário ${userId} tentou comprar pacote ${planKey} mas tem plano free. Pagamento será reembolsado.`);
+                            // Nota: Em produção, você pode querer criar um reembolso automático aqui
+                            // Por enquanto, apenas logamos o erro
+                            return res.json({ received: true, error: 'FREE_PLAN_NOT_ALLOWED' });
+                        }
+                        console.log(`[STRIPE WEBHOOK] ✅ Usuário ${userId} pode receber pacote ${planKey} (plano atual: ${currentPlan})`);
+                    }
+                    
                     const creditAmounts = {
                         'package-1000': 1000,
                         'package-2500': 2500,
@@ -11688,6 +11993,28 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     
                     const creditsToAdd = creditAmounts[planKey] || 0;
                     if (creditsToAdd > 0) {
+                        // Adicionar créditos na tabela user_credits (sistema novo)
+                        const userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
+                        if (userCredits) {
+                            await db.run(
+                                "UPDATE user_credits SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                                [creditsToAdd, userId]
+                            );
+                        } else {
+                            await db.run(
+                                "INSERT INTO user_credits (user_id, balance) VALUES (?, ?)",
+                                [userId, creditsToAdd]
+                            );
+                        }
+                        
+                        // Registrar transação de créditos adicionais
+                        await db.run(`
+                            INSERT INTO credit_transactions 
+                            (user_id, amount, transaction_type, description, created_at) 
+                            VALUES (?, ?, 'package_purchase', ?, CURRENT_TIMESTAMP)
+                        `, [userId, creditsToAdd, `Compra de ${planName}`]);
+                        
+                        // Também atualizar campo legacy credits na tabela users (para compatibilidade)
                         await db.run(
                             "UPDATE users SET credits = credits + ? WHERE id = ?",
                             [creditsToAdd, userId]
@@ -11715,47 +12042,162 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                 
                 console.log(`[STRIPE WEBHOOK] Usuário ${userId} atualizado para plano ${systemPlan}`);
             }
-        } else if (event.type === 'customer.subscription.deleted') {
-            // Assinatura cancelada
+        } else if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.updated') {
+            // Assinatura cancelada ou atualizada
             const subscription = event.data.object;
             const customerId = subscription.customer;
+            const isCanceled = subscription.status === 'canceled' || event.type === 'customer.subscription.deleted';
             
             // Buscar usuário pelo customer_id ou metadata
             try {
-                // Tentar encontrar usuário pela subscription
-                const userData = await db.get(
-                    "SELECT id, name, email, subscription_plan FROM users WHERE id IN (SELECT user_id FROM subscriptions WHERE stripe_subscription_id = ?)",
+                // Tentar encontrar assinatura na tabela
+                const subscriptionData = await db.get(
+                    "SELECT id, user_id FROM subscriptions WHERE stripe_subscription_id = ?",
                     [subscription.id]
                 );
                 
-                if (userData) {
-                    // Enviar email de cancelamento
-                    const cancelDate = new Date().toLocaleDateString('pt-BR');
-                    const endDate = new Date();
-                    endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
-                    const endAccessDate = endDate.toLocaleDateString('pt-BR');
-                    
-                    const planNames = {
-                        'plan-start': 'START CREATOR',
-                        'plan-turbo': 'TURBO MAKER',
-                        'plan-master': 'MASTER PRO',
-                        'plan-start-annual': 'START CREATOR Anual',
-                        'plan-turbo-annual': 'TURBO MAKER Anual',
-                        'plan-master-annual': 'MASTER PRO Anual'
-                    };
-                    
-                    const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
-                    
-                    await sendTemplateEmail('cancel', userData.email, {
-                        nome: userData.name,
-                        email: userData.email,
-                        plano: planName,
-                        data_cancelamento: cancelDate,
-                        data_fim_acesso: endAccessDate
-                    });
+                if (subscriptionData) {
+                    // Atualizar status da assinatura
+                    if (isCanceled) {
+                        await db.run(`
+                            UPDATE subscriptions 
+                            SET status = 'canceled', canceled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `, [subscriptionData.id]);
+                        
+                        // Atualizar plano do usuário para free
+                        await db.run(
+                            "UPDATE users SET subscription_plan = 'plan-free', plan = 'plan-free' WHERE id = ?",
+                            [subscriptionData.user_id]
+                        );
+                    } else {
+                        // Atualizar dados da assinatura (preço, próxima cobrança, etc.)
+                        let monthlyAmount = 0;
+                        let nextBillingDate = null;
+                        
+                        if (subscription.items && subscription.items.data.length > 0) {
+                            monthlyAmount = (subscription.items.data[0].price.unit_amount || 0) / 100;
+                        }
+                        if (subscription.current_period_end) {
+                            nextBillingDate = new Date(subscription.current_period_end * 1000);
+                        }
+                        
+                        await db.run(`
+                            UPDATE subscriptions 
+                            SET monthly_amount = ?, next_billing_date = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `, [
+                            monthlyAmount,
+                            nextBillingDate ? nextBillingDate.toISOString() : null,
+                            subscription.status || 'active',
+                            subscriptionData.id
+                        ]);
+                    }
                 }
-            } catch (emailError) {
-                console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                
+                // Buscar usuário para logs e email
+                if (subscriptionData) {
+                    const userData = await db.get(
+                        "SELECT id, name, email, subscription_plan FROM users WHERE id = ?",
+                        [subscriptionData.user_id]
+                    );
+                    
+                    if (userData && isCanceled) {
+                        // Enviar email de cancelamento
+                        const cancelDate = new Date().toLocaleDateString('pt-BR');
+                        const endDate = new Date();
+                        endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
+                        const endAccessDate = endDate.toLocaleDateString('pt-BR');
+                        
+                        const planNames = {
+                            'plan-start': 'START CREATOR',
+                            'plan-turbo': 'TURBO MAKER',
+                            'plan-master': 'MASTER PRO',
+                            'plan-start-annual': 'START CREATOR Anual',
+                            'plan-turbo-annual': 'TURBO MAKER Anual',
+                            'plan-master-annual': 'MASTER PRO Anual'
+                        };
+                        
+                        const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
+                        
+                        try {
+                            await sendTemplateEmail('cancel', userData.email, {
+                                nome: userData.name,
+                                email: userData.email,
+                                plano: planName,
+                                data_cancelamento: cancelDate,
+                                data_fim_acesso: endAccessDate
+                            });
+                        } catch (emailError) {
+                            console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[STRIPE WEBHOOK] Erro ao processar cancelamento/atualização:', error.message);
+            }
+            
+            console.log(`[STRIPE WEBHOOK] Assinatura ${subscription.id} ${isCanceled ? 'cancelada' : 'atualizada'}`);
+        } else if (event.type === 'customer.subscription.deleted') {
+            // Fallback para compatibilidade com código antigo
+            const subscription = event.data.object;
+            
+            try {
+                const subscriptionData = await db.get(
+                    "SELECT id, user_id FROM subscriptions WHERE stripe_subscription_id = ?",
+                    [subscription.id]
+                );
+                
+                if (subscriptionData) {
+                    await db.run(`
+                        UPDATE subscriptions 
+                        SET status = 'canceled', canceled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `, [subscriptionData.id]);
+                    
+                    await db.run(
+                        "UPDATE users SET subscription_plan = 'plan-free', plan = 'plan-free' WHERE id = ?",
+                        [subscriptionData.user_id]
+                    );
+                    
+                    const userData = await db.get(
+                        "SELECT id, name, email, subscription_plan FROM users WHERE id = ?",
+                        [subscriptionData.user_id]
+                    );
+                    
+                    if (userData) {
+                        // Enviar email de cancelamento
+                        const cancelDate = new Date().toLocaleDateString('pt-BR');
+                        const endDate = new Date();
+                        endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
+                        const endAccessDate = endDate.toLocaleDateString('pt-BR');
+                        
+                        const planNames = {
+                            'plan-start': 'START CREATOR',
+                            'plan-turbo': 'TURBO MAKER',
+                            'plan-master': 'MASTER PRO',
+                            'plan-start-annual': 'START CREATOR Anual',
+                            'plan-turbo-annual': 'TURBO MAKER Anual',
+                            'plan-master-annual': 'MASTER PRO Anual'
+                        };
+                        
+                        const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
+                        
+                        try {
+                            await sendTemplateEmail('cancel', userData.email, {
+                                nome: userData.name,
+                                email: userData.email,
+                                plano: planName,
+                                data_cancelamento: cancelDate,
+                                data_fim_acesso: endAccessDate
+                            });
+                        } catch (emailError) {
+                            console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[STRIPE WEBHOOK] Erro ao processar cancelamento:', error.message);
             }
             
             console.log(`[STRIPE WEBHOOK] Assinatura ${subscription.id} cancelada`);
@@ -14785,13 +15227,53 @@ Tradução em PT-BR:`;
         // --- ETAPA 3: Salvar no Banco de Dados ---
         let analysisId;
         try {
+            // Garantir que finalAnalysisData sempre tenha dados válidos antes de salvar
+            if (!finalAnalysisData || typeof finalAnalysisData !== 'object' || 
+                !finalAnalysisData.motivoSucesso || !finalAnalysisData.formulaTitulo) {
+                console.warn('[Análise] finalAnalysisData inválido antes de salvar, regenerando...');
+                finalAnalysisData = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+            }
+            
+            // Garantir que os campos não sejam "N/A" ou vazios
+            if (!finalAnalysisData.motivoSucesso || finalAnalysisData.motivoSucesso === 'N/A' || finalAnalysisData.motivoSucesso.trim() === '') {
+                const derived = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+                finalAnalysisData.motivoSucesso = derived.motivoSucesso;
+            }
+            
+            if (!finalAnalysisData.formulaTitulo || finalAnalysisData.formulaTitulo === 'N/A' || finalAnalysisData.formulaTitulo.trim() === '') {
+                const derived = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+                finalAnalysisData.formulaTitulo = derived.formulaTitulo;
+            }
+            
+            console.log('[Análise] Salvando dados de análise:', {
+                motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
+                formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
+                niche: finalNicheData.niche,
+                subniche: finalNicheData.subniche
+            });
+            
              const analysisResult = await db.run(
                 `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json, full_transcript) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
                     videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
-                    finalNicheData.niche, finalNicheData.subniche, JSON.stringify(finalAnalysisData), fullTranscript
+                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', JSON.stringify(finalAnalysisData), fullTranscript
                 ]
             );
             analysisId = analysisResult.lastID;
@@ -14941,10 +15423,39 @@ Tradução em PT-BR:`;
         // Garantir que análise e subnicho sempre estão presentes na resposta
         if (!responseData.analiseOriginal || Object.keys(responseData.analiseOriginal).length === 0) {
             console.warn('[Análise] ⚠️ Análise vazia detectada, usando dados derivados');
-            responseData.analiseOriginal = finalAnalysisData || {
-                motivoSucesso: 'Análise gerada automaticamente pelo sistema',
-                formulaTitulo: 'Fórmula derivada do título original'
-            };
+            responseData.analiseOriginal = finalAnalysisData || deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+        }
+        
+        // Garantir que os campos existem e são válidos
+        if (!responseData.analiseOriginal.motivoSucesso || 
+            responseData.analiseOriginal.motivoSucesso === 'N/A' ||
+            responseData.analiseOriginal.motivoSucesso.trim() === '') {
+            console.warn('[Análise] ⚠️ motivoSucesso inválido, regenerando...');
+            const derived = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+            responseData.analiseOriginal.motivoSucesso = derived.motivoSucesso;
+        }
+        
+        if (!responseData.analiseOriginal.formulaTitulo || 
+            responseData.analiseOriginal.formulaTitulo === 'N/A' ||
+            responseData.analiseOriginal.formulaTitulo.trim() === '') {
+            console.warn('[Análise] ⚠️ formulaTitulo inválido, regenerando...');
+            const derived = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+            responseData.analiseOriginal.formulaTitulo = derived.formulaTitulo;
         }
         
         if (!responseData.niche || responseData.niche === 'N/A') {
@@ -15188,15 +15699,35 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         });
         if (passing.length < titlesRequired) throw new Error(`Não foi possível gerar ${titlesRequired} títulos com 🔥 Impacto ≥ ${MIN_IMPACT_SCORE}/10. Tente novamente.`);
         
-        if (!parsedData.analiseOriginal) {
-            throw new Error("A IA retornou uma análise incompleta.");
-        }
-        
+        // Sempre usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
+        const derivedNiche = deriveNicheAndSubnicheFromContext({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+            transcriptStart: transcriptText || ''
+        });
         const finalNicheData = { 
-            niche: parsedData.niche || 'Entretenimento', 
-            subniche: parsedData.subniche || 'N/A' 
+            niche: derivedNiche.niche || parsedData.niche || 'Entretenimento', 
+            subniche: derivedNiche.subniche || parsedData.subniche || 'Geral' 
         };
-        const finalAnalysisData = parsedData.analiseOriginal;
+        
+        // Garantir que análise sempre tenha dados válidos
+        let finalAnalysisData;
+        if (parsedData.analiseOriginal && 
+            parsedData.analiseOriginal.motivoSucesso && 
+            parsedData.analiseOriginal.motivoSucesso !== 'N/A' &&
+            parsedData.analiseOriginal.formulaTitulo && 
+            parsedData.analiseOriginal.formulaTitulo !== 'N/A') {
+            finalAnalysisData = parsedData.analiseOriginal;
+        } else {
+            console.log('[Análise Laozhang] Análise da IA incompleta ou inválida, usando dados derivados');
+            finalAnalysisData = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+        }
         // Função para formatar modelo do frontend para exibição
         const formatModelForDisplay = (modelName) => {
             if (!modelName) return 'GPT-4o';
@@ -15234,13 +15765,53 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         // Salvar no banco
         let analysisId;
         try {
+            // Garantir que finalAnalysisData sempre tenha dados válidos antes de salvar
+            if (!finalAnalysisData || typeof finalAnalysisData !== 'object' || 
+                !finalAnalysisData.motivoSucesso || !finalAnalysisData.formulaTitulo) {
+                console.warn('[Análise Laozhang] finalAnalysisData inválido antes de salvar, regenerando...');
+                finalAnalysisData = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+            }
+            
+            // Garantir que os campos não sejam "N/A" ou vazios
+            if (!finalAnalysisData.motivoSucesso || finalAnalysisData.motivoSucesso === 'N/A' || finalAnalysisData.motivoSucesso.trim() === '') {
+                const derived = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+                finalAnalysisData.motivoSucesso = derived.motivoSucesso;
+            }
+            
+            if (!finalAnalysisData.formulaTitulo || finalAnalysisData.formulaTitulo === 'N/A' || finalAnalysisData.formulaTitulo.trim() === '') {
+                const derived = deriveTitleAnalysis({
+                    originalTitle: videoDetails.title,
+                    translatedTitle: translatedTitle || videoDetails.title,
+                    views: videoDetails.views,
+                    days: videoDetails.days
+                });
+                finalAnalysisData.formulaTitulo = derived.formulaTitulo;
+            }
+            
+            console.log('[Análise Laozhang] Salvando dados de análise:', {
+                motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
+                formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
+                niche: finalNicheData.niche,
+                subniche: finalNicheData.subniche
+            });
+            
              const analysisResult = await db.run(
                 `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json, full_transcript) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
                     videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
-                    finalNicheData.niche, finalNicheData.subniche, JSON.stringify(finalAnalysisData), fullTranscript
+                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', JSON.stringify(finalAnalysisData), fullTranscript
                 ]
             );
             analysisId = analysisResult.lastID;
@@ -15276,9 +15847,53 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             console.warn('[Análise Laozhang] Erro ao calcular receita:', err);
         }
 
+        // Garantir que os dados estão válidos antes de retornar
+        if (!finalAnalysisData || typeof finalAnalysisData !== 'object' || 
+            !finalAnalysisData.motivoSucesso || !finalAnalysisData.formulaTitulo) {
+            console.warn('[Análise Laozhang] Dados inválidos antes de retornar, regenerando...');
+            finalAnalysisData = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+        }
+        
+        // Garantir que os campos não sejam "N/A" ou vazios
+        if (!finalAnalysisData.motivoSucesso || finalAnalysisData.motivoSucesso === 'N/A' || finalAnalysisData.motivoSucesso.trim() === '') {
+            const derived = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+            finalAnalysisData.motivoSucesso = derived.motivoSucesso;
+        }
+        
+        if (!finalAnalysisData.formulaTitulo || finalAnalysisData.formulaTitulo === 'N/A' || finalAnalysisData.formulaTitulo.trim() === '') {
+            const derived = deriveTitleAnalysis({
+                originalTitle: videoDetails.title,
+                translatedTitle: translatedTitle || videoDetails.title,
+                views: videoDetails.views,
+                days: videoDetails.days
+            });
+            finalAnalysisData.formulaTitulo = derived.formulaTitulo;
+        }
+        
+        // Garantir que niche e subniche não sejam "N/A"
+        const finalNiche = finalNicheData.niche || 'Entretenimento';
+        const finalSubniche = finalNicheData.subniche && finalNicheData.subniche !== 'N/A' ? finalNicheData.subniche : 'Geral';
+        
+        console.log('[Análise Laozhang] Retornando dados:', {
+            motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
+            formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
+            niche: finalNiche,
+            subniche: finalSubniche
+        });
+        
         res.status(200).json({
-            niche: finalNicheData.niche,
-            subniche: finalNicheData.subniche,
+            niche: finalNiche,
+            subniche: finalSubniche,
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: allGeneratedTitles,
             modelUsed: modelNameForDisplay || 'GPT-4o',
@@ -30144,7 +30759,7 @@ app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
 app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
     const { search, status } = req.query;
     try {
-        let query = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, plan, subscription_plan, created_at FROM users';
+        let query = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, plan, subscription_plan, tags, created_at FROM users';
         const params = [];
         const conditions = [];
 
@@ -30183,11 +30798,13 @@ app.post('/api/admin/users/approve-all', authenticateToken, isAdmin, async (req,
 
 app.put('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
     const { id } = req.params;
-    const { name, whatsapp, isAdmin, isBlocked, isApproved } = req.body;
+    const { name, whatsapp, isAdmin, isBlocked, isApproved, tags } = req.body;
     try {
-        await db.run('UPDATE users SET name = ?, whatsapp = ?, isAdmin = ?, isBlocked = ?, isApproved = ? WHERE id = ?', [name, whatsapp, isAdmin, isBlocked, isApproved, id]);
+        await db.run('UPDATE users SET name = ?, whatsapp = ?, isAdmin = ?, isBlocked = ?, isApproved = ?, tags = ? WHERE id = ?', 
+            [name, whatsapp, isAdmin, isBlocked, isApproved, tags || null, id]);
         res.status(200).json({ msg: 'Utilizador atualizado com sucesso.' });
     } catch (err) {
+        console.error('[ADMIN] Erro ao atualizar utilizador:', err);
         res.status(500).json({ msg: 'Erro ao atualizar utilizador.' });
     }
 });
@@ -30612,10 +31229,32 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
         // Garantir que analiseOriginal sempre tenha dados válidos
         let analiseOriginal;
         try {
-            analiseOriginal = JSON.parse(analysis.analysis_data_json || '{}');
-            // Se o JSON estiver vazio ou não tiver os campos necessários, gerar novamente
-            if (!analiseOriginal.motivoSucesso || !analiseOriginal.formulaTitulo) {
-                console.log(`[Histórico] analysis_data_json vazio ou inválido para análise ${analysisId}, gerando novamente...`);
+            if (analysis.analysis_data_json) {
+                analiseOriginal = JSON.parse(analysis.analysis_data_json);
+                // Verificar se os campos existem e são válidos (não vazios e não "N/A")
+                const hasValidMotivo = analiseOriginal.motivoSucesso && 
+                                       analiseOriginal.motivoSucesso !== 'N/A' && 
+                                       analiseOriginal.motivoSucesso.trim() !== '';
+                const hasValidFormula = analiseOriginal.formulaTitulo && 
+                                        analiseOriginal.formulaTitulo !== 'N/A' && 
+                                        analiseOriginal.formulaTitulo.trim() !== '';
+                
+                if (!hasValidMotivo || !hasValidFormula) {
+                    console.log(`[Histórico] analysis_data_json incompleto para análise ${analysisId}, gerando dados completos...`);
+                    const derived = deriveTitleAnalysis({
+                        originalTitle: analysis.original_title,
+                        translatedTitle: analysis.translated_title,
+                        views: analysis.original_views,
+                        days: analysis.original_days
+                    });
+                    // Mesclar dados existentes com dados derivados (priorizar derivados se inválidos)
+                    analiseOriginal = {
+                        motivoSucesso: hasValidMotivo ? analiseOriginal.motivoSucesso : derived.motivoSucesso,
+                        formulaTitulo: hasValidFormula ? analiseOriginal.formulaTitulo : derived.formulaTitulo
+                    };
+                }
+            } else {
+                console.log(`[Histórico] analysis_data_json não existe para análise ${analysisId}, gerando dados...`);
                 analiseOriginal = deriveTitleAnalysis({
                     originalTitle: analysis.original_title,
                     translatedTitle: analysis.translated_title,
@@ -30632,6 +31271,24 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
                 days: analysis.original_days
             });
         }
+        
+        // Garantir que sempre temos os campos necessários
+        if (!analiseOriginal || typeof analiseOriginal !== 'object') {
+            analiseOriginal = deriveTitleAnalysis({
+                originalTitle: analysis.original_title,
+                translatedTitle: analysis.translated_title,
+                views: analysis.original_views,
+                days: analysis.original_days
+            });
+        }
+        
+        // Log para debug
+        console.log(`[Histórico] Dados de análise para ${analysisId}:`, {
+            motivoSucesso: analiseOriginal.motivoSucesso?.substring(0, 50),
+            formulaTitulo: analiseOriginal.formulaTitulo?.substring(0, 50),
+            niche: analysis.detected_niche,
+            subniche: analysis.detected_subniche
+        });
 
         const responseData = {
             niche: analysis.detected_niche || 'N/A',
