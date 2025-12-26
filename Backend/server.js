@@ -309,27 +309,34 @@ app.use((req, res, next) => {
         req._hostLogged = true;
     }
     
-    // Detectar se é subdomínio app (produção)
-    // Verifica múltiplas formas de detectar app.canaisdarks.com.br
-    // PRIORIDADE: Verificar primeiro se contém "app." antes de verificar domínio principal
+    // Simplificar detecção de subdomínio - lógica mais clara e confiável
     const hostLower = host.toLowerCase();
     const xForwardedHostLower = xForwardedHost.toLowerCase();
     
-    // Verificar em todas as fontes possíveis
-    const isAppSubdomainProd = 
-        hostWithoutPort === 'app.canaisdarks.com.br' ||
-        hostnameLower === 'app.canaisdarks.com.br' ||
-        hostLower.includes('app.canaisdarks.com.br') ||
-        hostWithoutPort.includes('app.canaisdarks.com.br') ||
-        hostnameLower.includes('app.canaisdarks.com.br') ||
-        (hostWithoutPort.startsWith('app.') && hostWithoutPort.includes('canaisdarks.com.br')) ||
-        (hostnameLower.startsWith('app.') && hostnameLower.includes('canaisdarks.com.br')) ||
-        xForwardedHostLower.includes('app.canaisdarks.com.br') ||
-        hostHeader.toLowerCase().includes('app.canaisdarks.com.br') ||
-        refererHostLower.includes('app.canaisdarks.com.br') ||
-        originHostLower.includes('app.canaisdarks.com.br') ||
-        referer.toLowerCase().includes('app.canaisdarks.com.br') ||
-        origin.toLowerCase().includes('app.canaisdarks.com.br');
+    // Detecção primária: hostname principal
+    let isAppSubdomainProd = false;
+    let isLandingDomainProd = false;
+    
+    // Verificar se é app.canaisdarks.com.br (PRIORIDADE MÁXIMA)
+    if (hostnameLower === 'app.canaisdarks.com.br' || 
+        hostWithoutPort === 'app.canaisdarks.com.br') {
+        isAppSubdomainProd = true;
+    }
+    // Verificar se é canaisdarks.com.br ou www.canaisdarks.com.br
+    else if (hostnameLower === 'canaisdarks.com.br' || 
+             hostnameLower === 'www.canaisdarks.com.br' ||
+             hostWithoutPort === 'canaisdarks.com.br' || 
+             hostWithoutPort === 'www.canaisdarks.com.br') {
+        isLandingDomainProd = true;
+    }
+    // Fallback para x-forwarded-host (proxy reverso)
+    else if (xForwardedHostLower === 'app.canaisdarks.com.br') {
+        isAppSubdomainProd = true;
+    }
+    else if (xForwardedHostLower === 'canaisdarks.com.br' || 
+             xForwardedHostLower === 'www.canaisdarks.com.br') {
+        isLandingDomainProd = true;
+    }
     
     // PRIORIDADE MÁXIMA: Query parameter force (sobrescreve tudo)
     const forceApp = req.query.force === 'app' || req.query.subdomain === 'app';
@@ -354,18 +361,6 @@ app.use((req, res, next) => {
         }
         return next();
     }
-    
-    // Detectar se é domínio principal (produção) - landing page
-    // Deve ser exatamente "canaisdarks.com.br" ou "www.canaisdarks.com.br" (sem "app.")
-    // IMPORTANTE: Só é landing se NÃO for app subdomain
-    const isLandingDomainProd = 
-        !isAppSubdomainProd && (
-            hostWithoutPort === 'canaisdarks.com.br' || 
-            hostnameLower === 'canaisdarks.com.br' ||
-            hostWithoutPort === 'www.canaisdarks.com.br' ||
-            hostnameLower === 'www.canaisdarks.com.br' ||
-            (hostWithoutPort.includes('canaisdarks.com.br') && !hostWithoutPort.includes('app.') && !hostWithoutPort.startsWith('app.'))
-        );
     
     // Em desenvolvimento: usar query parameter ou header
     const isDev = process.env.NODE_ENV !== 'production' && 
@@ -36643,17 +36638,20 @@ Seja específico e preciso. Se não conseguir identificar claramente, use "Entre
     }
 }
 
-// Função auxiliar para buscar dados do canal para análise
+// Função auxiliar para buscar dados do canal para análise (VERSÃO APRIMORADA - DEEP DIVE)
 async function fetchChannelDataForInsights(channelId, accessToken) {
     try {
-        // Buscar últimos 20 vídeos via uploads playlist (sem search.list)
-        const videoIds = await getRecentVideoIdsFromUploads(channelId, accessToken, 20);
+        // Buscar últimos 50 vídeos via uploads playlist (aumentado de 20 para 50)
+        const videoIds = await getRecentVideoIdsFromUploads(channelId, accessToken, 50);
         const searchData = { items: [] };
 
-        // Buscar estatísticas dos vídeos
+        // Buscar estatísticas completas dos vídeos com engajamento
         let videoStats = [];
+        let engagementData = [];
+        
         if (videoIds.length > 0) {
-            const statsUrl = `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails,snippet&id=${videoIds.join(',')}`;
+            // Buscar dados completos: statistics, contentDetails, snippet, topicDetails
+            const statsUrl = `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails,snippet,topicDetails&id=${videoIds.join(',')}`;
             const statsResponse = await fetch(statsUrl, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
@@ -36661,7 +36659,8 @@ async function fetchChannelDataForInsights(channelId, accessToken) {
             if (statsResponse.ok) {
                 const statsData = await statsResponse.json();
                 videoStats = statsData.items || [];
-                // Reconstituir um "items" compatível (para usar títulos em outros pontos)
+                
+                // Reconstituir um "items" compatível
                 searchData.items = (statsData.items || []).map(v => ({
                     id: { videoId: v.id },
                     snippet: v.snippet || {}
@@ -36670,27 +36669,179 @@ async function fetchChannelDataForInsights(channelId, accessToken) {
         }
 
         // Buscar estatísticas do canal
-        const channelUrl = `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}`;
+        const channelUrl = `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet,brandingSettings&id=${channelId}`;
         const channelResponse = await fetch(channelUrl, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
 
         let channelStats = null;
+        let channelBranding = null;
         if (channelResponse.ok) {
             const channelData = await channelResponse.json();
             channelStats = channelData.items?.[0] || null;
+            channelBranding = channelData.items?.[0]?.brandingSettings || null;
         }
+
+        // Buscar comentários dos 5 vídeos mais populares para análise de sentimento
+        let sentimentAnalysis = [];
+        const topVideoIds = videoStats
+            .sort((a, b) => (parseInt(b.statistics?.viewCount || 0) - parseInt(a.statistics?.viewCount || 0)))
+            .slice(0, 5)
+            .map(v => v.id);
+
+        for (const videoId of topVideoIds) {
+            try {
+                const commentsUrl = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet,replies&videoId=${videoId}&maxResults=50&order=relevance`;
+                const commentsResponse = await fetch(commentsUrl, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (commentsResponse.ok) {
+                    const commentsData = await commentsResponse.json();
+                    const comments = commentsData.items || [];
+                    
+                    // Analisar sentimento dos comentários
+                    const sentimentData = analyzeCommentSentiment(comments);
+                    sentimentAnalysis.push({
+                        videoId,
+                        totalComments: comments.length,
+                        sentiment: sentimentData
+                    });
+                }
+            } catch (commentErr) {
+                console.warn(`[Sentiment Analysis] Erro ao buscar comentários do vídeo ${videoId}:`, commentErr.message);
+                sentimentAnalysis.push({
+                    videoId,
+                    totalComments: 0,
+                    sentiment: { positive: 0, negative: 0, neutral: 0, ratio: 0 }
+                });
+            }
+        }
+
+        // Calcular métricas avançadas de engajamento
+        const engagementMetrics = calculateAdvancedEngagement(videoStats);
 
         return {
             videos: searchData.items || [],
             videoStats: videoStats,
-            channelStats: channelStats
+            channelStats: channelStats,
+            channelBranding: channelBranding,
+            sentimentAnalysis: sentimentAnalysis,
+            engagementMetrics: engagementMetrics,
+            analysisDate: new Date().toISOString()
         };
 
     } catch (err) {
-        console.error('[Fetch Channel Data] Erro:', err);
+        console.error('[Fetch Channel Data - Deep Dive] Erro:', err);
         throw err;
     }
+}
+
+// Função para analisar sentimento de comentários
+function analyzeCommentSentiment(comments) {
+    let positive = 0, negative = 0, neutral = 0;
+    
+    comments.forEach(comment => {
+        const text = comment.snippet?.topLevelComment?.snippet?.textDisplay || '';
+        const sentimentScore = getSentimentScore(text);
+        
+        if (sentimentScore > 0.1) positive++;
+        else if (sentimentScore < -0.1) negative++;
+        else neutral++;
+    });
+    
+    const total = comments.length || 1;
+    return {
+        positive,
+        negative,
+        neutral,
+        ratio: positive / total,
+        satisfactionRate: ((positive + neutral) / total * 100).toFixed(1)
+    };
+}
+
+// Função simples de análise de sentimento (pode ser expandida com IA posteriormente)
+function getSentimentScore(text) {
+    const positiveWords = ['excelente', 'ótimo', 'bom', 'amei', 'perfeito', 'incrível', 'fantástico', 'maravilhoso', 'top', 'demais'];
+    const negativeWords = ['ruim', 'péssimo', 'horrível', 'terrível', 'fraco', 'chato', 'sem graça', 'lixo', 'perda de tempo'];
+    
+    const lowerText = text.toLowerCase();
+    let score = 0;
+    
+    positiveWords.forEach(word => {
+        if (lowerText.includes(word)) score += 0.2;
+    });
+    
+    negativeWords.forEach(word => {
+        if (lowerText.includes(word)) score -= 0.2;
+    });
+    
+    return Math.max(-1, Math.min(1, score));
+}
+
+// Função para calcular métricas avançadas de engajamento
+function calculateAdvancedEngagement(videoStats) {
+    if (!videoStats.length) return {};
+    
+    const metrics = videoStats.map(video => {
+        const stats = video.statistics || {};
+        const views = parseInt(stats.viewCount || 0);
+        const likes = parseInt(stats.likeCount || 0);
+        const comments = parseInt(stats.commentCount || 0);
+        const duration = video.contentDetails?.duration || '';
+        
+        // Taxa de engajamento real (likes + comentários / views)
+        const engagementRate = views > 0 ? ((likes + comments) / views) * 100 : 0;
+        
+        // Taxa de curtidas (likes / views)
+        const likeRate = views > 0 ? (likes / views) * 100 : 0;
+        
+        // Duração em minutos
+        const durationMinutes = parseIsoDurationToMinutes(duration);
+        
+        return {
+            views,
+            likes,
+            comments,
+            engagementRate: parseFloat(engagementRate.toFixed(2)),
+            likeRate: parseFloat(likeRate.toFixed(2)),
+            durationMinutes
+        };
+    });
+    
+    // Calcular médias e outliers
+    const avgEngagement = metrics.reduce((sum, m) => sum + m.engagementRate, 0) / metrics.length;
+    const avgLikeRate = metrics.reduce((sum, m) => sum + m.likeRate, 0) / metrics.length;
+    const avgDuration = metrics.reduce((sum, m) => sum + (m.durationMinutes || 0), 0) / metrics.length;
+    
+    // Identificar vídeos com performance excepcional (outliers)
+    const highPerformers = metrics.filter(m => m.engagementRate > avgEngagement * 1.5);
+    const lowPerformers = metrics.filter(m => m.engagementRate < avgEngagement * 0.5);
+    
+    return {
+        averageEngagementRate: parseFloat(avgEngagement.toFixed(2)),
+        averageLikeRate: parseFloat(avgLikeRate.toFixed(2)),
+        averageDuration: parseFloat(avgDuration.toFixed(1)),
+        highPerformers: highPerformers.length,
+        lowPerformers: lowPerformers.length,
+        engagementDistribution: {
+            high: highPerformers.length,
+            medium: metrics.filter(m => m.engagementRate >= avgEngagement * 0.5 && m.engagementRate <= avgEngagement * 1.5).length,
+            low: lowPerformers.length
+        },
+        totalVideos: metrics.length
+    };
+}
+
+// Função auxiliar para converter duração ISO 8601 para minutos
+function parseIsoDurationToMinutes(duration) {
+    if (!duration) return null;
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return null;
+    const hours = parseInt(match[1] || 0);
+    const minutes = parseInt(match[2] || 0);
+    const seconds = parseInt(match[3] || 0);
+    return hours * 60 + minutes + seconds / 60;
 }
 
 // Função para gerar insights com IA
@@ -36722,6 +36873,13 @@ async function generateChannelInsights(channelData, channelName, niche, subniche
             ? videoViews.reduce((a, b) => a + b, 0) / videoViews.length 
             : 0;
 
+        // Preparar dados de análise profunda
+        const engagementMetrics = channelData.engagementMetrics || {};
+        const sentimentAnalysis = channelData.sentimentAnalysis || [];
+        const avgSentiment = sentimentAnalysis.length > 0 
+            ? sentimentAnalysis.reduce((sum, s) => sum + parseFloat(s.sentiment.satisfactionRate || 0), 0) / sentimentAnalysis.length 
+            : 0;
+
         // Buscar chaves de API
         const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
         const keys = {};
@@ -36729,41 +36887,55 @@ async function generateChannelInsights(channelData, channelName, niche, subniche
 
         const insightsPrompt = `Você é um especialista em análise de canais do YouTube e estratégias de crescimento. Analise os seguintes dados de um canal e forneça insights detalhados e acionáveis.
 
-DADOS DO CANAL:
+DADOS DO CANAL - ANÁLISE PROFUNDA (DEEP DIVE):
 - Nome: ${channelName}
 - Nicho: ${niche || 'Não identificado'}
 - Subniche: ${subniche || 'Não identificado'}
-- Total de vídeos analisados: ${videoTitles.length}
+- Total de vídeos analisados: ${videoTitles.length} (amostra de 50 vídeos)
 - Duração média dos vídeos: ${avgDuration ? Math.round(avgDuration) + ' minutos' : 'Não disponível'}
 - Visualizações médias por vídeo: ${Math.round(avgViews).toLocaleString()}
+
+MÉTRICAS DE ENGAJAMENTO AVANÇADAS:
+- Taxa média de engajamento: ${engagementMetrics.averageEngagementRate || 0}%
+- Taxa média de curtidas: ${engagementMetrics.averageLikeRate || 0}%
+- Duração média: ${engagementMetrics.averageDuration || 0} minutos
+- Vídeos de alto desempenho: ${engagementMetrics.highPerformers || 0}
+- Vídeos de baixo desempenho: ${engagementMetrics.lowPerformers || 0}
+
+ANÁLISE DE SENTIMENTO DOS COMENTÁRIOS:
+- Satisfação média: ${avgSentiment.toFixed(1)}%
+- Vídeos analisados: ${sentimentAnalysis.length}
+- Principais temas positivos/negativos identificados
 
 TÍTULOS DOS ÚLTIMOS VÍDEOS:
 ${videoTitles.map((title, i) => `${i + 1}. ${title}`).join('\n')}
 
-FORNEÇA UMA ANÁLISE COMPLETA COM OS SEGUINTES ITENS (responda em formato JSON válido):
+FORNEÇA UMA ANÁLISE ESTRATÉGICA COMPLETA COM OS SEGUINTES ITENS (responda em formato JSON válido):
 
 {
-  "summary": "Resumo executivo de 2-3 parágrafos sobre o estado atual do canal e principais oportunidades",
-  "frequency": "Recomendação de quantos vídeos postar por semana/mês baseado no nicho e performance atual",
-  "duration": "Duração ideal de vídeo em minutos baseado na análise dos vídeos mais bem-sucedidos",
-  "publishTime": "Melhor horário e dia da semana para publicar baseado no nicho e público-alvo",
-  "contentType": "Tipos de conteúdo recomendados para aumentar views e engajamento",
+  "summary": "Resumo executivo de 3-4 parágrafos com análise do estado atual, performance vs benchmarks do nicho, e principais oportunidades identificadas através de dados comportamentais",
+  "frequency": "Recomendação específica de frequência baseada na taxa de engajamento, satisfação do público e padrões de sucesso do nicho",
+  "duration": "Duração ideal com base na análise de vídeos de alto desempenho vs baixo desempenho, considerando retenção e engajamento",
+  "publishTime": "Melhor horário e dia baseado em dados reais de publicação dos vídeos de maior sucesso, não em estimativas genéricas",
+  "contentType": "Tipos de conteúdo recomendados com base nos padrões de engajamento e feedback do público identificados nos comentários",
   "strategies": [
-    "Estratégia 1 específica e acionável",
-    "Estratégia 2 específica e acionável",
-    "Estratégia 3 específica e acionável",
-    "Estratégia 4 específica e acionável",
-    "Estratégia 5 específica e acionável"
+    "Estratégia 1: Ação específica baseada em outliers de performance identificados",
+    "Estratégia 2: Otimização de engajamento baseada na análise de sentimento",
+    "Estratégia 3: Replicação de padrões de vídeos de alto desempenho vs correção de baixo desempenho",
+    "Estratégia 4: Otimização de duração e formato baseada em dados reais de retenção",
+    "Estratégia 5: Estratégia de publicação baseada em horários/dias comprovadamente efetivos para o canal"
   ],
   "titlePatterns": [
-    "Padrão de título 1 que funciona bem no nicho",
-    "Padrão de título 2 que funciona bem no nicho",
-    "Padrão de título 3 que funciona bem no nicho"
+    "Padrão 1: Análise de títulos dos vídeos de alto desempenho com taxa de engajamento > X%",
+    "Padrão 2: Correção de títulos baseada em vídeos de baixo desempenho vs benchmarks do nicho",
+    "Padrão 3: Incorporação de elementos que geram engajamento positivo nos comentários"
   ],
-  "thumbnailRecommendations": "Recomendações específicas sobre thumbnails: cores, elementos, composição, etc."
+  "thumbnailRecommendations": "Recomendações baseadas na análise de performance visual e feedback do público sobre thumbnails que geram mais cliques e engajamento",
+  "engagementOptimization": "Análise específica de como melhorar a taxa de engajamento baseada nos dados coletados e benchmarks do nicho",
+  "contentMatrix": "Matriz de conteúdo categorizando quais tópicos geram mais retenção/engajamento vs views vazios, com recomendações de ação"
 }
 
-IMPORTANTE: Responda APENAS com o JSON válido, sem texto adicional antes ou depois.`;
+IMPORTANTE: Esta é uma análise baseada em DADOS REAIS, não em suposições genéricas. Use os números específicos fornecidos para criar recomendações acionáveis e mensuráveis.`;
 
         // Tentar usar Gemini, Claude ou OpenAI
         let insights = null;
