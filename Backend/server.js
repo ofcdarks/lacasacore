@@ -16,6 +16,7 @@ console.log('[Sistema] Usando @distube/ytdl-core do GitHub (master branch) - ver
 const { YoutubeTranscript } = require('youtube-transcript');
 const { fetch } = require('undici');
 const { ImageFX, AspectRatio, Model, AccountError, ImageFXError } = require('./imagefx.js');
+const { WhiskClient, WhiskError } = require('./whisk.js');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const ffprobeInstaller = require('@ffprobe-installer/ffprobe');
@@ -29,6 +30,7 @@ const ScriptOptimizer = require('./scriptOptimizer.js');
 const AIScriptValidator = require('./aiScriptValidator.js');
 const ViralFormulaReplicator = require('./viralFormulaReplicator.js');
 const { GoogleGenAI } = require('@google/genai');
+const formidable = require('formidable');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
 const LAOZHANG_CHAT_ENDPOINT = process.env.LAOZHANG_CHAT_ENDPOINT || 'https://api.laozhang.ai/v1/chat/completions';
@@ -256,6 +258,15 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
 });
 
+// Páginas legais (domínio principal)
+app.get('/politica-de-privacidade', (req, res) => {
+    res.sendFile(path.join(__dirname, 'privacy.html'));
+});
+
+app.get('/termos-de-uso', (req, res) => {
+    res.sendFile(path.join(__dirname, 'terms.html'));
+});
+
 // Rota para service worker (deve ser servido com tipo MIME correto)
 app.get('/sw.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
@@ -287,18 +298,69 @@ function decrypt(hash) {
         console.error("ENCRYPTION_SECRET inválida. Deve ter 32 caracteres.");
         throw new Error("Configuração de encriptação inválida.");
     }
+    if (!hash || typeof hash !== 'string') {
+        console.error("Hash inválido para descriptografia");
+        return null;
+    }
     try {
+        // Verificar se é formato antigo (sem IV) ou novo (com IV:encrypted)
         const parts = hash.split(':');
-        const decipher_iv = Buffer.from(parts.shift(), 'hex');
-        const encryptedText = Buffer.from(parts.join(':'), 'hex');
+        
+        // Se não tem ':', pode ser formato antigo - tentar descriptografar diretamente
+        if (parts.length === 1) {
+            console.warn("Formato antigo de hash detectado, tentando descriptografar sem IV...");
+            // Para formato antigo, usar um IV fixo (não seguro, mas compatível)
+            const fixedIV = Buffer.alloc(16, 0); // IV zero para compatibilidade
+            try {
+                const encryptedBuffer = Buffer.from(hash, 'hex');
+                const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_SECRET), fixedIV);
+                let decrypted = decipher.update(encryptedBuffer, null, 'utf8');
+                decrypted += decipher.final('utf8');
+                return decrypted;
+            } catch (oldErr) {
+                console.error("Falha ao descriptografar formato antigo:", oldErr.message);
+                return null;
+            }
+        }
+        
+        // Formato novo: IV:encrypted
+        if (parts.length < 2) {
+            console.error("Formato de hash inválido (deve conter IV:encrypted)");
+            return null;
+        }
+        const ivHex = parts.shift();
+        if (!ivHex || ivHex.length !== 32) { // IV deve ter 16 bytes = 32 caracteres hex
+            console.error("IV inválido no hash:", ivHex);
+            return null;
+        }
+        const decipher_iv = Buffer.from(ivHex, 'hex');
+        const encryptedText = parts.join(':');
+        if (!encryptedText) {
+            console.error("Texto criptografado vazio");
+            return null;
+        }
+        const encryptedBuffer = Buffer.from(encryptedText, 'hex');
         const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_SECRET), decipher_iv);
-        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+        let decrypted = decipher.update(encryptedBuffer, null, 'utf8');
         decrypted += decipher.final('utf8');
         return decrypted;
     } catch (err) {
-        console.error("Falha ao desencriptar:", err);
+        console.error("Falha ao desencriptar:", err.message);
         return null;
     }
+}
+
+// Função auxiliar para descriptografar token com tratamento de erro melhorado
+function decryptToken(encryptedToken, context = '') {
+    if (!encryptedToken) {
+        console.warn(`[${context}] Token não fornecido`);
+        return null;
+    }
+    const decrypted = decrypt(encryptedToken);
+    if (!decrypted) {
+        console.error(`[${context}] Falha ao descriptografar token`);
+    }
+    return decrypted;
 }
 
 
@@ -587,54 +649,65 @@ function parseAIResponse(responseText, serviceName) {
         
         // Remover markdown code blocks se existirem
         cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+
+        const sanitizeJsonString = (jsonString) => {
+            if (!jsonString) return jsonString;
+            let s = jsonString.trim();
+            // Remover BOM e caracteres invisíveis comuns
+            s = s.replace(/^\uFEFF/, '');
+            // Remover trailing commas antes de } ou ]
+            s = s.replace(/,\s*([}\]])/g, '$1');
+            // Normalizar quebras de linha dentro de strings (já existe helper)
+            s = fixJsonWithUnescapedNewlines(s);
+            return s;
+        };
+
+        const tryParse = (candidate) => {
+            if (!candidate) return null;
+            const s = sanitizeJsonString(candidate);
+            return JSON.parse(s);
+        };
         
-        // Tenta encontrar JSON (objeto {...} ou array [...]) dentro de uma string maior
-        let jsonMatch = cleanedText.match(/\[[\s\S]*\]/);  // Primeiro tenta array
-        if (!jsonMatch) {
-            jsonMatch = cleanedText.match(/\{[\s\S]*\}/);  // Depois tenta objeto
+        // 1) Tentar extrair JSON completo contando chaves (mais robusto que regex guloso)
+        const extractedObject = extractCompleteJson(cleanedText, /\{/);
+        if (extractedObject) {
+            try { return tryParse(extractedObject); } catch (_) {}
         }
-        if (jsonMatch) {
-            let jsonString = jsonMatch[0];
-            
-            // Tentar parsear diretamente
-            try {
-                return JSON.parse(jsonString);
-            } catch (parseError) {
-                // Se falhar, tentar corrigir quebras de linha não escapadas
-                try {
-                    const fixedJson = fixJsonWithUnescapedNewlines(jsonString);
-                    return JSON.parse(fixedJson);
-                } catch (secondError) {
-                    // Última tentativa: usar uma abordagem mais robusta
-                    // Verificar se é array ou objeto
-                    const isArray = jsonString.trim().startsWith('[');
-                    if (isArray) {
-                        // Extrair array completo
-                        const firstBracket = jsonString.indexOf('[');
-                        const lastBracket = jsonString.lastIndexOf(']');
-                        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-                            let extractedJson = jsonString.substring(firstBracket, lastBracket + 1);
-                            extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
-                            return JSON.parse(extractedJson);
-                        }
-                    } else {
-                        // Extrair objeto completo
-                        const firstBrace = jsonString.indexOf('{');
-                        const lastBrace = jsonString.lastIndexOf('}');
-                        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                            let extractedJson = jsonString.substring(firstBrace, lastBrace + 1);
-                            extractedJson = fixJsonWithUnescapedNewlines(extractedJson);
-                            return JSON.parse(extractedJson);
-                        }
+
+        // 2) Tentar extrair array completo
+        const extractCompleteArray = (text) => {
+            const startIdx = text.indexOf('[');
+            if (startIdx < 0) return null;
+            let depth = 0;
+            let inString = false;
+            let escapeNext = false;
+            for (let i = startIdx; i < text.length; i++) {
+                const ch = text[i];
+                if (escapeNext) { escapeNext = false; continue; }
+                if (ch === '\\') { escapeNext = true; continue; }
+                if (ch === '"') { inString = !inString; continue; }
+                if (!inString) {
+                    if (ch === '[') depth++;
+                    else if (ch === ']') {
+                        depth--;
+                        if (depth === 0) return text.substring(startIdx, i + 1);
                     }
-                    
-                    throw parseError;
                 }
             }
+            return null;
+        };
+
+        const extractedArray = extractCompleteArray(cleanedText);
+        if (extractedArray) {
+            try { return tryParse(extractedArray); } catch (_) {}
         }
+
+        // 3) Tentar parsear a string inteira (por último)
+        try {
+            return tryParse(cleanedText);
+        } catch (_) {}
         
-        // Se não encontrar, tenta parsear a string inteira
-        return JSON.parse(cleanedText);
+        throw new Error('JSON não encontrado ou inválido após sanitização.');
     } catch (e) {
         console.error(`[Análise-${serviceName}] Falha ao parsear JSON da IA:`, e);
         console.error(`[Análise-${serviceName}] Texto recebido (primeiros 2000 caracteres):`, rawText.substring(0, 2000));
@@ -851,49 +924,49 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                         .slice(0, expectedCount);
                     
                     if (titlesData.length >= expectedCount) {
-                        return {
-                            niche: null,
-                            subniche: null,
-                            analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+            return {
+                niche: null,
+                subniche: null,
+                analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
                             titulosSugeridos: titlesData.map(({ titulo, formula }) => ({ 
                                 titulo, 
-                                pontuacao: 9, 
-                                explicacao: '', 
+                    pontuacao: 9, 
+                    explicacao: '', 
                                 formula: formula || null 
-                            }))
-                        };
-                    }
+                }))
+            };
+        }
                 } else {
                     // Array de strings simples
-                    const titles = parsed.filter(x => typeof x === 'string').slice(0, expectedCount);
-                    if (titles.length >= expectedCount) {
-                        return {
-                            niche: null,
-                            subniche: null,
-                            analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                            titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
-                        };
+            const titles = parsed.filter(x => typeof x === 'string').slice(0, expectedCount);
+            if (titles.length >= expectedCount) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                };
                     }
-                }
             }
-            // 1.c) JSON com array em outros campos comuns
-            const altArr = parsed && (
-                (Array.isArray(parsed.titles) ? parsed.titles : null) ||
-                (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
-                (Array.isArray(parsed.result) ? parsed.result : null)
-            );
-            if (altArr) {
-                const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
-                if (titles.length >= expectedCount) {
-                    return {
-                        niche: null,
-                        subniche: null,
-                        analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                        titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
-                    };
-                }
+        }
+        // 1.c) JSON com array em outros campos comuns
+        const altArr = parsed && (
+            (Array.isArray(parsed.titles) ? parsed.titles : null) ||
+            (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
+            (Array.isArray(parsed.result) ? parsed.result : null)
+        );
+        if (altArr) {
+            const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
+            if (titles.length >= expectedCount) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                };
             }
-        } catch (e) {
+        }
+    } catch (e) {
             // Se JSON falhar, tentar lista numerada abaixo
             console.warn(`[PARSE] Tentativa de JSON falhou, tentando lista numerada:`, e.message);
         }
@@ -1617,7 +1690,7 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
                     ? "You are a professional scriptwriter. Respond ONLY with the script text in plain text format. Do NOT use JSON, objects, or special formatting. Write natural, flowing text."
                     : isTitleListRequest
                         ? "You are a viral YouTube title expert. Respond ONLY with a numbered list of titles following the exact format specified in the prompt. Do NOT use JSON, just a numbered list."
-                        : "You are a helpful assistant designed to output JSON."
+                    : "You are a helpful assistant designed to output JSON."
             },
             { role: "user", content: content }
         ],
@@ -1819,7 +1892,7 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
             ? "Você é um roteirista profissional. Responda APENAS com o texto do roteiro, sem usar JSON, objetos ou formatações especiais. Escreva texto corrido e natural."
             : isTitleListRequest
                 ? "Você é um especialista em títulos virais para YouTube. Responda APENAS com a lista numerada de títulos solicitada, seguindo exatamente o formato especificado no prompt. Não use JSON, apenas lista numerada."
-                : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.",
+            : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.",
         messages: [{ role: "user", content: content }],
         temperature: 0.7,
         max_tokens: 32000,  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
@@ -6047,6 +6120,8 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 user_id INTEGER NOT NULL,
                 channel_id TEXT,
                 channel_name TEXT,
+                language TEXT,
+                country TEXT,
                 access_token TEXT,
                 refresh_token TEXT,
                 token_expires_at DATETIME,
@@ -6464,6 +6539,8 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             const youtubeIntegrationsInfo = await db.all("PRAGMA table_info(youtube_integrations)");
             const hasNiche = youtubeIntegrationsInfo.some(c => c.name === 'niche');
             const hasSubniche = youtubeIntegrationsInfo.some(c => c.name === 'subniche');
+            const hasLanguage = youtubeIntegrationsInfo.some(c => c.name === 'language');
+            const hasCountry = youtubeIntegrationsInfo.some(c => c.name === 'country');
             
             if (!hasNiche) {
                 console.log('MIGRATION: Adicionando coluna "niche" em youtube_integrations...');
@@ -6473,8 +6550,16 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 console.log('MIGRATION: Adicionando coluna "subniche" em youtube_integrations...');
                 await db.exec(`ALTER TABLE youtube_integrations ADD COLUMN subniche TEXT`);
             }
-            if (!hasNiche || !hasSubniche) {
-                console.log('✅ Migração concluída: campos niche e subniche adicionados em youtube_integrations');
+            if (!hasLanguage) {
+                console.log('MIGRATION: Adicionando coluna "language" em youtube_integrations...');
+                await db.exec(`ALTER TABLE youtube_integrations ADD COLUMN language TEXT`);
+            }
+            if (!hasCountry) {
+                console.log('MIGRATION: Adicionando coluna "country" em youtube_integrations...');
+                await db.exec(`ALTER TABLE youtube_integrations ADD COLUMN country TEXT`);
+            }
+            if (!hasNiche || !hasSubniche || !hasLanguage || !hasCountry) {
+                console.log('✅ Migração concluída: campos niche/subniche/language/country adicionados em youtube_integrations');
             }
         } catch (migrationErr) {
             console.warn('Aviso na migração de youtube_integrations (niche/subniche):', migrationErr.message);
@@ -14052,36 +14137,36 @@ Tradução em PT-BR:`;
 
                 // Envolver todo o processamento em try-catch para não quebrar o multimodal se uma IA falhar
                 try {
-                    // extrair texto do 1º round
-                    const rawText = typeof result.value === 'string'
-                        ? result.value
-                        : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
-                    const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
-                    if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
+                // extrair texto do 1º round
+                const rawText = typeof result.value === 'string'
+                    ? result.value
+                    : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
+                const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
+                if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
 
                     // Completar 5 aprovados com refinamento rápido (modo multimodal otimizado)
-                    const passing = await generatePassingTitlesWithRefine({
-                        apiFunc: cfg.apiFunc,
-                        apiKey: cfg.apiKey,
-                        model: cfg.model,
-                        serviceName,
-                        basePromptBuilder: buildTitleRefinePrompt,
-                        buildArgs: {
-                            originalTitle: videoDetails.title,
-                            translatedTitle,
-                            performanceContext,
-                            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
-                            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                            languageInstruction
-                        },
-                        titlesRequired,
-                        minImpact: MIN_IMPACT_SCORE,
+                const passing = await generatePassingTitlesWithRefine({
+                    apiFunc: cfg.apiFunc,
+                    apiKey: cfg.apiKey,
+                    model: cfg.model,
+                    serviceName,
+                    basePromptBuilder: buildTitleRefinePrompt,
+                    buildArgs: {
+                        originalTitle: videoDetails.title,
+                        translatedTitle,
+                        performanceContext,
+                        descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                        transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                        languageInstruction
+                    },
+                    titlesRequired,
+                    minImpact: MIN_IMPACT_SCORE,
                         maxRefines: 1  // Reduzido para 1 tentativa extra (modo multimodal mais rápido)
-                    });
+                });
 
-                    // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
-                    console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
-                    passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
+                // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
+                console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
+                passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
                 } catch (parseError) {
                     console.error(`[Análise Multimodal] Erro ao processar ${serviceName}:`, parseError.message);
                     // Continuar com as outras IAs mesmo se esta falhar
@@ -16857,13 +16942,13 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
                 };
             } else {
                 // Se tema é 'default', usar dados do banco se disponíveis
-                themeData = {
-                    subject: dbMatch.subject || themeData.subject,
-                    acessorios: dbMatch.acessorios || themeData.acessorios,
-                    ambiente: dbMatch.ambiente || themeData.ambiente,
-                    elementos: dbMatch.elementos || themeData.elementos
-                };
-            }
+            themeData = {
+                subject: dbMatch.subject || themeData.subject,
+                acessorios: dbMatch.acessorios || themeData.acessorios,
+                ambiente: dbMatch.ambiente || themeData.ambiente,
+                elementos: dbMatch.elementos || themeData.elementos
+            };
+        }
         }
         
         console.log('[Thumbnail Complete] ThemeData usado:', {
@@ -16881,19 +16966,19 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             let adapted = String(promptToAdapt);
             
             // 1. Substituir placeholders do título (se existirem)
-            const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
-            for (const rx of placeholders) {
+        const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
+        for (const rx of placeholders) {
                 if (rx.test(adapted)) {
                     adapted = adapted.replace(rx, `"${titleText}"`);
-                }
             }
-            
+        }
+
             // 2. Substituir placeholders de personagem, ambiente, elementos (se existirem)
             adapted = adapted.replace(/\{PERSONAGEM\}/gi, themeData.subject);
             adapted = adapted.replace(/\{ACESSORIOS\}/gi, themeData.acessorios || '');
             adapted = adapted.replace(/\{AMBIENTE\}/gi, themeData.ambiente);
             adapted = adapted.replace(/\{ELEMENTOS_DE_FUNDO\}/gi, themeData.elementos);
-            
+
             // 3. ADAPTAR CONTEÚDO ESPECÍFICO do prompt de referência para o tema do título
             // Substituir referências a temas diferentes (maya, aztec, etc.) por elementos do tema atual
             
@@ -16963,7 +17048,7 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
                         // Inserir personagem após o artigo
                         adapted = adapted.replace(/^(create|design|generate|position|feature|address)\s+(?:a|an|the)\s+/i, 
                             `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
-                    } else {
+                } else {
                         // Inserir após o verbo
                         adapted = adapted.replace(/^(create|design|generate|position|feature|address)\s+/i, 
                             `$1 a cinematic thumbnail featuring ${themeData.subject}, `);
@@ -16987,15 +17072,15 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
                     // Inserir após menção de posicionamento
                     adapted = adapted.replace(/(position|frame|occupying).*?(?:\n|\.|,)/i, 
                         `$& Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`);
-                } else {
+        } else {
                     // Adicionar de forma integrada no meio do prompt, não no final
                     // Procurar primeira menção de "structure" ou "monument" para inserir após
                     const structureMatch = adapted.match(/(?:structure|monument|building|city).*?(?:\n|\.|,)/i);
                     if (structureMatch) {
                         adapted = adapted.replace(/(?:structure|monument|building|city).*?(?:\n|\.|,)/i, 
                             `$& Background setting: ${themeData.ambiente}. Include contextual elements: ${themeData.elementos}.`);
-                    }
-                }
+            }
+        }
             }
             */
             
@@ -17180,7 +17265,7 @@ RESPONDA APENAS COM JSON:
         // Gerar descrição SEO e tags base para todas as variações
         const baseSeoDescription = parsedSEO.seoDescription || `Descubra tudo sobre ${titleText}. Conteúdo exclusivo e detalhado.`;
         const baseTags = parsedSEO.tags ? parsedSEO.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-        
+
         // Gerar descrições e tags específicas para cada headline
         const generateVariationSEO = async (headline, index) => {
             if (!headline) return { description: baseSeoDescription, tags: baseTags };
@@ -17461,7 +17546,7 @@ ${negativeBlockFinal}`;
                 
                 try {
                     const genResp = await fetch(imageFxUrl, {
-                        method: 'POST',
+                method: 'POST',
                         headers: { 
                             'Content-Type': 'application/json', 
                             'Authorization': req.headers['authorization'] || '' 
@@ -17504,7 +17589,7 @@ ${negativeBlockFinal}`;
                         throw new Error(`Erro ao gerar imagem ${i + 1}: ${genResp.status} - ${errorMessage.substring(0, 200)}`);
                     }
                     
-                    const genData = await genResp.json();
+            const genData = await genResp.json();
                     console.log(`[Thumbnail Complete] Resposta da geração ${i + 1}:`, {
                         hasImageUrl: !!genData.imageUrl,
                         hasImage: !!genData.image,
@@ -17559,10 +17644,10 @@ ${negativeBlockFinal}`;
                         tagsPreview: tagsValue ? tagsValue.substring(0, 100) : 'N/A'
                     });
                     
-                    images.push({
+            images.push({
                         imageUrl: imageUrl,
                         image: imageUrl, // Compatibilidade: também incluir como 'image'
-                        savedToLibrary: !!genData.savedToLibrary,
+                savedToLibrary: !!genData.savedToLibrary,
                         libraryId: genData.libraryId || null,
                         headline: headlineValue, // Headline específica desta variação
                         headlineText: headlineValue, // Para o campo "Headline de Impacto" - CRÍTICO: sempre retornar a headline correta
@@ -30677,36 +30762,57 @@ app.post('/api/analytics/track', authenticateToken, async (req, res) => {
 
 // Função helper para obter RPM baseado no nicho (usada em múltiplas rotas)
 // Função para analisar canal e detectar nicho/subnicho automaticamente
+
+// ===== YouTube helpers (evitar search.list: caro e estoura quota) =====
+async function getUploadsPlaylistId(channelId, accessToken) {
+    const url = `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}`;
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    const uploads = j?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    return uploads || null;
+}
+
+async function getRecentVideoTitlesFromUploads(channelId, accessToken, maxResults = 10) {
+    const uploadsId = await getUploadsPlaylistId(channelId, accessToken);
+    if (!uploadsId) return [];
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${encodeURIComponent(uploadsId)}&maxResults=${Math.min(50, Math.max(1, maxResults))}`;
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!r.ok) return [];
+    const j = await r.json().catch(() => null);
+    const titles = (j?.items || [])
+        .map(it => it?.snippet?.title || '')
+        .filter(t => t && t.toLowerCase() !== 'private video' && t.toLowerCase() !== 'deleted video');
+    return titles.slice(0, maxResults);
+}
+
+async function getRecentVideoIdsFromUploads(channelId, accessToken, maxResults = 20) {
+    const uploadsId = await getUploadsPlaylistId(channelId, accessToken);
+    if (!uploadsId) return [];
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${encodeURIComponent(uploadsId)}&maxResults=${Math.min(50, Math.max(1, maxResults))}`;
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+    if (!r.ok) return [];
+    const j = await r.json().catch(() => null);
+    const ids = (j?.items || [])
+        .map(it => it?.snippet?.resourceId?.videoId)
+        .filter(Boolean);
+    return ids.slice(0, maxResults);
+}
+
 async function analyzeChannelNiche(channelId, channelName, accessToken, userId) {
     try {
-        console.log(`[Análise Canal] Analisando canal ${channelId} (${channelName})...`);
+        console.log(`[Análise Canal] 🔍 Iniciando análise do canal ${channelId} (${channelName})...`);
         
         // Buscar os 5 vídeos mais recentes do canal (reduzido para ser mais rápido)
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&maxResults=5&type=video`;
-        const searchResponse = await fetch(searchUrl, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        
-        if (!searchResponse.ok) {
-            console.warn(`[Análise Canal] Erro ao buscar vídeos do canal ${channelId}`);
-            return { niche: null, subniche: null };
-        }
-        
-        const searchData = await searchResponse.json();
-        if (!searchData.items || searchData.items.length === 0) {
-            console.warn(`[Análise Canal] Nenhum vídeo encontrado no canal ${channelId}`);
-            return { niche: null, subniche: null };
-        }
-        
-        // Extrair títulos dos vídeos
-        const videoTitles = searchData.items
-            .map(item => item.snippet?.title || '')
-            .filter(title => title.length > 0)
-            .slice(0, 5); // Limitar a 5 títulos para análise mais rápida
+        console.log(`[Análise Canal] 📡 Buscando vídeos do canal (uploads playlist, sem search.list)...`);
+        const videoTitles = await getRecentVideoTitlesFromUploads(channelId, accessToken, 5);
         
         if (videoTitles.length === 0) {
-            return { niche: null, subniche: null };
+            console.warn(`[Análise Canal] ⚠️ Nenhum título válido encontrado nos vídeos`);
+            return { niche: 'Entretenimento', subniche: null };
         }
+        
+        console.log(`[Análise Canal] 📝 Títulos encontrados: ${videoTitles.length} vídeos`);
         
         // Buscar chaves de API do usuário para análise
         const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
@@ -30784,13 +30890,15 @@ Seja específico e preciso. Se não conseguir identificar claramente, use "Entre
             }
         }
         
-        // Se nenhuma IA funcionou, retornar null
-        console.warn(`[Análise Canal] Não foi possível detectar nicho para o canal ${channelId}`);
-        return { niche: null, subniche: null };
+        // Se nenhuma IA funcionou, retornar nicho padrão (não null para não ficar travado)
+        console.warn(`[Análise Canal] ⚠️ Não foi possível detectar nicho para o canal ${channelId}, usando padrão`);
+        return { niche: 'Entretenimento', subniche: null };
         
     } catch (err) {
-        console.error(`[Análise Canal] Erro ao analisar canal ${channelId}:`, err.message);
-        return { niche: null, subniche: null };
+        console.error(`[Análise Canal] ❌ Erro ao analisar canal ${channelId}:`, err.message);
+        console.error(`[Análise Canal] Stack trace:`, err.stack);
+        // Retornar nicho padrão em caso de erro para não ficar travado
+        return { niche: 'Entretenimento', subniche: null };
     }
 }
 
@@ -31823,6 +31931,29 @@ app.get('/api/library/titles', authenticateToken, async (req, res) => {
     }
 });
 
+// Excluir títulos em lote (mais rápido que 1 request por item)
+app.post('/api/library/titles/bulk-delete', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ msg: 'IDs inválidos.' });
+    }
+    try {
+        const cleanIds = ids.map(n => parseInt(n)).filter(n => Number.isFinite(n));
+        if (!cleanIds.length) return res.status(400).json({ msg: 'IDs inválidos.' });
+
+        const placeholders = cleanIds.map(() => '?').join(',');
+        const result = await db.run(
+            `DELETE FROM viral_titles_library WHERE user_id = ? AND id IN (${placeholders})`,
+            [userId, ...cleanIds]
+        );
+        return res.status(200).json({ msg: `${result.changes || 0} título(s) excluído(s) com sucesso.` });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/titles/bulk-delete]:', err);
+        return res.status(500).json({ msg: 'Erro ao excluir títulos selecionados.' });
+    }
+});
+
 // Excluir título da biblioteca
 app.delete('/api/library/titles/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
@@ -31892,7 +32023,7 @@ app.post('/api/library/thumbnails', authenticateToken, async (req, res) => {
 // Buscar thumbnails da biblioteca
 app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
     const userId = req.user.id;
-    const { niche, subniche, minViews, minCtr, favorite, style, search } = req.query;
+    const { niche, subniche, minViews, minCtr, favorite, style, search, page, limit } = req.query;
     console.log(`[Biblioteca Thumbnails] Requisição recebida para userId: ${userId}`, { niche, minViews, favorite, style, search });
 
     try {
@@ -31901,57 +32032,100 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
             return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
         }
 
-        let query = 'SELECT * FROM viral_thumbnails_library WHERE user_id = ?';
+        // Compat: se não vier paginação, manter comportamento antigo (até 100 itens)
+        const hasPaging = typeof page !== 'undefined' || typeof limit !== 'undefined';
+
+        let baseWhere = ' FROM viral_thumbnails_library WHERE user_id = ?';
         const params = [userId];
 
         if (niche) {
-            query += ' AND niche = ?';
+            baseWhere += ' AND niche = ?';
             params.push(niche);
         }
         if (subniche) {
-            query += ' AND subniche = ?';
+            baseWhere += ' AND subniche = ?';
             params.push(subniche);
         }
         if (minViews) {
-            query += ' AND original_views >= ?';
+            baseWhere += ' AND original_views >= ?';
             params.push(parseInt(minViews));
         }
         if (minCtr) {
-            query += ' AND original_ctr >= ?';
+            baseWhere += ' AND original_ctr >= ?';
             params.push(parseFloat(minCtr));
         }
         if (favorite === 'true') {
-            query += ' AND is_favorite = 1';
+            baseWhere += ' AND is_favorite = 1';
         }
         if (style) {
-            query += ' AND style = ?';
+            baseWhere += ' AND style = ?';
             params.push(style);
         }
         if (search) {
-            query += ' AND (niche LIKE ? OR subniche LIKE ? OR thumbnail_description LIKE ?)';
+            baseWhere += ' AND (niche LIKE ? OR subniche LIKE ? OR thumbnail_description LIKE ?)';
             const searchPattern = `%${search}%`;
             params.push(searchPattern, searchPattern, searchPattern);
         }
 
-        query += ' ORDER BY created_at DESC LIMIT 100';
-
-        console.log(`[Biblioteca Thumbnails] Executando query:`, query.substring(0, 100));
-        let thumbnails = [];
-        try {
-            thumbnails = await db.all(query, params);
-            console.log(`[Biblioteca Thumbnails] Thumbnails encontradas:`, thumbnails.length);
-        } catch (dbErr) {
-            console.error('[Biblioteca Thumbnails] Erro ao buscar thumbnails:', dbErr);
-            thumbnails = [];
+        if (!hasPaging) {
+            const query = `SELECT *${baseWhere} ORDER BY created_at DESC LIMIT 100`;
+            console.log(`[Biblioteca Thumbnails] Executando query (legacy):`, query.substring(0, 120));
+            const thumbnails = await db.all(query, params);
+            return res.status(200).json(Array.isArray(thumbnails) ? thumbnails : []);
         }
 
-        // Garantir que thumbnails é sempre um array
-        const thumbnailsArray = Array.isArray(thumbnails) ? thumbnails : [];
-        res.status(200).json(thumbnailsArray);
+        const pageNum = Math.max(1, parseInt(page || 1));
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit || 6)));
+        const offset = (pageNum - 1) * limitNum;
+
+        const countQuery = `SELECT COUNT(*) as total${baseWhere}`;
+        const countRow = await db.get(countQuery, params);
+        const total = countRow?.total || 0;
+        const totalPages = Math.max(1, Math.ceil(total / limitNum));
+
+        const dataQuery = `SELECT *${baseWhere} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+        const dataParams = [...params, limitNum, offset];
+        const rows = await db.all(dataQuery, dataParams);
+        const data = Array.isArray(rows) ? rows : [];
+
+        return res.status(200).json({
+            data,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages,
+                hasPrev: pageNum > 1,
+                hasNext: pageNum < totalPages
+            }
+        });
     } catch (err) {
         console.error('[ERRO NA ROTA /api/library/thumbnails]:', err);
         // Sempre retornar JSON válido (array vazio), nunca HTML
         res.status(200).json([]);
+    }
+});
+
+// Excluir thumbnails em lote
+app.post('/api/library/thumbnails/bulk-delete', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ msg: 'IDs inválidos.' });
+    }
+    try {
+        const cleanIds = ids.map(n => parseInt(n)).filter(n => Number.isFinite(n));
+        if (!cleanIds.length) return res.status(400).json({ msg: 'IDs inválidos.' });
+
+        const placeholders = cleanIds.map(() => '?').join(',');
+        const result = await db.run(
+            `DELETE FROM viral_thumbnails_library WHERE user_id = ? AND id IN (${placeholders})`,
+            [userId, ...cleanIds]
+        );
+        return res.status(200).json({ msg: `${result.changes || 0} thumbnail(s) excluída(s) com sucesso.` });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/library/thumbnails/bulk-delete]:', err);
+        return res.status(500).json({ msg: 'Erro ao excluir thumbnails selecionadas.' });
     }
 });
 
@@ -32037,12 +32211,43 @@ app.put('/api/library/thumbnails/:id/favorite', authenticateToken, async (req, r
 
 // === ROTAS DE INTEGRAÇÃO YOUTUBE API ===
 
+// Throttle simples para tarefas em background (evita spam e estouro de quota)
+const ytBgLastRun = {
+    niche: new Map(),   // key: `${userId}:${channelId}`
+    locale: new Map()   // key: `${userId}:${channelId}`
+};
+function shouldRunYtBg(map, key, ttlMs) {
+    const now = Date.now();
+    const last = map.get(key) || 0;
+    if (now - last < ttlMs) return false;
+    map.set(key, now);
+    return true;
+}
+
+// Cache leve em memória para analytics (evita múltiplos refresh seguidos gastando quota)
+const ytAnalyticsCache = new Map(); // key -> { expiresAt, payload }
+function getYtAnalyticsCache(key) {
+    const it = ytAnalyticsCache.get(key);
+    if (!it) return null;
+    if (Date.now() > it.expiresAt) {
+        ytAnalyticsCache.delete(key);
+        return null;
+    }
+    return it.payload;
+}
+function setYtAnalyticsCache(key, payload, ttlMs = 10 * 60 * 1000) {
+    ytAnalyticsCache.set(key, { expiresAt: Date.now() + ttlMs, payload });
+}
+
 // Iniciar OAuth do YouTube (retorna URL de autorização)
 app.get('/api/youtube/oauth/authorize', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID';
+    // Log para debug: verificar qual valor está sendo carregado
+    console.log(`[YouTube OAuth] 🔍 DEBUG - YOUTUBE_REDIRECT_URI do process.env: ${process.env.YOUTUBE_REDIRECT_URI || 'NÃO DEFINIDO'}`);
     const REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:5001/api/youtube/oauth/callback';
-    const SCOPE = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube';
+    // Escopos necessários: upload de vídeos, gerenciar canal e Analytics (+ monetização para receita estimada)
+    const SCOPE = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/yt-analytics-monetary.readonly';
 
     if (CLIENT_ID === 'YOUR_CLIENT_ID') {
         return res.status(500).json({ msg: 'Credenciais do YouTube não configuradas. Configure YOUTUBE_CLIENT_ID no arquivo .env. Veja CONFIGURACAO_YOUTUBE.md para mais informações.' });
@@ -32053,6 +32258,27 @@ app.get('/api/youtube/oauth/authorize', authenticateToken, async (req, res) => {
     // Remover barra final se houver
     if (cleanRedirectUri.endsWith('/')) {
         cleanRedirectUri = cleanRedirectUri.slice(0, -1);
+    }
+    
+    // Validar formato do REDIRECT_URI
+    // Deve ser http://localhost:5001/api/youtube/oauth/callback (não https e não /api/auth/callback/google)
+    if (cleanRedirectUri.includes('https://localhost')) {
+        console.warn(`[YouTube OAuth] ⚠️ AVISO: REDIRECT_URI está usando HTTPS. Para desenvolvimento local, use HTTP: ${cleanRedirectUri.replace('https://', 'http://')}`);
+        // Corrigir automaticamente para HTTP em desenvolvimento local
+        if (cleanRedirectUri.includes('localhost') || cleanRedirectUri.includes('127.0.0.1')) {
+            cleanRedirectUri = cleanRedirectUri.replace('https://', 'http://');
+            console.log(`[YouTube OAuth] ✅ REDIRECT_URI corrigido automaticamente para: ${cleanRedirectUri}`);
+        }
+    }
+    
+    // Validar se o caminho está correto
+    if (!cleanRedirectUri.includes('/api/youtube/oauth/callback')) {
+        console.error(`[YouTube OAuth] ❌ ERRO: REDIRECT_URI incorreto: ${cleanRedirectUri}`);
+        console.error(`[YouTube OAuth] O REDIRECT_URI deve terminar com: /api/youtube/oauth/callback`);
+        console.error(`[YouTube OAuth] URI atual: ${cleanRedirectUri}`);
+        return res.status(500).json({ 
+            msg: `REDIRECT_URI configurado incorretamente. O URI deve ser: http://localhost:5001/api/youtube/oauth/callback (ou seu domínio de produção). URI atual: ${cleanRedirectUri}. Verifique a variável YOUTUBE_REDIRECT_URI no arquivo .env e também no Google Cloud Console.` 
+        });
     }
 
     // Criar um state token seguro com o userId
@@ -32198,16 +32424,99 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
         }
 
         // Buscar TODOS os canais da conta Google (até 50 canais)
-        const channelsResponse = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&maxResults=50', {
+        // IMPORTANTE: Uma conta Google pode não ter um canal do YouTube criado automaticamente
+        // O usuário precisa criar um canal primeiro em youtube.com
+        console.log('[YouTube OAuth] 🔍 Buscando canais da conta Google...');
+        
+        // Tentar primeiro com mine=true (canais próprios)
+        let channelsResponse = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&mine=true&maxResults=50', {
             headers: {
                 'Authorization': `Bearer ${access_token}`,
             },
         });
+        
+        let channelsData = null;
+        if (channelsResponse.ok) {
+            channelsData = await channelsResponse.json();
+        }
+        
+        // Se não encontrar, tentar buscar canais gerenciados pela conta
+        if (!channelsResponse.ok || !channelsData?.items || channelsData.items.length === 0) {
+            console.log('[YouTube OAuth] 🔄 Tentando buscar canais gerenciados...');
+            channelsResponse = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&managedByMe=true&maxResults=50', {
+                headers: {
+                    'Authorization': `Bearer ${access_token}`,
+                },
+            });
+            if (channelsResponse.ok) {
+                channelsData = await channelsResponse.json();
+            }
+        }
 
         let availableChannels = [];
         
-        if (channelsResponse.ok) {
-            const channelsData = await channelsResponse.json();
+        if (channelsResponse.ok && channelsData) {
+            console.log('[YouTube OAuth] 📊 Resposta da API de canais:', {
+                totalResults: channelsData.pageInfo?.totalResults || 0,
+                itemsCount: channelsData.items?.length || 0,
+                hasItems: !!channelsData.items,
+                error: channelsData.error
+            });
+            
+            if (channelsData.error) {
+                console.error('[YouTube OAuth] ❌ Erro na API do YouTube:', JSON.stringify(channelsData.error, null, 2));
+                const reason = channelsData?.error?.errors?.[0]?.reason;
+                const isQuota = reason === 'quotaExceeded' || String(channelsData?.error?.message || '').toLowerCase().includes('quota');
+
+                // O Google às vezes retorna HTML com link relativo "/youtube/v3/getting-started#quota".
+                // Se renderizarmos direto, o link aponta para o NOSSO servidor e gera "Cannot GET /youtube/v3/getting-started".
+                const sanitizeGoogleErrorHtml = (raw) => {
+                    let msg = String(raw || '').trim();
+                    if (!msg) return 'Erro desconhecido';
+                    // Preservar o link de quota, mas convertê-lo para URL absoluta do Google
+                    msg = msg.replace(/<a\s+href="\/youtube\/v3\/getting-started#quota"\s*>quota<\/a>/gi, '[[QUOTA_LINK]]');
+                    // Remover qualquer outro HTML
+                    msg = msg.replace(/<[^>]*>/g, '');
+                    // Escape básico
+                    msg = msg
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                    // Restaurar link absoluto
+                    msg = msg.replace(
+                        '[[QUOTA_LINK]]',
+                        '<a href="https://developers.google.com/youtube/v3/getting-started#quota" target="_blank" rel="noopener noreferrer">quota</a>'
+                    );
+                    return msg;
+                };
+
+                const safeMessageHtml = sanitizeGoogleErrorHtml(channelsData.error.message || 'Erro desconhecido');
+                return res.status(400).send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>Erro ao Buscar Canais</title></head>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>❌ Erro ao Buscar Canais</h1>
+                        <p>Erro: ${safeMessageHtml}</p>
+                        <p>Código: ${channelsData.error.code || 'N/A'}</p>
+                        ${isQuota ? `
+                            <div style="max-width: 680px; margin: 20px auto; text-align: left; background: #f5f5f5; padding: 16px; border-radius: 10px;">
+                                <h3 style="margin-top:0;">Por que isso aconteceu?</h3>
+                                <p>O projeto do Google Cloud que está sendo usado pela integração atingiu o limite diário de requisições da <strong>YouTube Data API v3</strong> (quotaExceeded).</p>
+                                <h3>Como resolver</h3>
+                                <ol>
+                                    <li>Aguarde a renovação da cota (normalmente em algumas horas, dependendo do fuso do Google).</li>
+                                    <li>Ou aumente a cota no Google Cloud Console: <em>YouTube Data API v3 → Quotas</em>.</li>
+                                    <li>Evite recarregar essa tela várias vezes seguidas (isso consome quota).</li>
+                                </ol>
+                            </div>
+                        ` : ''}
+                        <button onclick="window.close()">Fechar</button>
+                    </body>
+                    </html>
+                `);
+            }
+            
             if (channelsData.items && channelsData.items.length > 0) {
                 availableChannels = channelsData.items.map(item => ({
                     id: item.id,
@@ -32215,18 +32524,72 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
                     thumbnail: item.snippet?.thumbnails?.default?.url || '',
                     description: item.snippet?.description || ''
                 }));
+                console.log('[YouTube OAuth] ✅ Canais encontrados:', availableChannels.map(c => ({ id: c.id, name: c.name })));
+            } else {
+                console.warn('[YouTube OAuth] ⚠️ Nenhum canal encontrado na resposta da API');
             }
+        } else {
+            const errorText = await channelsResponse.text();
+            console.error('[YouTube OAuth] ❌ Erro HTTP ao buscar canais:', {
+                status: channelsResponse.status,
+                statusText: channelsResponse.statusText,
+                error: errorText
+            });
+            
+            let errorMessage = 'Erro ao buscar canais do YouTube.';
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.error?.message || errorMessage;
+            } catch (e) {
+                // Se não for JSON, usar o texto como está
+            }
+
+            // Mesma sanitização: evitar link relativo do Google quebrar no nosso servidor
+            const safeErrorMessage = String(errorMessage || '')
+                .replace(/<a\s+href="\/youtube\/v3\/getting-started#quota"\s*>quota<\/a>/gi, 'quota (https://developers.google.com/youtube/v3/getting-started#quota)')
+                .replace(/<[^>]*>/g, '');
+            
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Erro ao Buscar Canais</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Erro ao Buscar Canais</h1>
+                    <p>${safeErrorMessage}</p>
+                    <p>Status: ${channelsResponse.status}</p>
+                    <button onclick="window.close()">Fechar</button>
+                </body>
+                </html>
+            `);
         }
 
         if (availableChannels.length === 0) {
+            console.warn('[YouTube OAuth] ⚠️ Nenhum canal disponível após processar resposta');
+            console.warn('[YouTube OAuth] 📋 Dados da resposta:', JSON.stringify(channelsData, null, 2));
             return res.status(400).send(`
                 <!DOCTYPE html>
                 <html>
                 <head><title>Nenhum Canal Encontrado</title></head>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <body style="font-family: Arial; text-align: center; padding: 50px; max-width: 600px; margin: 0 auto;">
                     <h1>❌ Nenhum Canal Encontrado</h1>
                     <p>Não foi possível encontrar canais nesta conta Google.</p>
-                    <button onclick="window.close()">Fechar</button>
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left;">
+                        <h3 style="margin-top: 0;">Possíveis causas:</h3>
+                        <ul>
+                            <li>A conta Google não tem um canal do YouTube criado</li>
+                            <li>Você precisa criar um canal primeiro em <a href="https://www.youtube.com" target="_blank">youtube.com</a></li>
+                            <li>A conta usada não é a mesma que possui o canal</li>
+                        </ul>
+                        <p><strong>Como criar um canal:</strong></p>
+                        <ol>
+                            <li>Acesse <a href="https://www.youtube.com" target="_blank">youtube.com</a></li>
+                            <li>Clique no seu perfil (canto superior direito)</li>
+                            <li>Selecione "Criar um canal" ou "Meu canal"</li>
+                            <li>Siga as instruções para criar seu canal</li>
+                            <li>Depois, tente conectar novamente aqui</li>
+                        </ol>
+                    </div>
+                    <button onclick="window.close()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">Fechar</button>
                 </body>
                 </html>
             `);
@@ -32458,6 +32821,11 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
                             const data = await response.json();
                             
                             if (response.ok) {
+                                try {
+                                    if (window.opener) {
+                                        window.opener.postMessage({ type: 'youtubeChannelsConnected' }, '*');
+                                    }
+                                } catch (e) {}
                                 document.body.innerHTML = \`
                                     <div class="container" style="text-align: center;">
                                         <h1>✅ Canais Conectados com Sucesso!</h1>
@@ -34708,13 +35076,64 @@ app.get('/api/video/download/:operationId', authenticateToken, async (req, res) 
     }
 });
 
+// Endpoint para fazer upload temporário de arquivo para agendamento
+app.post('/api/youtube/schedule/upload', authenticateToken, async (req, res) => {
+    try {
+        const uploadsDir = path.join(__dirname, 'uploads', 'scheduled');
+        await fse.ensureDir(uploadsDir);
+        
+        const form = formidable.formidable({
+            uploadDir: uploadsDir,
+            keepExtensions: true,
+            maxFileSize: 10 * 1024 * 1024 * 1024 // 10GB
+        });
+        
+        form.parse(req, async (err, fields, files) => {
+            if (err) {
+                console.error('[Schedule Upload] Erro ao processar:', err);
+                return res.status(500).json({ msg: 'Erro ao processar arquivo.', error: err.message });
+            }
+            
+            const videoFile = Array.isArray(files.video) ? files.video[0] : files.video;
+            const thumbnailFile = files.thumbnail ? (Array.isArray(files.thumbnail) ? files.thumbnail[0] : files.thumbnail) : null;
+            
+            if (!videoFile) {
+                return res.status(400).json({ msg: 'Arquivo de vídeo não fornecido.' });
+            }
+            
+            const videoPath = videoFile.filepath;
+            const thumbnailPath = thumbnailFile ? thumbnailFile.filepath : null;
+            
+            res.status(200).json({
+                videoPath: path.relative(__dirname, videoPath),
+                thumbnailPath: thumbnailPath ? path.relative(__dirname, thumbnailPath) : null
+            });
+        });
+    } catch (err) {
+        console.error('[Schedule Upload] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao fazer upload do arquivo.', error: err.message });
+    }
+});
+
 // Agendar publicação de vídeo (mantido para compatibilidade, mas agora com suporte a auto-metadata)
 app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
-    const { youtubeIntegrationId, videoFilePath, title, description, tags, thumbnailUrl, scheduledTime, autoGenerateMetadata } = req.body;
+    const { youtubeIntegrationId, channelId, videoFilePath, title, description, tags, thumbnailPath, scheduledTime, privacy = 'private', autoGenerateMetadata } = req.body;
     const userId = req.user.id;
 
     if (!title || !scheduledTime) {
         return res.status(400).json({ msg: 'Título e horário agendado são obrigatórios.' });
+    }
+    
+    // Se channelId foi fornecido mas não youtubeIntegrationId, buscar integrationId
+    let integrationId = youtubeIntegrationId;
+    if (!integrationId && channelId) {
+        const integration = await db.get(
+            'SELECT id FROM youtube_integrations WHERE channel_id = ? AND user_id = ? AND is_active = 1',
+            [channelId, userId]
+        );
+        if (integration) {
+            integrationId = integration.id;
+        }
     }
 
     try {
@@ -34753,7 +35172,7 @@ app.post('/api/youtube/schedule', authenticateToken, async (req, res) => {
         const result = await db.run(
             `INSERT INTO scheduled_posts (user_id, youtube_integration_id, video_file_path, title, description, tags, thumbnail_url, scheduled_time)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [userId, youtubeIntegrationId || null, videoFilePath || null, title, finalDescription || null, finalTags ? JSON.stringify(finalTags) : null, thumbnailUrl || null, scheduledTime]
+            [userId, integrationId || null, videoFilePath || null, title, finalDescription || null, finalTags ? JSON.stringify(finalTags) : null, thumbnailPath || null, scheduledTime]
         );
         res.status(201).json({ id: result.lastID, msg: 'Publicação agendada com sucesso.' });
     } catch (err) {
@@ -34767,10 +35186,111 @@ app.get('/api/youtube/channels', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     try {
+        // Buscar canais incluindo niche, subniche e access_token para re-análise
         const integrations = await db.all(
-            'SELECT id, channel_id, channel_name, token_expires_at, created_at, is_active FROM youtube_integrations WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC',
+            'SELECT id, channel_id, channel_name, token_expires_at, created_at, is_active, niche, subniche, language, country, access_token FROM youtube_integrations WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC',
             [userId]
         );
+
+        // Verificar se há canais sem nicho/idioma e re-analisar em background
+        const channelsWithoutNiche = integrations.filter(c => !c.niche || c.niche === null);
+        const channelsWithoutLocale = integrations.filter(c => (!c.language || c.language === null) || (!c.country || c.country === null));
+        if (channelsWithoutNiche.length > 0) {
+            console.log(`[YouTube Channels] 🔍 Encontrados ${channelsWithoutNiche.length} canais sem nicho, iniciando re-análise em background...`);
+            channelsWithoutNiche.forEach(channel => {
+                const bgKey = `${userId}:${channel.channel_id}`;
+                if (!shouldRunYtBg(ytBgLastRun.niche, bgKey, 6 * 60 * 60 * 1000)) return; // 6h
+                // Re-analisar em background (não bloquear a resposta)
+                if (channel.access_token) {
+                    try {
+                        const accessToken = decryptToken(channel.access_token, 'YouTube Channels Re-analysis');
+                        if (!accessToken) {
+                            console.warn(`[YouTube Channels] Token inválido para canal ${channel.channel_id}, pulando re-análise`);
+                            return; // Usar return ao invés de continue em forEach
+                        }
+                        // Usar timeout para evitar travamento
+                        Promise.race([
+                            analyzeChannelNiche(channel.channel_id, channel.channel_name, accessToken, userId),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout: Análise demorou mais de 60 segundos')), 60000)
+                            )
+                        ])
+                        .then(nicheAnalysis => {
+                            if (nicheAnalysis && (nicheAnalysis.niche || nicheAnalysis.subniche)) {
+                                console.log(`[YouTube Channels] ✅ Nicho detectado para ${channel.channel_name}: ${nicheAnalysis.niche} / ${nicheAnalysis.subniche}`);
+                                db.run(
+                                    `UPDATE youtube_integrations 
+                                     SET niche = ?, subniche = ?, updated_at = CURRENT_TIMESTAMP 
+                                     WHERE id = ?`,
+                                    [nicheAnalysis.niche, nicheAnalysis.subniche, channel.id]
+                                ).catch(err => {
+                                    console.error(`[YouTube Channels] ❌ Erro ao salvar nicho:`, err.message);
+                                });
+                            } else {
+                                // Definir nicho padrão se não conseguir detectar
+                                console.log(`[YouTube Channels] ⚠️ Definindo nicho padrão para ${channel.channel_name}`);
+                                db.run(
+                                    `UPDATE youtube_integrations 
+                                     SET niche = 'Entretenimento', subniche = NULL, updated_at = CURRENT_TIMESTAMP 
+                                     WHERE id = ?`,
+                                    [channel.id]
+                                ).catch(err => {
+                                    console.error(`[YouTube Channels] Erro ao definir nicho padrão:`, err.message);
+                                });
+                            }
+                        })
+                        .catch(err => {
+                            console.warn(`[YouTube Channels] ⚠️ Erro ao re-analisar canal ${channel.channel_id}:`, err.message);
+                            // Definir nicho padrão em caso de erro
+                            db.run(
+                                `UPDATE youtube_integrations 
+                                 SET niche = 'Entretenimento', subniche = NULL, updated_at = CURRENT_TIMESTAMP 
+                                 WHERE id = ?`,
+                                [channel.id]
+                            ).catch(updateErr => {
+                                console.error(`[YouTube Channels] Erro ao definir nicho padrão após erro:`, updateErr.message);
+                            });
+                        });
+                    } catch (decryptErr) {
+                        console.error(`[YouTube Channels] Erro ao descriptografar token do canal ${channel.channel_id}:`, decryptErr.message);
+                    }
+                }
+            });
+        }
+
+        if (channelsWithoutLocale.length > 0) {
+            console.log(`[YouTube Channels] 🌍 Encontrados ${channelsWithoutLocale.length} canais sem idioma/país, buscando em background...`);
+            channelsWithoutLocale.forEach(channel => {
+                if (!channel.access_token) return;
+                const bgKey = `${userId}:${channel.channel_id}`;
+                if (!shouldRunYtBg(ytBgLastRun.locale, bgKey, 6 * 60 * 60 * 1000)) return; // 6h
+                try {
+                    const accessToken = decryptToken(channel.access_token, 'YouTube Channels Locale');
+                    if (!accessToken) return;
+
+                    // Buscar snippet do canal para idioma/país
+                    fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channel.channel_id}`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(json => {
+                        const snippet = json?.items?.[0]?.snippet;
+                        if (!snippet) return;
+                        const lang = snippet.defaultLanguage || snippet.defaultAudioLanguage || null;
+                        const country = snippet.country || null;
+                        if (!lang && !country) return;
+
+                        return db.run(
+                            `UPDATE youtube_integrations 
+                             SET language = COALESCE(language, ?), country = COALESCE(country, ?), updated_at = CURRENT_TIMESTAMP
+                             WHERE id = ?`,
+                            [lang, country, channel.id]
+                        );
+                    })
+                    .catch(() => {});
+                } catch (_) {}
+            });
+        }
 
         const channels = integrations.map(integration => {
             const isExpired = integration.token_expires_at 
@@ -34783,6 +35303,8 @@ app.get('/api/youtube/channels', authenticateToken, async (req, res) => {
                 channelName: integration.channel_name,
                 niche: integration.niche || null,
                 subniche: integration.subniche || null,
+                language: integration.language || null,
+                country: integration.country || null,
                 isExpired: isExpired,
                 createdAt: integration.created_at
             };
@@ -34912,6 +35434,8 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
         for (const channelItem of channelsInfo.items) {
             const channelId = channelItem.id;
             const channelName = channelItem.snippet?.title || 'Canal do YouTube';
+            const channelCountry = channelItem.snippet?.country || null;
+            const channelLanguage = channelItem.snippet?.defaultLanguage || channelItem.snippet?.defaultAudioLanguage || null;
 
             // Pular se já está conectado
             if (existingChannelIds.has(channelId)) {
@@ -34931,28 +35455,63 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                 await db.run(
                     `UPDATE youtube_integrations 
                      SET access_token = ?, refresh_token = ?, token_expires_at = ?, 
-                         channel_name = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
+                         channel_name = ?, language = ?, country = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP 
                      WHERE id = ?`,
-                    [accessToken, refreshToken || null, expiresAt, channelName, existingIntegration.id]
+                    [accessToken, refreshToken || null, expiresAt, channelName, channelLanguage, channelCountry, existingIntegration.id]
                 );
                 integrationId = existingIntegration.id;
                 updatedCount++;
             } else {
                 // Criar nova integração
                 const result = await db.run(
-                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, access_token, refresh_token, token_expires_at, is_active)
-                     VALUES (?, ?, ?, ?, ?, ?, 1)`,
-                    [userIdNum, channelId, channelName, accessToken, refreshToken || null, expiresAt]
+                    `INSERT INTO youtube_integrations (user_id, channel_id, channel_name, language, country, access_token, refresh_token, token_expires_at, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+                    [userIdNum, channelId, channelName, channelLanguage, channelCountry, accessToken, refreshToken || null, expiresAt]
                 );
                 integrationId = result.lastID;
                 connectedCount++;
             }
 
+            // === Sincronizar para Analytics e Performance (user_channels) ===
+            // Isso permite que o canal conectado já apareça no seletor de "Analytics e Performance".
+            try {
+                const existingUserChannel = await db.get(
+                    'SELECT id FROM user_channels WHERE user_id = ? AND (channel_id = ? OR channel_name = ?) LIMIT 1',
+                    [userIdNum, channelId, channelName]
+                );
+                const channelUrl = `https://www.youtube.com/channel/${channelId}`;
+                if (existingUserChannel) {
+                    await db.run(
+                        `UPDATE user_channels
+                         SET channel_url = ?, channel_id = ?, language = ?, country = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP
+                         WHERE id = ? AND user_id = ?`,
+                        [channelUrl, channelId, channelLanguage || 'pt-BR', channelCountry || 'BR', existingUserChannel.id, userIdNum]
+                    );
+                } else {
+                    await db.run(
+                        `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
+                         VALUES (?, ?, ?, ?, NULL, ?, ?, 1)`,
+                        [userIdNum, channelName, channelUrl, channelId, channelLanguage || 'pt-BR', channelCountry || 'BR']
+                    );
+                }
+            } catch (syncErr) {
+                console.warn('[YouTube OAuth] Falha ao sincronizar user_channels:', syncErr.message);
+            }
+
             // Analisar canal em background (não bloqueia a resposta)
-            analyzeChannelNiche(channelId, channelName, accessToken, userIdNum)
+            // Executar análise de nicho de forma assíncrona (não bloquear a resposta)
+            // Adicionar timeout de 60 segundos para evitar travamento infinito
+            const nicheAnalysisPromise = Promise.race([
+                analyzeChannelNiche(channelId, channelName, accessToken, userIdNum),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout: Análise de nicho demorou mais de 60 segundos')), 60000)
+                )
+            ]);
+            
+            nicheAnalysisPromise
                 .then(nicheAnalysis => {
-                    if (nicheAnalysis.niche || nicheAnalysis.subniche) {
-                        console.log(`[YouTube OAuth] Nicho detectado para ${channelName}: ${nicheAnalysis.niche} / ${nicheAnalysis.subniche}`);
+                    if (nicheAnalysis && (nicheAnalysis.niche || nicheAnalysis.subniche)) {
+                        console.log(`[YouTube OAuth] ✅ Nicho detectado para ${channelName}: ${nicheAnalysis.niche} / ${nicheAnalysis.subniche}`);
                         // Atualizar o canal com o nicho detectado
                         db.run(
                             `UPDATE youtube_integrations 
@@ -34960,13 +35519,39 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                              WHERE id = ?`,
                             [nicheAnalysis.niche, nicheAnalysis.subniche, integrationId]
                         ).catch(err => {
-                            console.error(`[YouTube OAuth] Erro ao salvar nicho detectado:`, err.message);
+                            console.error(`[YouTube OAuth] ❌ Erro ao salvar nicho detectado:`, err.message);
+                        });
+                        // Atualizar também no user_channels (Analytics e Performance)
+                        db.run(
+                            `UPDATE user_channels
+                             SET niche = COALESCE(niche, ?), updated_at = CURRENT_TIMESTAMP
+                             WHERE user_id = ? AND channel_id = ?`,
+                            [nicheAnalysis.niche, userIdNum, channelId]
+                        ).catch(() => {});
+                    } else {
+                        console.log(`[YouTube OAuth] ⚠️ Nenhum nicho detectado para ${channelName}`);
+                        // Marcar como analisado mesmo sem nicho para não ficar travado
+                        db.run(
+                            `UPDATE youtube_integrations 
+                             SET niche = 'Entretenimento', subniche = NULL, updated_at = CURRENT_TIMESTAMP 
+                             WHERE id = ? AND niche IS NULL`,
+                            [integrationId]
+                        ).catch(err => {
+                            console.error(`[YouTube OAuth] Erro ao atualizar nicho padrão:`, err.message);
                         });
                     }
                 })
                 .catch(nicheErr => {
-                    console.warn(`[YouTube OAuth] Erro ao analisar nicho do canal ${channelId}:`, nicheErr.message);
-                    // Não fazer nada, o canal já está conectado
+                    console.warn(`[YouTube OAuth] ⚠️ Erro ao analisar nicho do canal ${channelId}:`, nicheErr.message);
+                    // Definir nicho padrão para não ficar travado
+                    db.run(
+                        `UPDATE youtube_integrations 
+                         SET niche = 'Entretenimento', subniche = NULL, updated_at = CURRENT_TIMESTAMP 
+                         WHERE id = ? AND niche IS NULL`,
+                        [integrationId]
+                    ).catch(err => {
+                        console.error(`[YouTube OAuth] Erro ao definir nicho padrão após erro:`, err.message);
+                    });
                 });
         }
 
@@ -34985,6 +35570,1534 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
 });
 
 // Desconectar/remover um canal
+// Endpoint para buscar métricas do canal usando YouTube Analytics API
+app.get('/api/youtube/channels/:id/analytics', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { startDate, endDate, metrics = 'views,estimatedMinutesWatched,subscribersGained,likes,comments,shares,averageViewDuration,averageViewPercentage,impressions,impressionsCtr' } = req.query;
+
+    try {
+        // Buscar integração do canal (id pode ser integration.id ou channel_id)
+        let integration = await db.get(
+            'SELECT channel_id, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE id = ? AND user_id = ? AND is_active = 1',
+            [id, userId]
+        );
+        
+        // Se não encontrou por id, tentar por channel_id
+        if (!integration) {
+            integration = await db.get(
+                'SELECT channel_id, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE channel_id = ? AND user_id = ? AND is_active = 1',
+                [id, userId]
+            );
+        }
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+        }
+
+        // Verificar e renovar token se necessário
+        let accessToken = null;
+        if (integration.access_token) {
+            accessToken = decrypt(integration.access_token);
+            if (!accessToken) {
+                console.error(`[YouTube Analytics] Erro ao descriptografar token para canal ${id}`);
+                // Tentar renovar token se refresh_token disponível
+                if (integration.refresh_token) {
+                    try {
+                        accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                        console.log(`[YouTube Analytics] Token renovado com sucesso para canal ${id}`);
+                    } catch (refreshErr) {
+                        console.error(`[YouTube Analytics] Erro ao renovar token:`, refreshErr.message);
+                        return res.status(500).json({ msg: 'Erro ao acessar credenciais do canal. Tente reconectar o canal.' });
+                    }
+                } else {
+                    return res.status(500).json({ msg: 'Erro ao acessar credenciais do canal. Tente reconectar o canal.' });
+                }
+            }
+        } else {
+            return res.status(500).json({ msg: 'Token de acesso não encontrado. Reconecte o canal.' });
+        }
+        if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+            if (!integration.refresh_token) {
+                return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+            }
+            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, id);
+        }
+
+        const channelId = integration.channel_id;
+        
+        // Datas padrão: últimos 30 dias
+        const end = endDate ? new Date(endDate) : new Date();
+        const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        
+        // Formatar datas para API (YYYY-MM-DD)
+        const startDateStr = start.toISOString().split('T')[0];
+        const endDateStr = end.toISOString().split('T')[0];
+
+        // Cache leve (evita recarregar a cada clique e estourar quota)
+        const cacheKey = `${userId}:${integration.id}:${startDateStr}:${endDateStr}`;
+        const cached = getYtAnalyticsCache(cacheKey);
+        if (cached) {
+            return res.status(200).json({ ...cached, cache: { hit: true } });
+        }
+
+        const fetchYouTubeAnalyticsReport = async ({ metricsList, dimensions, sort, maxResults, currency }) => {
+            const params = new URLSearchParams({
+                ids: `channel==${channelId}`,
+                startDate: startDateStr,
+                endDate: endDateStr,
+                metrics: metricsList.join(',')
+            });
+            if (dimensions) params.set('dimensions', dimensions);
+            if (sort) params.set('sort', sort);
+            if (maxResults) params.set('maxResults', String(maxResults));
+            if (currency) params.set('currency', currency);
+
+            const url = `https://youtubeanalytics.googleapis.com/v2/reports?${params.toString()}`;
+            const r = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' }
+            });
+            const bodyText = await r.text();
+            let json = null;
+            try { json = bodyText ? JSON.parse(bodyText) : null; } catch (_) { json = null; }
+            return { ok: r.ok, status: r.status, json, text: bodyText };
+        };
+
+        const normalizeMetrics = (metricsStr) => {
+            return String(metricsStr || '')
+                .split(',')
+                .map(m => m.trim())
+                .filter(Boolean);
+        };
+
+        // Buscar métricas do YouTube Analytics API (com fallback caso algumas métricas não estejam disponíveis)
+        // Tentar puxar o máximo possível (inclui monetização) — a API pode negar se o canal não for monetizado/scope insuficiente.
+        const requestedMetrics = Array.from(new Set([
+            ...normalizeMetrics(metrics),
+            'views',
+            'estimatedMinutesWatched',
+            'subscribersGained',
+            'likes',
+            'comments',
+            'shares',
+            'averageViewDuration',
+            'averageViewPercentage',
+            'impressions',
+            'impressionsCtr',
+            // Monetização (quando disponível)
+            'estimatedRevenue',
+            'estimatedAdRevenue',
+            'grossRevenue',
+            'adImpressions',
+            'monetizedPlaybacks',
+            'playbackBasedCpm'
+        ]));
+        const fallbackCandidates = [
+            requestedMetrics,
+            requestedMetrics.filter(m => !['estimatedRevenue','estimatedAdRevenue','grossRevenue','adImpressions','monetizedPlaybacks','playbackBasedCpm'].includes(m)),
+            requestedMetrics.filter(m => !['impressions', 'impressionsCtr', 'averageViewDuration', 'averageViewPercentage'].includes(m)),
+            ['views', 'estimatedMinutesWatched', 'subscribersGained', 'likes', 'comments', 'shares']
+        ];
+
+        console.log(`[YouTube Analytics] Buscando métricas para canal ${channelId} de ${startDateStr} até ${endDateStr}`);
+
+        let analyticsData = null;
+        let analyticsMeta = { usedMetrics: null, degraded: false };
+        let lastAnalyticsError = null;
+
+        for (const candidate of fallbackCandidates) {
+            const unique = Array.from(new Set(candidate));
+            const result = await fetchYouTubeAnalyticsReport({ metricsList: unique, currency: 'USD' });
+            if (result.ok && result.json) {
+                analyticsData = result.json;
+                analyticsMeta.usedMetrics = unique;
+                analyticsMeta.degraded = unique.join(',') !== requestedMetrics.join(',');
+                break;
+            }
+            lastAnalyticsError = result.text || JSON.stringify(result.json || {});
+        }
+
+        if (!analyticsData) {
+            console.error('[YouTube Analytics] Falha ao buscar métricas (mesmo com fallback):', lastAnalyticsError);
+            return res.status(502).json({
+                msg: 'Erro ao buscar métricas do YouTube Analytics.',
+                error: lastAnalyticsError
+            });
+        }
+
+        // Série temporal diária (para gráficos + fallback de receita/avançadas)
+        let daily = null;
+        try {
+            const dailyMetricsCandidates = [
+                ['views', 'estimatedMinutesWatched', 'subscribersGained', 'impressions', 'impressionsCtr', 'averageViewDuration', 'averageViewPercentage', 'estimatedRevenue', 'estimatedAdRevenue', 'adImpressions', 'monetizedPlaybacks', 'playbackBasedCpm'],
+                ['views', 'estimatedMinutesWatched', 'subscribersGained', 'impressions', 'impressionsCtr', 'averageViewDuration', 'averageViewPercentage'],
+                ['views', 'estimatedMinutesWatched', 'subscribersGained']
+            ];
+            for (const cand of dailyMetricsCandidates) {
+                const dailyResult = await fetchYouTubeAnalyticsReport({
+                    metricsList: cand,
+                    dimensions: 'day',
+                    sort: 'day'
+                });
+                if (dailyResult.ok && dailyResult.json) {
+                    daily = dailyResult.json;
+                    break;
+                }
+            }
+        } catch (e) {
+            daily = null;
+        }
+
+        // Fontes de tráfego (Top)
+        let trafficSources = null;
+        try {
+            const trafficResult = await fetchYouTubeAnalyticsReport({
+                metricsList: ['views', 'estimatedMinutesWatched'],
+                // Dimensão correta no YouTube Analytics é insightTrafficSourceType
+                dimensions: 'insightTrafficSourceType',
+                sort: '-views',
+                maxResults: 8
+            });
+            if (trafficResult.ok && trafficResult.json) trafficSources = trafficResult.json;
+        } catch (e) {
+            trafficSources = null;
+        }
+
+        // Países (Top)
+        let topCountries = null;
+        try {
+            const countriesResult = await fetchYouTubeAnalyticsReport({
+                metricsList: ['views'],
+                dimensions: 'country',
+                sort: '-views',
+                maxResults: 8
+            });
+            if (countriesResult.ok && countriesResult.json) topCountries = countriesResult.json;
+        } catch (e) {
+            topCountries = null;
+        }
+        
+        // Buscar estatísticas do canal (subscribers, views totais, etc.)
+        const channelStatsUrl = `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}`;
+        const channelStatsResponse = await fetch(channelStatsUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        let channelStats = null;
+        let channelSnippet = null;
+        if (channelStatsResponse.ok) {
+            const channelData = await channelStatsResponse.json();
+            if (channelData.items && channelData.items.length > 0) {
+                channelStats = channelData.items[0].statistics;
+                channelSnippet = channelData.items[0].snippet || null;
+            }
+        }
+
+        // Buscar vídeos recentes (SEM search.list: usar uploads playlist)
+        let videosData = [];
+        let recentVideosError = null;
+        try {
+            const ids = await getRecentVideoIdsFromUploads(channelId, accessToken, 10);
+            if (ids.length) {
+                const videoDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${ids.join(',')}`;
+                const videoDetailsResponse = await fetch(videoDetailsUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                if (!videoDetailsResponse.ok) {
+                    recentVideosError = { status: videoDetailsResponse.status, text: await videoDetailsResponse.text().catch(() => '') };
+                } else {
+                    const videoDetails = await videoDetailsResponse.json();
+                    videosData = videoDetails.items || [];
+                }
+            }
+        } catch (e) {
+            recentVideosError = { status: 0, text: e.message };
+        }
+
+        // Extrair receita estimada dos dados de analytics
+        let estimatedRevenue = 0;
+        let adImpressions = 0;
+        let estimatedAdRevenue = 0;
+        let grossRevenue = 0;
+        let monetizedPlaybacks = 0;
+        let playbackBasedCpm = 0;
+        
+        if (analyticsData.rows && analyticsData.rows.length > 0 && analyticsData.columnHeaders) {
+            const row = analyticsData.rows[0];
+            const headers = analyticsData.columnHeaders.map(h => h.name);
+            
+            const revenueIndex = headers.findIndex(h => h === 'estimatedRevenue' || h === 'estimatedAdRevenue');
+            const impressionsIndex = headers.findIndex(h => h === 'adImpressions');
+            const adRevenueIndex = headers.findIndex(h => h === 'estimatedAdRevenue');
+            const grossRevenueIndex = headers.findIndex(h => h === 'grossRevenue');
+            const monetizedPlaybacksIndex = headers.findIndex(h => h === 'monetizedPlaybacks');
+            const playbackBasedCpmIndex = headers.findIndex(h => h === 'playbackBasedCpm');
+            
+            if (revenueIndex >= 0 && row[revenueIndex] !== undefined) {
+                estimatedRevenue = parseFloat(row[revenueIndex] || 0);
+            }
+            if (adRevenueIndex >= 0 && row[adRevenueIndex] !== undefined) {
+                estimatedAdRevenue = parseFloat(row[adRevenueIndex] || 0);
+                if (estimatedRevenue === 0) estimatedRevenue = estimatedAdRevenue;
+            }
+            if (impressionsIndex >= 0 && row[impressionsIndex] !== undefined) {
+                adImpressions = parseInt(row[impressionsIndex] || 0);
+            }
+            if (grossRevenueIndex >= 0 && row[grossRevenueIndex] !== undefined) {
+                grossRevenue = parseFloat(row[grossRevenueIndex] || 0);
+            }
+            if (monetizedPlaybacksIndex >= 0 && row[monetizedPlaybacksIndex] !== undefined) {
+                monetizedPlaybacks = parseInt(row[monetizedPlaybacksIndex] || 0);
+            }
+            if (playbackBasedCpmIndex >= 0 && row[playbackBasedCpmIndex] !== undefined) {
+                playbackBasedCpm = parseFloat(row[playbackBasedCpmIndex] || 0);
+            }
+        }
+
+        // Fallback: se o total não trouxe receita, tentar somar a série diária
+        if ((!estimatedRevenue || estimatedRevenue === 0) && daily?.rows?.length && daily?.columnHeaders?.length) {
+            try {
+                const headersD = daily.columnHeaders.map(h => h.name);
+                const idxEst = headersD.findIndex(h => h === 'estimatedRevenue');
+                const idxAd = headersD.findIndex(h => h === 'estimatedAdRevenue');
+                const idxImp = headersD.findIndex(h => h === 'adImpressions');
+                let sumEst = 0;
+                let sumAd = 0;
+                let sumImp = 0;
+                for (const r of daily.rows) {
+                    if (idxEst >= 0) sumEst += parseFloat(r[idxEst] || 0);
+                    if (idxAd >= 0) sumAd += parseFloat(r[idxAd] || 0);
+                    if (idxImp >= 0) sumImp += parseInt(r[idxImp] || 0);
+                }
+                if (sumEst > 0) estimatedRevenue = sumEst;
+                if (sumAd > 0) estimatedAdRevenue = sumAd;
+                if (sumImp > 0) adImpressions = sumImp;
+            } catch (_) {}
+        }
+
+        // Extra: métricas avançadas (quando disponíveis)
+        const computeAdvanced = () => {
+            const out = {
+                averageViewDurationSeconds: null,
+                averageViewDurationFormatted: null,
+                averageViewPercentage: null,
+                impressions: null,
+                impressionsCtr: null
+            };
+            if (!analyticsData?.rows?.length || !analyticsData?.columnHeaders?.length) return out;
+
+            const row = analyticsData.rows[0];
+            const headers = analyticsData.columnHeaders.map(h => h.name);
+            const get = (name) => {
+                const idx = headers.findIndex(h => h === name);
+                return idx >= 0 ? row[idx] : null;
+            };
+
+            const avgDur = get('averageViewDuration');
+            if (avgDur !== null && avgDur !== undefined && avgDur !== '') {
+                const secs = Math.round(parseFloat(avgDur) || 0);
+                out.averageViewDurationSeconds = secs;
+                const mm = Math.floor(secs / 60);
+                const ss = secs % 60;
+                out.averageViewDurationFormatted = `${mm}:${String(ss).padStart(2, '0')}`;
+            }
+
+            const avp = get('averageViewPercentage');
+            if (avp !== null && avp !== undefined && avp !== '') {
+                out.averageViewPercentage = parseFloat(avp);
+            }
+
+            const imp = get('impressions');
+            if (imp !== null && imp !== undefined && imp !== '') out.impressions = parseInt(imp || 0);
+
+            const ctr = get('impressionsCtr');
+            if (ctr !== null && ctr !== undefined && ctr !== '') out.impressionsCtr = parseFloat(ctr);
+
+            return out;
+        };
+
+        const advanced = computeAdvanced();
+
+        // Fallback: se CTR/Retenção/Duração não vierem no total, tentar calcular pelo relatório diário
+        if ((advanced.impressionsCtr === null || advanced.averageViewPercentage === null || advanced.averageViewDurationSeconds === null) &&
+            daily?.rows?.length && daily?.columnHeaders?.length) {
+            try {
+                const headersD = daily.columnHeaders.map(h => h.name);
+                const idxCtr = headersD.findIndex(h => h === 'impressionsCtr');
+                const idxAvp = headersD.findIndex(h => h === 'averageViewPercentage');
+                const idxDur = headersD.findIndex(h => h === 'averageViewDuration');
+
+                const mean = (idx) => {
+                    if (idx < 0) return null;
+                    let sum = 0;
+                    let n = 0;
+                    for (const r of daily.rows) {
+                        const v = parseFloat(r[idx]);
+                        if (!isNaN(v)) { sum += v; n++; }
+                    }
+                    return n ? (sum / n) : null;
+                };
+
+                const ctrMean = mean(idxCtr);
+                const avpMean = mean(idxAvp);
+                const durMean = mean(idxDur);
+
+                if (advanced.impressionsCtr === null && ctrMean !== null) advanced.impressionsCtr = ctrMean;
+                if (advanced.averageViewPercentage === null && avpMean !== null) advanced.averageViewPercentage = avpMean;
+                if (advanced.averageViewDurationSeconds === null && durMean !== null) {
+                    const secs = Math.round(durMean);
+                    advanced.averageViewDurationSeconds = secs;
+                    const mm = Math.floor(secs / 60);
+                    const ss = secs % 60;
+                    advanced.averageViewDurationFormatted = `${mm}:${String(ss).padStart(2, '0')}`;
+                }
+            } catch (_) {}
+        }
+
+        // Top vídeos (mais vistos) + análise heurística
+        const parseIsoDurationToSeconds = (iso) => {
+            if (!iso) return 0;
+            const m = String(iso).match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (!m) return 0;
+            const h = parseInt(m[1] || 0, 10);
+            const mm = parseInt(m[2] || 0, 10);
+            const s = parseInt(m[3] || 0, 10);
+            return h * 3600 + mm * 60 + s;
+        };
+
+        const scoreTitlePatterns = (title) => {
+            const t = String(title || '').toLowerCase();
+            const hasNumber = /\d/.test(t);
+            const hasQuestion = t.includes('?');
+            const hasStrongWords = /(segredo|revelad|chocante|ningu[eé]m|o que n[aã]o|nunca|verdade|erro|descubra|proibido|inesperad)/.test(t);
+            const len = t.length;
+            return {
+                hasNumber,
+                hasQuestion,
+                hasStrongWords,
+                length: len,
+                score: (hasNumber ? 1 : 0) + (hasQuestion ? 1 : 0) + (hasStrongWords ? 1 : 0) + (len >= 35 && len <= 70 ? 1 : 0)
+            };
+        };
+
+        const analyzeTopVideo = (v) => {
+            const views = v.viewCount || 0;
+            const likes = v.likeCount || 0;
+            const comments = v.commentCount || 0;
+            const publishedMs = v.publishedAt ? new Date(v.publishedAt).getTime() : NaN;
+            const daysAgo = Number.isFinite(publishedMs)
+                ? Math.max(1, Math.round((Date.now() - publishedMs) / (1000 * 60 * 60 * 24)))
+                : 30;
+            const viewsPerDay = Math.round(views / daysAgo);
+            const engagementRate = views > 0 ? ((likes + comments) / views) * 100 : 0;
+            const durSecs = parseIsoDurationToSeconds(v.duration);
+            const durMin = durSecs ? (durSecs / 60) : null;
+            const patterns = scoreTitlePatterns(v.title);
+
+            const tips = [];
+            tips.push(`Replicar o ÂNGULO do título (curiosidade + promessa clara). Pontuação de padrão de título: ${patterns.score}/4.`);
+            tips.push(`Meta rápida: elevar engajamento para ≥ 2.5% (likes+comentários). Atual: ${engagementRate.toFixed(2)}%.`);
+            if (patterns.hasNumber) tips.push('Manter/expandir uso de números (listas, datas, quantidades) — costuma elevar CTR.');
+            if (!patterns.hasQuestion) tips.push('Teste uma variação em formato de pergunta (abre loop de curiosidade e aumenta clique).');
+            if (durMin && durMin < 6) tips.push('Se o conteúdo permitir, teste versão 8–12 min com narrativa em 3 atos para aumentar watch-time.');
+            if (viewsPerDay > 5000) tips.push('Este vídeo tem potencial “evergreen/viral”: crie 2–3 sequências (Parte 2, “o que não te contaram”, comparação).');
+
+            const nextVideoIdeas = [];
+            nextVideoIdeas.push(`Parte 2 / continuação direta: “${String(v.title).slice(0, 45)}… (continuação)”`);
+            nextVideoIdeas.push('Vídeo “mitos vs verdade” no mesmo tema (alta retenção e comentários).');
+            nextVideoIdeas.push('Vídeo “ranking/top 7” com recorte mais específico (melhora CTR por clareza).');
+
+            return {
+                videoId: v.videoId,
+                title: v.title,
+                publishedAt: v.publishedAt,
+                thumbnail: v.thumbnail,
+                viewCount: views,
+                likeCount: likes,
+                commentCount: comments,
+                duration: v.duration,
+                derived: {
+                    viewsPerDay,
+                    engagementRatePct: parseFloat(engagementRate.toFixed(2)),
+                    titlePatternScore: patterns.score
+                },
+                tips,
+                nextVideoIdeas
+            };
+        };
+
+        let topVideos = [];
+        let topVideosError = null;
+        try {
+            // Preferir Analytics API para Top 5 (menos custo / menos chance de quotaExceeded)
+            const topByAnalytics = await fetchYouTubeAnalyticsReport({
+                metricsList: ['views'],
+                dimensions: 'video',
+                sort: '-views',
+                maxResults: 5
+            });
+
+            let ids = [];
+            if (topByAnalytics.ok && topByAnalytics.json?.rows?.length && topByAnalytics.json?.columnHeaders?.length) {
+                const headers = topByAnalytics.json.columnHeaders.map(h => h.name);
+                const idxVideo = headers.findIndex(h => h === 'video');
+                const idxViews = headers.findIndex(h => h === 'views');
+                topVideos = topByAnalytics.json.rows.map(r => ({
+                    videoId: idxVideo >= 0 ? r[idxVideo] : null,
+                    title: '',
+                    publishedAt: null,
+                    thumbnail: '',
+                    duration: null,
+                    viewCount: idxViews >= 0 ? parseInt(r[idxViews] || 0) : 0,
+                    likeCount: 0,
+                    commentCount: 0
+                })).filter(v => v.videoId);
+                ids = topVideos.map(v => v.videoId);
+            }
+
+            // Enriquecer com Data API (pode falhar por quotaExceeded)
+            if (ids.length > 0) {
+                const topDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}`;
+                const topDetailsResponse = await fetch(topDetailsUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                if (topDetailsResponse.ok) {
+                    const topDetailsData = await topDetailsResponse.json();
+                    const byId = new Map((topDetailsData.items || []).map(item => [item.id, item]));
+                    topVideos = topVideos.map(v => {
+                        const item = byId.get(v.videoId);
+                        if (!item) return v;
+                        return {
+                            ...v,
+                            title: item.snippet?.title || v.title,
+                            publishedAt: item.snippet?.publishedAt || v.publishedAt,
+                            thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || v.thumbnail,
+                            duration: item.contentDetails?.duration || v.duration,
+                            viewCount: parseInt(item.statistics?.viewCount || v.viewCount || 0),
+                            likeCount: parseInt(item.statistics?.likeCount || 0),
+                            commentCount: parseInt(item.statistics?.commentCount || 0)
+                        };
+                    }).sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+                } else {
+                    topVideosError = { status: topDetailsResponse.status, text: await topDetailsResponse.text().catch(() => '') };
+                }
+            }
+
+            // Fallback SEM search.list: pegar até 50 vídeos recentes do uploads playlist e ordenar por views
+            if (!topVideos.length) {
+                const ids = await getRecentVideoIdsFromUploads(channelId, accessToken, 50);
+                if (ids.length > 0) {
+                    const topDetailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}`;
+                    const topDetailsResponse = await fetch(topDetailsUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                    if (topDetailsResponse.ok) {
+                        const topDetailsData = await topDetailsResponse.json();
+                        topVideos = (topDetailsData.items || [])
+                            .map(item => ({
+                                videoId: item.id,
+                                title: item.snippet?.title || '',
+                                publishedAt: item.snippet?.publishedAt || null,
+                                thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || '',
+                                duration: item.contentDetails?.duration || null,
+                                viewCount: parseInt(item.statistics?.viewCount || 0),
+                                likeCount: parseInt(item.statistics?.likeCount || 0),
+                                commentCount: parseInt(item.statistics?.commentCount || 0)
+                            }))
+                            .sort((a, b) => b.viewCount - a.viewCount)
+                            .slice(0, 5);
+                    } else if (!topVideosError) {
+                        topVideosError = { status: topDetailsResponse.status, text: await topDetailsResponse.text().catch(() => '') };
+                    }
+                }
+            }
+        } catch (e) {
+            topVideosError = { status: 0, text: e.message };
+            topVideos = [];
+        }
+
+        const topVideosAnalysis = topVideos.map(analyzeTopVideo);
+        
+        const payload = {
+            analytics: analyticsData,
+            analyticsMeta,
+            daily,
+            trafficSources,
+            topCountries,
+            channelStats: channelStats,
+            channelSnippet,
+            advanced,
+            estimatedRevenue: estimatedRevenue,
+            estimatedAdRevenue: estimatedAdRevenue,
+            grossRevenue,
+            adImpressions: adImpressions,
+            monetizedPlaybacks,
+            playbackBasedCpm,
+            recentVideosError,
+            recentVideos: videosData.map(v => ({
+                id: v.id,
+                title: v.snippet?.title,
+                publishedAt: v.snippet?.publishedAt,
+                views: parseInt(v.statistics?.viewCount || 0),
+                likes: parseInt(v.statistics?.likeCount || 0),
+                comments: parseInt(v.statistics?.commentCount || 0)
+            })),
+            topVideos: topVideos,
+            topVideosAnalysis,
+            topVideosError,
+            period: {
+                start: startDateStr,
+                end: endDateStr
+            }
+        };
+
+        setYtAnalyticsCache(cacheKey, payload);
+        return res.status(200).json(payload);
+
+    } catch (err) {
+        console.error('[YouTube Analytics] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao buscar métricas do canal.', error: err.message });
+    }
+});
+
+// Endpoint para re-analisar nicho do canal usando últimos 10 vídeos
+app.post('/api/youtube/channels/:id/reanalyze-niche', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Buscar integração do canal
+        const integration = await db.get(
+            'SELECT channel_id, channel_name, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE id = ? AND user_id = ? AND is_active = 1',
+            [id, userId]
+        );
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+        }
+
+        // Verificar e renovar token se necessário
+        let accessToken = decryptToken(integration.access_token, 'YouTube Re-analyze Niche');
+        if (!accessToken) {
+            if (integration.refresh_token) {
+                try {
+                    accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                } catch (refreshErr) {
+                    return res.status(401).json({ msg: 'Erro ao renovar token. Reconecte o canal.' });
+                }
+            } else {
+                return res.status(401).json({ msg: 'Token inválido. Reconecte o canal.' });
+            }
+        } else if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+            if (!integration.refresh_token) {
+                return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+            }
+            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+        }
+
+        // Re-analisar nicho usando últimos 10 vídeos
+        const nicheAnalysis = await analyzeChannelNicheWithVideos(integration.channel_id, integration.channel_name, accessToken, userId, 10);
+
+        // Atualizar nicho no banco
+        await db.run(
+            `UPDATE youtube_integrations 
+             SET niche = ?, subniche = ?, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`,
+            [nicheAnalysis.niche, nicheAnalysis.subniche || null, id]
+        );
+
+        return res.status(200).json({
+            msg: 'Nicho re-analisado com sucesso!',
+            niche: nicheAnalysis.niche,
+            subniche: nicheAnalysis.subniche
+        });
+
+    } catch (err) {
+        console.error('[YouTube Re-analyze Niche] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao re-analisar nicho.', error: err.message });
+    }
+});
+
+// Endpoint para análise completa de insights do canal
+app.post('/api/youtube/channels/:id/insights', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        // Buscar integração do canal
+        const integration = await db.get(
+            'SELECT channel_id, channel_name, access_token, refresh_token, token_expires_at, id, niche, subniche FROM youtube_integrations WHERE id = ? AND user_id = ? AND is_active = 1',
+            [id, userId]
+        );
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+        }
+
+        // Verificar e renovar token se necessário
+        let accessToken = decryptToken(integration.access_token, 'YouTube Insights');
+        if (!accessToken) {
+            if (integration.refresh_token) {
+                try {
+                    accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                } catch (refreshErr) {
+                    return res.status(401).json({ msg: 'Erro ao renovar token. Reconecte o canal.' });
+                }
+            } else {
+                return res.status(401).json({ msg: 'Token inválido. Reconecte o canal.' });
+            }
+        } else if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+            if (!integration.refresh_token) {
+                return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+            }
+            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+        }
+
+        // Buscar dados do canal para análise
+        const channelData = await fetchChannelDataForInsights(integration.channel_id, accessToken);
+        
+        // Gerar insights com IA
+        const insights = await generateChannelInsights(channelData, integration.channel_name, integration.niche, integration.subniche, userId);
+
+        return res.status(200).json(insights);
+
+    } catch (err) {
+        console.error('[YouTube Insights] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao gerar insights.', error: err.message });
+    }
+});
+
+// Função auxiliar para analisar nicho com número específico de vídeos
+async function analyzeChannelNicheWithVideos(channelId, channelName, accessToken, userId, maxVideos = 10) {
+    try {
+        console.log(`[Análise Canal] 🔍 Iniciando análise do canal ${channelId} (${channelName}) com ${maxVideos} vídeos...`);
+        
+        // Buscar os vídeos mais recentes do canal
+        console.log(`[Análise Canal] 📡 Buscando vídeos do canal (uploads playlist, sem search.list)...`);
+        const videoTitles = await getRecentVideoTitlesFromUploads(channelId, accessToken, Math.min(50, maxVideos));
+        
+        if (videoTitles.length === 0) {
+            console.warn(`[Análise Canal] ⚠️ Nenhum título válido encontrado nos vídeos`);
+            return { niche: 'Entretenimento', subniche: null };
+        }
+        
+        console.log(`[Análise Canal] 📝 Títulos encontrados: ${videoTitles.length} vídeos`);
+        
+        // Buscar chaves de API do usuário para análise
+        const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+        const keys = {};
+        keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+        
+        // Tentar usar Gemini, Claude ou OpenAI (nesta ordem)
+        let detectedNiche = null;
+        let detectedSubniche = null;
+        
+        const analysisPrompt = `Você é um especialista em análise de conteúdo do YouTube. Analise os seguintes títulos de vídeos de um canal do YouTube e identifique o NICHO e SUBNICHE do canal.
+
+Títulos dos vídeos:
+${videoTitles.map((title, i) => `${i + 1}. ${title}`).join('\n')}
+
+Nome do canal: ${channelName}
+
+Analise os padrões, temas e assuntos recorrentes nos títulos para identificar:
+- O NICHO principal (categoria ampla: Entretenimento, Educação, Tecnologia, Finanças, Gaming, etc.)
+- O SUBNICHE específico (área mais específica dentro do nicho: Gaming FPS, Finanças Pessoais, Programação Web, etc.)
+
+IMPORTANTE: Responda APENAS com um objeto JSON válido, sem nenhum texto adicional antes ou depois:
+{
+  "niche": "Nome do nicho principal",
+  "subniche": "Nome do subnicho específico ou null se não houver subnicho claro"
+}
+
+Seja específico e preciso. Se não conseguir identificar claramente, use "Entretenimento" como nicho padrão e deixe subniche como null.`;
+
+        // Tentar Gemini primeiro
+        if (keys.gemini) {
+            try {
+                const response = await callGeminiAPI(analysisPrompt, keys.gemini, 'gemini-2.0-flash');
+                const parsed = parseAIResponse(response.titles, 'gemini');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via Gemini: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar Gemini: ${err.message}`);
+            }
+        }
+        
+        // Tentar Claude
+        if (keys.claude) {
+            try {
+                const response = await callClaudeAPI(analysisPrompt, keys.claude, 'claude-3-5-haiku-20241022');
+                const parsed = parseAIResponse(response.titles, 'claude');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via Claude: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar Claude: ${err.message}`);
+            }
+        }
+        
+        // Tentar OpenAI
+        if (keys.openai) {
+            try {
+                const response = await callOpenAIAPI(analysisPrompt, keys.openai, 'gpt-4o-mini');
+                const parsed = parseAIResponse(response.titles, 'openai');
+                if (parsed.niche) {
+                    detectedNiche = parsed.niche;
+                    detectedSubniche = parsed.subniche || null;
+                    console.log(`[Análise Canal] Nicho detectado via OpenAI: ${detectedNiche} / ${detectedSubniche}`);
+                    return { niche: detectedNiche, subniche: detectedSubniche };
+                }
+            } catch (err) {
+                console.warn(`[Análise Canal] Erro ao usar OpenAI: ${err.message}`);
+            }
+        }
+        
+        // Se nenhuma IA funcionou, retornar nicho padrão
+        console.warn(`[Análise Canal] ⚠️ Não foi possível detectar nicho para o canal ${channelId}, usando padrão`);
+        return { niche: 'Entretenimento', subniche: null };
+        
+    } catch (err) {
+        console.error(`[Análise Canal] ❌ Erro ao analisar canal ${channelId}:`, err.message);
+        return { niche: 'Entretenimento', subniche: null };
+    }
+}
+
+// Função auxiliar para buscar dados do canal para análise
+async function fetchChannelDataForInsights(channelId, accessToken) {
+    try {
+        // Buscar últimos 20 vídeos via uploads playlist (sem search.list)
+        const videoIds = await getRecentVideoIdsFromUploads(channelId, accessToken, 20);
+        const searchData = { items: [] };
+
+        // Buscar estatísticas dos vídeos
+        let videoStats = [];
+        if (videoIds.length > 0) {
+            const statsUrl = `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails,snippet&id=${videoIds.join(',')}`;
+            const statsResponse = await fetch(statsUrl, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+
+            if (statsResponse.ok) {
+                const statsData = await statsResponse.json();
+                videoStats = statsData.items || [];
+                // Reconstituir um "items" compatível (para usar títulos em outros pontos)
+                searchData.items = (statsData.items || []).map(v => ({
+                    id: { videoId: v.id },
+                    snippet: v.snippet || {}
+                }));
+            }
+        }
+
+        // Buscar estatísticas do canal
+        const channelUrl = `https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}`;
+        const channelResponse = await fetch(channelUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        let channelStats = null;
+        if (channelResponse.ok) {
+            const channelData = await channelResponse.json();
+            channelStats = channelData.items?.[0] || null;
+        }
+
+        return {
+            videos: searchData.items || [],
+            videoStats: videoStats,
+            channelStats: channelStats
+        };
+
+    } catch (err) {
+        console.error('[Fetch Channel Data] Erro:', err);
+        throw err;
+    }
+}
+
+// Função para gerar insights com IA
+async function generateChannelInsights(channelData, channelName, niche, subniche, userId) {
+    try {
+        // Preparar dados para análise
+        const videoTitles = channelData.videos.map(v => v.snippet?.title || '').filter(Boolean);
+        const videoDurations = channelData.videoStats
+            .map(v => {
+                const duration = v.contentDetails?.duration || '';
+                // Converter ISO 8601 duration para minutos
+                const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+                if (match) {
+                    const hours = parseInt(match[1] || 0);
+                    const minutes = parseInt(match[2] || 0);
+                    const seconds = parseInt(match[3] || 0);
+                    return hours * 60 + minutes + seconds / 60;
+                }
+                return null;
+            })
+            .filter(Boolean);
+        
+        const avgDuration = videoDurations.length > 0 
+            ? videoDurations.reduce((a, b) => a + b, 0) / videoDurations.length 
+            : null;
+
+        const videoViews = channelData.videoStats.map(v => parseInt(v.statistics?.viewCount || 0));
+        const avgViews = videoViews.length > 0 
+            ? videoViews.reduce((a, b) => a + b, 0) / videoViews.length 
+            : 0;
+
+        // Buscar chaves de API
+        const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+        const keys = {};
+        keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+
+        const insightsPrompt = `Você é um especialista em análise de canais do YouTube e estratégias de crescimento. Analise os seguintes dados de um canal e forneça insights detalhados e acionáveis.
+
+DADOS DO CANAL:
+- Nome: ${channelName}
+- Nicho: ${niche || 'Não identificado'}
+- Subniche: ${subniche || 'Não identificado'}
+- Total de vídeos analisados: ${videoTitles.length}
+- Duração média dos vídeos: ${avgDuration ? Math.round(avgDuration) + ' minutos' : 'Não disponível'}
+- Visualizações médias por vídeo: ${Math.round(avgViews).toLocaleString()}
+
+TÍTULOS DOS ÚLTIMOS VÍDEOS:
+${videoTitles.map((title, i) => `${i + 1}. ${title}`).join('\n')}
+
+FORNEÇA UMA ANÁLISE COMPLETA COM OS SEGUINTES ITENS (responda em formato JSON válido):
+
+{
+  "summary": "Resumo executivo de 2-3 parágrafos sobre o estado atual do canal e principais oportunidades",
+  "frequency": "Recomendação de quantos vídeos postar por semana/mês baseado no nicho e performance atual",
+  "duration": "Duração ideal de vídeo em minutos baseado na análise dos vídeos mais bem-sucedidos",
+  "publishTime": "Melhor horário e dia da semana para publicar baseado no nicho e público-alvo",
+  "contentType": "Tipos de conteúdo recomendados para aumentar views e engajamento",
+  "strategies": [
+    "Estratégia 1 específica e acionável",
+    "Estratégia 2 específica e acionável",
+    "Estratégia 3 específica e acionável",
+    "Estratégia 4 específica e acionável",
+    "Estratégia 5 específica e acionável"
+  ],
+  "titlePatterns": [
+    "Padrão de título 1 que funciona bem no nicho",
+    "Padrão de título 2 que funciona bem no nicho",
+    "Padrão de título 3 que funciona bem no nicho"
+  ],
+  "thumbnailRecommendations": "Recomendações específicas sobre thumbnails: cores, elementos, composição, etc."
+}
+
+IMPORTANTE: Responda APENAS com o JSON válido, sem texto adicional antes ou depois.`;
+
+        // Tentar usar Gemini, Claude ou OpenAI
+        let insights = null;
+
+        if (keys.gemini) {
+            try {
+                const response = await callGeminiAPI(insightsPrompt, keys.gemini, 'gemini-2.0-flash');
+                const parsed = parseAIResponse(response.titles, 'gemini');
+                if (parsed.summary) {
+                    insights = parsed;
+                }
+            } catch (err) {
+                console.warn(`[Insights] Erro ao usar Gemini: ${err.message}`);
+            }
+        }
+
+        if (!insights && keys.claude) {
+            try {
+                const response = await callClaudeAPI(insightsPrompt, keys.claude, 'claude-3-5-haiku-20241022');
+                const parsed = parseAIResponse(response.titles, 'claude');
+                if (parsed.summary) {
+                    insights = parsed;
+                }
+            } catch (err) {
+                console.warn(`[Insights] Erro ao usar Claude: ${err.message}`);
+            }
+        }
+
+        if (!insights && keys.openai) {
+            try {
+                const response = await callOpenAIAPI(insightsPrompt, keys.openai, 'gpt-4o-mini');
+                const parsed = parseAIResponse(response.titles, 'openai');
+                if (parsed.summary) {
+                    insights = parsed;
+                }
+            } catch (err) {
+                console.warn(`[Insights] Erro ao usar OpenAI: ${err.message}`);
+            }
+        }
+
+        // Se não conseguiu gerar insights, retornar valores padrão
+        if (!insights) {
+            return {
+                summary: `Análise do canal ${channelName}. Com base nos dados disponíveis, há oportunidades de crescimento através de otimização de títulos, thumbnails e frequência de publicação.`,
+                frequency: '2-3 vídeos por semana',
+                duration: avgDuration ? `${Math.round(avgDuration)} minutos` : '10-15 minutos',
+                publishTime: 'Terças e Quintas às 18h',
+                contentType: 'Foque em conteúdo que ressoe com seu nicho e público-alvo',
+                strategies: [
+                    'Otimize títulos com palavras-chave relevantes',
+                    'Crie thumbnails chamativos e consistentes',
+                    'Mantenha frequência regular de publicação',
+                    'Interaja com comentários para aumentar engajamento',
+                    'Analise vídeos de maior sucesso e replique padrões'
+                ],
+                titlePatterns: [
+                    'Use números e listas quando apropriado',
+                    'Inclua palavras de ação e curiosidade',
+                    'Seja específico e prometa valor claro'
+                ],
+                thumbnailRecommendations: 'Use cores contrastantes, rostos ou elementos visuais chamativos, e mantenha consistência visual entre vídeos.'
+            };
+        }
+
+        return insights;
+
+    } catch (err) {
+        console.error('[Generate Insights] Erro:', err);
+        throw err;
+    }
+}
+
+// Função auxiliar para renovar token do YouTube
+async function refreshYouTubeToken(refreshToken, userId, integrationId) {
+    const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID;
+    const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET;
+    
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token',
+        }),
+    });
+
+    if (!tokenResponse.ok) {
+        throw new Error('Falha ao renovar token');
+    }
+
+    const tokenData = await tokenResponse.json();
+    const newAccessToken = tokenData.access_token;
+    const expiresAt = tokenData.expires_in 
+        ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+        : null;
+
+    // Atualizar token no banco
+    await db.run(
+        'UPDATE youtube_integrations SET access_token = ?, token_expires_at = ? WHERE id = ?',
+        [encrypt(newAccessToken), expiresAt, integrationId]
+    );
+
+    return newAccessToken;
+}
+
+// Endpoint para obter URL de upload resumable do YouTube (para upload direto do frontend)
+app.post('/api/youtube/upload/init', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { channelId, title, description, tags, privacy = 'private', categoryId = '22', videoSize } = req.body;
+
+    if (!channelId || !title || !videoSize) {
+        return res.status(400).json({ msg: 'channelId, title e videoSize são obrigatórios.' });
+    }
+
+    try {
+        // Buscar integração do canal
+        const integration = await db.get(
+            'SELECT channel_id, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE channel_id = ? AND user_id = ? AND is_active = 1',
+            [channelId, userId]
+        );
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+        }
+
+        // Verificar e renovar token se necessário
+        let accessToken = decryptToken(integration.access_token, 'YouTube Upload Init');
+        if (!accessToken) {
+            if (integration.refresh_token) {
+                try {
+                    accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                } catch (refreshErr) {
+                    return res.status(401).json({ msg: 'Erro ao renovar token. Reconecte o canal.' });
+                }
+            } else {
+                return res.status(401).json({ msg: 'Token inválido. Reconecte o canal.' });
+            }
+        } else if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+            if (!integration.refresh_token) {
+                return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+            }
+            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+        }
+
+        // Criar metadata do vídeo
+        const videoMetadata = {
+            snippet: {
+                title: title,
+                description: description || '',
+                tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : []),
+                categoryId: categoryId
+            },
+            status: {
+                privacyStatus: privacy
+            }
+        };
+
+        // Iniciar upload resumable
+        const initUploadUrl = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+        
+        const initResponse = await fetch(initUploadUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'X-Upload-Content-Type': 'video/*',
+                'X-Upload-Content-Length': videoSize.toString()
+            },
+            body: JSON.stringify(videoMetadata)
+        });
+
+        if (!initResponse.ok) {
+            const errorText = await initResponse.text();
+            console.error('[YouTube Upload Init] Erro:', errorText);
+            return res.status(initResponse.status).json({ 
+                msg: 'Erro ao iniciar upload do vídeo.',
+                error: errorText 
+            });
+        }
+
+        const uploadUrl = initResponse.headers.get('Location');
+        if (!uploadUrl) {
+            return res.status(500).json({ msg: 'URL de upload não recebida.' });
+        }
+
+        return res.status(200).json({
+            uploadUrl: uploadUrl,
+            accessToken: accessToken // Retornar token para uso no frontend (será usado apenas para este upload)
+        });
+
+    } catch (err) {
+        console.error('[YouTube Upload Init] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao iniciar upload.', error: err.message });
+    }
+});
+
+// Função auxiliar para renovar token do YouTube
+async function refreshYouTubeToken(refreshToken, userId, integrationId) {
+    const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID;
+    const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET;
+    
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token',
+        }),
+    });
+
+    if (!tokenResponse.ok) {
+        throw new Error('Falha ao renovar token');
+    }
+
+    const tokenData = await tokenResponse.json();
+    const newAccessToken = tokenData.access_token;
+    const expiresAt = tokenData.expires_in 
+        ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+        : null;
+
+    // Atualizar token no banco
+    await db.run(
+        'UPDATE youtube_integrations SET access_token = ?, token_expires_at = ? WHERE id = ?',
+        [encrypt(newAccessToken), expiresAt, integrationId]
+    );
+
+    return newAccessToken;
+}
+
+// Endpoint completo para upload de vídeo para YouTube (recebe arquivo via FormData)
+app.post('/api/youtube/upload/complete', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    
+    try {
+        const uploadsDir = path.join(__dirname, 'uploads', 'videos');
+        await fse.ensureDir(uploadsDir);
+        
+        const form = formidable.formidable({
+            uploadDir: uploadsDir,
+            keepExtensions: true,
+            maxFileSize: 10 * 1024 * 1024 * 1024 // 10GB
+        });
+        
+        form.parse(req, async (err, fields, files) => {
+            if (err) {
+                console.error('[YouTube Upload Complete] Erro ao processar:', err);
+                return res.status(500).json({ msg: 'Erro ao processar arquivo.', error: err.message });
+            }
+            
+            const videoFile = Array.isArray(files.video) ? files.video[0] : files.video;
+            const thumbnailFile = files.thumbnail ? (Array.isArray(files.thumbnail) ? files.thumbnail[0] : files.thumbnail) : null;
+            
+            if (!videoFile) {
+                return res.status(400).json({ msg: 'Arquivo de vídeo não fornecido.' });
+            }
+            
+            const channelId = fields.channelId?.[0] || fields.channelId;
+            const title = fields.title?.[0] || fields.title;
+            const description = fields.description?.[0] || fields.description || '';
+            const tags = fields.tags?.[0] || fields.tags || '[]';
+            const privacy = fields.privacy?.[0] || fields.privacy || 'private';
+            const categoryId = fields.categoryId?.[0] || fields.categoryId || '22';
+            
+            if (!channelId || !title) {
+                return res.status(400).json({ msg: 'channelId e title são obrigatórios.' });
+            }
+            
+            try {
+                // Buscar integração do canal
+                const integration = await db.get(
+                    'SELECT channel_id, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE channel_id = ? AND user_id = ? AND is_active = 1',
+                    [channelId, userId]
+                );
+
+                if (!integration) {
+                    return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+                }
+
+                // Verificar e renovar token se necessário
+                let accessToken = decryptToken(integration.access_token, 'YouTube Upload Complete');
+                if (!accessToken) {
+                    if (integration.refresh_token) {
+                        try {
+                            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                        } catch (refreshErr) {
+                            return res.status(401).json({ msg: 'Erro ao renovar token. Reconecte o canal.' });
+                        }
+                    } else {
+                        return res.status(401).json({ msg: 'Token inválido. Reconecte o canal.' });
+                    }
+                } else if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+                    if (!integration.refresh_token) {
+                        return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+                    }
+                    accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                }
+
+                // Ler arquivo de vídeo
+                const videoPath = videoFile.filepath;
+                const videoBuffer = fs.readFileSync(videoPath);
+                const videoSize = videoBuffer.length;
+
+                // Criar metadata do vídeo
+                let tagsArray = [];
+                try {
+                    tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+                    if (!Array.isArray(tagsArray)) {
+                        tagsArray = tags.split(',').map(t => t.trim()).filter(t => t);
+                    }
+                } catch (e) {
+                    tagsArray = typeof tags === 'string' ? tags.split(',').map(t => t.trim()).filter(t => t) : [];
+                }
+
+                const videoMetadata = {
+                    snippet: {
+                        title: title,
+                        description: description,
+                        tags: tagsArray,
+                        categoryId: categoryId
+                    },
+                    status: {
+                        privacyStatus: privacy
+                    }
+                };
+
+                // Iniciar upload resumable
+                const initUploadUrl = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+                
+                const initResponse = await fetch(initUploadUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'X-Upload-Content-Type': 'video/*',
+                        'X-Upload-Content-Length': videoSize.toString()
+                    },
+                    body: JSON.stringify(videoMetadata)
+                });
+
+                if (!initResponse.ok) {
+                    const errorText = await initResponse.text();
+                    console.error('[YouTube Upload Complete] Erro ao iniciar upload:', errorText);
+                    return res.status(initResponse.status).json({ 
+                        msg: 'Erro ao iniciar upload do vídeo.',
+                        error: errorText 
+                    });
+                }
+
+                const uploadUrl = initResponse.headers.get('Location');
+                if (!uploadUrl) {
+                    return res.status(500).json({ msg: 'URL de upload não recebida.' });
+                }
+
+                // Fazer upload do vídeo em chunks
+                const chunkSize = 256 * 1024; // 256KB por chunk
+                let uploadedBytes = 0;
+
+                while (uploadedBytes < videoSize) {
+                    const chunk = videoBuffer.slice(uploadedBytes, Math.min(uploadedBytes + chunkSize, videoSize));
+                    const chunkEnd = Math.min(uploadedBytes + chunk.length - 1, videoSize - 1);
+
+                    const chunkResponse = await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'video/*',
+                            'Content-Length': chunk.length.toString(),
+                            'Content-Range': `bytes ${uploadedBytes}-${chunkEnd}/${videoSize}`
+                        },
+                        body: chunk
+                    });
+
+                    if (chunkResponse.status === 308) {
+                        // Continuar upload
+                        const rangeHeader = chunkResponse.headers.get('Range');
+                        if (rangeHeader) {
+                            const match = rangeHeader.match(/bytes=0-(\d+)/);
+                            if (match) {
+                                uploadedBytes = parseInt(match[1]) + 1;
+                            } else {
+                                uploadedBytes += chunk.length;
+                            }
+                        } else {
+                            uploadedBytes += chunk.length;
+                        }
+                    } else if (chunkResponse.ok) {
+                        // Upload completo
+                        const uploadResult = await chunkResponse.json();
+                        
+                        // Se tiver thumbnail, fazer upload
+                        if (thumbnailFile && fs.existsSync(thumbnailFile.filepath)) {
+                            try {
+                                const thumbnailBuffer = fs.readFileSync(thumbnailFile.filepath);
+                                const thumbnailUploadUrl = `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${uploadResult.id}`;
+                                
+                                await fetch(thumbnailUploadUrl, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Authorization': `Bearer ${accessToken}`,
+                                        'Content-Type': 'image/jpeg'
+                                    },
+                                    body: thumbnailBuffer
+                                });
+                            } catch (thumbErr) {
+                                console.warn('[YouTube Upload Complete] Erro ao fazer upload da thumbnail:', thumbErr.message);
+                            }
+                        }
+
+                        // Limpar arquivo temporário
+                        try {
+                            fs.unlinkSync(videoPath);
+                            if (thumbnailFile && fs.existsSync(thumbnailFile.filepath)) {
+                                fs.unlinkSync(thumbnailFile.filepath);
+                            }
+                        } catch (cleanupErr) {
+                            console.warn('[YouTube Upload Complete] Erro ao limpar arquivos temporários:', cleanupErr.message);
+                        }
+
+                        return res.status(200).json({
+                            msg: 'Vídeo enviado com sucesso!',
+                            videoId: uploadResult.id,
+                            videoUrl: `https://www.youtube.com/watch?v=${uploadResult.id}`
+                        });
+                    } else {
+                        const errorText = await chunkResponse.text();
+                        throw new Error(`Erro no upload: ${errorText}`);
+                    }
+                }
+
+                return res.status(500).json({ msg: 'Upload não completado.' });
+
+            } catch (uploadErr) {
+                console.error('[YouTube Upload Complete] Erro:', uploadErr);
+                return res.status(500).json({ msg: 'Erro ao fazer upload do vídeo.', error: uploadErr.message });
+            }
+        });
+    } catch (err) {
+        console.error('[YouTube Upload Complete] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao processar upload.', error: err.message });
+    }
+});
+
+// Endpoint para upload de vídeo para YouTube (mantido para compatibilidade com agendamento)
+app.post('/api/youtube/upload', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { channelId, videoFilePath, title, description, tags, thumbnailPath, privacy = 'private', categoryId = '22' } = req.body;
+
+    if (!channelId || !videoFilePath || !title) {
+        return res.status(400).json({ msg: 'channelId, videoFilePath e title são obrigatórios.' });
+    }
+
+    try {
+        // Buscar integração do canal
+        const integration = await db.get(
+            'SELECT channel_id, access_token, refresh_token, token_expires_at, id FROM youtube_integrations WHERE channel_id = ? AND user_id = ? AND is_active = 1',
+            [channelId, userId]
+        );
+
+        if (!integration) {
+            return res.status(404).json({ msg: 'Canal não encontrado ou não conectado.' });
+        }
+
+        // Verificar e renovar token se necessário
+        let accessToken = decryptToken(integration.access_token, 'YouTube Upload');
+        if (!accessToken) {
+            if (integration.refresh_token) {
+                try {
+                    accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+                } catch (refreshErr) {
+                    return res.status(401).json({ msg: 'Erro ao renovar token. Reconecte o canal.' });
+                }
+            } else {
+                return res.status(401).json({ msg: 'Token inválido. Reconecte o canal.' });
+            }
+        } else if (integration.token_expires_at && new Date(integration.token_expires_at) < new Date()) {
+            if (!integration.refresh_token) {
+                return res.status(401).json({ msg: 'Token expirado. Reconecte o canal.' });
+            }
+            accessToken = await refreshYouTubeToken(integration.refresh_token, userId, integration.id);
+        }
+
+        // Ler arquivo de vídeo
+        const videoPath = path.join(__dirname, videoFilePath);
+        if (!fs.existsSync(videoPath)) {
+            return res.status(404).json({ msg: 'Arquivo de vídeo não encontrado.' });
+        }
+
+        const videoBuffer = fs.readFileSync(videoPath);
+        const videoSize = videoBuffer.length;
+
+        // Criar metadata do vídeo
+        const videoMetadata = {
+            snippet: {
+                title: title,
+                description: description || '',
+                tags: Array.isArray(tags) ? tags : (tags ? tags.split(',').map(t => t.trim()) : []),
+                categoryId: categoryId
+            },
+            status: {
+                privacyStatus: privacy // 'private', 'unlisted', 'public'
+            }
+        };
+
+        // Upload usando resumable upload do YouTube
+        // Primeiro, iniciar upload resumable
+        const initUploadUrl = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+        
+        const initResponse = await fetch(initUploadUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'X-Upload-Content-Type': 'video/*',
+                'X-Upload-Content-Length': videoSize.toString()
+            },
+            body: JSON.stringify(videoMetadata)
+        });
+
+        if (!initResponse.ok) {
+            const errorText = await initResponse.text();
+            console.error('[YouTube Upload] Erro ao iniciar upload:', errorText);
+            return res.status(initResponse.status).json({ 
+                msg: 'Erro ao iniciar upload do vídeo.',
+                error: errorText 
+            });
+        }
+
+        const uploadUrl = initResponse.headers.get('Location');
+        if (!uploadUrl) {
+            return res.status(500).json({ msg: 'URL de upload não recebida.' });
+        }
+
+        // Fazer upload do vídeo em chunks (para vídeos grandes)
+        const chunkSize = 256 * 1024; // 256KB por chunk
+        let uploadedBytes = 0;
+
+        while (uploadedBytes < videoSize) {
+            const chunk = videoBuffer.slice(uploadedBytes, Math.min(uploadedBytes + chunkSize, videoSize));
+            const chunkEnd = Math.min(uploadedBytes + chunk.length - 1, videoSize - 1);
+
+            const chunkResponse = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'video/*',
+                    'Content-Length': chunk.length.toString(),
+                    'Content-Range': `bytes ${uploadedBytes}-${chunkEnd}/${videoSize}`
+                },
+                body: chunk
+            });
+
+            if (chunkResponse.status === 308) {
+                // Continuar upload
+                const rangeHeader = chunkResponse.headers.get('Range');
+                if (rangeHeader) {
+                    const match = rangeHeader.match(/bytes=0-(\d+)/);
+                    if (match) {
+                        uploadedBytes = parseInt(match[1]) + 1;
+                    } else {
+                        uploadedBytes += chunk.length;
+                    }
+                } else {
+                    uploadedBytes += chunk.length;
+                }
+            } else if (chunkResponse.ok) {
+                // Upload completo
+                const uploadResult = await chunkResponse.json();
+                
+                // Se tiver thumbnail, fazer upload
+                if (thumbnailPath && fs.existsSync(path.join(__dirname, thumbnailPath))) {
+                    try {
+                        const thumbnailBuffer = fs.readFileSync(path.join(__dirname, thumbnailPath));
+                        const thumbnailUploadUrl = `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${uploadResult.id}`;
+                        
+                        await fetch(thumbnailUploadUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'image/jpeg'
+                            },
+                            body: thumbnailBuffer
+                        });
+                    } catch (thumbErr) {
+                        console.warn('[YouTube Upload] Erro ao fazer upload da thumbnail:', thumbErr.message);
+                    }
+                }
+
+                return res.status(200).json({
+                    msg: 'Vídeo enviado com sucesso!',
+                    videoId: uploadResult.id,
+                    videoUrl: `https://www.youtube.com/watch?v=${uploadResult.id}`
+                });
+            } else {
+                const errorText = await chunkResponse.text();
+                throw new Error(`Erro no upload: ${errorText}`);
+            }
+        }
+
+        return res.status(500).json({ msg: 'Upload não completado.' });
+
+    } catch (err) {
+        console.error('[YouTube Upload] Erro:', err);
+        return res.status(500).json({ msg: 'Erro ao fazer upload do vídeo.', error: err.message });
+    }
+});
+
 app.delete('/api/youtube/channels/:id', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const integrationId = parseInt(req.params.id);
@@ -35042,6 +37155,45 @@ app.get('/api/youtube/scheduled', authenticateToken, async (req, res) => {
         console.error('[ERRO NA ROTA /api/youtube/scheduled]:', err);
         // Retornar array vazio se a tabela não existir
         res.status(200).json([]);
+    }
+});
+
+// Excluir publicação agendada
+app.delete('/api/youtube/scheduled/:id', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const scheduledId = parseInt(req.params.id);
+
+    if (!scheduledId || isNaN(scheduledId)) {
+        return res.status(400).json({ msg: 'ID inválido.' });
+    }
+
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        const post = await db.get('SELECT * FROM scheduled_posts WHERE id = ? AND user_id = ?', [scheduledId, userId]);
+        if (!post) {
+            return res.status(404).json({ msg: 'Agendamento não encontrado.' });
+        }
+
+        await db.run('DELETE FROM scheduled_posts WHERE id = ? AND user_id = ?', [scheduledId, userId]);
+
+        // Tentar limpar arquivos temporários (se existirem)
+        const safeUnlink = (p) => {
+            if (!p) return;
+            try {
+                const abs = path.isAbsolute(p) ? p : path.join(__dirname, p);
+                if (fs.existsSync(abs)) fs.unlinkSync(abs);
+            } catch (_) {}
+        };
+        safeUnlink(post.video_file_path);
+        safeUnlink(post.thumbnail_url);
+
+        return res.status(200).json({ msg: 'Agendamento excluído com sucesso.' });
+    } catch (err) {
+        console.error('[ERRO NA ROTA /api/youtube/scheduled/:id DELETE]:', err);
+        return res.status(500).json({ msg: 'Erro ao excluir agendamento.' });
     }
 });
 
@@ -35786,12 +37938,6 @@ app.post('/api/channels', authenticateToken, async (req, res) => {
             return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
         }
 
-        // Verificar limite de 10 canais por usuário
-        const channelCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ?', [userId]);
-        if (channelCount && channelCount.count >= 10) {
-            return res.status(400).json({ msg: 'Limite de 10 canais atingido. Exclua um canal antes de adicionar outro.' });
-        }
-
         // Verificar se já existe um canal com o mesmo nome para este usuário
         const existing = await db.get('SELECT id FROM user_channels WHERE user_id = ? AND channel_name = ?', [userId, channelName]);
         
@@ -35806,6 +37952,11 @@ app.post('/api/channels', authenticateToken, async (req, res) => {
             console.log(`[Canais] Canal ${existing.id} atualizado pelo usuário ${userId}`);
             res.status(200).json({ id: existing.id, msg: 'Canal atualizado com sucesso.' });
         } else {
+            // Verificar limite de 10 canais ATIVOS por usuário (evita travar quando existem canais inativos)
+            const channelCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ? AND is_active = 1', [userId]);
+            if (channelCount && channelCount.count >= 10) {
+                return res.status(400).json({ msg: 'Limite de 10 canais ativos atingido. Desative ou exclua um canal antes de adicionar outro.' });
+            }
             // Criar novo canal
             const result = await db.run(
                 `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country) 
@@ -35831,6 +37982,50 @@ app.get('/api/channels', authenticateToken, async (req, res) => {
     try {
         if (!db) {
             return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+
+        // 🔄 Sincronizar canais conectados do YouTube (youtube_integrations) para aparecerem automaticamente no "Analytics e Performance"
+        // Isso evita o usuário ter que cadastrar canal manualmente após conectar via OAuth.
+        try {
+            const ytIntegrations = await db.all(
+                'SELECT channel_id, channel_name, niche, language, country FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+                [userId]
+            );
+            if (ytIntegrations && ytIntegrations.length > 0) {
+                for (const yt of ytIntegrations) {
+                    if (!yt?.channel_id) continue;
+                    const channelUrl = `https://www.youtube.com/channel/${yt.channel_id}`;
+                    const existing = await db.get(
+                        'SELECT id FROM user_channels WHERE user_id = ? AND channel_id = ? LIMIT 1',
+                        [userId, yt.channel_id]
+                    );
+                    if (existing?.id) {
+                        await db.run(
+                            `UPDATE user_channels
+                             SET channel_name = COALESCE(?, channel_name),
+                                 channel_url = COALESCE(?, channel_url),
+                                 niche = COALESCE(niche, ?),
+                                 language = COALESCE(language, ?),
+                                 country = COALESCE(country, ?),
+                                 is_active = 1,
+                                 updated_at = CURRENT_TIMESTAMP
+                             WHERE id = ? AND user_id = ?`,
+                            [yt.channel_name || null, channelUrl, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR', existing.id, userId]
+                        );
+                    } else {
+                        // Respeitar o limite do app (10 ativos) — mas o YouTube também limita a 10 integrações ativas, então normalmente não estoura.
+                        const activeCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ? AND is_active = 1', [userId]);
+                        if ((activeCount?.count || 0) >= 10) break;
+                        await db.run(
+                            `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+                            [userId, yt.channel_name || 'Canal do YouTube', channelUrl, yt.channel_id, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR']
+                        );
+                    }
+                }
+            }
+        } catch (syncErr) {
+            console.warn('[Canais] Falha ao sincronizar canais do YouTube para user_channels:', syncErr.message);
         }
 
         const channels = await db.all(
@@ -38155,6 +40350,100 @@ app.post('/api/translate/batch', authenticateToken, async (req, res) => {
 
 console.log('✅ Serviço de Tradução Online configurado (MyMemory + LibreTranslate)');
 
+// ========== ROTAS DO EDITOR WHISK ==========
+
+// Rota para detectar textos na imagem usando Whisk
+app.post('/api/edit/whisk/detect-text', authenticateToken, async (req, res) => {
+    try {
+        const { imageUrl, imageBase64, whiskCookie } = req.body;
+
+        if (!whiskCookie) {
+            return res.status(400).json({ msg: 'Cookie do Whisk é obrigatório.' });
+        }
+
+        let imageData = imageBase64;
+        if (!imageData && imageUrl) {
+            // Se for URL, buscar a imagem e converter para base64
+            const response = await fetch(imageUrl);
+            const buffer = await response.arrayBuffer();
+            imageData = Buffer.from(buffer).toString('base64');
+        }
+
+        if (!imageData) {
+            return res.status(400).json({ msg: 'Imagem (base64 ou URL) é obrigatória.' });
+        }
+
+        // Remover prefixo data:image se existir
+        if (imageData.includes(',')) {
+            imageData = imageData.split(',')[1];
+        }
+
+        const whisk = new WhiskClient(whiskCookie);
+        const detections = await whisk.detectText(imageData);
+
+        res.status(200).json({
+            success: true,
+            detections: detections || []
+        });
+    } catch (err) {
+        console.error('[ERRO /api/edit/whisk/detect-text]:', err);
+        if (err instanceof WhiskError) {
+            return res.status(err.code || 500).json({ msg: err.message });
+        }
+        res.status(500).json({ msg: err.message || 'Erro ao detectar textos na imagem.' });
+    }
+});
+
+// Rota para fazer inpainting (remover/substituir texto) usando Whisk
+app.post('/api/edit/whisk/inpaint', authenticateToken, async (req, res) => {
+    try {
+        const { imageUrl, imageBase64, maskBase64, prompt, whiskCookie } = req.body;
+
+        if (!whiskCookie) {
+            return res.status(400).json({ msg: 'Cookie do Whisk é obrigatório.' });
+        }
+
+        let imageData = imageBase64;
+        if (!imageData && imageUrl) {
+            const response = await fetch(imageUrl);
+            const buffer = await response.arrayBuffer();
+            imageData = Buffer.from(buffer).toString('base64');
+        }
+
+        if (!imageData) {
+            return res.status(400).json({ msg: 'Imagem (base64 ou URL) é obrigatória.' });
+        }
+
+        if (!maskBase64) {
+            return res.status(400).json({ msg: 'Máscara (base64) é obrigatória.' });
+        }
+
+        // Remover prefixos data:image se existirem
+        if (imageData.includes(',')) {
+            imageData = imageData.split(',')[1];
+        }
+        let maskData = maskBase64;
+        if (maskData.includes(',')) {
+            maskData = maskData.split(',')[1];
+        }
+
+        const whisk = new WhiskClient(whiskCookie);
+        const resultImage = await whisk.inpaint(imageData, maskData, prompt || 'remove text, keep background seamless');
+
+        res.status(200).json({
+            success: true,
+            image: `data:image/png;base64,${resultImage}`
+        });
+    } catch (err) {
+        console.error('[ERRO /api/edit/whisk/inpaint]:', err);
+        if (err instanceof WhiskError) {
+            return res.status(err.code || 500).json({ msg: err.message });
+        }
+        res.status(500).json({ msg: err.message || 'Erro ao processar imagem com Whisk.' });
+    }
+});
+
+console.log('✅ Rotas do Editor Whisk configuradas');
 
 // Aguardar banco de dados estar pronto antes de iniciar servidor
 // Mas com timeout para não travar indefinidamente

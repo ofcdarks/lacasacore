@@ -1516,10 +1516,6 @@
                                             <option value="vhs-nostalgic">📼 VHS Nostálgico - Estética anos 80/90</option>
                                     </optgroup>
                                 </select>
-                                <div class="mt-3 flex items-center gap-2">
-                                    <input id="toggle-4k-badge" type="checkbox" class="h-4 w-4 rounded border-gray-600 text-amber-500 focus:ring-amber-500">
-                                    <label for="toggle-4k-badge" class="text-sm text-gray-300">Adicionar selo 4K no canto superior direito</label>
-                                </div>
                             </div>
                         </div>
                         
@@ -2091,8 +2087,8 @@
                                 <select id="biblioteca-titles-limit" class="px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
                                     <option value="6" selected>6</option>
                                     <option value="12">12</option>
-                                    <option value="25">25</option>
                                     <option value="50">50</option>
+                                    <option value="100">100</option>
                                 </select>
                             </div>
                         </div>
@@ -2102,8 +2098,38 @@
 
                 <!-- Lista de Thumbnails -->
                 <div id="biblioteca-thumbnails-section" class="space-y-4" style="display: none;">
+                    <!-- Controles de seleção em lote -->
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="select-all-thumbnails" class="w-5 h-5 bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2">
+                            <label for="select-all-thumbnails" class="text-gray-300 font-medium">Selecionar Todos</label>
+                            <span id="selected-thumbnails-count" class="text-amber-500 font-semibold hidden">(<span id="selected-thumbnails-count-number">0</span> selecionados)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="delete-selected-thumbnails" onclick="deleteSelectedThumbnails()" class="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-400 text-sm font-semibold rounded-lg transition-all flex items-center space-x-2 hidden">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                <span>Excluir Selecionados</span>
+                            </button>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="biblioteca-thumbnails-list">
                         <p class="text-gray-400">Carregando thumbnails...</p>
+                    </div>
+                    <!-- Paginação -->
+                    <div id="biblioteca-thumbnails-pagination" class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4" style="display: none;">
+                        <div class="flex items-center space-x-4">
+                            <div class="text-sm text-gray-400 font-medium" id="biblioteca-thumbnails-pagination-info"></div>
+                            <div class="flex items-center space-x-2">
+                                <label for="biblioteca-thumbnails-limit" class="text-sm text-gray-400">Itens por página:</label>
+                                <select id="biblioteca-thumbnails-limit" class="px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all">
+                                    <option value="6" selected>6</option>
+                                    <option value="12">12</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2" id="biblioteca-thumbnails-pagination-controls"></div>
                     </div>
                 </div>
 
@@ -2880,6 +2906,12 @@
                         <button onclick="switchYouTubeTab('competitors')" id="youtube-tab-competitors" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
                             <i data-lucide="users" class="w-4 h-4 inline mr-2"></i> Competidores
                         </button>
+                        <button onclick="switchYouTubeTab('analytics')" id="youtube-tab-analytics" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4 inline mr-2"></i> Métricas
+                        </button>
+                        <button onclick="switchYouTubeTab('insights')" id="youtube-tab-insights" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                            <i data-lucide="brain" class="w-4 h-4 inline mr-2"></i> Análise e Insights
+                        </button>
                         <button onclick="switchYouTubeTab('suggestions')" id="youtube-tab-suggestions" class="youtube-tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
                             <i data-lucide="sparkles" class="w-4 h-4 inline mr-2"></i> Sugestões IA
                         </button>
@@ -2905,11 +2937,102 @@
                         <div id="youtube-integration-status" class="text-gray-400"></div>
                     </div>
 
+                    <!-- Resumo rápido (ao entrar) -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-2">⚡ Resumo Rápido</h2>
+                        <p class="text-gray-400 mb-4">Ao entrar, mostramos um snapshot do seu canal principal (últimos 30 dias).</p>
+                        <div id="youtube-quick-overview" class="text-gray-400">
+                            <p>Carregando...</p>
+                        </div>
+                    </div>
+
                     <!-- Publicações Agendadas -->
-                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
                         <h2 class="text-xl font-semibold text-white mb-4">Publicações Agendadas</h2>
                         <div id="scheduled-posts-list" class="space-y-4">
                             <p class="text-gray-400">Nenhuma publicação agendada.</p>
+                        </div>
+                    </div>
+
+                    <!-- Upload de Vídeo - Interface Completa YouTube Studio -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">📤 Upload de Vídeo</h2>
+                        <p class="text-gray-400 mb-4">Envie vídeos diretamente para seu canal do YouTube</p>
+                        
+                        <!-- Abas estilo YouTube Studio -->
+                        <div class="border-b border-gray-700 mb-6">
+                            <nav class="flex space-x-8">
+                                <button onclick="switchUploadTab('details')" id="upload-tab-details" class="upload-tab-button py-3 px-1 border-b-2 border-amber-500 font-medium text-sm text-amber-500">
+                                    <i data-lucide="file-text" class="w-4 h-4 inline mr-2"></i> Detalhes
+                                </button>
+                                <button onclick="switchUploadTab('visibility')" id="upload-tab-visibility" class="upload-tab-button py-3 px-1 border-b-2 border-transparent font-medium text-sm text-gray-400 hover:text-gray-300">
+                                    <i data-lucide="eye" class="w-4 h-4 inline mr-2"></i> Visibilidade
+                                </button>
+                            </nav>
+                        </div>
+                        
+                        <form id="youtube-upload-form" class="space-y-4">
+                            <!-- Painel: Detalhes -->
+                            <div id="upload-pane-details" class="upload-pane space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Canal</label>
+                                <select id="upload-channel-select" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                                    <option value="">Selecione um canal...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Arquivo de Vídeo</label>
+                                <input type="file" id="upload-video-file" accept="video/*" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Título</label>
+                                <input type="text" id="upload-video-title" placeholder="Título do vídeo" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Descrição</label>
+                                <textarea id="upload-video-description" rows="4" placeholder="Descrição do vídeo" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Tags (separadas por vírgula)</label>
+                                <input type="text" id="upload-video-tags" placeholder="tag1, tag2, tag3" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Thumbnail (Opcional)</label>
+                                <input type="file" id="upload-video-thumbnail" accept="image/*" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                            </div>
+                            </div>
+
+                            <!-- Painel: Visibilidade -->
+                            <div id="upload-pane-visibility" class="upload-pane space-y-4 hidden">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Visibilidade</label>
+                                <select id="upload-video-privacy" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                    <option value="private">Privado</option>
+                                    <option value="unlisted">Não listado</option>
+                                    <option value="public">Público</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Publicação</label>
+                                <select id="upload-publish-type" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500 mb-2">
+                                    <option value="now">Publicar Agora</option>
+                                    <option value="schedule">Agendar para Depois</option>
+                                </select>
+                                <div id="schedule-datetime-container" class="hidden mt-2">
+                                    <input type="datetime-local" id="upload-schedule-datetime" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" min="">
+                                </div>
+                            </div>
+                            </div>
+
+                            <button type="submit" class="w-full py-3 px-4 bg-red-600 hover:bg-red-500 text-white rounded-lg font-semibold transition duration-300">
+                                <i data-lucide="upload" class="w-5 h-5 inline mr-2"></i> <span id="upload-button-text">Enviar Vídeo para YouTube</span>
+                            </button>
+                        </form>
+                        <div id="upload-progress" class="mt-4 hidden">
+                            <div class="bg-gray-800 rounded-full h-2 overflow-hidden">
+                                <div id="upload-progress-bar" class="bg-red-600 h-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                            <p id="upload-status" class="text-gray-400 text-sm mt-2"></p>
                         </div>
                     </div>
                 </div>
@@ -3134,6 +3257,322 @@
                 </div>
 
                 <!-- TAB 5: Sugestões IA -->
+                <!-- TAB: Métricas do Canal -->
+                <div id="youtube-tab-content-analytics" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">📊 Métricas do Canal</h2>
+                        <p class="text-gray-400 mb-4">Visualize métricas detalhadas do seu canal do YouTube</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Canal</label>
+                                <select id="analytics-channel-select" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                                    <option value="">Selecione um canal...</option>
+                                </select>
+                                <div id="analytics-channel-meta" class="mt-2 text-xs text-gray-400"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Período</label>
+                                <select id="analytics-period-select" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
+                                    <option value="7">Últimos 7 dias</option>
+                                    <option value="30" selected>Últimos 30 dias</option>
+                                    <option value="90">Últimos 90 dias</option>
+                                    <option value="365">Último ano</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <button onclick="loadChannelAnalytics()" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold mb-6">
+                            <i data-lucide="refresh-cw" class="w-4 h-4 inline mr-2"></i> Carregar Métricas
+                        </button>
+                        
+                        <div id="analytics-loading" class="hidden text-center py-8">
+                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                            <p class="text-gray-400 mt-2">Carregando métricas...</p>
+                        </div>
+                        
+                        <div id="analytics-content" class="hidden">
+                            <!-- Layout estilo YouTube Studio -->
+                            <div class="bg-gray-900 border border-gray-800 rounded-2xl p-0 overflow-hidden mb-6">
+                                <div class="p-6 border-b border-gray-800">
+                                    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <h3 id="yt-analytics-headline" class="text-2xl md:text-3xl font-bold text-white leading-tight">
+                                                Seu canal teve - visualizações nos últimos - dias
+                                            </h3>
+                                            <p id="yt-analytics-subheadline" class="text-sm text-gray-400 mt-2">
+                                                Selecionando período e carregando dados...
+                                            </p>
+                                            <!-- Mantido para compatibilidade/uso interno -->
+                                            <p id="analytics-summary-text" class="hidden">Carregando resumo...</p>
+                                        </div>
+                                        <div class="flex items-center gap-2 md:pt-1">
+                                            <button onclick="loadChannelAnalytics()" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-semibold">
+                                                <i data-lucide="refresh-cw" class="w-4 h-4 inline mr-2"></i> Atualizar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Cards + gráfico (YouTube-like) -->
+                                <div class="bg-gray-950/40">
+                                    <div class="grid grid-cols-1 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-gray-800">
+                                        <div class="p-5">
+                                            <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Visualizações</p>
+                                            <p id="analytics-total-views" class="text-3xl font-bold text-white">-</p>
+                                            <p id="analytics-views-change" class="text-xs text-gray-500 mt-1">-</p>
+                                        </div>
+                                        <div class="p-5">
+                                            <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Tempo de exibição</p>
+                                            <p id="analytics-watch-time" class="text-3xl font-bold text-white">-</p>
+                                            <p id="analytics-watch-time-change" class="text-xs text-gray-500 mt-1">-</p>
+                                        </div>
+                                        <div class="p-5">
+                                            <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Inscritos</p>
+                                            <p id="analytics-subscribers-gained" class="text-3xl font-bold text-white">-</p>
+                                            <p id="analytics-subscribers-gained-change" class="text-xs text-gray-500 mt-1">-</p>
+                                            <!-- Mantido (total) -->
+                                            <p class="text-[11px] text-gray-600 mt-2">Total: <span id="analytics-subscribers" class="text-gray-400">-</span></p>
+                                            <p id="analytics-subscribers-change" class="hidden">-</p>
+                                        </div>
+                                        <div class="p-5">
+                                            <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Receita estimada</p>
+                                            <p id="analytics-estimated-revenue" class="text-3xl font-bold text-white">-</p>
+                                            <p id="analytics-revenue-period" class="text-xs text-gray-500 mt-1">-</p>
+                                            <div class="mt-2 text-[11px] text-gray-600 space-y-1">
+                                                <div>RPM: <span id="analytics-rpm" class="text-gray-400">-</span></div>
+                                                <div>Impressões (anúncios): <span id="analytics-ad-impressions" class="text-gray-400">-</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="p-6">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <p class="text-white font-semibold">Visualizações ao longo do tempo</p>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="toggleChartType('line')" class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-white rounded chart-type-btn active" data-type="line">
+                                                    <i data-lucide="trending-up" class="w-4 h-4 inline"></i> Linha
+                                                </button>
+                                                <button onclick="toggleChartType('bar')" class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-white rounded chart-type-btn" data-type="bar">
+                                                    <i data-lucide="bar-chart-2" class="w-4 h-4 inline"></i> Barras
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <canvas id="analytics-chart" class="w-full" style="max-height: 320px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Breakdowns (fontes/paises) -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-white font-semibold mb-3">🚦 Fontes de Tráfego (Top)</h3>
+                                    <div id="analytics-traffic-sources" class="space-y-2">
+                                        <p class="text-gray-400 text-sm">Carregando...</p>
+                                    </div>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-white font-semibold mb-3">🌍 Países (Top)</h3>
+                                    <div id="analytics-top-countries" class="space-y-2">
+                                        <p class="text-gray-400 text-sm">Carregando...</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                                <h3 class="text-white font-semibold mb-3">🧠 Insights Acionáveis (para ficar na frente)</h3>
+                                <div id="analytics-action-insights" class="space-y-2">
+                                    <p class="text-gray-400 text-sm">Carregando...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Métricas de Engajamento -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-gray-400 text-sm">Curtidas</p>
+                                        <i data-lucide="thumbs-up" class="w-4 h-4 text-blue-500"></i>
+                                    </div>
+                                    <p id="analytics-likes" class="text-2xl font-bold text-white">-</p>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-gray-400 text-sm">Comentários</p>
+                                        <i data-lucide="message-circle" class="w-4 h-4 text-green-500"></i>
+                                    </div>
+                                    <p id="analytics-comments" class="text-2xl font-bold text-white">-</p>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-gray-400 text-sm">Compartilhamentos</p>
+                                        <i data-lucide="share-2" class="w-4 h-4 text-purple-500"></i>
+                                    </div>
+                                    <p id="analytics-shares" class="text-2xl font-bold text-white">-</p>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="text-gray-400 text-sm">Taxa de Engajamento</p>
+                                        <i data-lucide="activity" class="w-4 h-4 text-amber-500"></i>
+                                    </div>
+                                    <p id="analytics-engagement-rate" class="text-2xl font-bold text-white">-</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Métricas Avançadas -->
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <p class="text-gray-400 text-sm mb-2">Duração Média de Visualização</p>
+                                    <p id="analytics-avg-view-duration" class="text-xl font-bold text-white">-</p>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <p class="text-gray-400 text-sm mb-2">Taxa de Retenção</p>
+                                    <p id="analytics-retention-rate" class="text-xl font-bold text-white">-</p>
+                                </div>
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                                    <p class="text-gray-400 text-sm mb-2">CTR (Taxa de Cliques)</p>
+                                    <p id="analytics-ctr" class="text-xl font-bold text-white">-</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Vídeos Recentes -->
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-white font-semibold">Vídeos Recentes</h3>
+                                    <button onclick="loadChannelAnalytics()" class="text-xs text-amber-500 hover:text-amber-400">
+                                        <i data-lucide="refresh-cw" class="w-4 h-4 inline"></i> Atualizar
+                                    </button>
+                                </div>
+                                <div id="analytics-recent-videos" class="space-y-3">
+                                    <p class="text-gray-400">Carregando...</p>
+                                </div>
+                            </div>
+
+                            <!-- Top 5 mais vistos + análise -->
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mt-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-white font-semibold">🏆 Top 5 Vídeos Mais Vistos (com análise)</h3>
+                                    <button onclick="loadChannelAnalytics()" class="text-xs text-amber-500 hover:text-amber-400">
+                                        <i data-lucide="refresh-cw" class="w-4 h-4 inline"></i> Atualizar
+                                    </button>
+                                </div>
+                                <div id="analytics-top-videos" class="space-y-3">
+                                    <p class="text-gray-400">Carregando...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: Análise e Insights -->
+                <div id="youtube-tab-content-insights" class="youtube-tab-content" style="display: none;">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold text-white mb-4">🧠 Análise e Insights do Canal</h2>
+                        <p class="text-gray-400 mb-4">Análise completa do seu canal com recomendações de IA para maximizar views e engajamento</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Canal</label>
+                                <select id="insights-channel-select" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500" required>
+                                    <option value="">Selecione um canal...</option>
+                                </select>
+                            </div>
+                            <div class="flex items-end">
+                                <button onclick="loadChannelInsights()" class="w-full py-2 px-4 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                    <i data-lucide="brain" class="w-4 h-4 inline mr-2"></i> Gerar Análise Completa
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="insights-loading" class="hidden text-center py-12">
+                            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
+                            <p class="text-gray-400 mt-4">Analisando canal e gerando insights... Isso pode levar alguns minutos.</p>
+                        </div>
+                        
+                        <div id="insights-content" class="hidden">
+                            <!-- Resumo Executivo -->
+                            <div class="bg-gradient-to-r from-amber-900/20 to-blue-900/20 border border-amber-700/30 rounded-lg p-6 mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4">📊 Resumo Executivo</h3>
+                                <div id="insights-summary" class="prose prose-invert max-w-none">
+                                    <p class="text-gray-300">Carregando análise...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Grid de Insights -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                <!-- Frequência de Publicação -->
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                        <i data-lucide="calendar" class="w-5 h-5 mr-2 text-amber-500"></i> Frequência Ideal
+                                    </h3>
+                                    <div id="insights-frequency" class="text-gray-300">
+                                        <p class="text-sm">Analisando...</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Minutagem Ideal -->
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                        <i data-lucide="clock" class="w-5 h-5 mr-2 text-amber-500"></i> Duração Ideal
+                                    </h3>
+                                    <div id="insights-duration" class="text-gray-300">
+                                        <p class="text-sm">Analisando...</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Horário Ideal -->
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                        <i data-lucide="timer" class="w-5 h-5 mr-2 text-amber-500"></i> Horário de Publicação
+                                    </h3>
+                                    <div id="insights-publish-time" class="text-gray-300">
+                                        <p class="text-sm">Analisando...</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Tipo de Conteúdo -->
+                                <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                    <h3 class="text-lg font-semibold text-white mb-3 flex items-center">
+                                        <i data-lucide="video" class="w-5 h-5 mr-2 text-amber-500"></i> Conteúdo Recomendado
+                                    </h3>
+                                    <div id="insights-content-type" class="text-gray-300">
+                                        <p class="text-sm">Analisando...</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Estratégias para Viralizar -->
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                                    <i data-lucide="trending-up" class="w-5 h-5 mr-2 text-amber-500"></i> Estratégias para Aumentar Views
+                                </h3>
+                                <div id="insights-strategies" class="space-y-3">
+                                    <p class="text-gray-300">Analisando estratégias...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Recomendações de Títulos -->
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+                                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                                    <i data-lucide="type" class="w-5 h-5 mr-2 text-amber-500"></i> Padrões de Títulos que Funcionam
+                                </h3>
+                                <div id="insights-titles" class="space-y-2">
+                                    <p class="text-gray-300">Analisando padrões...</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Análise de Thumbnails -->
+                            <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+                                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                                    <i data-lucide="image" class="w-5 h-5 mr-2 text-amber-500"></i> Recomendações de Thumbnails
+                                </h3>
+                                <div id="insights-thumbnails" class="text-gray-300">
+                                    <p class="text-sm">Analisando thumbnails...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="youtube-tab-content-suggestions" class="youtube-tab-content" style="display: none;">
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
                         <h2 class="text-xl font-semibold text-white mb-4">✨ Sugestões Automáticas de Vídeos</h2>
@@ -4836,9 +5275,9 @@ Equipe La Casa Dark Core</textarea>
                             </div>
                         </div>
 
-                        <!-- Expansão Pontual de Capacidade -->
+                        <!-- Pacotes de Créditos -->
                         <div class="mb-8">
-                            <h3 class="text-lg font-semibold text-white mb-4">🔋 Expansão Pontual de Capacidade</h3>
+                            <h3 class="text-lg font-semibold text-white mb-4">Pacotes de Créditos</h3>
                             <div class="space-y-4">
                                 <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
                                     <div class="flex items-center justify-between mb-3">
@@ -5985,16 +6424,17 @@ Equipe La Casa Dark Core</textarea>
                         modalOk.className = 'px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-colors';
                     }
                 } else if (type === 'success') {
+                    // Sucesso no tema (sem verde)
                     if (modalIconContainer) {
-                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center';
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center';
                         const icon = modalIconContainer.querySelector('i[data-lucide]');
                         if (icon) icon.setAttribute('data-lucide', 'check-circle');
                     }
                     if (modalBox) {
-                        modalBox.className = 'bg-gray-900 border-2 border-green-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all overflow-y-auto';
+                        modalBox.className = 'bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all overflow-y-auto';
                     }
                     if (modalOk) {
-                        modalOk.className = 'px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors';
+                        modalOk.className = 'px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors';
                     }
                 } else {
                     if (modalIconContainer) {
@@ -6108,16 +6548,17 @@ Equipe La Casa Dark Core</textarea>
                         modalOk.className = 'px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg transition-colors';
                     }
                 } else if (type === 'success') {
+                    // Sucesso no tema (sem verde)
                     if (modalIconContainer) {
-                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center';
+                        modalIconContainer.className = 'w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center';
                         const icon = modalIconContainer.querySelector('i[data-lucide]');
                         if (icon) icon.setAttribute('data-lucide', 'check-circle');
                     }
                     if (modalBox) {
-                        modalBox.className = 'bg-gray-900 border-2 border-green-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all';
+                        modalBox.className = 'bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all';
                     }
                     if (modalOk) {
-                        modalOk.className = 'px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors';
+                        modalOk.className = 'px-6 py-2 bg-amber-600 hover:bg-amber-500 text-black font-semibold rounded-lg transition-colors';
                     }
                 } else {
                     if (modalIconContainer) {
@@ -6175,9 +6616,17 @@ Equipe La Casa Dark Core</textarea>
                     const cancelBtn = document.getElementById('custom-modal-cancel');
                     const closeBtn = document.getElementById('custom-modal-close');
                     
-                    // Configurar modal
+                    // Remover qualquer banner verde de sucesso que possa existir no modal
+                    const existingSuccessBanners = overlay?.querySelectorAll('.bg-green-600, .bg-green-500, [class*="green"][class*="success"], [class*="excluído"][class*="sucesso"]');
+                    if (existingSuccessBanners) {
+                        existingSuccessBanners.forEach(banner => banner.remove());
+                    }
+                    
+                    // Configurar modal - usar apenas texto simples, sem HTML que possa conter banners verdes
                     titleEl.textContent = title;
                     messageEl.textContent = message;
+                    messageEl.innerHTML = ''; // Limpar qualquer HTML anterior
+                    messageEl.textContent = message; // Definir apenas o texto
                     inputEl.style.display = 'none';
                     confirmBtn.textContent = 'Confirmar';
                     
@@ -6185,8 +6634,39 @@ Equipe La Casa Dark Core</textarea>
                     overlay.style.display = 'flex';
                     if (typeof lucide !== 'undefined') lucide.createIcons();
                     
+                    // Observar mudanças no modal para remover banners verdes que possam ser adicionados
+                    const observer = new MutationObserver((mutations) => {
+                        mutations.forEach((mutation) => {
+                            mutation.addedNodes.forEach((node) => {
+                                if (node.nodeType === 1) {
+                                    const greenBanners = node.querySelectorAll ? node.querySelectorAll('.bg-green-600, .bg-green-500, [class*="green"][class*="success"], [class*="excluído"][class*="sucesso"]') : [];
+                                    greenBanners.forEach(banner => {
+                                        if (banner.closest('#custom-modal-overlay')) {
+                                            banner.remove();
+                                        }
+                                    });
+                                    if (node.classList && (node.classList.contains('bg-green-600') || node.classList.contains('bg-green-500') || 
+                                        Array.from(node.classList).some(c => c.includes('green') && c.includes('success')) ||
+                                        Array.from(node.classList).some(c => c.includes('excluído') && c.includes('sucesso')))) {
+                                        if (node.closest('#custom-modal-overlay')) {
+                                            node.remove();
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    });
+                    if (overlay) {
+                        observer.observe(overlay, { childList: true, subtree: true });
+                    }
+                    
                     // Handlers
+                    let modalObserver = null;
                     const cleanup = () => {
+                        if (modalObserver) {
+                            modalObserver.disconnect();
+                            modalObserver = null;
+                        }
                         overlay.style.display = 'none';
                         confirmBtn.onclick = null;
                         cancelBtn.onclick = null;
@@ -6407,55 +6887,23 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
             
-            // Sistema de Toast Centralizado
-            function showToast(message, type = 'success', duration = 4000) {
-                // Função helper para escape HTML
-                const escapeHtml = (text) => {
-                    if (!text) return '';
-                    const div = document.createElement('div');
-                    div.textContent = text;
-                    return div.innerHTML;
-                };
-                
-                // Remover toast anterior se existir
-                const existingToast = document.getElementById('global-toast');
-                if (existingToast) {
-                    existingToast.remove();
+            // ===== Modal padrão da plataforma (tema) =====
+            // Substitui toast verde: queremos mensagem no CENTRO e no TEMA.
+            function showToast(message, type = 'success', duration = 1800) {
+                const title = type === 'error' ? 'Erro' : (type === 'success' ? 'Sucesso' : 'Aviso');
+                // Sempre usar modal no tema (âmbar). Ícone pode variar, mas sem “banner verde”.
+                showCustomModal(title, message, 'info');
+                // Fechar automaticamente em sucessos (mantém UX ágil)
+                if (type === 'success') {
+                    setTimeout(() => {
+                        const modal = document.getElementById('custom-modal');
+                        if (modal && modal.style.display !== 'none') modal.style.display = 'none';
+                    }, Math.max(800, duration));
                 }
-                
-                // Criar novo toast
-                const toast = document.createElement('div');
-                toast.id = 'global-toast';
-                toast.className = `fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[99999] min-w-[300px] max-w-[500px] rounded-xl shadow-2xl p-4 flex items-center space-x-3 animate-fade-in ${
-                    type === 'success' 
-                        ? 'bg-gradient-to-r from-green-600/95 to-green-700/95 border border-green-500/50' 
-                        : 'bg-gradient-to-r from-red-600/95 to-red-700/95 border border-red-500/50'
-                }`;
-                
-                const icon = type === 'success' ? 'check-circle' : 'alert-circle';
-                toast.innerHTML = `
-                    <i data-lucide="${icon}" class="w-6 h-6 ${type === 'success' ? 'text-green-100' : 'text-red-100'} flex-shrink-0"></i>
-                    <p class="text-white font-medium flex-1">${escapeHtml(message)}</p>
-                    <button onclick="this.closest('#global-toast').remove()" class="text-white/80 hover:text-white transition-colors">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                `;
-                
-                document.body.appendChild(toast);
-                if (typeof lucide !== 'undefined') lucide.createIcons();
-                
-                // Auto-remover após duração
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        toast.style.opacity = '0';
-                        toast.style.transition = 'opacity 0.3s ease-out';
-                        setTimeout(() => toast.remove(), 300);
-                    }
-                }, duration);
             }
             
             function showMessage(elementId, message, isError = false) {
-                // Usar toast centralizado em vez de mensagens no topo
+                // Usar modal central no tema (sem toast verde)
                 showToast(message, isError ? 'error' : 'success');
                 
                 // Manter compatibilidade com código antigo que espera mensagens em elementos específicos
@@ -11633,12 +12081,21 @@ Equipe La Casa Dark Core</textarea>
                     loadMonitoredCompetitors();
                     loadAISuggestions();
                     loadViralAlerts();
+                    // Aguardar um pouco para garantir que os elementos existam
+                    setTimeout(() => {
+                        updateChannelSelects(); // Atualizar selects de canais
+                    }, 200);
                     switchYouTubeTab('channels'); // Definir tab padrão
+                    
+                    // ❗️Sem refresh automático (SaaS + quota): atualizar somente via ações do usuário
+                    // - Clique em "Atualizar" / "Carregar Métricas"
+                    // - Evento do popup OAuth (postMessage)
                 } else {
                     // Parar atualização automática quando sair da view de YouTube
                     if (youtubeChannelsRefreshInterval) {
                         clearInterval(youtubeChannelsRefreshInterval);
                         youtubeChannelsRefreshInterval = null;
+                        console.log('[YouTube Integration] ⏹️ Atualização automática parada');
                     }
                 }
                 
@@ -11668,16 +12125,37 @@ Equipe La Casa Dark Core</textarea>
                     button.classList.add('border-amber-500', 'text-amber-500');
                     button.classList.remove('border-transparent', 'text-gray-400');
                 }
-                if (tabName === 'competitors') loadMonitoredCompetitors();
-                else if (tabName === 'suggestions') {
+                
+                // Carregar dados específicos da aba
+                if (tabName === 'channels') {
+                    // Quando abrir a aba de canais, atualizar selects
+                    setTimeout(() => {
+                        updateChannelSelects();
+                    }, 200);
+                } else if (tabName === 'competitors') {
+                    loadMonitoredCompetitors();
+                } else if (tabName === 'analytics') {
+                    updateChannelSelects().then(() => {
+                        // Auto-carregar analytics do primeiro canal se houver apenas um
+                        const analyticsSelect = document.getElementById('analytics-channel-select');
+                        if (analyticsSelect && analyticsSelect.options.length === 2) {
+                            // Há apenas um canal (além da opção padrão)
+                            analyticsSelect.value = analyticsSelect.options[1].value;
+                            loadChannelAnalytics();
+                        }
+                    });
+                } else if (tabName === 'insights') {
+                    updateChannelSelects();
+                } else if (tabName === 'suggestions') {
                     loadAISuggestions();
-                    // Garantir que o event listener está anexado quando a tab é aberta
                     setTimeout(() => {
                         if (typeof setupSuggestionsForm === 'function') {
                             setupSuggestionsForm();
                         }
                     }, 100);
-                } else if (tabName === 'alerts') loadViralAlerts();
+                } else if (tabName === 'alerts') {
+                    loadViralAlerts();
+                }
             };
 
             // A.1 - Agendamento Inteligente
@@ -12642,28 +13120,11 @@ Equipe La Casa Dark Core</textarea>
                     if (!data.titulosSugeridos || data.titulosSugeridos.length === 0) {
                         titlesHtml += '<li class="bg-gray-800 p-4 rounded-lg border border-gray-700 text-gray-400 text-center">Nenhum título encontrado para esta análise.</li>';
                     } else {
-                    // Ordenar por Impacto Visual (novo) e depois por Qualidade Editorial (pontuacao)
-                    const sortedTitles = [...data.titulosSugeridos].sort((a, b) => {
-                        const ai = Number(a.impact_score ?? 0);
-                        const bi = Number(b.impact_score ?? 0);
-                        if (bi !== ai) return bi - ai;
-                        const aq = Number(a.pontuacao ?? 0);
-                        const bq = Number(b.pontuacao ?? 0);
-                        return bq - aq;
-                    });
-
-                    sortedTitles.forEach((titleObj, index) => {
+                    data.titulosSugeridos.forEach((titleObj, index) => {
                         let scoreColor = 'bg-gray-600 text-gray-200';
                         if (titleObj.pontuacao >= 8) scoreColor = 'bg-green-600 text-green-100';
                         else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
                         else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
-                        
-                        // Cor do Score de Impacto Visual (🔥)
-                        const impactScore = Number(titleObj.impact_score ?? 0);
-                        let impactColor = 'bg-gray-700 text-gray-200';
-                        if (impactScore >= 9) impactColor = 'bg-red-600 text-red-100';
-                        else if (impactScore >= 7) impactColor = 'bg-orange-600 text-orange-100';
-                        else if (impactScore >= 5) impactColor = 'bg-yellow-600 text-yellow-100';
                         
                         // Remover prefixo do modelo (ex: "[Claude] Título" -> "Título")
                         let cleanTitle = titleObj.titulo.replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '');
@@ -12690,15 +13151,11 @@ Equipe La Casa Dark Core</textarea>
                                     </label>
                                 </div>
                                 <div class="flex items-center justify-between mt-2 pl-8">
-                                    <div class="flex-1">
-                                        ${titleObj.formula ? `<p class="text-xs text-purple-400 mb-1 font-medium bg-purple-500/10 px-2 py-1 rounded border border-purple-500/30 inline-block">📋 ${titleObj.formula}</p>` : ''}
-                                        <p class="text-sm text-gray-400">
-                                            ${titleObj.explicacao || ''}
-                                        </p>
-                                    </div>
+                                    <p class="text-sm text-gray-400 flex-1">
+                                        ${titleObj.explicacao || ''}
+                                    </p>
                                     <div class="flex items-center ml-4">
-                                        ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">Qualidade ${titleObj.pontuacao}/10</span>` : ''}
-                                        ${impactScore > 0 ? `<span class="ml-2 text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${impactColor}">🔥 Impacto ${impactScore}/10</span>` : ''}
+                                        ${titleObj.pontuacao > 0 ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${scoreColor}">${titleObj.pontuacao}/10</span>` : ''}
                                         <button title="Copiar Título" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${escapedTitle}">
                                             <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                         </button>
@@ -14235,11 +14692,10 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 const title = titleInput.value.trim();
-                                const language = languageSelect?.value || 'pt-BR';
+                const language = languageSelect?.value || 'pt-BR';
                 const style = styleSelect?.value || 'photorealistic';
                 const aiModelSelect = document.getElementById('thumb-ai-model-simple');
                 const aiModel = aiModelSelect?.value || 'gpt-4o';
-                const include4kBadge = document.getElementById('toggle-4k-badge')?.checked || false;
                 const token = safeLocalStorageGet('core_token') || localStorage.getItem('core_token');
                 const currentNiche = currentAnalysisData?.niche || null;
                 const currentSubniche = currentAnalysisData?.subniche || null;
@@ -14291,8 +14747,7 @@ Equipe La Casa Dark Core</textarea>
                             style, 
                             ai_model: aiModel,
                             prompt_variant: promptVariant,
-                            variations: 2,
-                            include_4k_badge: include4kBadge
+                            variations: 2 
                         })
                     });
                     
@@ -14306,7 +14761,7 @@ Equipe La Casa Dark Core</textarea>
                         return;
                     }
                     
-                    // Exibir resultados completos (versão original)
+                    // Exibir resultados completos
                     resultsDiv.innerHTML = data.images.map((imgObj, i) => `
                         <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
                             <h4 class="text-lg font-semibold text-white">Variação ${i + 1}</h4>
@@ -14329,12 +14784,12 @@ Equipe La Casa Dark Core</textarea>
                             <div>
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="text-sm font-medium text-amber-400">📢 Headline de Impacto</label>
-                                    <button title="Copiar Headline" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.headline || data.headlines?.[i] || ''}">
+                                    <button title="Copiar Headline" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.headline || imgObj.headlineText || ''}">
                                         <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                     </button>
                                 </div>
                                 <div class="px-4 py-3 bg-gray-900 border border-amber-700/50 rounded-lg">
-                                    <p class="text-lg font-bold text-amber-300">${imgObj.headline || data.headlines?.[i] || 'N/A'}</p>
+                                    <p class="text-lg font-bold text-amber-300">${imgObj.headline || imgObj.headlineText || 'N/A'}</p>
                                 </div>
                             </div>
                             
@@ -14353,12 +14808,12 @@ Equipe La Casa Dark Core</textarea>
                             <div>
                                 <div class="flex justify-between items-center mb-2">
                                     <label class="text-sm font-medium text-amber-400">🏷️ Tags Principais</label>
-                                    <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${imgObj.tags || ''}">
+                                    <button title="Copiar Tags" class="btn-copy p-1 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${Array.isArray(imgObj.tags) ? imgObj.tags.join(', ') : (imgObj.tags || '')}">
                                         <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                     </button>
                                 </div>
                                 <div class="px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg">
-                                    <p class="text-sm text-gray-300">${imgObj.tags || 'N/A'}</p>
+                                    <p class="text-sm text-gray-300">${Array.isArray(imgObj.tags) ? imgObj.tags.join(', ') : (imgObj.tags || 'N/A')}</p>
                                 </div>
                             </div>
                         </div>
@@ -17919,16 +18374,38 @@ Equipe La Casa Dark Core</textarea>
 
             async function loadDashboard() {
                 try {
+                    // 1) Priorizar dados do canal YouTube principal (canal configurado)
+                    let ytData = null;
+                    try {
+                        const ytToken = localStorage.getItem('core_token') || userToken;
+                        const chResp = await fetch(`${API_BASE}/api/youtube/channels`, {
+                            headers: { 'Authorization': `Bearer ${ytToken}` }
+                        });
+                        if (chResp.ok) {
+                            const chJson = await chResp.json();
+                            const channels = chJson.channels || [];
+                            if (channels.length > 0) {
+                                const preferredId = localStorage.getItem('primary_youtube_integration_id');
+                                const chosen = preferredId ? (channels.find(c => String(c.id) === String(preferredId)) || channels[0]) : channels[0];
+                                const endDate = new Date();
+                                const startDate = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+                                const aResp = await fetch(`${API_BASE}/api/youtube/channels/${chosen.id}/analytics?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`, {
+                                    headers: { 'Authorization': `Bearer ${ytToken}` }
+                                });
+                                if (aResp.ok) {
+                                    ytData = await aResp.json();
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        ytData = null;
+                    }
+
+                    // 2) Ainda carregar dashboard interno (para créditos, próximos passos etc.)
                     const response = await fetch(`${API_BASE}/api/analytics/dashboard`, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
-                    
-                    if (!response.ok) {
-                        console.error('Erro ao carregar dashboard:', response.status);
-                        return;
-                    }
-                    
-                    const data = await response.json();
+                    const data = response.ok ? await response.json() : { stats: {}, recentVideos: [] };
                     
                     // Atualizar estatísticas principais (com verificação de existência)
                     const statTotalVideos = document.getElementById('stat-total-videos');
@@ -17936,10 +18413,43 @@ Equipe La Casa Dark Core</textarea>
                     const statTotalRevenue = document.getElementById('stat-total-revenue');
                     const statViralVideos = document.getElementById('stat-viral-videos');
                     
-                    if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
-                    if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
-                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
-                    if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
+                    // Se tiver dados do YouTube, preencher baseado no canal
+                    if (ytData?.analytics?.rows?.length && ytData?.analytics?.columnHeaders?.length) {
+                        const row = ytData.analytics.rows[0];
+                        const headers = ytData.analytics.columnHeaders.map(h => h.name);
+                        const get = (name) => {
+                            const idx = headers.findIndex(h => h === name);
+                            return idx >= 0 ? row[idx] : null;
+                        };
+                        const views = parseInt(get('views') || 0);
+                        const likes = parseInt(get('likes') || 0);
+                        const comments = parseInt(get('comments') || 0);
+                        const revenue = parseFloat(ytData.estimatedRevenue || ytData.estimatedAdRevenue || 0);
+                        const videoCount = parseInt(ytData.channelStats?.videoCount || 0);
+                        const viral = (ytData.topVideosAnalysis || []).filter(v => (v.viewCount || 0) >= 1000000).length;
+
+                        if (statTotalVideos) statTotalVideos.textContent = formatNumber(videoCount || 0);
+                        if (statTotalViews) statTotalViews.textContent = formatNumber(views || 0);
+                        if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(revenue || 0));
+                        if (statViralVideos) statViralVideos.textContent = formatNumber(viral || 0);
+
+                        // Métricas adicionais
+                        const statAvgCtr = document.getElementById('stat-avg-ctr');
+                        const statTotalLikes = document.getElementById('stat-total-likes');
+                        const statTotalComments = document.getElementById('stat-total-comments');
+                        const statAvgRpm = document.getElementById('stat-avg-rpm');
+                        if (statAvgCtr) statAvgCtr.textContent = (ytData.advanced?.impressionsCtr ? ytData.advanced.impressionsCtr.toFixed(2) : 0).toFixed(1) + '%';
+                        if (statTotalLikes) statTotalLikes.textContent = formatNumber(likes || 0);
+                        if (statTotalComments) statTotalComments.textContent = formatNumber(comments || 0);
+                        const rpm = views > 0 && revenue > 0 ? (revenue / (views / 1000)) : 0;
+                        if (statAvgRpm) statAvgRpm.textContent = '$' + (rpm || 0).toFixed(2);
+                    } else {
+                        // fallback: dashboard interno
+                        if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
+                        if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
+                        if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
+                        if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
+                    }
                     
                     // Atualizar status dos cards
                     const statVideosStatus = document.getElementById('stat-videos-status');
@@ -17969,19 +18479,32 @@ Equipe La Casa Dark Core</textarea>
                     loadCreditsBalance();
                     loadCurrentPlan();
                     
-                    // Atualizar métricas adicionais (com verificação de existência)
-                    const statAvgCtr = document.getElementById('stat-avg-ctr');
-                    const statTotalLikes = document.getElementById('stat-total-likes');
-                    const statTotalComments = document.getElementById('stat-total-comments');
-                    const statAvgRpm = document.getElementById('stat-avg-rpm');
-                    
-                    if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                    if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
-                    if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
-                    if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
+                    // (métricas adicionais são preenchidas acima quando ytData existe; se não, já vem do interno)
+                    if (!ytData?.analytics?.rows?.length) {
+                        const statAvgCtr = document.getElementById('stat-avg-ctr');
+                        const statTotalLikes = document.getElementById('stat-total-likes');
+                        const statTotalComments = document.getElementById('stat-total-comments');
+                        const statAvgRpm = document.getElementById('stat-avg-rpm');
+                        if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
+                        if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
+                        if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
+                        if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
+                    }
                     
                     // Carregar vídeos recentes
-                    loadRecentVideos(data.recentVideos || []);
+                    if (ytData?.topVideosAnalysis?.length) {
+                        // Reaproveitar UI com adaptação rápida
+                        const mapped = ytData.topVideosAnalysis.slice(0, 5).map(v => ({
+                            title_used: v.title,
+                            actual_views: v.viewCount,
+                            actual_ctr: ytData.advanced?.impressionsCtr || 0,
+                            revenue_estimate: 0,
+                            channel_name: ytData.channelSnippet?.title || 'YouTube'
+                        }));
+                        loadRecentVideos(mapped);
+                    } else {
+                        loadRecentVideos(data.recentVideos || []);
+                    }
                     
                     // Carregar atividade recente
                     loadRecentActivity(data);
@@ -18642,9 +19165,11 @@ Equipe La Casa Dark Core</textarea>
             };
 
             window.deleteVideoTracking = async function(trackingId) {
-                if (!confirm('Tem certeza que deseja excluir este vídeo do tracking? Esta ação não pode ser desfeita.')) {
-                    return;
-                }
+                const confirmed = await showCustomConfirm(
+                    'Tem certeza que deseja excluir este vídeo do tracking? Esta ação não pode ser desfeita.',
+                    'Confirmar Exclusão'
+                );
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/analytics/track/${trackingId}`, {
                         method: 'DELETE',
@@ -18771,9 +19296,11 @@ Equipe La Casa Dark Core</textarea>
             };
 
             window.deleteChannel = async function(channelId) {
-                if (!confirm('Tem certeza que deseja excluir este canal? Esta ação não pode ser desfeita.')) {
-                    return;
-                }
+                const confirmed = await showCustomConfirm(
+                    'Tem certeza que deseja excluir este canal? Esta ação não pode ser desfeita.',
+                    'Confirmar Exclusão'
+                );
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/channels/${channelId}`, {
                         method: 'DELETE',
@@ -19163,11 +19690,11 @@ Equipe La Casa Dark Core</textarea>
                                         <div class="grid grid-cols-2 gap-3 mb-4">
                                             <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
                                                 <p class="text-xs text-gray-500 mb-1">Views Originais</p>
-                                                <p class="text-white font-bold text-sm">${formatNumber(views)}</p>
+                                                <p class="text-white font-bold text-sm">${views > 0 ? formatNumber(views) : 'N/A'}</p>
                                             </div>
                                             <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
-                                                <p class="text-xs text-gray-500 mb-1">Score Viral</p>
-                                                <p class="${scoreColor} font-bold text-sm">${score}/10</p>
+                                                <p class="text-xs text-gray-500 mb-1">Score Viral em Potencial</p>
+                                                <p class="${scoreColor} font-bold text-sm">${score > 0 ? score.toFixed(1) : '0'}/10</p>
                                             </div>
                                         </div>
                                         
@@ -20929,6 +21456,27 @@ Equipe La Casa Dark Core</textarea>
             
             function showStyledConfirm(message, title = 'Confirmação') {
                 return new Promise((resolve) => {
+                    // Remover qualquer banner verde de sucesso que possa existir ANTES de criar o modal
+                    const existingSuccessBanners = document.querySelectorAll('.bg-green-600, .bg-green-500, .bg-green-700, [class*="green"], [class*="success"], [class*="excluído"], [class*="sucesso"]');
+                    existingSuccessBanners.forEach(banner => {
+                        // Remover qualquer banner verde, independente de onde esteja
+                        const text = banner.textContent || banner.innerText || '';
+                        if (text.includes('excluído') || text.includes('sucesso') || 
+                            banner.classList.contains('bg-green-600') || banner.classList.contains('bg-green-500') ||
+                            banner.classList.contains('bg-green-700')) {
+                            banner.remove();
+                        }
+                    });
+                    
+                    // Também limpar qualquer mensagem de sucesso que possa estar sendo exibida
+                    const successMessages = document.querySelectorAll('#biblioteca-success-message, .success-message');
+                    successMessages.forEach(msg => {
+                        if (msg.textContent && (msg.textContent.includes('excluído') || msg.textContent.includes('sucesso'))) {
+                            msg.style.display = 'none';
+                            msg.textContent = '';
+                        }
+                    });
+                    
                     const modal = document.createElement('div');
                     modal.id = 'styled-confirm-modal';
                     modal.className = 'fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center';
@@ -20957,6 +21505,63 @@ Equipe La Casa Dark Core</textarea>
                     `;
                     document.body.appendChild(modal);
                     
+                    // Garantir que nenhum banner verde seja adicionado após a criação do modal
+                    let modalObserver = null;
+                    modalObserver = new MutationObserver((mutations) => {
+                        mutations.forEach((mutation) => {
+                            mutation.addedNodes.forEach((node) => {
+                                if (node.nodeType === 1) { // Element node
+                                    // Buscar banners verdes dentro do node
+                                    const greenBanners = node.querySelectorAll ? node.querySelectorAll('.bg-green-600, .bg-green-500, .bg-green-700, [class*="green"], [class*="success"], [class*="excluído"], [class*="sucesso"]') : [];
+                                    greenBanners.forEach(banner => {
+                                        if (banner.closest('#styled-confirm-modal')) {
+                                            const text = banner.textContent || banner.innerText || '';
+                                            if (text.includes('excluído') || text.includes('sucesso') || 
+                                                banner.classList.contains('bg-green-600') || banner.classList.contains('bg-green-500') ||
+                                                banner.classList.contains('bg-green-700')) {
+                                                banner.remove();
+                                            }
+                                        }
+                                    });
+                                    // Verificar se o próprio node é um banner verde
+                                    if (node.classList && (node.classList.contains('bg-green-600') || node.classList.contains('bg-green-500') || 
+                                        node.classList.contains('bg-green-700') ||
+                                        Array.from(node.classList).some(c => c.includes('green')) ||
+                                        Array.from(node.classList).some(c => c.includes('success')) ||
+                                        Array.from(node.classList).some(c => c.includes('excluído')) ||
+                                        Array.from(node.classList).some(c => c.includes('sucesso')))) {
+                                        if (node.closest('#styled-confirm-modal')) {
+                                            const text = node.textContent || node.innerText || '';
+                                            if (text.includes('excluído') || text.includes('sucesso') || 
+                                                node.classList.contains('bg-green-600') || node.classList.contains('bg-green-500') ||
+                                                node.classList.contains('bg-green-700')) {
+                                                node.remove();
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    });
+                    modalObserver.observe(modal, { childList: true, subtree: true });
+                    
+                    // Remover banners verdes imediatamente após criar o modal e antes de animar
+                    const removeGreenBanners = () => {
+                        const greenBanners = modal.querySelectorAll('.bg-green-600, .bg-green-500, .bg-green-700, [class*="green"], [class*="success"], [class*="excluído"], [class*="sucesso"]');
+                        greenBanners.forEach(banner => {
+                            // Verificar se contém texto sobre exclusão bem-sucedida
+                            const text = banner.textContent || banner.innerText || '';
+                            if (text.includes('excluído') || text.includes('sucesso') || 
+                                banner.classList.contains('bg-green-600') || banner.classList.contains('bg-green-500') ||
+                                banner.classList.contains('bg-green-700')) {
+                                banner.remove();
+                            }
+                        });
+                    };
+                    
+                    // Remover imediatamente
+                    removeGreenBanners();
+                    
                     // Animar entrada
                     setTimeout(() => {
                         const content = modal.querySelector('.animate-scale-in');
@@ -20964,9 +21569,23 @@ Equipe La Casa Dark Core</textarea>
                             content.style.transform = 'scale(1)';
                             content.style.opacity = '1';
                         }
+                        // Remover novamente após animação
+                        removeGreenBanners();
                     }, 10);
                     
+                    // Remover periodicamente enquanto o modal estiver aberto
+                    const bannerRemovalInterval = setInterval(() => {
+                        removeGreenBanners();
+                    }, 100);
+                    
                     const closeModal = (result) => {
+                        if (modalObserver) {
+                            modalObserver.disconnect();
+                            modalObserver = null;
+                        }
+                        if (typeof bannerRemovalInterval !== 'undefined') {
+                            clearInterval(bannerRemovalInterval);
+                        }
                         modal.style.opacity = '0';
                         modal.style.transform = 'scale(0.95)';
                         setTimeout(() => {
@@ -21209,8 +21828,13 @@ Equipe La Casa Dark Core</textarea>
                 URL.revokeObjectURL(url);
             }
 
-            async function loadBibliotecaThumbnails() {
+            let currentBibliotecaThumbPage = 1;
+            let currentBibliotecaThumbLimit = 6;
+
+            async function loadBibliotecaThumbnails(page = currentBibliotecaThumbPage, limit = currentBibliotecaThumbLimit) {
                 console.log('[Biblioteca] Carregando thumbnails...');
+                currentBibliotecaThumbPage = page;
+                currentBibliotecaThumbLimit = limit;
                 if (!userToken) {
                     console.error('[Biblioteca] Token de usuário não encontrado');
                     return;
@@ -21222,7 +21846,7 @@ Equipe La Casa Dark Core</textarea>
                     const favoritesBtn = document.getElementById('biblioteca-favorites-only');
                     const favorites = favoritesBtn?.classList.contains('active') ? 'true' : '';
 
-                    let url = `${API_BASE}/api/library/thumbnails?`;
+                    let url = `${API_BASE}/api/library/thumbnails?page=${page}&limit=${limit}&`;
                     if (search) url += `search=${encodeURIComponent(search)}&`;
                     if (niche) url += `niche=${encodeURIComponent(niche)}&`;
                     if (minViews) url += `minViews=${minViews}&`;
@@ -21237,7 +21861,9 @@ Equipe La Casa Dark Core</textarea>
                         const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
                         throw new Error(errorData.msg || `Falha ao carregar thumbnails: ${response.status}`);
                     }
-                    const thumbnails = await response.json();
+                    const result = await response.json();
+                    const thumbnails = result.data || result;
+                    const pagination = result.pagination || {};
                     console.log('[Biblioteca] Thumbnails recebidos:', thumbnails.length);
 
                     const list = document.getElementById('biblioteca-thumbnails-list');
@@ -21245,6 +21871,9 @@ Equipe La Casa Dark Core</textarea>
                         if (thumbnails.length > 0) {
                             list.innerHTML = thumbnails.map(thumb => `
                                 <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 relative overflow-hidden">
+                                    <div class="absolute top-3 left-3 z-10">
+                                        <input type="checkbox" class="thumbnail-library-checkbox w-5 h-5 bg-gray-700 border-gray-600 rounded text-amber-500 focus:ring-amber-500 focus:ring-2" data-thumb-id="${thumb.id}">
+                                    </div>
                                     ${thumb.thumbnail_url ? `
                                         <div class="w-full h-48 mb-3 rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
                                             <img src="${escapeHtml(thumb.thumbnail_url)}" alt="Thumbnail" class="w-full h-full object-contain" onerror="this.style.display='none'; this.parentElement.innerHTML='<p class=\\'text-gray-500 text-xs\\'>Erro ao carregar imagem</p>'">
@@ -21291,8 +21920,17 @@ Equipe La Casa Dark Core</textarea>
                                 </div>
                             `).join('');
                             if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                            // Atualizar paginação
+                            updateBibliotecaThumbnailsPagination(pagination);
+
+                            // listeners seleção
+                            document.querySelectorAll('.thumbnail-library-checkbox').forEach(cb => {
+                                cb.addEventListener('change', updateBibliotecaThumbnailsSelection);
+                            });
                         } else {
                             list.innerHTML = '<p class="text-gray-400">Nenhuma thumbnail encontrada. As thumbnails serão salvas automaticamente quando você gerar ideias de thumbnail no Analisador de Títulos Virais.</p>';
+                            updateBibliotecaThumbnailsPagination(null);
                         }
                     }
                 } catch (err) {
@@ -21301,6 +21939,68 @@ Equipe La Casa Dark Core</textarea>
                     if (list) {
                         list.innerHTML = `<p class="text-red-400">Erro ao carregar thumbnails: ${err.message}</p>`;
                     }
+                }
+            }
+
+            function updateBibliotecaThumbnailsSelection() {
+                const checked = document.querySelectorAll('.thumbnail-library-checkbox:checked');
+                const count = checked.length;
+                const countEl = document.getElementById('selected-thumbnails-count-number');
+                const container = document.getElementById('selected-thumbnails-count');
+                const deleteBtn = document.getElementById('delete-selected-thumbnails');
+                if (countEl) countEl.textContent = count;
+                if (container) container.classList.toggle('hidden', count === 0);
+                if (deleteBtn) deleteBtn.classList.toggle('hidden', count === 0);
+            }
+
+            function updateBibliotecaThumbnailsPagination(pagination) {
+                const paginationContainer = document.getElementById('biblioteca-thumbnails-pagination');
+                const paginationInfo = document.getElementById('biblioteca-thumbnails-pagination-info');
+                const paginationControls = document.getElementById('biblioteca-thumbnails-pagination-controls');
+                const limitSelect = document.getElementById('biblioteca-thumbnails-limit');
+
+                if (!pagination || !pagination.total || pagination.totalPages <= 1) {
+                    if (paginationContainer) paginationContainer.style.display = 'none';
+                    return;
+                }
+                if (paginationContainer) paginationContainer.style.display = 'flex';
+                if (limitSelect) limitSelect.value = pagination.limit || currentBibliotecaThumbLimit;
+
+                if (paginationInfo) {
+                    const start = ((pagination.page - 1) * pagination.limit) + 1;
+                    const end = Math.min(pagination.page * pagination.limit, pagination.total);
+                    paginationInfo.innerHTML = `<span class="text-gray-300">Mostrando <span class="text-amber-500 font-bold">${start}-${end}</span> de <span class="text-amber-500 font-bold">${pagination.total}</span> thumbnails</span>`;
+                }
+                if (paginationControls) {
+                    paginationControls.innerHTML = '';
+                    if (pagination.hasPrev) {
+                        const prevBtn = document.createElement('button');
+                        prevBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                        prevBtn.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4"></i><span class="hidden sm:inline">Anterior</span>';
+                        prevBtn.onclick = () => loadBibliotecaThumbnails(pagination.page - 1, currentBibliotecaThumbLimit);
+                        paginationControls.appendChild(prevBtn);
+                    }
+
+                    const maxPages = 5;
+                    let startPage = Math.max(1, pagination.page - Math.floor(maxPages / 2));
+                    let endPage = Math.min(pagination.totalPages, startPage + maxPages - 1);
+                    if (endPage - startPage < maxPages - 1) startPage = Math.max(1, endPage - maxPages + 1);
+                    for (let i = startPage; i <= endPage; i++) {
+                        const pageBtn = document.createElement('button');
+                        pageBtn.className = `px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${i === pagination.page ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black font-bold shadow-lg shadow-amber-500/30' : 'bg-gray-800/50 border border-gray-700 text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400'}`;
+                        pageBtn.textContent = i;
+                        pageBtn.onclick = () => loadBibliotecaThumbnails(i, currentBibliotecaThumbLimit);
+                        paginationControls.appendChild(pageBtn);
+                    }
+
+                    if (pagination.hasNext) {
+                        const nextBtn = document.createElement('button');
+                        nextBtn.className = 'px-3 py-1.5 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 hover:bg-amber-500/20 hover:border-amber-500/50 hover:text-amber-400 text-sm font-medium transition-all flex items-center space-x-1';
+                        nextBtn.innerHTML = '<span class="hidden sm:inline">Próximo</span><i data-lucide="chevron-right" class="w-4 h-4"></i>';
+                        nextBtn.onclick = () => loadBibliotecaThumbnails(pagination.page + 1, currentBibliotecaThumbLimit);
+                        paginationControls.appendChild(nextBtn);
+                    }
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
                 }
             }
 
@@ -21367,9 +22067,8 @@ Equipe La Casa Dark Core</textarea>
             };
 
             window.deleteTitleFromLibrary = async function(id) {
-                if (!confirm('Tem certeza que deseja excluir este título da biblioteca? Esta ação não pode ser desfeita.')) {
-                    return;
-                }
+                const confirmed = await showCustomConfirm('Tem certeza que deseja excluir este título da biblioteca? Esta ação não pode ser desfeita.', 'Confirmar Exclusão');
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/library/titles/${id}`, {
                         method: 'DELETE',
@@ -21380,7 +22079,7 @@ Equipe La Casa Dark Core</textarea>
                         throw new Error(errorData.msg || 'Falha ao excluir título.');
                     }
                     await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
-                    showToast('Título excluído da biblioteca com sucesso!', 'success');
+                    showMessage('biblioteca-success-message', 'Título excluído da biblioteca com sucesso!');
                 } catch (err) {
                     console.error('Erro ao excluir título:', err);
                     showToast(err.message || 'Erro ao excluir título.', 'error');
@@ -21397,29 +22096,28 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                if (!confirm(`Tem certeza que deseja excluir ${selectedIds.length} título(s) da biblioteca? Esta ação não pode ser desfeita.`)) {
-                    return;
-                }
+                const confirmed = await showCustomConfirm(`Tem certeza que deseja excluir ${selectedIds.length} título(s) da biblioteca? Esta ação não pode ser desfeita.`, 'Confirmar Exclusão');
+                if (!confirmed) return;
                 
                 try {
-                    // Excluir em paralelo
-                    const deletePromises = selectedIds.map(id => 
-                        fetch(`${API_BASE}/api/library/titles/${id}`, {
-                            method: 'DELETE',
-                            headers: { 'Authorization': `Bearer ${userToken}` }
-                        })
-                    );
-                    
-                    const results = await Promise.allSettled(deletePromises);
-                    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-                    const failCount = results.length - successCount;
-                    
-                    if (successCount > 0) {
-                        await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
-                        showToast(`${successCount} título(s) excluído(s) com sucesso!${failCount > 0 ? ` (${failCount} falharam)` : ''}`, 'success');
-                    } else {
-                        showToast('Erro ao excluir títulos selecionados.', 'error');
+                    const resp = await fetch(`${API_BASE}/api/library/titles/bulk-delete`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ ids: selectedIds })
+                    });
+                    if (!resp.ok) {
+                        const errData = await resp.json().catch(() => ({}));
+                        throw new Error(errData.msg || 'Erro ao excluir títulos selecionados.');
                     }
+                    const data = await resp.json().catch(() => ({}));
+                    await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
+                    const selectAll = document.getElementById('select-all-titles');
+                    if (selectAll) selectAll.checked = false;
+                    updateBibliotecaSelection();
+                    showMessage('biblioteca-success-message', data.msg || `${selectedIds.length} título(s) excluído(s) com sucesso!`);
                 } catch (err) {
                     console.error('Erro ao excluir títulos:', err);
                     showToast('Erro ao excluir títulos selecionados.', 'error');
@@ -21427,9 +22125,8 @@ Equipe La Casa Dark Core</textarea>
             };
 
             window.deleteThumbnailFromLibrary = async function(id) {
-                if (!confirm('Tem certeza que deseja excluir esta thumbnail da biblioteca? Esta ação não pode ser desfeita.')) {
-                    return;
-                }
+                const confirmed = await showCustomConfirm('Tem certeza que deseja excluir esta thumbnail da biblioteca? Esta ação não pode ser desfeita.', 'Confirmar Exclusão');
+                if (!confirmed) return;
                 try {
                     const response = await fetch(`${API_BASE}/api/library/thumbnails/${id}`, {
                         method: 'DELETE',
@@ -21439,10 +22136,47 @@ Equipe La Casa Dark Core</textarea>
                         const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
                         throw new Error(errorData.msg || 'Falha ao excluir thumbnail.');
                     }
-                    await loadBibliotecaThumbnails();
+                    await loadBibliotecaThumbnails(currentBibliotecaThumbPage, currentBibliotecaThumbLimit);
                     showMessage('biblioteca-success-message', 'Thumbnail excluída da biblioteca com sucesso!');
                 } catch (err) {
                     showMessage('biblioteca-error-message', err.message, true);
+                }
+            };
+
+            // Excluir thumbnails selecionadas em lote
+            window.deleteSelectedThumbnails = async function() {
+                const checkboxes = document.querySelectorAll('.thumbnail-library-checkbox:checked');
+                const selectedIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.thumbId));
+                if (!selectedIds.length) return;
+
+                const confirmed = await showCustomConfirm(
+                    `Tem certeza que deseja excluir ${selectedIds.length} thumbnail(s) da biblioteca? Esta ação não pode ser desfeita.`,
+                    'Confirmar Exclusão'
+                );
+                if (!confirmed) return;
+
+                try {
+                    const resp = await fetch(`${API_BASE}/api/library/thumbnails/bulk-delete`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ ids: selectedIds })
+                    });
+                    if (!resp.ok) {
+                        const errData = await resp.json().catch(() => ({}));
+                        throw new Error(errData.msg || 'Falha ao excluir thumbnails.');
+                    }
+                    const data = await resp.json().catch(() => ({}));
+                    await loadBibliotecaThumbnails(currentBibliotecaThumbPage, currentBibliotecaThumbLimit);
+                    // Reset seleção
+                    const selectAll = document.getElementById('select-all-thumbnails');
+                    if (selectAll) selectAll.checked = false;
+                    updateBibliotecaThumbnailsSelection();
+                    showMessage('biblioteca-success-message', data.msg || `${selectedIds.length} thumbnail(s) excluída(s) com sucesso!`);
+                } catch (err) {
+                    showMessage('biblioteca-error-message', err.message || 'Erro ao excluir thumbnails.', true);
                 }
             };
 
@@ -21523,6 +22257,9 @@ Equipe La Casa Dark Core</textarea>
             const selectAllTitles = document.getElementById('select-all-titles');
             const deleteSelectedTitlesBtn = document.getElementById('delete-selected-titles');
             const bibliotecaTitlesLimit = document.getElementById('biblioteca-titles-limit');
+            const selectAllThumbnails = document.getElementById('select-all-thumbnails');
+            const deleteSelectedThumbnailsBtn = document.getElementById('delete-selected-thumbnails');
+            const bibliotecaThumbnailsLimit = document.getElementById('biblioteca-thumbnails-limit');
 
             // Event listeners para seleção em lote
             if (selectAllTitles) {
@@ -21548,10 +22285,29 @@ Equipe La Casa Dark Core</textarea>
                 });
             }
 
+            // Seleção em lote - thumbnails
+            if (selectAllThumbnails) {
+                selectAllThumbnails.addEventListener('change', (e) => {
+                    const cbs = document.querySelectorAll('.thumbnail-library-checkbox');
+                    cbs.forEach(cb => cb.checked = e.target.checked);
+                    updateBibliotecaThumbnailsSelection();
+                });
+            }
+            if (deleteSelectedThumbnailsBtn) {
+                deleteSelectedThumbnailsBtn.addEventListener('click', () => deleteSelectedThumbnails());
+            }
+            if (bibliotecaThumbnailsLimit) {
+                bibliotecaThumbnailsLimit.addEventListener('change', (e) => {
+                    const newLimit = parseInt(e.target.value);
+                    currentBibliotecaThumbLimit = newLimit;
+                    loadBibliotecaThumbnails(1, newLimit);
+                });
+            }
+
             if (bibliotecaSearch) {
                 bibliotecaSearch.addEventListener('input', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
-                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails(1, currentBibliotecaThumbLimit);
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
@@ -21559,7 +22315,7 @@ Equipe La Casa Dark Core</textarea>
             if (bibliotecaNicheFilter) {
                 bibliotecaNicheFilter.addEventListener('change', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
-                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails(1, currentBibliotecaThumbLimit);
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
@@ -21567,7 +22323,7 @@ Equipe La Casa Dark Core</textarea>
             if (bibliotecaViewsFilter) {
                 bibliotecaViewsFilter.addEventListener('change', () => {
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
-                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails(1, currentBibliotecaThumbLimit);
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
@@ -21578,7 +22334,7 @@ Equipe La Casa Dark Core</textarea>
                     this.classList.toggle('bg-amber-600');
                     this.classList.toggle('text-white');
                     if (currentBibliotecaTab === 'titles') loadBibliotecaTitles(1, currentBibliotecaLimit);
-                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails();
+                    else if (currentBibliotecaTab === 'thumbnails') loadBibliotecaThumbnails(1, currentBibliotecaThumbLimit);
                     else if (currentBibliotecaTab === 'agents') loadBibliotecaAgents();
                 });
             }
@@ -21586,6 +22342,23 @@ Equipe La Casa Dark Core</textarea>
             // === FUNCIONALIDADES DE INTEGRAÇÃO YOUTUBE ===
             // Variável para controlar atualização automática de canais
             let youtubeChannelsRefreshInterval = null;
+            let lastQuickOverviewChannelKey = null; // `${id}:${updated_at?}` fallback: `${id}`
+            let lastQuickOverviewLoadedAt = 0;
+
+            // Permite que o popup do OAuth avise a janela principal para atualizar canais/seletores automaticamente
+            window.addEventListener('message', (event) => {
+                try {
+                    if (event?.data?.type === 'youtubeChannelsConnected') {
+                        loadYouTubeIntegrationStatus();
+                        updateChannelSelects();
+                        // Também atualizar a lista de canais do "Analytics e Performance" (usa /api/channels)
+                        if (typeof loadChannels === 'function') loadChannels();
+                        if (typeof loadAnalytics === 'function') loadAnalytics();
+                    }
+                } catch (e) {
+                    // noop
+                }
+            });
 
             async function loadYouTubeIntegrationStatus() {
                 try {
@@ -21632,18 +22405,24 @@ Equipe La Casa Dark Core</textarea>
                                             <div class="flex-1">
                                                 <p class="text-white font-semibold">${escapeHtml(channel.channelName || 'Canal do YouTube')}</p>
                                                 <p class="text-gray-400 text-xs">ID: ${escapeHtml(channel.channelId || 'N/A')}</p>
-                                                ${channel.niche || channel.subniche ? `
+                                                ${channel.niche || channel.subniche || channel.language || channel.country ? `
                                                     <div class="mt-2 flex flex-wrap gap-2">
                                                         ${channel.niche ? `<span class="px-2 py-1 bg-amber-600/20 text-amber-400 rounded text-xs border border-amber-600/30">📌 ${escapeHtml(channel.niche)}</span>` : ''}
                                                         ${channel.subniche ? `<span class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs border border-blue-600/30">🎯 ${escapeHtml(channel.subniche)}</span>` : ''}
+                                                        ${channel.language || channel.country ? `<span class="px-2 py-1 bg-emerald-600/20 text-emerald-300 rounded text-xs border border-emerald-600/30">🌍 ${escapeHtml(channel.language || '—')}${channel.country ? ' • ' + escapeHtml(channel.country) : ''}</span>` : ''}
                                                     </div>
-                                                ` : '<p class="text-gray-500 text-xs mt-1">⏳ Analisando nicho...</p>'}
+                                                ` : '<p class="text-gray-500 text-xs mt-1">⏳ Analisando nicho/idioma...</p>'}
                                                 ${channel.isExpired ? '<p class="text-yellow-400 text-xs mt-1">⚠️ Token expirado</p>' : ''}
                                             </div>
                                         </div>
-                                        <button onclick="disconnectChannel(${channel.id})" class="ml-4 py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition duration-300">
-                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                        </button>
+                                        <div class="flex items-center space-x-2">
+                                            <button onclick="reanalyzeChannelNiche(${channel.id}, '${escapeHtml(channel.channelName)}')" class="py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition duration-300" title="Re-analisar nicho">
+                                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                            </button>
+                                            <button onclick="disconnectChannel(${channel.id})" class="py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition duration-300">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             `).join('');
@@ -21662,12 +22441,30 @@ Equipe La Casa Dark Core</textarea>
                                 btnConnect.disabled = false;
                                 btnConnect.innerHTML = '<i data-lucide="plus"></i><span>Adicionar Canal</span>';
                             }
+
+                            // Resumo rápido (primeiro canal) — evitar “piscar” a cada refresh
+                            if (data.channels && data.channels.length > 0) {
+                                const ch = data.channels[0];
+                                const key = `${ch.id}`;
+                                const now = Date.now();
+                                const shouldRefresh =
+                                    !lastQuickOverviewChannelKey ||
+                                    lastQuickOverviewChannelKey !== key ||
+                                    (now - lastQuickOverviewLoadedAt) > 60000; // 60s
+                                if (shouldRefresh) {
+                                    lastQuickOverviewChannelKey = key;
+                                    lastQuickOverviewLoadedAt = now;
+                                    loadYouTubeQuickOverview(ch, { forceLoading: !document.getElementById('youtube-quick-overview')?.dataset?.hasData });
+                                }
+                            }
                         } else {
                             channelsList.innerHTML = '<p class="text-gray-400">Nenhum canal conectado. Clique em "Adicionar Canal" para começar.</p>';
                             const statusDiv = document.getElementById('youtube-integration-status');
                             if (statusDiv) {
                                 statusDiv.innerHTML = '';
                             }
+                            const overview = document.getElementById('youtube-quick-overview');
+                            if (overview) overview.innerHTML = '<p>Nenhum canal conectado ainda.</p>';
                         }
                     }
                     
@@ -21686,12 +22483,1040 @@ Equipe La Casa Dark Core</textarea>
                     }
                 }
             }
-            
-            // Função para desconectar um canal
-            window.disconnectChannel = async function(channelId) {
-                if (!confirm('Tem certeza que deseja desconectar este canal?')) {
+
+            async function loadYouTubeQuickOverview(channel, opts = {}) {
+                const box = document.getElementById('youtube-quick-overview');
+                if (!box) return;
+                if (!channel || !channel.id) {
+                    box.innerHTML = '<p class="text-gray-400">Conecte um canal para ver o resumo.</p>';
                     return;
                 }
+                try {
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        box.innerHTML = '<p class="text-red-400">Token não encontrado. Faça login novamente.</p>';
+                        return;
+                    }
+                    const endDate = new Date();
+                    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                    if (opts.forceLoading) {
+                        box.innerHTML = '<p class="text-gray-400">Carregando resumo do canal...</p>';
+                    }
+
+                    const resp = await fetch(`${API_BASE}/api/youtube/channels/${channel.id}/analytics?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!resp.ok) {
+                        const err = await resp.json().catch(() => ({}));
+                        throw new Error(err.msg || 'Falha ao carregar resumo');
+                    }
+                    const data = await resp.json();
+
+                    let views = 0;
+                    let watch = 0;
+                    let subsGained = 0;
+                    if (data.analytics?.rows?.length && data.analytics?.columnHeaders?.length) {
+                        const row = data.analytics.rows[0];
+                        const headers = data.analytics.columnHeaders.map(h => h.name);
+                        const idxViews = headers.findIndex(h => h === 'views');
+                        const idxWatch = headers.findIndex(h => h === 'estimatedMinutesWatched');
+                        const idxSubs = headers.findIndex(h => h === 'subscribersGained');
+                        views = idxViews >= 0 ? parseInt(row[idxViews] || 0) : 0;
+                        watch = idxWatch >= 0 ? parseInt(row[idxWatch] || 0) : 0;
+                        subsGained = idxSubs >= 0 ? parseInt(row[idxSubs] || 0) : 0;
+                    }
+
+                    const adv = data.advanced || {};
+                    const ctrNum = (adv.impressionsCtr !== null && adv.impressionsCtr !== undefined && !isNaN(parseFloat(adv.impressionsCtr)))
+                        ? parseFloat(adv.impressionsCtr)
+                        : null;
+                    const retNum = (adv.averageViewPercentage !== null && adv.averageViewPercentage !== undefined && !isNaN(parseFloat(adv.averageViewPercentage)))
+                        ? parseFloat(adv.averageViewPercentage)
+                        : null;
+                    const ctrTxt = ctrNum !== null ? `${ctrNum.toFixed(2)}%` : 'N/A';
+                    const retTxt = retNum !== null ? `${retNum.toFixed(1)}%` : 'N/A';
+
+                    const estRevenue = parseFloat(data.estimatedRevenue || data.estimatedAdRevenue || 0);
+                    const revTxt = estRevenue > 0 ? `$${estRevenue.toFixed(2)}` : 'N/A';
+
+                    box.innerHTML = `
+                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <p class="text-white font-semibold truncate">${escapeHtml(channel.channelName || 'Canal')}</p>
+                                    <p class="text-gray-400 text-xs">${channel.niche ? `📌 ${escapeHtml(channel.niche)}` : 'Sem nicho'}${channel.language ? ` • 🌍 ${escapeHtml(channel.language)}` : ''}</p>
+                                </div>
+                                <button class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg" onclick="
+                                    switchYouTubeTab('analytics');
+                                    updateChannelSelects().then(() => {
+                                        const sel = document.getElementById('analytics-channel-select');
+                                        if (sel) sel.value = '${channel.id}';
+                                        if (typeof loadChannelAnalytics === 'function') loadChannelAnalytics();
+                                    });
+                                ">Ver métricas</button>
+                            </div>
+                            <div class="mt-3 grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                                <div><span class="text-gray-400">Views (30d)</span><div class="text-white font-bold">${formatNumber(views)}</div></div>
+                                <div><span class="text-gray-400">Watch</span><div class="text-white font-bold">${formatMinutes(watch)}</div></div>
+                                <div><span class="text-gray-400">Inscritos +</span><div class="text-white font-bold">+${formatNumber(subsGained)}</div></div>
+                                <div><span class="text-gray-400">CTR</span><div class="text-white font-bold">${ctrTxt}</div></div>
+                                <div><span class="text-gray-400">Retenção</span><div class="text-white font-bold">${retTxt}</div></div>
+                                <div><span class="text-gray-400">Receita (30d)</span><div class="text-white font-bold">${revTxt}</div></div>
+                            </div>
+                        </div>
+                    `;
+                    box.dataset.hasData = '1';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    box.innerHTML = `<p class="text-red-400">Erro ao carregar resumo: ${escapeHtml(err.message)}</p>`;
+                }
+            }
+            
+            // Função para preencher automaticamente campos de nicho/subniche quando um canal é selecionado
+            function autoFillNicheFromChannel(channelId) {
+                if (!channelId) return;
+                
+                // Buscar informações do canal
+                fetch(`${API_BASE}/api/youtube/channels`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('core_token')}` }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    const channel = data.channels?.find(c => c.id == channelId || c.channelId === channelId);
+                    if (channel && (channel.niche || channel.subniche)) {
+                        // Preencher todos os campos de nicho/subniche encontrados na página
+                        const nicheInputs = document.querySelectorAll('input[id*="niche"], input[id*="Niche"]');
+                        const subnicheInputs = document.querySelectorAll('input[id*="subniche"], input[id*="Subniche"]');
+                        
+                        nicheInputs.forEach(input => {
+                            if (!input.value || input.value.trim() === '') {
+                                input.value = channel.niche || '';
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        });
+                        
+                        subnicheInputs.forEach(input => {
+                            if (!input.value || input.value.trim() === '') {
+                                input.value = channel.subniche || '';
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        });
+                        
+                        console.log(`[Auto-fill] Nicho preenchido automaticamente: ${channel.niche} / ${channel.subniche}`);
+                    }
+                })
+                .catch(err => {
+                    console.warn('[Auto-fill] Erro ao buscar informações do canal:', err);
+                });
+            }
+
+            // Função para carregar métricas do canal
+            window.loadChannelAnalytics = async function() {
+                const channelSelect = document.getElementById('analytics-channel-select');
+                const periodSelect = document.getElementById('analytics-period-select');
+                const loadingDiv = document.getElementById('analytics-loading');
+                const contentDiv = document.getElementById('analytics-content');
+                
+                if (!channelSelect || !channelSelect.value) {
+                    showMessage('youtube-integration-error-message', 'Selecione um canal primeiro.', true);
+                    return;
+                }
+                
+                const channelId = channelSelect.value;
+                const days = parseInt(periodSelect?.value || 30);
+                const endDate = new Date();
+                const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+                
+                try {
+                    loadingDiv.classList.remove('hidden');
+                    contentDiv.classList.add('hidden');
+                    
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/channels/${channelId}/analytics?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Erro ao buscar métricas');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Preencher resumo
+                    if (data.analytics && data.analytics.rows && data.analytics.rows.length > 0) {
+                        const row0 = data.analytics.rows[0];
+                        const headers0 = data.analytics.columnHeaders?.map(h => h.name) || [];
+                        const idxViews = headers0.findIndex(h => h === 'views');
+                        const idxWatch = headers0.findIndex(h => h === 'estimatedMinutesWatched');
+                        const totalViews = idxViews >= 0 ? parseInt(row0[idxViews] || 0) : 0;
+                        const watchTime = idxWatch >= 0 ? parseInt(row0[idxWatch] || 0) : 0;
+                        const summaryText = `Seu canal teve ${formatNumber(totalViews)} visualizações e ${formatMinutes(watchTime)} de tempo de visualização no período selecionado.`;
+                        const headlineEl = document.getElementById('yt-analytics-headline');
+                        const subheadlineEl = document.getElementById('yt-analytics-subheadline');
+                        const hiddenSummaryEl = document.getElementById('analytics-summary-text');
+                        if (headlineEl) headlineEl.textContent = `Seu canal teve ${formatNumber(totalViews)} visualizações nos últimos ${days} dias`;
+                        if (subheadlineEl) subheadlineEl.textContent = `Tempo de exibição: ${formatMinutes(watchTime)} • Período: ${startDate.toLocaleDateString('pt-BR')} – ${endDate.toLocaleDateString('pt-BR')}`;
+                        if (hiddenSummaryEl) hiddenSummaryEl.textContent = summaryText;
+                    }
+                    
+                    // Preencher métricas principais
+                    if (data.channelStats) {
+                        const subscribers = parseInt(data.channelStats.subscriberCount || 0);
+                        document.getElementById('analytics-subscribers').textContent = formatNumber(subscribers);
+                        document.getElementById('analytics-subscribers-change').textContent = 'Total de inscritos';
+                    }
+                    
+                    if (data.analytics && data.analytics.rows && data.analytics.rows.length > 0) {
+                        const row = data.analytics.rows[0];
+                        const headers = data.analytics.columnHeaders?.map(h => h.name) || [];
+                        
+                        // Extrair valores por nome da coluna
+                        const getValue = (name) => {
+                            const index = headers.findIndex(h => h === name);
+                            return index >= 0 ? (row[index] || 0) : 0;
+                        };
+                        
+                        const views = parseInt(getValue('views'));
+                        const watchTime = parseInt(getValue('estimatedMinutesWatched'));
+                        const subscribersGained = parseInt(getValue('subscribersGained'));
+                        const likes = parseInt(getValue('likes'));
+                        const comments = parseInt(getValue('comments'));
+                        const shares = parseInt(getValue('shares'));
+                        const estimatedRevenue = parseFloat(data.estimatedRevenue || data.estimatedAdRevenue || 0);
+                        const adImpressions = parseInt(data.adImpressions || 0);
+                        
+                        document.getElementById('analytics-total-views').textContent = formatNumber(views);
+                        document.getElementById('analytics-watch-time').textContent = formatMinutes(watchTime);
+                        document.getElementById('analytics-subscribers-gained').textContent = '+' + formatNumber(subscribersGained);
+                        document.getElementById('analytics-likes').textContent = formatNumber(likes);
+                        document.getElementById('analytics-comments').textContent = formatNumber(comments);
+                        document.getElementById('analytics-shares').textContent = formatNumber(shares);
+                        
+                        // Receita estimada
+                        if (estimatedRevenue > 0) {
+                            document.getElementById('analytics-estimated-revenue').textContent = '$' + estimatedRevenue.toFixed(2);
+                        } else {
+                            document.getElementById('analytics-estimated-revenue').textContent = 'N/A';
+                        }
+                        document.getElementById('analytics-ad-impressions').textContent = formatNumber(adImpressions);
+                        
+                        // Calcular RPM (Revenue per Mille - receita por 1000 views)
+                        const rpm = views > 0 && estimatedRevenue > 0 ? (estimatedRevenue / (views / 1000)).toFixed(2) : '0.00';
+                        document.getElementById('analytics-rpm').textContent = '$' + rpm;
+                        
+                        // Calcular taxa de engajamento
+                        const engagementRate = views > 0 ? ((likes + comments + shares) / views * 100).toFixed(2) : '0.00';
+                        document.getElementById('analytics-engagement-rate').textContent = engagementRate + '%';
+                        
+                        // Preencher mudanças (simulado - idealmente viria de comparação com período anterior)
+                        document.getElementById('analytics-views-change').textContent = 'Período selecionado';
+                        document.getElementById('analytics-watch-time-change').textContent = 'Período selecionado';
+                        document.getElementById('analytics-subscribers-gained-change').textContent = 'Novos no período';
+                    }
+                    
+                    // Métricas avançadas (reais quando disponíveis via YouTube Analytics API)
+                    if (data.advanced) {
+                        const avgDur = data.advanced.averageViewDurationFormatted;
+                        const avpRaw = data.advanced.averageViewPercentage;
+                        const ctrRaw = data.advanced.impressionsCtr;
+                        const avp = (avpRaw !== null && avpRaw !== undefined && !isNaN(parseFloat(avpRaw))) ? parseFloat(avpRaw) : null;
+                        const ctr = (ctrRaw !== null && ctrRaw !== undefined && !isNaN(parseFloat(ctrRaw))) ? parseFloat(ctrRaw) : null;
+                        document.getElementById('analytics-avg-view-duration').textContent = avgDur || 'N/A';
+                        document.getElementById('analytics-retention-rate').textContent = (avp !== null) ? `${avp.toFixed(1)}%` : 'N/A';
+                        document.getElementById('analytics-ctr').textContent = (ctr !== null) ? `${ctr.toFixed(2)}%` : 'N/A';
+                    } else {
+                        document.getElementById('analytics-avg-view-duration').textContent = 'N/A';
+                        document.getElementById('analytics-retention-rate').textContent = 'N/A';
+                        document.getElementById('analytics-ctr').textContent = 'N/A';
+                    }
+                    
+                    // Desenhar gráfico
+                    if (data.daily && data.daily.rows && data.daily.rows.length > 0) {
+                        drawAnalyticsChart(data.daily);
+                    } else if (data.analytics && data.analytics.rows && data.analytics.rows.length > 0) {
+                        drawAnalyticsChart(data.analytics);
+                    }
+                    
+                    // Preencher vídeos recentes
+                    if (data.recentVideos && data.recentVideos.length > 0) {
+                        const videosHtml = data.recentVideos.map(video => `
+                            <div class="bg-gray-700 border border-gray-600 rounded-lg p-3">
+                                <h4 class="text-white font-semibold mb-2">${escapeHtml(video.title)}</h4>
+                                <div class="grid grid-cols-3 gap-2 text-sm">
+                                    <div>
+                                        <p class="text-gray-400">Visualizações</p>
+                                        <p class="text-white font-bold">${formatNumber(video.views)}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-gray-400">Curtidas</p>
+                                        <p class="text-white font-bold">${formatNumber(video.likes)}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-gray-400">Comentários</p>
+                                        <p class="text-white font-bold">${formatNumber(video.comments)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('');
+                        document.getElementById('analytics-recent-videos').innerHTML = videosHtml;
+                    } else {
+                        const errText = data?.recentVideosError?.status
+                            ? ` (erro ${data.recentVideosError.status})`
+                            : '';
+                        document.getElementById('analytics-recent-videos').innerHTML = `<p class="text-gray-400">Nenhum vídeo encontrado${errText}.</p>`;
+                    }
+
+                    // Top 5 vídeos mais vistos + análise
+                    const topVideosEl = document.getElementById('analytics-top-videos');
+                    if (topVideosEl) {
+                        if (data.topVideosAnalysis && data.topVideosAnalysis.length > 0) {
+                            topVideosEl.innerHTML = data.topVideosAnalysis.map(v => `
+                                <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
+                                    <div class="flex items-start gap-3">
+                                        ${v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" alt="" class="w-16 h-10 object-cover rounded border border-gray-600 flex-shrink-0">` : ''}
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <h4 class="text-white font-semibold truncate">${escapeHtml(v.title || 'Sem título')}</h4>
+                                                ${v.videoId ? `<a class="text-xs text-amber-400 hover:text-amber-300 whitespace-nowrap" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}">Abrir</a>` : ''}
+                                            </div>
+                                            <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                <div><span class="text-gray-400">Views</span><div class="text-white font-bold">${formatNumber(v.viewCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Likes</span><div class="text-white font-bold">${formatNumber(v.likeCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Comentários</span><div class="text-white font-bold">${formatNumber(v.commentCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Views/dia</span><div class="text-white font-bold">${formatNumber(v.derived?.viewsPerDay || 0)}</div></div>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="bg-gray-800/60 border border-gray-700 rounded p-3">
+                                                    <p class="text-gray-300 text-xs font-semibold mb-2">Dicas valiosas</p>
+                                                    <ul class="text-gray-200 text-xs space-y-1 list-disc list-inside">
+                                                        ${(v.tips || []).slice(0, 4).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+                                                    </ul>
+                                                </div>
+                                                <div class="bg-gray-800/60 border border-gray-700 rounded p-3">
+                                                    <p class="text-gray-300 text-xs font-semibold mb-2">Próximos vídeos (inspirados)</p>
+                                                    <ul class="text-gray-200 text-xs space-y-1 list-disc list-inside">
+                                                        ${(v.nextVideoIdeas || []).slice(0, 3).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('');
+                        } else {
+                            const errText = data?.topVideosError?.status
+                                ? ` (erro ${data.topVideosError.status} — possivelmente quota da API do YouTube)`
+                                : '';
+                            topVideosEl.innerHTML = `<p class="text-gray-400">Não foi possível carregar o Top 5${errText}.</p>`;
+                        }
+                    }
+
+                    // Breakdowns: fontes de tráfego e países
+                    const trafficEl = document.getElementById('analytics-traffic-sources');
+                    const countriesEl = document.getElementById('analytics-top-countries');
+                    const insightsEl = document.getElementById('analytics-action-insights');
+
+                    const renderBreakdown = (report, dimensionKey, metricKey, labelMapper) => {
+                        const rows = report?.rows || [];
+                        const headers = report?.columnHeaders?.map(h => h.name) || [];
+                        const dimIdx = headers.findIndex(h => h === dimensionKey);
+                        const metIdx = headers.findIndex(h => h === metricKey);
+                        if (rows.length === 0 || dimIdx < 0 || metIdx < 0) return [];
+                        return rows.slice(0, 6).map(r => ({
+                            label: labelMapper ? labelMapper(r[dimIdx]) : String(r[dimIdx]),
+                            value: parseInt(r[metIdx] || 0)
+                        }));
+                    };
+
+                    const trafficName = (code) => {
+                        const map = {
+                            YT_SEARCH: 'Busca do YouTube',
+                            SUGGESTED_VIDEO: 'Vídeos sugeridos',
+                            BROWSE: 'Página inicial / Navegação',
+                            EXTERNAL: 'Externo',
+                            PLAYLIST: 'Playlists',
+                            NOTIFICATIONS: 'Notificações',
+                            CHANNEL: 'Páginas do canal',
+                            OTHER: 'Outros'
+                        };
+                        return map[String(code || '').toUpperCase()] || String(code || 'Desconhecido');
+                    };
+
+                    const trafficItems = data.trafficSources ? renderBreakdown(data.trafficSources, 'insightTrafficSourceType', 'views', trafficName) : [];
+                    if (trafficEl) {
+                        trafficEl.innerHTML = trafficItems.length
+                            ? trafficItems.map(i => `
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-300">${escapeHtml(i.label)}</span>
+                                    <span class="text-white font-semibold">${formatNumber(i.value)}</span>
+                                </div>
+                            `).join('')
+                            : '<p class="text-gray-400 text-sm">Sem dados suficientes.</p>';
+                    }
+
+                    const countryItems = data.topCountries ? renderBreakdown(data.topCountries, 'country', 'views') : [];
+                    if (countriesEl) {
+                        countriesEl.innerHTML = countryItems.length
+                            ? countryItems.map(i => `
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-300">${escapeHtml(i.label)}</span>
+                                    <span class="text-white font-semibold">${formatNumber(i.value)}</span>
+                                </div>
+                            `).join('')
+                            : '<p class="text-gray-400 text-sm">Sem dados suficientes.</p>';
+                    }
+
+                    // Insights acionáveis (heurísticos)
+                    if (insightsEl) {
+                        const tips = [];
+                        const adv = data.advanced || {};
+                        if (typeof adv.impressionsCtr === 'number') {
+                            if (adv.impressionsCtr < 4) tips.push(`CTR baixo (${adv.impressionsCtr.toFixed(2)}%). Priorize testes de título/thumbnail (2–3 variações) antes de publicar.`);
+                            else if (adv.impressionsCtr >= 8) tips.push(`CTR forte (${adv.impressionsCtr.toFixed(2)}%). Mantenha o padrão visual e replique fórmulas vencedoras.`);
+                        }
+                        if (typeof adv.averageViewPercentage === 'number') {
+                            if (adv.averageViewPercentage < 35) tips.push(`Retenção baixa (${adv.averageViewPercentage.toFixed(1)}%). Melhore o hook nos 15s iniciais e reduza enrolação.`);
+                            else if (adv.averageViewPercentage >= 50) tips.push(`Retenção ótima (${adv.averageViewPercentage.toFixed(1)}%). Foque em aumentar distribuição (SEO + sugestão) para escalar.`);
+                        }
+                        if (trafficItems.length) {
+                            const total = trafficItems.reduce((a, b) => a + (b.value || 0), 0) || 1;
+                            const top = trafficItems[0];
+                            const share = ((top.value / total) * 100);
+                            tips.push(`Principal fonte: ${top.label} (${share.toFixed(0)}% do Top). Dobre a aposta na otimização específica dessa origem.`);
+                            if (top.label.includes('Busca')) tips.push('Para ganhar do concorrente na Busca: títulos com keyword exata + descrição com 1º parágrafo bem SEO + tags focadas.');
+                            if (top.label.includes('sugeridos') || top.label.includes('Página inicial')) tips.push('Para dominar Sugeridos/Home: aumente retenção e encadeie vídeos (séries + telas finais + playlists).');
+                        }
+                        if (data.analyticsMeta?.degraded) {
+                            tips.push('Algumas métricas avançadas não estavam disponíveis para este canal/período; mostrando o melhor conjunto possível.');
+                        }
+                        insightsEl.innerHTML = tips.length
+                            ? `<ul class="text-gray-200 text-sm space-y-2 list-disc list-inside">${tips.slice(0, 6).map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`
+                            : '<p class="text-gray-400 text-sm">Sem insights suficientes neste período.</p>';
+                    }
+                    
+                    loadingDiv.classList.add('hidden');
+                    contentDiv.classList.remove('hidden');
+                    
+                    // Atualizar ícones
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                } catch (err) {
+                    console.error('[Analytics] Erro:', err);
+                    loadingDiv.classList.add('hidden');
+                    showMessage('youtube-integration-error-message', 'Erro ao carregar métricas: ' + err.message, true);
+                }
+            };
+            
+            // Função para desenhar gráfico de analytics
+            function drawAnalyticsChart(report) {
+                const canvas = document.getElementById('analytics-chart');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const width = canvas.parentElement.clientWidth - 48;
+                const height = 300;
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Limpar canvas
+                ctx.clearRect(0, 0, width, height);
+                
+                const rows = report?.rows || [];
+                const headers = report?.columnHeaders?.map(h => h.name) || [];
+                
+                if (!rows || rows.length === 0) {
+                    ctx.fillStyle = '#9CA3AF';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Sem dados para exibir', width / 2, height / 2);
+                    return;
+                }
+                
+                // Extrair dados de visualizações
+                const viewsIndex = headers.findIndex(h => h === 'views');
+                const fallbackIndex = viewsIndex >= 0 ? viewsIndex : 0;
+                const views = rows.map(row => parseInt(row[fallbackIndex] || 0));
+                const maxViews = Math.max(...views, 1);
+                
+                // Configurações do gráfico
+                const padding = 40;
+                const chartWidth = width - padding * 2;
+                const chartHeight = height - padding * 2;
+                const barWidth = chartWidth / Math.max(views.length, 1);
+                
+                // Desenhar eixo Y
+                ctx.strokeStyle = '#4B5563';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(padding, padding);
+                ctx.lineTo(padding, height - padding);
+                ctx.stroke();
+                
+                // Desenhar eixo X
+                ctx.beginPath();
+                ctx.moveTo(padding, height - padding);
+                ctx.lineTo(width - padding, height - padding);
+                ctx.stroke();
+                
+                // Desenhar barras
+                views.forEach((value, index) => {
+                    const barHeight = (value / maxViews) * chartHeight;
+                    const x = padding + index * barWidth;
+                    const y = height - padding - barHeight;
+                    
+                    // Gradiente
+                    const gradient = ctx.createLinearGradient(x, y, x, height - padding);
+                    gradient.addColorStop(0, '#F59E0B');
+                    gradient.addColorStop(1, '#D97706');
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(x + 2, y, barWidth - 4, barHeight);
+                    
+                    // Valor no topo da barra
+                    if (value > 0) {
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.font = '10px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(formatNumber(value), x + barWidth / 2, y - 5);
+                    }
+                });
+            }
+            
+            // Função para alternar tipo de gráfico
+            window.toggleChartType = function(type) {
+                document.querySelectorAll('.chart-type-btn').forEach(btn => {
+                    btn.classList.remove('active', 'bg-amber-600');
+                    btn.classList.add('bg-gray-700');
+                });
+                const btn = document.querySelector(`[data-type="${type}"]`);
+                if (btn) {
+                    btn.classList.add('active', 'bg-amber-600');
+                    btn.classList.remove('bg-gray-700');
+                }
+                // Recarregar gráfico com novo tipo (implementação simplificada)
+                const channelSelect = document.getElementById('analytics-channel-select');
+                if (channelSelect && channelSelect.value) {
+                    loadChannelAnalytics();
+                }
+            };
+
+            // Função auxiliar para formatar minutos
+            function formatMinutes(minutes) {
+                if (minutes < 60) return minutes + ' min';
+                const hours = Math.floor(minutes / 60);
+                const mins = minutes % 60;
+                if (hours < 24) return hours + 'h ' + mins + 'min';
+                const days = Math.floor(hours / 24);
+                const hrs = hours % 24;
+                return days + 'd ' + hrs + 'h';
+            }
+
+            // Upload tabs (Detalhes / Visibilidade)
+            window.switchUploadTab = function(tabName) {
+                const panes = {
+                    details: document.getElementById('upload-pane-details'),
+                    visibility: document.getElementById('upload-pane-visibility'),
+                };
+                Object.values(panes).forEach(p => p && p.classList.add('hidden'));
+                if (panes[tabName]) panes[tabName].classList.remove('hidden');
+
+                const tabs = ['details', 'visibility'];
+                tabs.forEach(t => {
+                    const btn = document.getElementById(`upload-tab-${t}`);
+                    if (!btn) return;
+                    btn.classList.remove('border-amber-500', 'text-amber-500');
+                    btn.classList.add('border-transparent', 'text-gray-400');
+                });
+                const activeBtn = document.getElementById(`upload-tab-${tabName}`);
+                if (activeBtn) {
+                    activeBtn.classList.add('border-amber-500', 'text-amber-500');
+                    activeBtn.classList.remove('border-transparent', 'text-gray-400');
+                }
+
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            };
+
+            // Configurar campo de agendamento
+            const publishTypeSelect = document.getElementById('upload-publish-type');
+            const scheduleContainer = document.getElementById('schedule-datetime-container');
+            const scheduleInput = document.getElementById('upload-schedule-datetime');
+            const uploadButtonText = document.getElementById('upload-button-text');
+            
+            if (publishTypeSelect && scheduleContainer && scheduleInput) {
+                // Definir data mínima como agora
+                const now = new Date();
+                now.setMinutes(now.getMinutes() + 1); // Mínimo 1 minuto no futuro
+                scheduleInput.min = now.toISOString().slice(0, 16);
+                
+                // Garantir que required seja removido inicialmente se o campo estiver oculto
+                if (scheduleContainer.classList.contains('hidden')) {
+                    scheduleInput.removeAttribute('required');
+                    scheduleInput.required = false;
+                }
+                
+                publishTypeSelect.addEventListener('change', function() {
+                    if (this.value === 'schedule') {
+                        scheduleContainer.classList.remove('hidden');
+                        scheduleInput.setAttribute('required', 'required');
+                        scheduleInput.required = true;
+                        if (uploadButtonText) uploadButtonText.textContent = 'Agendar Vídeo';
+                    } else {
+                        scheduleContainer.classList.add('hidden');
+                        scheduleInput.removeAttribute('required');
+                        scheduleInput.required = false;
+                        scheduleInput.value = ''; // Limpar valor também
+                        if (uploadButtonText) uploadButtonText.textContent = 'Enviar Vídeo para YouTube';
+                    }
+                });
+            }
+
+            // Função para fazer upload de vídeo diretamente para YouTube
+            document.getElementById('youtube-upload-form')?.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const channelSelect = document.getElementById('upload-channel-select');
+                const videoFile = document.getElementById('upload-video-file').files[0];
+                const title = document.getElementById('upload-video-title').value;
+                const description = document.getElementById('upload-video-description').value;
+                const tags = document.getElementById('upload-video-tags').value;
+                const thumbnailFile = document.getElementById('upload-video-thumbnail').files[0];
+                const privacy = document.getElementById('upload-video-privacy').value;
+                const publishTypeValue = document.getElementById('upload-publish-type')?.value || 'now';
+                const scheduleDateTime = document.getElementById('upload-schedule-datetime')?.value;
+                
+                // Validar campo de agendamento apenas se estiver visível
+                if (publishTypeValue === 'schedule' && (!scheduleDateTime || scheduleDateTime.trim() === '')) {
+                    showMessage('youtube-integration-error-message', 'Selecione uma data e hora para o agendamento.', true);
+                    return;
+                }
+                
+                if (!channelSelect || !channelSelect.value || !videoFile) {
+                    showMessage('youtube-integration-error-message', 'Preencha todos os campos obrigatórios.', true);
+                    return;
+                }
+                
+                // Validar agendamento
+                if (publishTypeValue === 'schedule' && !scheduleDateTime) {
+                    showMessage('youtube-integration-error-message', 'Selecione uma data e hora para agendamento.', true);
+                    return;
+                }
+                
+                if (publishTypeValue === 'schedule') {
+                    const scheduleDate = new Date(scheduleDateTime);
+                    const now = new Date();
+                    if (scheduleDate <= now) {
+                        showMessage('youtube-integration-error-message', 'A data de agendamento deve ser no futuro.', true);
+                        return;
+                    }
+                }
+                
+                try {
+                    const progressDiv = document.getElementById('upload-progress');
+                    const progressBar = document.getElementById('upload-progress-bar');
+                    const statusText = document.getElementById('upload-status');
+                    
+                    // Se for agendamento, usar endpoint diferente
+                    if (publishTypeValue === 'schedule') {
+                        progressDiv.classList.remove('hidden');
+                        progressBar.style.width = '0%';
+                        statusText.textContent = 'Preparando agendamento...';
+                        
+                        const token = localStorage.getItem('core_token');
+                        
+                        // Fazer upload do arquivo primeiro
+                        const formData = new FormData();
+                        formData.append('video', videoFile);
+                        if (thumbnailFile) {
+                            formData.append('thumbnail', thumbnailFile);
+                        }
+                        
+                        progressBar.style.width = '30%';
+                        statusText.textContent = 'Enviando arquivo...';
+                        
+                        // Upload temporário do arquivo
+                        const uploadResponse = await fetch(`${API_BASE}/api/youtube/schedule/upload`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` },
+                            body: formData
+                        });
+                        
+                        if (!uploadResponse.ok) {
+                            const errorData = await uploadResponse.json().catch(() => ({}));
+                            throw new Error(errorData.msg || 'Erro ao fazer upload do arquivo');
+                        }
+                        
+                        const uploadData = await uploadResponse.json();
+                        
+                        progressBar.style.width = '60%';
+                        statusText.textContent = 'Agendando publicação...';
+                        
+                        // Agendar publicação
+                        const selectedOption = channelSelect.options[channelSelect.selectedIndex];
+                        const scheduleResponse = await fetch(`${API_BASE}/api/youtube/schedule`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                youtubeIntegrationId: selectedOption?.dataset.integrationId || null,
+                                channelId: channelSelect.value,
+                                videoFilePath: uploadData.videoPath,
+                                thumbnailPath: uploadData.thumbnailPath || null,
+                                title: title,
+                                description: description,
+                                tags: tags ? tags.split(',').map(t => t.trim()) : [],
+                                scheduledTime: scheduleDateTime,
+                                privacy: privacy
+                            })
+                        });
+                        
+                        if (!scheduleResponse.ok) {
+                            const errorData = await scheduleResponse.json().catch(() => ({}));
+                            throw new Error(errorData.msg || 'Erro ao agendar publicação');
+                        }
+                        
+                        progressBar.style.width = '100%';
+                        statusText.textContent = 'Vídeo agendado com sucesso!';
+                        
+                        const result = await scheduleResponse.json();
+                        showMessage('youtube-integration-success-message', `Vídeo agendado para ${new Date(scheduleDateTime).toLocaleString('pt-BR')}!`);
+                        
+                        // Limpar formulário
+                        document.getElementById('youtube-upload-form').reset();
+                        if (scheduleContainer) scheduleContainer.classList.add('hidden');
+                        if (uploadButtonText) uploadButtonText.textContent = 'Enviar Vídeo para YouTube';
+                        
+                        // Recarregar lista de agendamentos
+                        if (typeof loadScheduledPosts === 'function') {
+                            loadScheduledPosts();
+                        }
+                        
+                        setTimeout(() => {
+                            progressDiv.classList.add('hidden');
+                        }, 3000);
+                        return; // Sair da função aqui para agendamento
+                    }
+                    
+                    // Upload imediato - enviar arquivo via FormData para o servidor
+                    progressDiv.classList.remove('hidden');
+                    progressBar.style.width = '0%';
+                    statusText.textContent = 'Preparando upload...';
+                    
+                    const token = localStorage.getItem('core_token');
+                    
+                    // Criar FormData com todos os dados
+                    const formData = new FormData();
+                    formData.append('video', videoFile);
+                    if (thumbnailFile) {
+                        formData.append('thumbnail', thumbnailFile);
+                    }
+                    formData.append('channelId', channelSelect.value);
+                    formData.append('title', title);
+                    formData.append('description', description);
+                    formData.append('tags', JSON.stringify(tags ? tags.split(',').map(t => t.trim()) : []));
+                    formData.append('privacy', privacy);
+                    // Categoria removida do layout (mantemos padrão 22)
+                    formData.append('categoryId', '22');
+                    
+                    // Simular progresso (upload via servidor não permite progresso real em chunks)
+                    progressBar.style.width = '30%';
+                    statusText.textContent = 'Enviando arquivo para o servidor...';
+                    
+                    // Fazer upload via servidor
+                    const uploadResponse = await fetch(`${API_BASE}/api/youtube/upload/complete`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: formData
+                    });
+                    
+                    progressBar.style.width = '80%';
+                    statusText.textContent = 'Processando upload no servidor...';
+                    
+                    if (!uploadResponse.ok) {
+                        const errorData = await uploadResponse.json().catch(() => ({}));
+                        throw new Error(errorData.msg || 'Erro ao fazer upload do vídeo');
+                    }
+                    
+                    const uploadResult = await uploadResponse.json();
+                    
+                    progressBar.style.width = '100%';
+                    statusText.textContent = 'Upload concluído!';
+                    showMessage('youtube-integration-success-message', `Vídeo enviado com sucesso! <a href="${uploadResult.videoUrl}" target="_blank" class="underline">Ver vídeo</a>`);
+                    
+                    // Limpar formulário
+                    document.getElementById('youtube-upload-form').reset();
+                    if (scheduleContainer) scheduleContainer.classList.add('hidden');
+                    if (uploadButtonText) uploadButtonText.textContent = 'Enviar Vídeo para YouTube';
+                    setTimeout(() => {
+                        progressDiv.classList.add('hidden');
+                    }, 3000);
+                    return;
+                    
+                } catch (err) {
+                    console.error('[Upload] Erro:', err);
+                    showMessage('youtube-integration-error-message', 'Erro ao fazer upload: ' + err.message, true);
+                    document.getElementById('upload-progress').classList.add('hidden');
+                }
+            });
+
+            // Atualizar lista de canais nos selects quando carregar
+            async function updateChannelSelects() {
+                // Retornar promise para permitir .then()
+                return new Promise(async (resolve, reject) => {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        console.warn('[Channel Selects] Token não encontrado');
+                        resolve();
+                        return;
+                    }
+                    
+                    console.log('[Channel Selects] Buscando canais...');
+                    const response = await fetch(`${API_BASE}/api/youtube/channels`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (!response.ok) {
+                        console.error('[Channel Selects] Erro ao buscar canais:', response.status, response.statusText);
+                        const errorText = await response.text().catch(() => '');
+                        console.error('[Channel Selects] Resposta de erro:', errorText);
+                        resolve();
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    const channels = data.channels || [];
+                    
+                    console.log(`[Channel Selects] ${channels.length} canais encontrados:`, channels.map(c => c.channelName));
+                    
+                    // Atualizar select de upload
+                    const uploadSelect = document.getElementById('upload-channel-select');
+                    if (uploadSelect) {
+                        // Clonar select para remover listeners antigos
+                        const newSelect = uploadSelect.cloneNode(false);
+                        newSelect.innerHTML = '<option value="">Selecione um canal...</option>' +
+                            channels.map(c => `<option value="${c.channelId}" data-integration-id="${c.id}" data-niche="${c.niche || ''}" data-subniche="${c.subniche || ''}" data-language="${c.language || ''}" data-country="${c.country || ''}">${escapeHtml(c.channelName || 'Canal sem nome')}${c.language ? ' • ' + escapeHtml(c.language) : ''}</option>`).join('');
+                        
+                        // Substituir o select antigo pelo novo
+                        uploadSelect.parentNode.replaceChild(newSelect, uploadSelect);
+                        
+                        // Adicionar listener para preencher automaticamente nicho quando selecionar canal
+                        newSelect.addEventListener('change', function() {
+                            const selectedOption = this.options[this.selectedIndex];
+                            if (selectedOption && selectedOption.dataset.niche) {
+                                autoFillNicheFromChannel(this.value);
+                            }
+                        });
+                        
+                        console.log('[Channel Selects] Select de upload atualizado com sucesso');
+                    } else {
+                        console.warn('[Channel Selects] Select de upload não encontrado no DOM');
+                    }
+                    
+                    // Atualizar select de analytics
+                    const analyticsSelect = document.getElementById('analytics-channel-select');
+                    if (analyticsSelect) {
+                        const currentValue = analyticsSelect.value; // Manter seleção atual se possível
+                        
+                        // Clonar select para remover listeners antigos
+                        const newSelect = analyticsSelect.cloneNode(false);
+                        newSelect.innerHTML = '<option value="">Selecione um canal...</option>' +
+                            channels.map(c => `<option value="${c.id}" data-niche="${escapeHtml(c.niche || '')}" data-subniche="${escapeHtml(c.subniche || '')}" data-language="${escapeHtml(c.language || '')}" data-country="${escapeHtml(c.country || '')}">${escapeHtml(c.channelName || 'Canal sem nome')}${c.language ? ' • ' + escapeHtml(c.language) : ''}</option>`).join('');
+                        
+                        analyticsSelect.parentNode.replaceChild(newSelect, analyticsSelect);
+                        
+                        // Se havia uma seleção anterior e ainda existe, manter
+                        if (currentValue && channels.some(c => c.id.toString() === currentValue)) {
+                            newSelect.value = currentValue;
+                        } else if (channels.length === 1) {
+                            // Se há apenas um canal, selecionar automaticamente
+                            newSelect.value = channels[0].id;
+                            // Auto-carregar analytics se estiver na aba analytics
+                            const analyticsTab = document.getElementById('youtube-tab-content-analytics');
+                            if (analyticsTab && analyticsTab.style.display !== 'none') {
+                                setTimeout(() => {
+                                    if (typeof loadChannelAnalytics === 'function') {
+                                        loadChannelAnalytics();
+                                    }
+                                }, 300);
+                            }
+                        }
+
+                        // Atualizar meta do canal selecionado
+                        const metaEl = document.getElementById('analytics-channel-meta');
+                        const updateMeta = () => {
+                            if (!metaEl) return;
+                            const opt = newSelect.options[newSelect.selectedIndex];
+                            if (!opt || !opt.value) {
+                                metaEl.textContent = '';
+                                return;
+                            }
+                            // Salvar canal principal (dashboard inicial) baseado na seleção
+                            try {
+                                localStorage.setItem('primary_youtube_integration_id', String(newSelect.value));
+                            } catch (_) {}
+                            const niche = opt.dataset.niche ? `📌 ${opt.dataset.niche}` : '';
+                            const sub = opt.dataset.subniche ? `🎯 ${opt.dataset.subniche}` : '';
+                            const lang = opt.dataset.language ? `🌍 ${opt.dataset.language}${opt.dataset.country ? ' • ' + opt.dataset.country : ''}` : '';
+                            const parts = [niche, sub, lang].filter(Boolean);
+                            metaEl.textContent = parts.join('  •  ');
+                        };
+                        newSelect.addEventListener('change', updateMeta);
+                        updateMeta();
+                    }
+                    
+                    // Atualizar select de insights
+                    const insightsSelect = document.getElementById('insights-channel-select');
+                    if (insightsSelect) {
+                        insightsSelect.innerHTML = '<option value="">Selecione um canal...</option>' +
+                            channels.map(c => `<option value="${c.id}">${escapeHtml(c.channelName || 'Canal sem nome')}</option>`).join('');
+                    }
+                    
+                } catch (err) {
+                    console.error('[Channel Selects] Erro ao atualizar:', err);
+                    reject(err);
+                }
+                resolve();
+                });
+            }
+
+            // Função para re-analisar nicho do canal
+            window.reanalyzeChannelNiche = async function(integrationId, channelName) {
+                const confirmed = await showCustomConfirm(
+                    `Deseja re-analisar o nicho do canal "${channelName}"? A análise usará os últimos 10 vídeos do canal.`,
+                    'Re-analisar Nicho'
+                );
+                if (!confirmed) return;
+                
+                try {
+                    showMessage('youtube-integration-success-message', 'Iniciando re-análise do nicho...');
+                    
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/channels/${integrationId}/reanalyze-niche`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.msg || 'Erro ao re-analisar nicho');
+                    }
+                    
+                    const result = await response.json();
+                    showMessage('youtube-integration-success-message', 'Re-análise iniciada! O nicho será atualizado em alguns segundos.');
+                    
+                    // Recarregar lista de canais após alguns segundos
+                    setTimeout(() => {
+                        loadYouTubeIntegrationStatus();
+                    }, 5000);
+                    
+                } catch (err) {
+                    console.error('[Re-analyze] Erro:', err);
+                    showMessage('youtube-integration-error-message', 'Erro ao re-analisar nicho: ' + err.message, true);
+                }
+            };
+
+            // Função para carregar insights do canal
+            window.loadChannelInsights = async function() {
+                const channelSelect = document.getElementById('insights-channel-select');
+                const loadingDiv = document.getElementById('insights-loading');
+                const contentDiv = document.getElementById('insights-content');
+                
+                if (!channelSelect || !channelSelect.value) {
+                    showMessage('youtube-integration-error-message', 'Selecione um canal primeiro.', true);
+                    return;
+                }
+                
+                try {
+                    loadingDiv.classList.remove('hidden');
+                    contentDiv.classList.add('hidden');
+                    
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/channels/${channelSelect.value}/insights`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.msg || 'Erro ao gerar insights');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Preencher insights
+                    if (data.summary) {
+                        document.getElementById('insights-summary').innerHTML = `<p class="text-gray-300">${escapeHtml(data.summary)}</p>`;
+                    }
+                    
+                    if (data.frequency) {
+                        document.getElementById('insights-frequency').innerHTML = `<p class="text-amber-400 font-semibold text-lg">${escapeHtml(data.frequency)}</p>`;
+                    }
+                    
+                    if (data.duration) {
+                        document.getElementById('insights-duration').innerHTML = `<p class="text-amber-400 font-semibold text-lg">${escapeHtml(data.duration)}</p>`;
+                    }
+                    
+                    if (data.publishTime) {
+                        document.getElementById('insights-publish-time').innerHTML = `<p class="text-amber-400 font-semibold text-lg">${escapeHtml(data.publishTime)}</p>`;
+                    }
+                    
+                    if (data.contentType) {
+                        document.getElementById('insights-content-type').innerHTML = `<p class="text-gray-300">${escapeHtml(data.contentType)}</p>`;
+                    }
+                    
+                    if (data.strategies && Array.isArray(data.strategies)) {
+                        const strategiesHtml = data.strategies.map((strategy, idx) => `
+                            <div class="flex items-start space-x-3">
+                                <span class="text-amber-500 font-bold">${idx + 1}.</span>
+                                <p class="text-gray-300 flex-1">${escapeHtml(strategy)}</p>
+                            </div>
+                        `).join('');
+                        document.getElementById('insights-strategies').innerHTML = strategiesHtml;
+                    }
+                    
+                    if (data.titlePatterns && Array.isArray(data.titlePatterns)) {
+                        const titlesHtml = data.titlePatterns.map(pattern => `
+                            <div class="bg-gray-700 border border-gray-600 rounded p-3">
+                                <p class="text-white font-medium">${escapeHtml(pattern)}</p>
+                            </div>
+                        `).join('');
+                        document.getElementById('insights-titles').innerHTML = titlesHtml;
+                    }
+                    
+                    if (data.thumbnailRecommendations) {
+                        document.getElementById('insights-thumbnails').innerHTML = `<p class="text-gray-300">${escapeHtml(data.thumbnailRecommendations)}</p>`;
+                    }
+                    
+                    loadingDiv.classList.add('hidden');
+                    contentDiv.classList.remove('hidden');
+                    
+                    // Atualizar ícones
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                } catch (err) {
+                    console.error('[Insights] Erro:', err);
+                    loadingDiv.classList.add('hidden');
+                    showMessage('youtube-integration-error-message', 'Erro ao gerar insights: ' + err.message, true);
+                }
+            };
+
+            // Função para desconectar um canal
+            window.disconnectChannel = async function(channelId) {
+                const confirmed = await showCustomConfirm(
+                    'Tem certeza que deseja desconectar este canal?',
+                    'Confirmar Desconexão'
+                );
+                if (!confirmed) return;
                 
                 try {
                     const token = localStorage.getItem('core_token');
@@ -21792,10 +23617,19 @@ Equipe La Casa Dark Core</textarea>
                         if (scheduledArray.length > 0) {
                             list.innerHTML = scheduledArray.map(post => `
                                 <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                                    <h3 class="text-white font-semibold">${escapeHtml(post.title || 'Sem título')}</h3>
-                                    <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
-                                    <p class="text-gray-400 text-sm">Status: <span class="px-2 py-1 text-xs rounded ${post.status === 'published' ? 'bg-green-600' : post.status === 'failed' ? 'bg-red-600' : 'bg-yellow-600'}">${escapeHtml(post.status || 'pending')}</span></p>
-                                    ${post.description ? `<p class="text-gray-500 text-xs mt-2 line-clamp-2">${escapeHtml(post.description)}</p>` : ''}
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="text-white font-semibold truncate">${escapeHtml(post.title || 'Sem título')}</h3>
+                                            <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
+                                            <p class="text-gray-400 text-sm">Status: <span class="px-2 py-1 text-xs rounded ${post.status === 'published' ? 'bg-green-600' : post.status === 'failed' ? 'bg-red-600' : 'bg-yellow-600'}">${escapeHtml(post.status || 'pending')}</span></p>
+                                            ${post.description ? `<p class="text-gray-500 text-xs mt-2 line-clamp-2">${escapeHtml(post.description)}</p>` : ''}
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0">
+                                            <button onclick="deleteScheduledPost(${post.id})" class="py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition duration-300" title="Excluir agendamento">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             `).join('');
                         } else {
@@ -21810,6 +23644,26 @@ Equipe La Casa Dark Core</textarea>
                     }
                 }
             }
+
+            window.deleteScheduledPost = async function(postId) {
+                const confirmed = await showCustomConfirm('Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita.', 'Confirmar Exclusão');
+                if (!confirmed) return;
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/youtube/scheduled/${postId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => ({}));
+                        throw new Error(err.msg || 'Falha ao excluir agendamento.');
+                    }
+                    showMessage('youtube-integration-success-message', 'Agendamento excluído com sucesso!');
+                    loadScheduledPosts();
+                } catch (err) {
+                    showMessage('youtube-integration-error-message', err.message, true);
+                }
+            };
 
             // ============================================
             // 🎨 PROMTPS E IMAGENS - Lógica Integrada
@@ -29283,7 +31137,7 @@ Equipe La Casa Dark Core</textarea>
                                 
                                 ${insights.common_questions && Array.isArray(insights.common_questions) && insights.common_questions.length > 0 ? `
                                     <div class="bg-gray-800 rounded-lg p-4 mb-4">
-                                        <h3 class="text-blue-400 font-semibold mb-2">❓ Perguntas Operacionais</h3>
+                                        <h3 class="text-blue-400 font-semibold mb-2">❓ Perguntas Frequentes</h3>
                                         <ul class="space-y-1">
                                             ${insights.common_questions.map(q => `
                                                 <li class="text-gray-300 text-sm">• ${escapeHtml(q)}</li>
@@ -29427,3 +31281,4 @@ Equipe La Casa Dark Core</textarea>
 </body>
 </html>
 </html>
+
