@@ -264,20 +264,6 @@ app.use(express.static(__dirname, {
     }
 }));
 
-// Servir arquivos estáticos da landing page
-const landingDistPath = path.join(__dirname, 'landing-dist');
-if (fs.existsSync(landingDistPath)) {
-    app.use(express.static(landingDistPath, {
-        setHeaders: (res, path) => {
-            if (path.endsWith('.html')) {
-                res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-                res.setHeader('Pragma', 'no-cache');
-                res.setHeader('Expires', '0');
-            }
-        }
-    }));
-}
-
 // Middleware para detectar host e definir contexto (landing ou app)
 app.use((req, res, next) => {
     // PRIORIDADE MÁXIMA: Query parameter force (sobrescreve tudo)
@@ -310,6 +296,8 @@ app.use((req, res, next) => {
     const hostHeader = req.get('host') || '';
     const hostname = req.hostname || '';
     const xForwardedHost = req.get('x-forwarded-host') || '';
+    const referer = req.get('referer') || '';
+    const origin = req.get('origin') || '';
     
     // SOLUÇÃO PARA EASYPANEL: Verificar header customizado que EasyPanel pode passar
     // EasyPanel pode configurar: X-Original-Host ou X-Subdomain
@@ -338,8 +326,6 @@ app.use((req, res, next) => {
         return next();
     }
     
-    const referer = req.get('referer') || '';
-    const origin = req.get('origin') || '';
     const originalUrl = req.originalUrl || req.url || '';
     
     // Verificar também em referer e origin (fallback se proxy não passar Host corretamente)
@@ -370,6 +356,37 @@ app.use((req, res, next) => {
     const hostnameLower = hostname.toLowerCase();
     const refererHostLower = refererHost.toLowerCase();
     const originHostLower = originHost.toLowerCase();
+    
+    // SOLUÇÃO AUTOMÁTICA: Detectar rotas do app mesmo quando EasyPanel não passa headers corretos
+    // Se o host for canaisdarks.com.br mas a rota for do app, assumir que veio de app.canaisdarks.com.br
+    // Isso funciona porque o EasyPanel normaliza todos os domínios para o mesmo host
+    const appPaths = [
+        '/dashboard', 
+        '/la-casa-dark-core-auth', 
+        '/api/', 
+        '/plans', 
+        '/thank-you', 
+        '/viral-agents',
+        '/politica-de-privacidade',
+        '/termos-de-uso'
+    ];
+    const isAppPath = appPaths.some(path => req.path.startsWith(path) || req.path === path);
+    
+    // Verificar se referer indica que veio de app.canaisdarks.com.br (útil para rota raiz)
+    const refererIndicatesApp = referer && referer.toLowerCase().includes('app.canaisdarks.com.br');
+    
+    // Se for uma rota do app OU referer indica app, e o host for canaisdarks.com.br (sem "app."), 
+    // assumir que veio de app.canaisdarks.com.br mas EasyPanel normalizou
+    if ((isAppPath || refererIndicatesApp) && (hostWithoutPort === 'canaisdarks.com.br' || hostnameLower === 'canaisdarks.com.br') && !hostWithoutPort.includes('app.')) {
+        req.isAppSubdomain = true;
+        req.isLandingDomain = false;
+        if (!req._hostLogged) {
+            const reason = isAppPath ? `rota do app (${req.path})` : `referer indica app (${referer})`;
+            console.log(`[Host Detection] ⚡ ${reason} mas host normalizado - ASSUMINDO app subdomain`);
+            req._hostLogged = true;
+        }
+        return next();
+    }
     
     // Debug: logar informações do host (apenas primeira requisição para não poluir logs)
     if (!req._hostLogged) {
@@ -427,6 +444,28 @@ app.use((req, res, next) => {
     
     next();
 });
+
+// Servir arquivos estáticos da landing page (APENAS se não for app subdomain)
+// IMPORTANTE: Este middleware deve vir DEPOIS do middleware de detecção de host
+const landingDistPath = path.join(__dirname, 'landing-dist');
+if (fs.existsSync(landingDistPath)) {
+    app.use((req, res, next) => {
+        // Se for app subdomain e for a rota raiz, não servir index.html da landing
+        if (req.isAppSubdomain && (req.path === '/' || req.path === '')) {
+            return next();
+        }
+        // Para outros casos (landing domain ou assets), servir arquivos estáticos
+        express.static(landingDistPath, {
+            setHeaders: (res, path) => {
+                if (path.endsWith('.html')) {
+                    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+                    res.setHeader('Pragma', 'no-cache');
+                    res.setHeader('Expires', '0');
+                }
+            }
+        })(req, res, next);
+    });
+}
 
 // Middleware para proteger arquivos HTML da aplicação (só no subdomínio app)
 // Arquivos da aplicação: dashboard.html, la-casa-dark-core-auth.html, etc.
@@ -553,6 +592,21 @@ app.get('/termos-de-uso', (req, res) => {
         }
     } else {
         res.sendFile(path.join(__dirname, 'terms.html'));
+    }
+});
+
+// Rota para dashboard (apenas no app subdomain)
+app.get('/dashboard', (req, res) => {
+    if (req.isAppSubdomain) {
+        const dashboardPath = path.join(__dirname, 'dashboard.html');
+        if (fs.existsSync(dashboardPath)) {
+            res.sendFile(dashboardPath);
+        } else {
+            res.status(404).send('Dashboard não encontrado');
+        }
+    } else {
+        // Se não for app subdomain, redirecionar para landing ou retornar 404
+        res.status(404).send('Not found');
     }
 });
 

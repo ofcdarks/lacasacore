@@ -6241,12 +6241,14 @@ Equipe La Casa Dark Core</textarea>
         document.addEventListener('DOMContentLoaded', (event) => {
         
             // URLs da API - Detecta automaticamente a porta do backend
-            // Se estiver rodando no live-server (porta 5500) ou não estiver na porta 5001, usa o backend na porta 5001
+            // Detectar porta do backend automaticamente
             const currentPort = window.location.port;
-            const isBackendPort = currentPort === '5001' || currentPort === '';
+            // Usar a porta atual ou padrão 3000
+            const backendPort = currentPort || '3000';
+            const isBackendPort = currentPort === backendPort || currentPort === '';
             const API_BASE = isBackendPort 
                 ? '' 
-                : `http://${window.location.hostname}:5001`;
+                : `http://${window.location.hostname}:${backendPort}`;
             
             console.log('API_BASE configurado:', API_BASE, { currentPort, isBackendPort });
 
@@ -6263,6 +6265,13 @@ Equipe La Casa Dark Core</textarea>
 
             // Obter token de forma segura usando a função helper
             const userToken = safeLocalStorageGet('core_token');
+            
+            // Verificar autenticação no início
+            if (!userToken) {
+                console.warn('[AUTH] Token não encontrado. Redirecionando para login...');
+                window.location.href = '/la-casa-dark-core-auth.html';
+                return;
+            }
 
             let currentAnalysisData = {
                 videoId: null,
@@ -18014,6 +18023,11 @@ Equipe La Casa Dark Core</textarea>
 
             // Função para carregar saldo de créditos
             async function loadCreditsBalance() {
+                if (!userToken) {
+                    console.warn('[CRÉDITOS] Token não encontrado. Redirecionando para login...');
+                    window.location.href = '/la-casa-dark-core-auth.html';
+                    return;
+                }
                 try {
                     console.log('[CRÉDITOS] Carregando saldo de créditos...');
                     const response = await fetch(`${API_BASE}/api/credits/balance`, {
@@ -18063,6 +18077,11 @@ Equipe La Casa Dark Core</textarea>
             
             // Função para carregar plano atual do usuário
             async function loadCurrentPlan() {
+                if (!userToken) {
+                    console.warn('[PLANO] Token não encontrado. Redirecionando para login...');
+                    window.location.href = '/la-casa-dark-core-auth.html';
+                    return;
+                }
                 try {
                     console.log('[PLANO] Carregando plano atual...');
                     const response = await fetch(`${API_BASE}/api/user/permissions`, {

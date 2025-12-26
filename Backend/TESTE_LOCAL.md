@@ -1,23 +1,23 @@
 # Como Testar Localmente
 
-## Opção 1: Usando Query Parameter (Mais Simples)
+## Opção 1: Usando Query Parameter (Mais Simples) ⭐ RECOMENDADO
 
 ### Landing Page (Domínio Principal)
 ```
 http://localhost:3000/
 ```
-ou
+ou com force=landing:
 ```
-http://localhost:5001/
+http://localhost:3000/?force=landing
 ```
 
 ### App/Login (Subdomínio App)
 ```
+http://localhost:3000/?force=app
+```
+ou (alternativa):
+```
 http://localhost:3000/?subdomain=app
-```
-ou
-```
-http://localhost:5001/?subdomain=app
 ```
 
 ## Opção 2: Configurar Hosts Locais (Mais Realista)

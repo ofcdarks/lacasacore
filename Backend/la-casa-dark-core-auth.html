@@ -705,10 +705,12 @@
     <script>
         // URLs da API
         const currentPort = window.location.port;
-        const isBackendPort = currentPort === '5001' || currentPort === '';
+        // Usar a porta atual ou padrão 3000
+        const backendPort = currentPort || '3000';
+        const isBackendPort = currentPort === backendPort || currentPort === '';
         const API_BASE_URL = isBackendPort 
             ? '/api/auth' 
-            : `http://${window.location.hostname}:5001/api/auth`;
+            : `http://${window.location.hostname}:${backendPort}/api/auth`;
         
         // Seletores
         const loginForm = document.getElementById('login-form');
@@ -868,7 +870,8 @@
                 let errorMessage = error.message;
                 
                 if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                    errorMessage = 'Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta 5001.';
+                    const currentPort = window.location.port || '3000';
+                    errorMessage = `Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta ${currentPort}.`;
                 } else if (error.message.includes('Unexpected end of JSON input')) {
                     errorMessage = 'Erro na comunicação com o servidor.';
                 }
