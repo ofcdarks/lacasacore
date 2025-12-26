@@ -217,10 +217,19 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Rota de debug para ver todos os headers (DEVE estar ANTES dos middlewares estáticos)
 app.get('/debug-headers', (req, res) => {
+    // Executar middleware de detecção manualmente para esta rota
+    const hostHeader = req.get('host') || '';
+    const hostname = req.hostname || '';
+    const xForwardedHost = req.get('x-forwarded-host') || '';
+    const xOriginalHost = req.get('x-original-host') || '';
+    const xSubdomain = req.get('x-subdomain') || '';
+    
     const headers = {
-        host: req.get('host'),
-        hostname: req.hostname,
-        'x-forwarded-host': req.get('x-forwarded-host'),
+        host: hostHeader,
+        hostname: hostname,
+        'x-forwarded-host': xForwardedHost,
+        'x-original-host': xOriginalHost,
+        'x-subdomain': xSubdomain,
         'x-forwarded-for': req.get('x-forwarded-for'),
         'x-forwarded-proto': req.get('x-forwarded-proto'),
         referer: req.get('referer'),
@@ -233,7 +242,13 @@ app.get('/debug-headers', (req, res) => {
         query: req.query,
         isAppSubdomain: req.isAppSubdomain,
         isLandingDomain: req.isLandingDomain,
-        allHeaders: req.headers
+        allHeaders: req.headers,
+        recommendation: {
+            message: 'Para app.canaisdarks.com.br funcionar, configure no EasyPanel:',
+            option1: 'Adicionar header X-Subdomain: app para app.canaisdarks.com.br',
+            option2: 'Adicionar header X-Original-Host: app.canaisdarks.com.br para app.canaisdarks.com.br',
+            option3: 'Usar query parameter: ?force=app (solução temporária)'
+        }
     };
     res.json(headers);
 });
@@ -265,10 +280,64 @@ if (fs.existsSync(landingDistPath)) {
 
 // Middleware para detectar host e definir contexto (landing ou app)
 app.use((req, res, next) => {
+    // PRIORIDADE MÁXIMA: Query parameter force (sobrescreve tudo)
+    const forceApp = req.query.force === 'app' || req.query.subdomain === 'app';
+    const forceLanding = req.query.force === 'landing';
+    
+    // Se forceApp estiver presente, forçar app subdomain (ignorar detecção de host)
+    if (forceApp) {
+        req.isAppSubdomain = true;
+        req.isLandingDomain = false;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Query parameter force=app detectado - FORÇANDO app subdomain`);
+            req._hostLogged = true;
+        }
+        return next();
+    }
+    
+    // Se forceLanding estiver presente, forçar landing (ignorar detecção de host)
+    if (forceLanding) {
+        req.isAppSubdomain = false;
+        req.isLandingDomain = true;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Query parameter force=landing detectado - FORÇANDO landing domain`);
+            req._hostLogged = true;
+        }
+        return next();
+    }
+    
     // Obter host de múltiplas fontes (importante para proxy reverso como EasyPanel)
     const hostHeader = req.get('host') || '';
     const hostname = req.hostname || '';
     const xForwardedHost = req.get('x-forwarded-host') || '';
+    
+    // SOLUÇÃO PARA EASYPANEL: Verificar header customizado que EasyPanel pode passar
+    // EasyPanel pode configurar: X-Original-Host ou X-Subdomain
+    const xOriginalHost = req.get('x-original-host') || '';
+    const xSubdomain = req.get('x-subdomain') || '';
+    
+    // Se EasyPanel passar X-Subdomain=app, usar isso
+    if (xSubdomain.toLowerCase() === 'app') {
+        req.isAppSubdomain = true;
+        req.isLandingDomain = false;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Header X-Subdomain=app detectado - FORÇANDO app subdomain`);
+            req._hostLogged = true;
+        }
+        return next();
+    }
+    
+    // Se EasyPanel passar X-Original-Host com app.canaisdarks.com.br, usar isso
+    if (xOriginalHost.toLowerCase().includes('app.canaisdarks.com.br')) {
+        req.isAppSubdomain = true;
+        req.isLandingDomain = false;
+        if (!req._hostLogged) {
+            console.log(`[Host Detection] ⚡ Header X-Original-Host="${xOriginalHost}" detectado - FORÇANDO app subdomain`);
+            req._hostLogged = true;
+        }
+        return next();
+    }
+    
     const referer = req.get('referer') || '';
     const origin = req.get('origin') || '';
     const originalUrl = req.originalUrl || req.url || '';
@@ -289,7 +358,7 @@ app.use((req, res, next) => {
     
     // Priorizar x-forwarded-host se existir (proxy reverso)
     // Se não tiver, tentar referer/origin, depois hostHeader, depois hostname
-    let host = xForwardedHost || hostHeader || hostname || '';
+    let host = xOriginalHost || xForwardedHost || hostHeader || hostname || '';
     
     // Se host não contém "app." mas referer ou origin contém, usar esses
     if (!host.includes('app.') && (refererHost.includes('app.') || originHost.includes('app.'))) {
@@ -304,7 +373,7 @@ app.use((req, res, next) => {
     
     // Debug: logar informações do host (apenas primeira requisição para não poluir logs)
     if (!req._hostLogged) {
-        console.log(`[Host Detection] host="${host}", hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", hostWithoutPort="${hostWithoutPort}"`);
+        console.log(`[Host Detection] host="${host}", hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", xOriginalHost="${xOriginalHost}", xSubdomain="${xSubdomain}", hostWithoutPort="${hostWithoutPort}"`);
         console.log(`[Host Detection] referer="${referer}", origin="${origin}", refererHost="${refererHost}", originHost="${originHost}"`);
         req._hostLogged = true;
     }
@@ -336,30 +405,6 @@ app.use((req, res, next) => {
     else if (xForwardedHostLower === 'canaisdarks.com.br' || 
              xForwardedHostLower === 'www.canaisdarks.com.br') {
         isLandingDomainProd = true;
-    }
-    
-    // PRIORIDADE MÁXIMA: Query parameter force (sobrescreve tudo)
-    const forceApp = req.query.force === 'app' || req.query.subdomain === 'app';
-    const forceLanding = req.query.force === 'landing';
-    
-    // Se forceApp estiver presente, forçar app subdomain (ignorar detecção de host)
-    if (forceApp) {
-        req.isAppSubdomain = true;
-        req.isLandingDomain = false;
-        if (!req._hostLogged) {
-            console.log(`[Host Detection] ⚡ Query parameter force=app detectado - FORÇANDO app subdomain`);
-        }
-        return next();
-    }
-    
-    // Se forceLanding estiver presente, forçar landing (ignorar detecção de host)
-    if (forceLanding) {
-        req.isAppSubdomain = false;
-        req.isLandingDomain = true;
-        if (!req._hostLogged) {
-            console.log(`[Host Detection] ⚡ Query parameter force=landing detectado - FORÇANDO landing domain`);
-        }
-        return next();
     }
     
     // Em desenvolvimento: usar query parameter ou header
