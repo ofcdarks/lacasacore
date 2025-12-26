@@ -518,7 +518,7 @@ app.use((err, req, res, next) => {
 // Rota para redirecionar o acesso direto ao arquivo de autenticação (apenas no app)
 app.get('/la-casa-dark-core-auth.html', (req, res) => {
     if (req.isAppSubdomain) {
-        res.redirect('/');
+    res.redirect('/');
     } else {
         res.status(404).send('Not found');
     }
@@ -560,7 +560,7 @@ app.get('/', (req, res) => {
         } else {
             // Fallback: se não tiver landing page, servir app (para desenvolvimento)
             console.warn('[WARN] Landing page não encontrada, servindo app como fallback');
-            res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
+    res.sendFile(path.join(__dirname, 'la-casa-dark-core-auth.html'));
         }
     }
 });
@@ -1021,7 +1021,7 @@ function parseAIResponse(responseText, serviceName) {
         
         // Remover markdown code blocks se existirem
         cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
-
+        
         const sanitizeJsonString = (jsonString) => {
             if (!jsonString) return jsonString;
             let s = jsonString.trim();
@@ -1073,7 +1073,7 @@ function parseAIResponse(responseText, serviceName) {
         if (extractedArray) {
             try { return tryParse(extractedArray); } catch (_) {}
         }
-
+        
         // 3) Tentar parsear a string inteira (por último)
         try {
             return tryParse(cleanedText);
@@ -5583,6 +5583,11 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         await db.exec('PRAGMA temp_store = MEMORY;'); // Usar memória para temporários
 
         console.log(`✅ Conectado ao banco de dados em: ${dbPath}`);
+        console.log(`✅ Arquivo do banco existe: ${fs.existsSync(dbPath)}`);
+        const fileStats = fs.existsSync(dbPath) ? fs.statSync(dbPath) : null;
+        if (fileStats) {
+            console.log(`✅ Tamanho do banco: ${(fileStats.size / 1024 / 1024).toFixed(2)} MB`);
+        }
 
         // --- CRIAÇÃO DAS TABELAS ---
 
@@ -31421,11 +31426,17 @@ app.post('/api/analytics/update/:trackingId', authenticateToken, async (req, res
 app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     console.log(`[Analytics Dashboard] Requisição recebida para userId: ${userId}`);
+    console.log(`[Analytics Dashboard] dbReady: ${global.dbReady}, db existe: ${!!db}`);
 
     try {
         if (!db) {
             console.error('[Analytics Dashboard] Banco de dados não está disponível');
             return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        if (!global.dbReady) {
+            console.error('[Analytics Dashboard] Banco de dados ainda não está pronto');
+            return res.status(503).json({ msg: 'Banco de dados ainda não está pronto. Aguarde alguns instantes.' });
         }
 
         // Verificar se a tabela existe e tem dados
@@ -31447,7 +31458,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
             `);
             
             if (tableCheck) {
-                stats = await db.get(`
+                const result = await db.get(`
                     SELECT 
                         COUNT(*) as total_videos,
                         COALESCE(SUM(actual_views), 0) as total_views,
@@ -31458,9 +31469,17 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
                         COUNT(CASE WHEN actual_views >= 1000000 THEN 1 END) as viral_videos
                     FROM video_tracking
                     WHERE user_id = ?
-                `, [userId]) || stats;
+                `, [userId]);
+                
+                if (result) {
+                    stats = result;
+                    console.log(`[Analytics Dashboard] Stats encontrados para userId ${userId}:`, stats);
+                } else {
+                    console.log(`[Analytics Dashboard] Nenhum resultado retornado para userId ${userId}`);
+                }
+            } else {
+                console.log(`[Analytics Dashboard] Tabela video_tracking não existe ainda`);
             }
-            console.log(`[Analytics Dashboard] Stats encontrados:`, stats);
         } catch (dbErr) {
             console.error('[Analytics Dashboard] Erro ao buscar stats:', dbErr);
             // Manter valores padrão
@@ -31475,7 +31494,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
             `);
             
             if (tableCheck) {
-                recentVideos = await db.all(`
+                const videos = await db.all(`
                     SELECT vt.id, vt.youtube_video_id, vt.title_used, vt.actual_views, vt.actual_ctr, vt.revenue_estimate, 
                            vt.published_at, vt.tracked_at, vt.channel_id, uc.channel_name
                     FROM video_tracking vt
@@ -31483,9 +31502,13 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
                     WHERE vt.user_id = ?
                     ORDER BY COALESCE(vt.published_at, vt.tracked_at) DESC
                     LIMIT 50
-                `, [userId]) || [];
+                `, [userId]);
+                
+                recentVideos = videos || [];
+                console.log(`[Analytics Dashboard] Vídeos recentes encontrados para userId ${userId}:`, recentVideos.length);
+            } else {
+                console.log(`[Analytics Dashboard] Tabela video_tracking não existe para buscar vídeos recentes`);
             }
-            console.log(`[Analytics Dashboard] Vídeos recentes encontrados:`, recentVideos.length);
         } catch (dbErr) {
             console.error('[Analytics Dashboard] Erro ao buscar vídeos recentes:', dbErr);
             recentVideos = [];
@@ -36070,9 +36093,9 @@ app.get('/api/youtube/channels/:id/analytics', authenticateToken, async (req, re
             requestedMetrics.filter(m => !['impressions', 'impressionsCtr', 'averageViewDuration', 'averageViewPercentage'].includes(m)),
             ['views', 'estimatedMinutesWatched', 'subscribersGained', 'likes', 'comments', 'shares']
         ];
-
+        
         console.log(`[YouTube Analytics] Buscando métricas para canal ${channelId} de ${startDateStr} até ${endDateStr}`);
-
+        
         let analyticsData = null;
         let analyticsMeta = { usedMetrics: null, degraded: false };
         let lastAnalyticsError = null;
@@ -36178,10 +36201,10 @@ app.get('/api/youtube/channels/:id/analytics', authenticateToken, async (req, re
                 if (!videoDetailsResponse.ok) {
                     recentVideosError = { status: videoDetailsResponse.status, text: await videoDetailsResponse.text().catch(() => '') };
                 } else {
-                    const videoDetails = await videoDetailsResponse.json();
-                    videosData = videoDetails.items || [];
+                        const videoDetails = await videoDetailsResponse.json();
+                        videosData = videoDetails.items || [];
+                    }
                 }
-            }
         } catch (e) {
             recentVideosError = { status: 0, text: e.message };
         }

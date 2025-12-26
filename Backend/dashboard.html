@@ -3307,14 +3307,14 @@
                                             </p>
                                             <!-- Mantido para compatibilidade/uso interno -->
                                             <p id="analytics-summary-text" class="hidden">Carregando resumo...</p>
-                                        </div>
+                            </div>
                                         <div class="flex items-center gap-2 md:pt-1">
                                             <button onclick="loadChannelAnalytics()" class="py-2 px-4 bg-amber-600 hover:bg-amber-500 text-black rounded-lg font-semibold">
                                                 <i data-lucide="refresh-cw" class="w-4 h-4 inline mr-2"></i> Atualizar
                                             </button>
-                                        </div>
                                     </div>
                                 </div>
+                                    </div>
 
                                 <!-- Cards + gráfico (YouTube-like) -->
                                 <div class="bg-gray-950/40">
@@ -3323,12 +3323,12 @@
                                             <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Visualizações</p>
                                             <p id="analytics-total-views" class="text-3xl font-bold text-white">-</p>
                                             <p id="analytics-views-change" class="text-xs text-gray-500 mt-1">-</p>
-                                        </div>
+                                </div>
                                         <div class="p-5">
                                             <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Tempo de exibição</p>
                                             <p id="analytics-watch-time" class="text-3xl font-bold text-white">-</p>
                                             <p id="analytics-watch-time-change" class="text-xs text-gray-500 mt-1">-</p>
-                                        </div>
+                                    </div>
                                         <div class="p-5">
                                             <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Inscritos</p>
                                             <p id="analytics-subscribers-gained" class="text-3xl font-bold text-white">-</p>
@@ -3336,7 +3336,7 @@
                                             <!-- Mantido (total) -->
                                             <p class="text-[11px] text-gray-600 mt-2">Total: <span id="analytics-subscribers" class="text-gray-400">-</span></p>
                                             <p id="analytics-subscribers-change" class="hidden">-</p>
-                                        </div>
+                                </div>
                                         <div class="p-5">
                                             <p class="text-xs text-gray-400 uppercase tracking-wider mb-2">Receita estimada</p>
                                             <p id="analytics-estimated-revenue" class="text-3xl font-bold text-white">-</p>
@@ -3344,10 +3344,10 @@
                                             <div class="mt-2 text-[11px] text-gray-600 space-y-1">
                                                 <div>RPM: <span id="analytics-rpm" class="text-gray-400">-</span></div>
                                                 <div>Impressões (anúncios): <span id="analytics-ad-impressions" class="text-gray-400">-</span></div>
-                                            </div>
-                                        </div>
                                     </div>
-
+                                </div>
+                            </div>
+                            
                                     <div class="p-6">
                                         <div class="flex items-center justify-between mb-3">
                                             <p class="text-white font-semibold">Visualizações ao longo do tempo</p>
@@ -3358,12 +3358,12 @@
                                                 <button onclick="toggleChartType('bar')" class="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-white rounded chart-type-btn" data-type="bar">
                                                     <i data-lucide="bar-chart-2" class="w-4 h-4 inline"></i> Barras
                                                 </button>
-                                            </div>
-                                        </div>
+                                    </div>
+                                </div>
                                         <canvas id="analytics-chart" class="w-full" style="max-height: 320px;"></canvas>
                                     </div>
                                 </div>
-                            </div>
+                                    </div>
 
                             <!-- Breakdowns (fontes/paises) -->
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -3380,12 +3380,12 @@
                                     </div>
                                 </div>
                             </div>
-
+                            
                             <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
                                 <h3 class="text-white font-semibold mb-3">🧠 Insights Acionáveis (para ficar na frente)</h3>
                                 <div id="analytics-action-insights" class="space-y-2">
                                     <p class="text-gray-400 text-sm">Carregando...</p>
-                                </div>
+                                    </div>
                             </div>
                             
                             <!-- Métricas de Engajamento -->
@@ -6906,7 +6906,7 @@ Equipe La Casa Dark Core</textarea>
                 showCustomModal(title, message, 'info');
                 // Fechar automaticamente em sucessos (mantém UX ágil)
                 if (type === 'success') {
-                    setTimeout(() => {
+                setTimeout(() => {
                         const modal = document.getElementById('custom-modal');
                         if (modal && modal.style.display !== 'none') modal.style.display = 'none';
                     }, Math.max(800, duration));
@@ -18466,10 +18466,10 @@ Equipe La Casa Dark Core</textarea>
                         if (statAvgRpm) statAvgRpm.textContent = '$' + (rpm || 0).toFixed(2);
                     } else {
                         // fallback: dashboard interno
-                        if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
-                        if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
-                        if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
-                        if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
+                    if (statTotalVideos) statTotalVideos.textContent = formatNumber(data.stats.totalVideos || 0);
+                    if (statTotalViews) statTotalViews.textContent = formatNumber(data.stats.totalViews || 0);
+                    if (statTotalRevenue) statTotalRevenue.textContent = '$' + formatNumber(Math.round(data.stats.totalRevenue || 0));
+                    if (statViralVideos) statViralVideos.textContent = formatNumber(data.stats.viralVideos || 0);
                     }
                     
                     // Atualizar status dos cards
@@ -18502,14 +18502,14 @@ Equipe La Casa Dark Core</textarea>
                     
                     // (métricas adicionais são preenchidas acima quando ytData existe; se não, já vem do interno)
                     if (!ytData?.analytics?.rows?.length) {
-                        const statAvgCtr = document.getElementById('stat-avg-ctr');
-                        const statTotalLikes = document.getElementById('stat-total-likes');
-                        const statTotalComments = document.getElementById('stat-total-comments');
-                        const statAvgRpm = document.getElementById('stat-avg-rpm');
-                        if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
-                        if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
-                        if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
-                        if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
+                    const statAvgCtr = document.getElementById('stat-avg-ctr');
+                    const statTotalLikes = document.getElementById('stat-total-likes');
+                    const statTotalComments = document.getElementById('stat-total-comments');
+                    const statAvgRpm = document.getElementById('stat-avg-rpm');
+                    if (statAvgCtr) statAvgCtr.textContent = (data.stats.avgCtr || 0).toFixed(1) + '%';
+                    if (statTotalLikes) statTotalLikes.textContent = formatNumber(data.stats.totalLikes || 0);
+                    if (statTotalComments) statTotalComments.textContent = formatNumber(data.stats.totalComments || 0);
+                    if (statAvgRpm) statAvgRpm.textContent = '$' + (data.stats.rpmUSD || 0).toFixed(2);
                     }
                     
                     // Carregar vídeos recentes
@@ -18524,7 +18524,7 @@ Equipe La Casa Dark Core</textarea>
                         }));
                         loadRecentVideos(mapped);
                     } else {
-                        loadRecentVideos(data.recentVideos || []);
+                    loadRecentVideos(data.recentVideos || []);
                     }
                     
                     // Carregar atividade recente
@@ -22134,7 +22134,7 @@ Equipe La Casa Dark Core</textarea>
                         throw new Error(errData.msg || 'Erro ao excluir títulos selecionados.');
                     }
                     const data = await resp.json().catch(() => ({}));
-                    await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
+                        await loadBibliotecaTitles(currentBibliotecaPage, currentBibliotecaLimit);
                     const selectAll = document.getElementById('select-all-titles');
                     if (selectAll) selectAll.checked = false;
                     updateBibliotecaSelection();
@@ -23641,9 +23641,9 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-start justify-between gap-3">
                                         <div class="flex-1 min-w-0">
                                             <h3 class="text-white font-semibold truncate">${escapeHtml(post.title || 'Sem título')}</h3>
-                                            <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
-                                            <p class="text-gray-400 text-sm">Status: <span class="px-2 py-1 text-xs rounded ${post.status === 'published' ? 'bg-green-600' : post.status === 'failed' ? 'bg-red-600' : 'bg-yellow-600'}">${escapeHtml(post.status || 'pending')}</span></p>
-                                            ${post.description ? `<p class="text-gray-500 text-xs mt-2 line-clamp-2">${escapeHtml(post.description)}</p>` : ''}
+                                    <p class="text-gray-400 text-sm">Agendado para: ${post.scheduled_time ? new Date(post.scheduled_time).toLocaleString('pt-BR') : 'N/A'}</p>
+                                    <p class="text-gray-400 text-sm">Status: <span class="px-2 py-1 text-xs rounded ${post.status === 'published' ? 'bg-green-600' : post.status === 'failed' ? 'bg-red-600' : 'bg-yellow-600'}">${escapeHtml(post.status || 'pending')}</span></p>
+                                    ${post.description ? `<p class="text-gray-500 text-xs mt-2 line-clamp-2">${escapeHtml(post.description)}</p>` : ''}
                                         </div>
                                         <div class="flex items-center gap-2 flex-shrink-0">
                                             <button onclick="deleteScheduledPost(${post.id})" class="py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition duration-300" title="Excluir agendamento">
