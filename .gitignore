@@ -1,6 +1,19 @@
 node_modules/
 *.db
+*.db-shm
+*.db-wal
 .env
 logs/
 temp/
 Backend/temp_audio/
+# Chaves e segredos
+Backend/data/git_key
+Backend/data/*_key
+Backend/data/*.pem
+Backend/data/*.key
+**/git_key
+**/*_key
+**/*.pem
+**/*.key
+**/secrets/
+**/.secrets/
