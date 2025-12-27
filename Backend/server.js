@@ -3042,6 +3042,20 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
     }
     const totalTokens = promptTokens + estimatedOutputTokens;
     
+    // Se modelo não fornecido, usar 'gpt-4o' apenas como último recurso
+    // Mas preferir extrair do details se disponível
+    let modelToUse = model;
+    if (!modelToUse && details) {
+        try {
+            const detailsObj = typeof details === 'string' ? JSON.parse(details) : details;
+            modelToUse = detailsObj?.model || detailsObj?.selectedModel;
+        } catch (e) {
+            // Ignorar erro de parsing
+        }
+    }
+    // Último fallback: usar 'gpt-4o' apenas se realmente não houver modelo
+    modelToUse = modelToUse || 'gpt-4o';
+    
     // Debitar créditos ANTES da chamada se userId fornecido
     // IMPORTANTE: Esta função só deve ser chamada quando realmente deve usar créditos
     // A verificação de preferência já foi feita em getPreferredAIProvider
@@ -3062,7 +3076,7 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                     laozhangProviderId,
                     totalTokens,
                     operationType,
-                    details || JSON.stringify({ model: modelToUse || model || 'gpt-4o', service: 'laozhang' })
+                    details || JSON.stringify({ model: modelToUse, service: 'laozhang' })
                 );
                 console.log(`[API] 💰 Créditos debitados: ${creditDebitResult.creditsUsed.toFixed(4)}, Novo saldo: ${creditDebitResult.newBalance.toFixed(4)}`);
             }
@@ -3075,20 +3089,6 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
             // Se for outro erro, continuar mas logar
         }
     }
-    
-    // Se modelo não fornecido, usar 'gpt-4o' apenas como último recurso
-    // Mas preferir extrair do details se disponível
-    let modelToUse = model;
-    if (!modelToUse && details) {
-        try {
-            const detailsObj = typeof details === 'string' ? JSON.parse(details) : details;
-            modelToUse = detailsObj?.model || detailsObj?.selectedModel;
-        } catch (e) {
-            // Ignorar erro de parsing
-        }
-    }
-    // Último fallback: usar 'gpt-4o' apenas se realmente não houver modelo
-    modelToUse = modelToUse || 'gpt-4o';
     
     // Log do modelo que será usado na API
     console.log(`[callLaozhangAPI] 🎯 Enviando requisição para API com modelo: "${modelToUse}"`);
@@ -4478,6 +4478,142 @@ async function shouldUseCredits(userId, services = ['claude', 'openai', 'gemini'
 /**
  * Verifica e debita créditos do usuário
  */
+// GET /api/credits/estimate - Estimar custo de créditos para uma operação
+app.post('/api/credits/estimate', authenticateToken, async (req, res) => {
+    try {
+        const { operationType, model, details } = req.body;
+        
+        if (!operationType) {
+            return res.status(400).json({ message: 'operationType é obrigatório.' });
+        }
+        
+        const credits = calculateCreditsForOperation(operationType, model, details);
+        
+        res.json({ 
+            success: true, 
+            credits: Math.ceil(credits),
+            operation: operationType,
+            model: model || 'padrão'
+        });
+    } catch (err) {
+        console.error('[CREDITS] Erro ao estimar créditos:', err.message);
+        res.status(500).json({ message: 'Erro ao estimar créditos.' });
+    }
+});
+
+/**
+ * TABELA OFICIAL DE CONSUMO DE CRÉDITOS (Modelo Final)
+ */
+const CREDIT_PRICING = {
+    // 🧠 TÍTULOS & ANÁLISES
+    TITLE_ANALYSIS: { base: 6, gemini: 7, claude: 9 },
+    TITLE_ANALYSIS_MULTIMODAL: { base: 15, gemini: 18, claude: 21 },
+    EXPLORE_NICHE: { base: 6, gemini: 7, claude: 9 },
+    ANALYZE_COMPETITOR: { base: 6, gemini: 7, claude: 9 },
+    CHANNEL_ANALYSIS: { base: 5, gemini: 6, claude: 7 },
+    
+    // 🎬 VÍDEO & ROTEIRO
+    READY_VIDEO: { base: 10, gemini: 12, claude: 15 },
+    SCRIPT_PER_MINUTE: { base: 2, gemini: 2.4, claude: 2.8 }, // Base 2/min (GPT)
+    
+    // 🖼️ IMAGENS & CENAS
+    IMAGE_PROMPT: { base: 1, gemini: 2, claude: 3 },
+    IMAGE_BATCH_10: { base: 10, gemini: 20, claude: 30 },
+    
+    // 🧩 OUTROS RECURSOS
+    TRANSCRIPTION_BASE: { base: 2, gemini: 3, claude: 4 }, // Até 10 min
+    FORMULA_ANALYSIS_AGENT: { base: 10, gemini: 12, claude: 14 }
+};
+
+/**
+ * Calcula créditos baseados no modelo e ferramenta
+ */
+function calculateCreditsForOperation(operationType, model, details) {
+    const modelLower = String(model || '').toLowerCase();
+    const isClaude = modelLower.includes('claude');
+    const isGemini = modelLower.includes('gemini');
+    const modelKey = isClaude ? 'claude' : (isGemini ? 'gemini' : 'base');
+    
+    let baseCredits = 0;
+    const detailsObj = typeof details === 'string' ? JSON.parse(details || '{}') : (details || {});
+
+    // Mapeamento de Operation Type para Tabela de Preços
+    switch (operationType) {
+        case '/api/analyze/titles':
+        case '/api/analyze/titles/laozhang':
+            baseCredits = CREDIT_PRICING.TITLE_ANALYSIS[modelKey];
+            break;
+        case '/api/analyze/titles/multimodal':
+            // Dividir por 3 pois são 3 chamadas em paralelo
+            // Meta total: GPT: 15, Gemini: 18, Claude: 21
+            baseCredits = CREDIT_PRICING.TITLE_ANALYSIS_MULTIMODAL[modelKey] / 3;
+            break;
+        case '/api/niche/find-subniche':
+        case '/api/niche/find-subniche/laozhang':
+        case 'api_niche_find_subniche':
+            baseCredits = CREDIT_PRICING.EXPLORE_NICHE[modelKey];
+            break;
+        case '/api/niche/analyze-competitor':
+        case '/api/niche/analyze-competitor/laozhang':
+        case 'api_niche_analyze_competitor':
+            baseCredits = CREDIT_PRICING.ANALYZE_COMPETITOR[modelKey];
+            break;
+        case '/api/youtube/channels/:id/reanalyze-niche':
+        case '/api/youtube/channels/:id/insights':
+            baseCredits = CREDIT_PRICING.CHANNEL_ANALYSIS[modelKey];
+            break;
+        case 'api_video_generation':
+            baseCredits = CREDIT_PRICING.READY_VIDEO[modelKey];
+            break;
+        case '/api/generate/scene-prompts':
+        case '/api/generate/scene-prompts/laozhang':
+            // Prompt de imagem por cena ou pacote
+            const scenes = detailsObj.estimatedScenes || 1;
+            if (scenes >= 10) {
+                // Pacote de 10 cenas (proporcional ao pacote de 10)
+                baseCredits = (scenes / 10) * CREDIT_PRICING.IMAGE_BATCH_10[modelKey];
+            } else {
+                baseCredits = scenes * CREDIT_PRICING.IMAGE_PROMPT[modelKey];
+            }
+            break;
+        case 'api_image_generation':
+        case '/api/generate/imagefx':
+        case '/api/generate/imagefx/batch':
+            const count = detailsObj.count || 1;
+            baseCredits = count * CREDIT_PRICING.IMAGE_PROMPT[modelKey];
+            break;
+        case '/api/script-agents/:agentId/generate':
+        case '/api/script-agents/:agentId/generate/laozhang':
+        case 'api_script_agents_generate':
+            // Roteiro por minuto
+            const duration = detailsObj.duration || 5;
+            baseCredits = duration * CREDIT_PRICING.SCRIPT_PER_MINUTE[modelKey];
+            break;
+        case 'api_transcript_analyze':
+        case '/api/video/transcript/analyze':
+        case '/api/video/transcript/analyze/laozhang':
+            // Transcrição base (até 10 min)
+            const videoDuration = detailsObj.durationMinutes || 10;
+            const mult = Math.max(1, Math.ceil(videoDuration / 10));
+            baseCredits = mult * CREDIT_PRICING.TRANSCRIPTION_BASE[modelKey];
+            break;
+        case '/api/script-agents/create':
+        case '/api/script-agents/create/laozhang':
+        case 'api_script_agents_create':
+            baseCredits = CREDIT_PRICING.FORMULA_ANALYSIS_AGENT[modelKey];
+            break;
+        default:
+            // Fallback para ferramentas genéricas (base + regra de multiplicador)
+            const fallbackBase = 5;
+            if (isClaude) baseCredits = fallbackBase * 1.4;
+            else if (isGemini) baseCredits = fallbackBase * 1.2;
+            else baseCredits = fallbackBase;
+    }
+
+    // Regra de ouro: Arredondar sempre para cima (proteção de margem)
+    return Math.ceil(baseCredits);
+}
+
 const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operationType = 'api_call', details = null) => {
     try {
         // Obter informações da API
@@ -4504,7 +4640,18 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
         }
 
         // Calcular créditos necessários
-        const creditsNeeded = (unitsConsumed / apiProvider.unit_size) * creditsPerUnit;
+        let creditsNeeded = (unitsConsumed / apiProvider.unit_size) * creditsPerUnit;
+
+        // REGRA ESPECIAL: Se for Laozhang.ai, usar tabela fixa de preços por ferramenta
+        if (apiProvider.name === 'Laozhang.ai' || apiProviderId === await getLaozhangApiProviderId()) {
+            const detailsObj = typeof details === 'string' ? JSON.parse(details || '{}') : (details || {});
+            const model = detailsObj.model || detailsObj.selectedModel || 'gpt-4o';
+            creditsNeeded = calculateCreditsForOperation(operationType, model, details);
+            console.log(`💳 [Laozhang] Usando nova tabela de preços para ${operationType} (${model}): ${creditsNeeded} créditos`);
+        }
+
+        // GARANTIR: Créditos sempre inteiros (sem decimais quebrados)
+        creditsNeeded = Math.ceil(creditsNeeded);
 
         // Verificar saldo
         let userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
@@ -4515,12 +4662,15 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             userCredits = { balance: 0 };
         }
 
-        if (userCredits.balance < creditsNeeded) {
-            throw new Error(`Créditos insuficientes. Necessário: ${creditsNeeded.toFixed(2)}, Disponível: ${userCredits.balance.toFixed(2)}`);
+        // Arredondar saldo atual para cima (garantir valor cheio)
+        const currentBalance = Math.ceil(userCredits.balance);
+
+        if (currentBalance < creditsNeeded) {
+            throw new Error(`Créditos insuficientes. Necessário: ${creditsNeeded}, Disponível: ${currentBalance}`);
         }
 
-        // Debitar créditos
-        const newBalance = userCredits.balance - creditsNeeded;
+        // Debitar créditos - sempre valor cheio (arredondado para cima)
+        const newBalance = Math.ceil(currentBalance - creditsNeeded);
         await db.run(`
             UPDATE user_credits 
             SET balance = ?, updated_at = CURRENT_TIMESTAMP 
@@ -4549,14 +4699,16 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             'viral_agent': 'Agente Viral',
             
             // ===== GERADOR DE VÍDEO =====
-            'api_video_generation': 'Gerador de Vídeo',
+            'api_video_generation': 'Vídeo pronto',
             
             // ===== GERAÇÃO DE VOZ (TTS) =====
             'api_tts_generation': 'Geração de Voz',
             'api_tts_preview': 'Preview de Voz',
             
             // ===== GERAÇÃO DE IMAGEM =====
-            'api_image_generation': 'Geração de Imagem',
+            'api_image_generation': 'Prompt de imagem',
+            '/api/generate/imagefx': 'Prompt de imagem',
+            '/api/generate/imagefx/batch': 'Prompt de imagem',
             
             // ===== GERADOR DE THUMBNAIL =====
             'api_analyze_thumbnail': 'Gerador de Thumbnail',
@@ -4564,12 +4716,13 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             '/api/analyze/thumbnail/laozhang': 'Gerador de Thumbnail',
             
             // ===== GERADOR DE CENAS =====
-            '/api/generate/scene-prompts': 'Gerador de Cenas',
-            '/api/generate/scene-prompts/laozhang': 'Gerador de Cenas',
+            '/api/generate/scene-prompts': 'Prompt de imagem',
+            '/api/generate/scene-prompts/laozhang': 'Prompt de imagem',
             
             // ===== ANÁLISE DE TÍTULOS =====
-            '/api/analyze/titles': 'Análise de Títulos',
-            '/api/analyze/titles/laozhang': 'Análise de Títulos',
+            '/api/analyze/titles': 'Análise de título',
+            '/api/analyze/titles/laozhang': 'Análise de título',
+            '/api/analyze/titles/multimodal': 'Análise de títulos multimodal',
             
             // ===== DETECÇÃO DE PERSONAGENS =====
             'api_detect_characters': 'Detecção de Personagens',
@@ -4577,18 +4730,18 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             '/api/detect/characters/laozhang': 'Detecção de Personagens',
             
             // ===== BUSCA DE SUBNICHO =====
-            'api_niche_find_subniche': 'Busca de Subnicho',
-            '/api/niche/find-subniche': 'Busca de Subnicho',
-            '/api/niche/find-subniche/laozhang': 'Busca de Subnicho',
+            'api_niche_find_subniche': 'Explorar nicho',
+            '/api/niche/find-subniche': 'Explorar nicho',
+            '/api/niche/find-subniche/laozhang': 'Explorar nicho',
             
             // ===== ANÁLISE DE COMPETIDOR =====
-            'api_niche_analyze_competitor': 'Análise de Competidor',
-            '/api/niche/analyze-competitor': 'Análise de Competidor',
-            '/api/niche/analyze-competitor/laozhang': 'Análise de Competidor',
+            'api_niche_analyze_competitor': 'Analisar concorrente',
+            '/api/niche/analyze-competitor': 'Analisar concorrente',
+            '/api/niche/analyze-competitor/laozhang': 'Analisar concorrente',
             
             // ===== CRIAÇÃO DE AGENTE =====
-            '/api/script-agents/create': 'Criação de Agente',
-            '/api/script-agents/create/laozhang': 'Criação de Agente',
+            '/api/script-agents/create': 'Análise de fórmula de roteiro + criação de agente',
+            '/api/script-agents/create/laozhang': 'Análise de fórmula de roteiro + criação de agente',
             
             // ===== REESCREVER PROMPT =====
             'api_rewrite_prompt': 'Reescrever Prompt',
@@ -4596,12 +4749,14 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
             '/api/rewrite/blocked-prompt/laozhang': 'Reescrever Prompt',
             
             // ===== ANÁLISE DE TRANSCRIÇÃO =====
-            'api_transcript_analyze': 'Análise de Transcrição',
-            '/api/video/transcript/analyze': 'Análise de Transcrição',
-            '/api/video/transcript/analyze/laozhang': 'Análise de Transcrição',
+            'api_transcript_analyze': 'Transcrição de vídeo',
+            '/api/video/transcript/analyze': 'Transcrição de vídeo',
+            '/api/video/transcript/analyze/laozhang': 'Transcrição de vídeo',
             
             // ===== GERADOR DE METADADOS YOUTUBE =====
             '/api/youtube/generate-metadata': 'Gerador de Metadados YouTube',
+            '/api/youtube/channels/:id/reanalyze-niche': 'Análise de canal',
+            '/api/youtube/channels/:id/insights': 'Análise de canal',
             
             // ===== GENÉRICOS (fallback) =====
             'api_generation': 'Geração de Conteúdo',
@@ -6310,12 +6465,12 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         // Inicializar créditos padrão dos planos
         const defaultPlanCredits = {
             'plan-free': 100,
-            'plan-start': 1000,
-            'plan-turbo': 2500,
-            'plan-master': 5000,
-            'plan-start-annual': 1000, // Mensal (12.000/12)
-            'plan-turbo-annual': 2500, // Mensal (30.000/12)
-            'plan-master-annual': 5000 // Mensal (60.000/12)
+            'plan-start': 800,
+            'plan-turbo': 1600,
+            'plan-master': 2400,
+            'plan-start-annual': 800, // 9.600/12
+            'plan-turbo-annual': 1600, // 19.200/12
+            'plan-master-annual': 2400 // 28.800/12
         };
         
         for (const [plan, credits] of Object.entries(defaultPlanCredits)) {
@@ -8667,12 +8822,16 @@ app.get('/api/credits/balance', authenticateToken, async (req, res) => {
         `, [req.user.id]);
         const additionalCreditsAmount = additionalCredits?.total || 0;
         
-        console.log('[CRÉDITOS API] Saldo encontrado:', credits.balance);
-        console.log('[CRÉDITOS API] Créditos adicionais:', additionalCreditsAmount);
+        // Sempre retornar valores inteiros (sem decimais quebrados)
+        const balanceInt = Math.ceil(credits.balance);
+        const additionalCreditsInt = Math.ceil(additionalCreditsAmount);
+        
+        console.log('[CRÉDITOS API] Saldo encontrado:', credits.balance, '→ Arredondado:', balanceInt);
+        console.log('[CRÉDITOS API] Créditos adicionais:', additionalCreditsAmount, '→ Arredondado:', additionalCreditsInt);
         console.log('[CRÉDITOS API] Armazenamento - Usado:', (storageUsed / (1024*1024)).toFixed(2), 'MB, Limite:', (storageLimit / (1024*1024*1024)).toFixed(2), 'GB, isAdmin:', isAdmin);
         res.json({ 
-            balance: credits.balance,
-            additionalCredits: additionalCreditsAmount,
+            balance: balanceInt,
+            additionalCredits: additionalCreditsInt,
             storageUsed: storageUsed,
             storageLimit: storageLimit,
             plan: userPlan,
@@ -11166,12 +11325,12 @@ app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res)
                 if (usersWithPlans && usersWithPlans.length > 0) {
                     // Mapear planos para valores mensais (ajuste conforme seus preços reais)
                     const planPrices = {
-                        'plan-start': 97.00,
-                        'plan-turbo': 197.00,
-                        'plan-master': 297.00,
-                        'plan-start-annual': 970.00 / 12, // Preço anual dividido por 12
-                        'plan-turbo-annual': 1970.00 / 12,
-                        'plan-master-annual': 2970.00 / 12
+                        'plan-start': 79.90,
+                        'plan-turbo': 99.90,
+                        'plan-master': 149.90,
+                        'plan-start-annual': 699.00 / 12, // Preço anual dividido por 12
+                        'plan-turbo-annual': 999.00 / 12,
+                        'plan-master-annual': 1499.00 / 12
                     };
                     
                     const planNames = {
@@ -25698,7 +25857,11 @@ ROTEIRO COMPLETO:
             null,
             userId,
             'api_transcript_analyze',
-            JSON.stringify({ endpoint: '/api/video/transcript/analyze/laozhang', model: modelToUse })
+            JSON.stringify({ 
+                endpoint: '/api/video/transcript/analyze/laozhang', 
+                model: modelToUse,
+                durationMinutes: Math.ceil(sanitizedTranscript.split(/\s+/).length / 150) // Estimativa: 150 palavras/min
+            })
         );
 
         // Parsear resposta JSON
@@ -28225,7 +28388,11 @@ AGORA, CRIE O ROTEIRO COMPLETO COM TODAS AS ${numberOfParts} PARTES (SEM MARCAÇ
             null,
             userId,
             'api_script_agents_generate',
-            JSON.stringify({ endpoint: '/api/script-agents/:agentId/generate/laozhang', model: laozhangModel })
+            JSON.stringify({ 
+                endpoint: '/api/script-agents/:agentId/generate/laozhang', 
+                model: laozhangModel,
+                duration: scriptDuration
+            })
         );
         
         clearInterval(progressInterval);

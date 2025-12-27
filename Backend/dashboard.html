@@ -820,6 +820,25 @@
                 max-width: calc(100% - 20px);
             }
         }
+
+        .credit-cost-badge {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #f59e0b;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 8px;
+        }
+        
+        .credit-cost-badge i {
+            width: 12px;
+            height: 12px;
+        }
     </style>
 </head>
 <body class="bg-black text-gray-300">
@@ -1302,7 +1321,10 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <!-- Motor de IA -->
                             <div>
-                                <label for="model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
+                                <label for="model-select" class="block text-sm font-medium mb-2 flex items-center">
+                                    Motor de IA
+                                    <span id="titles-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                </label>
                                 <select id="model-select" name="model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="all">Comparar (Multimodal)</option>
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
@@ -1618,7 +1640,10 @@
                                 </div>
                             </div>
                             <div>
-                                <label for="niche-model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
+                                <label for="niche-model-select" class="block text-sm font-medium mb-2 flex items-center">
+                                    Motor de IA
+                                    <span id="niche-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                </label>
                                 <select id="niche-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
                                     <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
@@ -1648,7 +1673,10 @@
                                 <input type="url" id="competitor-url" required placeholder="https://www.youtube.com/@canaldesucesso" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                             </div>
                              <div>
-                                <label for="competitor-model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
+                                <label for="competitor-model-select" class="block text-sm font-medium mb-2 flex items-center">
+                                    Motor de IA
+                                    <span id="competitor-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                </label>
                                 <select id="competitor-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
                                     <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
@@ -2496,7 +2524,10 @@
                                 </div>
                             </div>
                             <div>
-                                <label for="tts-provider-select" class="block text-sm font-medium text-gray-300 mb-2">Provedor de Voz</label>
+                                <label for="tts-provider-select" class="block text-sm font-medium text-gray-300 mb-2 flex items-center">
+                                    Provedor de Voz
+                                    <span id="tts-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                </label>
                                 <select id="tts-provider-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="laozhang" selected>DarkVoz (Padrão)</option>
                                     <option value="voice_premium">Voz Premium</option>
@@ -2862,7 +2893,10 @@
                             <div id="video-settings-panel" class="hidden space-y-4">
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-300 mb-2">Modelo</label>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2 flex items-center">
+                                            Modelo
+                                            <span id="video-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                        </label>
                                         <select id="video-model-select" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                             <option value="veo-3.1-fast" selected>Veo Fast</option>
                                             <option value="sora_video2-15s">Sora 2 - 15s (Portrait)</option>
@@ -3847,7 +3881,10 @@
                                 </select>
                             </div>
                             <div>
-                                <label for="scene-model-select" class="block text-sm font-medium text-gray-300 mb-2">Modelo de IA</label>
+                                <label for="scene-model-select" class="block text-sm font-medium text-gray-300 mb-2 flex items-center">
+                                    Modelo de IA
+                                    <span id="scene-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                </label>
                                 <select id="scene-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
                                     <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
@@ -5242,7 +5279,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">START CREATOR</h4>
-                                            <p class="text-sm text-gray-400">R$ 79,90 - 1.000 créditos/mês</p>
+                                            <p class="text-sm text-gray-400">R$ 79,90 - 800 créditos/mês</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5255,7 +5292,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">TURBO MAKER</h4>
-                                            <p class="text-sm text-gray-400">R$ 99,90 - 2.500 créditos/mês</p>
+                                            <p class="text-sm text-gray-400">R$ 99,90 - 1.600 créditos/mês</p>
                                         </div>
                                         <span class="px-3 py-1 text-xs font-semibold rounded-full bg-amber-500 text-black">MAIS POPULAR</span>
                                     </div>
@@ -5269,7 +5306,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">MASTER PRO</h4>
-                                            <p class="text-sm text-gray-400">R$ 149,90 - 5.000 créditos/mês</p>
+                                            <p class="text-sm text-gray-400">R$ 149,90 - 2.400 créditos/mês</p>
                                         </div>
                                         <span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-600 text-white">PRO</span>
                                     </div>
@@ -5289,7 +5326,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">START CREATOR ANUAL</h4>
-                                            <p class="text-sm text-gray-400">R$ 699,00 - 12.000 créditos/ano</p>
+                                            <p class="text-sm text-gray-400">R$ 699,00 - 9.600 créditos/ano</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5302,7 +5339,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">TURBO MAKER ANUAL</h4>
-                                            <p class="text-sm text-gray-400">R$ 999,00 - 30.000 créditos/ano</p>
+                                            <p class="text-sm text-gray-400">R$ 999,00 - 19.200 créditos/ano</p>
                                         </div>
                                         <span class="px-3 py-1 text-xs font-semibold rounded-full bg-amber-500 text-black">MAIS POPULAR</span>
                                     </div>
@@ -5316,7 +5353,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">MASTER PRO ANUAL</h4>
-                                            <p class="text-sm text-gray-400">R$ 1.499,00 - 60.000 créditos/ano</p>
+                                            <p class="text-sm text-gray-400">R$ 1.499,00 - 28.800 créditos/ano</p>
                                         </div>
                                         <span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-600 text-white">PRO</span>
                                     </div>
@@ -5336,7 +5373,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">1.000 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 79,90</p>
+                                            <p class="text-sm text-gray-400">R$ 99,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5349,7 +5386,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">2.500 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 99,90</p>
+                                            <p class="text-sm text-gray-400">R$ 149,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5362,7 +5399,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">5.000 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 149,90</p>
+                                            <p class="text-sm text-gray-400">R$ 249,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5375,7 +5412,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">10.000 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 249,90</p>
+                                            <p class="text-sm text-gray-400">R$ 399,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -5388,7 +5425,7 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex items-center justify-between mb-3">
                                         <div>
                                             <h4 class="font-semibold text-white">20.000 Créditos</h4>
-                                            <p class="text-sm text-gray-400">R$ 399,90</p>
+                                            <p class="text-sm text-gray-400">R$ 699,90</p>
                                         </div>
                                     </div>
                                     <div class="mt-3">
@@ -12075,6 +12112,9 @@ Equipe La Casa Dark Core</textarea>
                     activeView.classList.add('active');
                 }
 
+                // Inicializar estimativas de créditos para a view atual
+                initCreditEstimates();
+
                 // Ao entrar na tela de Prompts de Cenas, carregar histórico imediatamente
                 if (viewName === 'prompts-imagens') {
                     try {
@@ -12875,7 +12915,11 @@ Equipe La Casa Dark Core</textarea>
             // Atualizar info do modelo quando mudar seleção
             if (modelSelect && modelInfoText) {
                 modelSelect.addEventListener('change', async (e) => {
-                    if (e.target.value === 'all') {
+                    const selectedModel = e.target.value;
+                    const opType = selectedModel === 'all' ? '/api/analyze/titles/multimodal' : '/api/analyze/titles';
+                    updateCreditEstimate(opType, selectedModel, {}, 'titles-credit-estimate');
+
+                    if (selectedModel === 'all') {
                         // Verificar se usuário marcou preferência para usar créditos
                         try {
                             const prefsResponse = await fetch(`${API_BASE}/api/user/preferences`, {
@@ -13061,6 +13105,9 @@ Equipe La Casa Dark Core</textarea>
                     }
                     // Atualizar dashboard se estiver visível
                     refreshDashboardIfVisible();
+                    
+                    // Atualizar saldo de créditos em tempo real
+                    loadCreditsBalance();
 
                 } catch (error) {
                     console.error('Erro ao analisar vídeo:', error);
@@ -13226,7 +13273,10 @@ Equipe La Casa Dark Core</textarea>
                             <div class="mb-4">
                                 <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                     <h4 class="text-lg font-semibold text-white">📝 Transcrição Completa do Vídeo</h4>
-                                    <span class="text-xs text-gray-400">Cole o roteiro manualmente ou clique em "Carregar Transcrição"</span>
+                                    <div class="flex items-center gap-2">
+                                        <span id="agent-create-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                        <span class="text-xs text-gray-400">Cole o roteiro manualmente ou clique em "Carregar Transcrição"</span>
+                                    </div>
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Assim que o campo estiver preenchido, o botão "Criar Agente de Roteiro" será liberado automaticamente.</p>
                             </div>
@@ -18001,6 +18051,9 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Atualizar saldo de créditos em tempo real
+                    loadCreditsBalance();
 
                 } catch (err) {
                     showMessage('niche-error-message', err.message, true);
@@ -18197,6 +18250,9 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     `;
                     if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Atualizar saldo de créditos em tempo real
+                    loadCreditsBalance();
 
                 } catch (err) {
                     showMessage('niche-error-message', err.message, true);
@@ -18302,8 +18358,10 @@ Equipe La Casa Dark Core</textarea>
                     console.log('[CRÉDITOS] Saldo recebido:', data);
                     const creditsBalanceEl = document.getElementById('stat-credits-balance');
                     if (creditsBalanceEl) {
-                        creditsBalanceEl.textContent = parseFloat(data.balance || 0).toFixed(2);
-                        console.log('[CRÉDITOS] Saldo atualizado no elemento:', parseFloat(data.balance || 0).toFixed(2));
+                        // Sempre valor cheio (sem decimais quebrados)
+                        const balance = Math.ceil(parseFloat(data.balance || 0));
+                        creditsBalanceEl.textContent = balance;
+                        console.log('[CRÉDITOS] Saldo atualizado no elemento:', balance);
                     } else {
                         console.error('[CRÉDITOS] Elemento stat-credits-balance não encontrado!');
                     }
@@ -18332,7 +18390,9 @@ Equipe La Casa Dark Core</textarea>
                     // Atualizar também no sidebar se existir
                     const sidebarCreditsEl = document.getElementById('sidebar-user-credits-balance');
                     if (sidebarCreditsEl) {
-                        sidebarCreditsEl.textContent = parseFloat(data.balance || 0).toFixed(2);
+                        // Sempre valor cheio (sem decimais quebrados)
+                        const balance = Math.ceil(parseFloat(data.balance || 0));
+                        sidebarCreditsEl.textContent = balance;
                     }
                     
                     // Carregar armazenamento se disponível
@@ -18670,6 +18730,95 @@ Equipe La Casa Dark Core</textarea>
                 });
             }
             
+
+            // Função para estimar custo de créditos
+            async function updateCreditEstimate(operationType, model, details = {}, displayElementId) {
+                const displayElement = document.getElementById(displayElementId);
+                if (!displayElement) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/credits/estimate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({ operationType, model, details })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success) {
+                            displayElement.innerHTML = `<i data-lucide="zap"></i> Custo estimado: ${data.credits} créditos`;
+                            displayElement.style.display = 'inline-flex';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }
+                } catch (err) {
+                    console.error('[CREDITS] Erro ao buscar estimativa:', err);
+                }
+            }
+
+            // Inicializar estimativas ao carregar a visão
+            function initCreditEstimates() {
+                // Títulos
+                const titlesModel = document.getElementById('model-select')?.value;
+                if (titlesModel) {
+                    const opType = titlesModel === 'all' ? '/api/analyze/titles/multimodal' : '/api/analyze/titles';
+                    updateCreditEstimate(opType, titlesModel, {}, 'titles-credit-estimate');
+                }
+
+                // Nicho
+                const nicheModel = document.getElementById('niche-model-select')?.value;
+                if (nicheModel) updateCreditEstimate('/api/niche/find-subniche', nicheModel, {}, 'niche-credit-estimate');
+
+                // Concorrente
+                const compModel = document.getElementById('competitor-model-select')?.value;
+                if (compModel) updateCreditEstimate('/api/niche/analyze-competitor', compModel, {}, 'competitor-credit-estimate');
+
+                // Vídeo
+                const videoModel = document.getElementById('video-model-select')?.value;
+                if (videoModel) updateCreditEstimate('api_video_generation', videoModel, {}, 'video-credit-estimate');
+
+                // Cenas (já calcula dentro de calculateSceneEstimate quando há texto)
+                // Não precisa calcular aqui pois depende do número de cenas estimadas
+
+                // Criação de Agente (Fórmula)
+                updateCreditEstimate('/api/script-agents/create', 'gpt-4o', {}, 'agent-create-credit-estimate');
+
+                // TTS
+                updateTtsEstimate();
+            }
+
+            // Listeners para mudanças de modelo
+            document.getElementById('niche-model-select')?.addEventListener('change', (e) => {
+                updateCreditEstimate('/api/niche/find-subniche', e.target.value, {}, 'niche-credit-estimate');
+            });
+
+            document.getElementById('competitor-model-select')?.addEventListener('change', (e) => {
+                updateCreditEstimate('/api/niche/analyze-competitor', e.target.value, {}, 'competitor-credit-estimate');
+            });
+
+            document.getElementById('video-model-select')?.addEventListener('change', (e) => {
+                updateCreditEstimate('api_video_generation', e.target.value, {}, 'video-credit-estimate');
+            });
+
+            document.getElementById('scene-model-select')?.addEventListener('change', (e) => {
+                updateCreditEstimate('/api/generate/scene-prompts', e.target.value, {}, 'scene-credit-estimate');
+                calculateSceneEstimate(); // Recalcular com novo modelo
+            });
+
+            // TTS
+            const updateTtsEstimate = () => {
+                const provider = document.getElementById('tts-provider-select')?.value;
+                const script = document.getElementById('tts-script-input')?.value || '';
+                const wordCount = script.split(/\s+/).length;
+                const durationMinutes = Math.ceil(wordCount / 150); // Estimativa conservadora
+                updateCreditEstimate('api_transcript_analyze', provider, { durationMinutes }, 'tts-credit-estimate');
+            };
+
+            document.getElementById('tts-provider-select')?.addEventListener('change', updateTtsEstimate);
+            document.getElementById('tts-script-input')?.addEventListener('input', updateTtsEstimate);
 
             async function loadDashboard() {
                 try {
@@ -20489,7 +20638,9 @@ Equipe La Casa Dark Core</textarea>
                     modal.innerHTML = `
                         <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4">
                             <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-xl font-semibold text-white">Gerar Roteiro com Agente</h3>
+                                <span id="script-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
                                 <button id="close-generate-script-modal" class="text-gray-400 hover:text-white">
                                     <i data-lucide="x"></i>
                                 </button>
@@ -20580,6 +20731,17 @@ Equipe La Casa Dark Core</textarea>
                         modal.style.display = 'none';
                     });
                     
+                    // Atualizar estimativa de créditos
+                    const updateScriptEstimate = () => {
+                        const duration = document.getElementById('generate-script-duration')?.value || 5;
+                        const model = document.getElementById('generate-script-model')?.value;
+                        updateCreditEstimate('api_script_agents_generate', model, { duration }, 'script-credit-estimate');
+                    };
+
+                    document.getElementById('generate-script-model').addEventListener('change', updateScriptEstimate);
+                    document.getElementById('generate-script-duration').addEventListener('input', updateScriptEstimate);
+                    updateScriptEstimate();
+
                     // Atualizar partes quando a duração mudar
                     const durationInput = document.getElementById('generate-script-duration');
                     if (durationInput) {
@@ -23971,12 +24133,13 @@ Equipe La Casa Dark Core</textarea>
             let scenePromptsData = [];
             
             // Função para calcular estimativa de cenas
-            function calculateSceneEstimate() {
+            async function calculateSceneEstimate() {
                 const scriptText = document.getElementById('scene-script-text');
                 const modeSelect = document.getElementById('scene-generation-mode');
                 const wordsPerScene = document.getElementById('scene-words-per-scene');
                 const unitSelect = document.getElementById('scene-unit-select');
                 const estimateBox = document.getElementById('estimated-scenes-count');
+                const modelSelect = document.getElementById('scene-model-select');
                 
                 if (!scriptText || !modeSelect || !estimateBox) return;
                 
@@ -24005,6 +24168,12 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 estimateBox.textContent = `${estimatedScenes} cena${estimatedScenes !== 1 ? 's' : ''}`;
+                
+                // Calcular e atualizar custo estimado
+                const model = modelSelect?.value || 'gpt-4o';
+                if (estimatedScenes > 0) {
+                    updateCreditEstimate('/api/generate/scene-prompts', model, { estimatedScenes }, 'scene-credit-estimate');
+                }
             }
             
             // Contador de palavras e cálculo de estimativa
@@ -26797,6 +26966,9 @@ Equipe La Casa Dark Core</textarea>
                         
                         // Renderizar prompts
                         renderScenePrompts(scenePromptsData);
+                        
+                        // Atualizar saldo de créditos em tempo real
+                        loadCreditsBalance();
                         
                         // Mostrar seção de gerar imagens
                         const generateSection = document.getElementById('generate-all-images-section');
