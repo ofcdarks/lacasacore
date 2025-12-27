@@ -38,8 +38,9 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     python3 -m pip install --no-cache-dir --break-system-packages \
     opencv-python-headless timm
 
-# Definir caminho do Chromium para puppeteer
+# Definir caminho do Chromium para puppeteer e PULAR download automático do npm
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Diretório da aplicação
 WORKDIR /app
@@ -47,7 +48,7 @@ WORKDIR /app
 # Copiar package.json e package-lock.json
 COPY package*.json ./
 
-# Instalar dependências
+# Instalar dependências (sem baixar o Chrome novamente)
 RUN npm install --omit=dev
 
 # Copiar restante dos arquivos

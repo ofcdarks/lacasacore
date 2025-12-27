@@ -6530,7 +6530,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
         
         // Inicializar créditos padrão dos planos
         const defaultPlanCredits = {
-            'plan-free': 100,
+            'plan-free': 50,
             'plan-start': 800,
             'plan-turbo': 1600,
             'plan-master': 2400,
@@ -22480,84 +22480,120 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
         let scenesData;
         let rawResponse = response;
         
-        if (typeof response === 'string') {
+        // PRIMEIRO: Se a resposta é um objeto, verificar se tem propriedades que contêm JSON
+        if (typeof response === 'object' && response !== null) {
+            // Se tem propriedade 'titles' que é string, pode conter JSON
+            if (response.titles && typeof response.titles === 'string') {
+                console.log('[Scene Prompts] Resposta é objeto com propriedade titles, extraindo JSON...');
+                rawResponse = response.titles.trim();
+            }
+            // Se tem propriedade 'content' que é string, pode conter JSON
+            else if (response.content && typeof response.content === 'string') {
+                console.log('[Scene Prompts] Resposta é objeto com propriedade content, extraindo JSON...');
+                rawResponse = response.content.trim();
+            }
+            // Se já tem estrutura 'scenes' diretamente, usar diretamente
+            else if (response.scenes && Array.isArray(response.scenes)) {
+                console.log('[Scene Prompts] Resposta já tem estrutura scenes, usando diretamente...');
+                scenesData = response;
+                rawResponse = null; // Marcar como já processado
+            }
+            // Caso contrário, converter para string JSON
+            else {
+                rawResponse = JSON.stringify(response);
+            }
+        } else if (typeof response === 'string') {
             rawResponse = response.trim();
         } else {
-            rawResponse = JSON.stringify(response);
+            rawResponse = String(response);
         }
         
-        console.log('[Scene Prompts] Resposta bruta (primeiros 1000 chars):', rawResponse.substring(0, 1000));
-        
-        // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
-        // Primeiro, tentar verificar se há JSON válido na resposta
-        const hasValidJson = rawResponse.match(/\{[\s\S]*"scenes"[\s\S]*\}/) || rawResponse.match(/\{[\s\S]*"scene_number"[\s\S]*\}/);
-        
-        // Se não há JSON válido, verificar se é uma mensagem de erro da API
-        if (!hasValidJson) {
-            const errorPatterns = [
-                /^I'm sorry,?\s+I can't assist/i,
-                /^I'm sorry,?\s+I cannot/i,
-                /^I'm unable to assist/i,
-                /^I cannot fulfill/i,
-                /^I must decline/i,
-                /^I can't help with that/i,
-                /^I'm not able to/i,
-                /^This request violates/i,
-                /^I cannot comply/i
-            ];
+        // Se já processamos como objeto com scenes, pular o parsing
+        if (scenesData && scenesData.scenes) {
+            console.log('[Scene Prompts] ✅ Usando dados já processados do objeto de resposta');
+        } else if (rawResponse) {
+            console.log('[Scene Prompts] Resposta bruta (primeiros 1000 chars):', rawResponse.substring(0, 1000));
             
-            const trimmedResponse = rawResponse.trim();
-            const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+            // Verificar se a API recusou a requisição (apenas se for uma mensagem de erro clara, não JSON válido)
+            // Primeiro, tentar verificar se há JSON válido na resposta
+            const hasValidJson = rawResponse.match(/\{[\s\S]*"scenes"[\s\S]*\}/) || rawResponse.match(/\{[\s\S]*"scene_number"[\s\S]*\}/);
             
-            // Também verificar se é uma resposta muito curta (menos de 100 chars) que começa com mensagem de erro
-            if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
-                console.error('[Scene Prompts] API recusou a requisição:', rawResponse.substring(0, 500));
-                throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o roteiro ou remover conteúdo sensível. Resposta: ${rawResponse.substring(0, 500)}`);
+            // Se não há JSON válido, verificar se é uma mensagem de erro da API
+            if (!hasValidJson) {
+                const errorPatterns = [
+                    /^I'm sorry,?\s+I can't assist/i,
+                    /^I'm sorry,?\s+I cannot/i,
+                    /^I'm unable to assist/i,
+                    /^I cannot fulfill/i,
+                    /^I must decline/i,
+                    /^I can't help with that/i,
+                    /^I'm not able to/i,
+                    /^This request violates/i,
+                    /^I cannot comply/i
+                ];
+                
+                const trimmedResponse = rawResponse.trim();
+                const isError = errorPatterns.some(pattern => pattern.test(trimmedResponse));
+                
+                // Também verificar se é uma resposta muito curta (menos de 100 chars) que começa com mensagem de erro
+                if (isError || (trimmedResponse.length < 100 && trimmedResponse.toLowerCase().startsWith("i'm sorry"))) {
+                    console.error('[Scene Prompts] API recusou a requisição:', rawResponse.substring(0, 500));
+                    throw new Error(`A API de IA recusou processar o prompt. Isso pode acontecer se o conteúdo violar as políticas de uso da API. Tente simplificar o roteiro ou remover conteúdo sensível. Resposta: ${rawResponse.substring(0, 500)}`);
+                }
             }
-        }
-        
-        // Tentar parsear diretamente
-        try {
-            scenesData = JSON.parse(rawResponse);
-        } catch (e) {
-            console.log('[Scene Prompts] Tentativa 1 de parsing falhou, tentando extrair JSON...');
             
-            // Tentar extrair JSON usando regex mais robusto
-            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                try {
-                    scenesData = JSON.parse(jsonMatch[0]);
-                } catch (e2) {
-                    console.log('[Scene Prompts] Tentativa 2 de parsing falhou, tentando corrigir JSON...');
-                    
-                    // Tentar corrigir JSON comum (remover markdown, code blocks, etc)
-                    let cleanedJson = jsonMatch[0]
-                        .replace(/```json\s*/g, '')
-                        .replace(/```\s*/g, '')
-                        .replace(/^[^{]*/, '')
-                        .replace(/[^}]*$/, '');
-                    
+            // Tentar parsear diretamente
+            try {
+                scenesData = JSON.parse(rawResponse);
+            } catch (e) {
+                console.log('[Scene Prompts] Tentativa 1 de parsing falhou, tentando extrair JSON...');
+                
+                // Tentar extrair JSON usando regex mais robusto
+                // Primeiro, tentar encontrar JSON completo (pode estar dentro de markdown code blocks)
+                let jsonMatch = rawResponse.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+                if (!jsonMatch) {
+                    jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);
+                }
+                
+                if (jsonMatch) {
+                    const jsonStr = jsonMatch[1] || jsonMatch[0];
                     try {
-                        scenesData = JSON.parse(cleanedJson);
-                    } catch (e3) {
-                        console.log('[Scene Prompts] Tentativa 3 de parsing falhou, tentando extrair scenes diretamente...');
+                        scenesData = JSON.parse(jsonStr);
+                    } catch (e2) {
+                        console.log('[Scene Prompts] Tentativa 2 de parsing falhou, tentando corrigir JSON...');
                         
-                        // Última tentativa: procurar por "scenes" no texto
-                        const scenesMatch = rawResponse.match(/"scenes"\s*:\s*\[[\s\S]*\]/);
-                        if (scenesMatch) {
-                            try {
-                                scenesData = JSON.parse(`{${scenesMatch[0]}}`);
-                            } catch (e4) {
-                                console.error('[Scene Prompts] Erro no parsing:', e4.message);
-                                throw new Error(`Resposta da IA não contém JSON válido. Erro: ${e4.message}`);
+                        // Tentar corrigir JSON comum (remover markdown, code blocks, etc)
+                        let cleanedJson = jsonStr
+                            .replace(/```json\s*/g, '')
+                            .replace(/```\s*/g, '')
+                            .replace(/^[^{]*/, '')
+                            .replace(/[^}]*$/, '');
+                        
+                        // Remover possíveis chaves duplicadas no início
+                        cleanedJson = cleanedJson.replace(/^\s*\{\s*\{/, '{');
+                        
+                        try {
+                            scenesData = JSON.parse(cleanedJson);
+                        } catch (e3) {
+                            console.log('[Scene Prompts] Tentativa 3 de parsing falhou, tentando extrair scenes diretamente...');
+                            
+                            // Última tentativa: procurar por "scenes" no texto
+                            const scenesMatch = rawResponse.match(/"scenes"\s*:\s*\[[\s\S]*\]/);
+                            if (scenesMatch) {
+                                try {
+                                    scenesData = JSON.parse(`{${scenesMatch[0]}}`);
+                                } catch (e4) {
+                                    console.error('[Scene Prompts] Erro no parsing:', e4.message);
+                                    throw new Error(`Resposta da IA não contém JSON válido. Erro: ${e4.message}`);
+                                }
+                            } else {
+                                throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
                             }
-                        } else {
-                            throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
                         }
                     }
+                } else {
+                    throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
                 }
-            } else {
-                throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
             }
         }
 
@@ -23153,16 +23189,22 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
         } catch (e) {
             console.log('[Scene Prompts] Tentativa 1 de parsing falhou, tentando extrair JSON...');
             // Tentar extrair JSON usando regex (procurar por { ... } completo)
-            const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+            // Primeiro, tentar encontrar JSON completo (pode estar dentro de markdown code blocks)
+            let jsonMatch = rawResponse.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+            if (!jsonMatch) {
+                jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);
+            }
+            
             if (jsonMatch) {
                 try {
-                    let jsonStr = jsonMatch[0];
+                    let jsonStr = jsonMatch[1] || jsonMatch[0];
                     // Limpar mais caracteres problemáticos
                     jsonStr = jsonStr
                         .replace(/```json\s*/gi, '')
                         .replace(/```\s*/g, '')
                         .replace(/^[^{]*/, '')  // Remover texto antes do {
-                        .replace(/[^}]*$/, ''); // Remover texto depois do }
+                        .replace(/[^}]*$/, '')   // Remover texto depois do }
+                        .replace(/^\s*\{\s*\{/, '{'); // Remover chaves duplicadas no início
                     
                     scenesData = JSON.parse(jsonStr);
                 } catch (e2) {
