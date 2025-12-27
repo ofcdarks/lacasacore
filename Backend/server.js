@@ -18648,24 +18648,149 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             let adapted = String(promptToAdapt);
             
             // 1. Substituir placeholders do título (se existirem)
-        const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
-        for (const rx of placeholders) {
+            const placeholders = [/\[\s*T[ÍI]TULO\s*\]/gi, /\{\s*TITLE\s*\}/gi, /<\s*TITLE\s*>/gi, /\{\{\s*title\s*\}\}/gi, /\[TITLE\]/g];
+            for (const rx of placeholders) {
                 if (rx.test(adapted)) {
                     adapted = adapted.replace(rx, `"${titleText}"`);
+                }
             }
-        }
 
             // 2. Substituir placeholders de personagem, ambiente, elementos (se existirem)
             adapted = adapted.replace(/\{PERSONAGEM\}/gi, themeData.subject);
             adapted = adapted.replace(/\{ACESSORIOS\}/gi, themeData.acessorios || '');
             adapted = adapted.replace(/\{AMBIENTE\}/gi, themeData.ambiente);
             adapted = adapted.replace(/\{ELEMENTOS_DE_FUNDO\}/gi, themeData.elementos);
+            
+            // 2.5. ADAPTAR CENÁRIO CONFORME O TÍTULO - Substituir elementos específicos do tema antigo pelo novo tema
+            // Extrair palavras-chave do título relacionadas ao cenário
+            const titleLower = titleText.toLowerCase();
+            
+            // Mapeamento de elementos antigos para novos baseado no tema detectado
+            const themeReplacements = {
+                // Para qualquer tema, substituir elementos específicos de outros temas
+                'egito': {
+                    old: ['pharaoh', 'pharaohs', 'egyptian', 'egypt', 'pyramid', 'pyramids', 'hieroglyph', 'hieroglyphs', 'nemes headdress', 'royal collar', 'desert dunes', 'golden sun', 'pharaoh temples'],
+                    new: themeData.subject + ', ' + themeData.ambiente + ', ' + themeData.elementos
+                },
+                'petra': {
+                    old: ['nabataean', 'petra', 'al-khazneh', 'rose-red sandstone', 'carved stone'],
+                    new: themeData.subject + ', ' + themeData.ambiente + ', ' + themeData.elementos
+                },
+                'prehistoria': {
+                    old: ['neanderthal', 'neandertal', 'ice age', 'glacial', 'mammoth', 'primitive'],
+                    new: themeData.subject + ', ' + themeData.ambiente + ', ' + themeData.elementos
+                },
+                'default': {
+                    old: [], // Será preenchido dinamicamente
+                    new: themeData.subject + ', ' + themeData.ambiente + ', ' + themeData.elementos
+                }
+            };
+            
+            // Se o tema detectado é diferente do tema da referência, fazer substituições inteligentes
+            // Detectar elementos do prompt que indicam um tema diferente
+            const promptLower = adapted.toLowerCase();
+            const detectedOldTheme = (() => {
+                if (promptLower.includes('pharaoh') || promptLower.includes('egyptian') || promptLower.includes('pyramid') || promptLower.includes('hieroglyph')) return 'egito';
+                if (promptLower.includes('nabataean') || promptLower.includes('petra') || promptLower.includes('al-khazneh')) return 'petra';
+                if (promptLower.includes('neanderthal') || promptLower.includes('ice age') || promptLower.includes('mammoth')) return 'prehistoria';
+                if (promptLower.includes('viking') || promptLower.includes('longship')) return 'viking';
+                if (promptLower.includes('roman') || promptLower.includes('colosseum') || promptLower.includes('toga')) return 'roma';
+                return null;
+            })();
+            
+            // Se detectou um tema antigo diferente do tema atual, fazer substituições
+            if (detectedOldTheme && detectedOldTheme !== theme) {
+                console.log(`[Thumbnail Complete] Adaptando de tema ${detectedOldTheme} para ${theme}`);
+                
+                // Substituir personagens/figuras antigas pelo novo tema
+                const oldSubjectPatterns = [
+                    /(?:ancient\s+)?(?:egyptian|pharaoh|pharaohs?)\s+(?:figure|person|character|subject|individual)/gi,
+                    /(?:ancient\s+)?(?:nabataean|petra)\s+(?:figure|person|character|subject|individual)/gi,
+                    /(?:rugged\s+)?(?:neanderthal|neandertal)\s+(?:with|figure|person|character)/gi,
+                    /(?:viking\s+)?(?:warrior|figure|person|character)/gi,
+                    /(?:roman\s+)?(?:figure|person|character|subject)/gi
+                ];
+                
+                for (const pattern of oldSubjectPatterns) {
+                    if (pattern.test(adapted)) {
+                        adapted = adapted.replace(pattern, themeData.subject);
+                        break;
+                    }
+                }
+                
+                // Substituir estruturas/ambientes antigos pelo novo tema
+                const oldStructurePatterns = [
+                    /(?:ancient\s+)?(?:egyptian\s+)?(?:pyramid|pyramids)/gi,
+                    /(?:pharaoh\s+)?(?:temple|temples)/gi,
+                    /(?:desert\s+)?(?:dunes|dune)/gi,
+                    /(?:ancient\s+)?(?:nabataean\s+)?(?:carved\s+stone\s+structure|al-khazneh|petra)/gi,
+                    /(?:ice\s+age|glacial)\s+(?:valley|valleys|mountain|mountains)/gi,
+                    /(?:viking\s+)?(?:longship|longships|fjord|fjords)/gi,
+                    /(?:roman\s+)?(?:colosseum|columns|marble\s+statues)/gi
+                ];
+                
+                for (const pattern of oldStructurePatterns) {
+                    if (pattern.test(adapted)) {
+                        adapted = adapted.replace(pattern, themeData.ambiente.split(',')[0].trim());
+                        break;
+                    }
+                }
+                
+                // Substituir elementos decorativos antigos pelos novos
+                const oldElementPatterns = [
+                    /(?:hieroglyph|hieroglyphs|hieroglyphic\s+walls)/gi,
+                    /(?:golden\s+)?(?:crown|nemes\s+headdress|royal\s+collar)/gi,
+                    /(?:ancient\s+)?(?:carved\s+facades|desert\s+canyons)/gi,
+                    /(?:fur\s+clothing|primitive\s+tools|mammoth\s+silhouettes)/gi,
+                    /(?:longships|shields|ravens)/gi,
+                    /(?:legion\s+standards|roman\s+architecture|battle\s+scenes)/gi
+                ];
+                
+                for (const pattern of oldElementPatterns) {
+                    if (pattern.test(adapted)) {
+                        adapted = adapted.replace(pattern, themeData.elementos.split(',')[0].trim());
+                        break;
+                    }
+                }
+            }
+            
+            // Se não detectou tema antigo específico mas o tema atual não é default, adicionar elementos do tema
+            if (!detectedOldTheme && theme !== 'default') {
+                // Verificar se o prompt já menciona elementos do tema atual
+                const hasCurrentTheme = themeData.subject.toLowerCase().split(' ').some(word => 
+                    word.length > 4 && promptLower.includes(word)
+                ) || themeData.ambiente.toLowerCase().split(',').some(word => 
+                    word.trim().length > 3 && promptLower.includes(word.trim())
+                );
+                
+                // Se não tem elementos do tema atual, adicionar de forma integrada
+                if (!hasCurrentTheme) {
+                    // Procurar por padrões onde podemos inserir o novo tema
+                    // Exemplo: "ancient structure" -> "ancient [tema] structure"
+                    const structureMatch = adapted.match(/(?:ancient|monumental|historical)\s+(?:structure|monument|building|city|figure|person)/i);
+                    if (structureMatch) {
+                        // Substituir por estrutura do tema atual
+                        adapted = adapted.replace(
+                            /(?:ancient|monumental|historical)\s+(?:structure|monument|building|city|figure|person)/i,
+                            themeData.subject
+                        );
+                    }
+                    
+                    // Procurar por "background" ou "setting" para adicionar ambiente
+                    if (adapted.toLowerCase().includes('background') || adapted.toLowerCase().includes('setting')) {
+                        adapted = adapted.replace(
+                            /(background|setting)[\s:]+([^,\.]+)/i,
+                            `$1: ${themeData.ambiente}, with contextual elements: ${themeData.elementos}`
+                        );
+                    }
+                }
+            }
 
             // 3. ADAPTAR CONTEÚDO ESPECÍFICO do prompt de referência para o tema do título
             // Substituir referências a temas diferentes (maya, aztec, etc.) por elementos do tema atual
             
             // Adaptar estruturas antigas genéricas para o tema específico
-            if (theme === 'petra' || titleText.toLowerCase().includes('petra') || titleText.toLowerCase().includes('nabateu')) {
+            if (theme === 'petra' || titleLower.includes('petra') || titleLower.includes('nabateu')) {
                 // Para Petra: substituir referências a pirâmides maias/astecas por estruturas de Petra
                 // Corrigir artigo "a" para "an" quando substituir por "ancient"
                 adapted = adapted.replace(/like\s+a\s+(?:mayan\/aztec|mayan|aztec|maya)\s+pyramid/gi, 'like an ancient Nabataean carved stone structure like Petra\'s Al-Khazneh');
@@ -18713,6 +18838,69 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             
             // Verificar se o prompt já menciona o tema de forma genérica (ancient structure, monument, etc.)
             const hasGenericAncient = /(?:ancient|monumental|historical).*?(?:structure|monument|building|city|civilization)/gi.test(adapted);
+            
+            // 4.5. SUBSTITUIÇÃO AGRESSIVA: Se detectou tema antigo diferente, substituir elementos específicos
+            if (detectedOldTheme && detectedOldTheme !== theme) {
+                // Lista de padrões de substituição mais agressivos
+                const aggressiveReplacements = [
+                    // Personagens/figuras
+                    {
+                        pattern: /\b(?:pharaoh|pharaohs|egyptian\s+figure|egyptian\s+person|egyptian\s+character)\b/gi,
+                        replacement: themeData.subject,
+                        condition: detectedOldTheme === 'egito'
+                    },
+                    {
+                        pattern: /\b(?:nabataean\s+figure|petra\s+figure|ancient\s+nabataean)\b/gi,
+                        replacement: themeData.subject,
+                        condition: detectedOldTheme === 'petra'
+                    },
+                    {
+                        pattern: /\b(?:neanderthal|neandertal|ice\s+age\s+figure)\b/gi,
+                        replacement: themeData.subject,
+                        condition: detectedOldTheme === 'prehistoria'
+                    },
+                    // Ambientes/estruturas
+                    {
+                        pattern: /\b(?:egyptian\s+pyramid|pharaoh\s+temple|desert\s+dunes|golden\s+sun)\b/gi,
+                        replacement: themeData.ambiente.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'egito'
+                    },
+                    {
+                        pattern: /\b(?:petra|al-khazneh|nabataean\s+structure|rose-red\s+sandstone)\b/gi,
+                        replacement: themeData.ambiente.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'petra'
+                    },
+                    {
+                        pattern: /\b(?:ice\s+age|glacial\s+valley|ice\s+mountain|burning\s+forest)\b/gi,
+                        replacement: themeData.ambiente.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'prehistoria'
+                    },
+                    // Elementos decorativos
+                    {
+                        pattern: /\b(?:hieroglyph|hieroglyphs|nemes\s+headdress|royal\s+collar|golden\s+crown)\b/gi,
+                        replacement: themeData.elementos.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'egito'
+                    },
+                    {
+                        pattern: /\b(?:carved\s+facades|desert\s+canyons|rock-cut\s+tombs)\b/gi,
+                        replacement: themeData.elementos.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'petra'
+                    },
+                    {
+                        pattern: /\b(?:fur\s+clothing|primitive\s+tools|mammoth\s+silhouettes)\b/gi,
+                        replacement: themeData.elementos.split(',')[0].trim(),
+                        condition: detectedOldTheme === 'prehistoria'
+                    }
+                ];
+                
+                // Aplicar substituições agressivas
+                for (const replacement of aggressiveReplacements) {
+                    if (replacement.condition && replacement.pattern.test(adapted)) {
+                        adapted = adapted.replace(replacement.pattern, replacement.replacement);
+                        console.log(`[Thumbnail Complete] Substituição agressiva aplicada: ${replacement.pattern} -> ${replacement.replacement.substring(0, 50)}`);
+                    }
+                }
+            }
             
             // Só adicionar personagem/ambiente se NÃO estiver presente E se o prompt não for muito específico sobre outro tema
             // Não adicionar se o prompt já tem conteúdo rico sobre estruturas antigas
@@ -18766,7 +18954,48 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             }
             */
             
-            // 5. Remover apenas padrões de erro de renderização
+            // 5. INCORPORAR PALAVRAS-CHAVE DO TÍTULO ao prompt
+            // Extrair palavras-chave importantes do título que devem aparecer no cenário
+            const titleKeywords = titleLower
+                .split(/\s+/)
+                .filter(word => word.length > 4 && !['sobre', 'como', 'quando', 'onde', 'porque', 'sobre', 'about', 'how', 'when', 'where', 'why'].includes(word))
+                .slice(0, 5); // Pegar até 5 palavras-chave mais relevantes
+            
+            // Se o título menciona elementos específicos que não estão no prompt, adicionar contexto
+            // Exemplo: se título menciona "monges" e "gelo", mas prompt tem "faraó" e "deserto"
+            const titleMentionsMonks = titleLower.includes('monje') || titleLower.includes('monk') || titleLower.includes('monge');
+            const titleMentionsIce = titleLower.includes('gelo') || titleLower.includes('ice') || titleLower.includes('hielo');
+            const titleMentionsSnow = titleLower.includes('neve') || titleLower.includes('snow');
+            
+            // Se título menciona monges/gelo mas prompt não tem esses elementos, adaptar
+            if ((titleMentionsMonks || titleMentionsIce || titleMentionsSnow) && 
+                !adapted.toLowerCase().includes('monk') && 
+                !adapted.toLowerCase().includes('ice') && 
+                !adapted.toLowerCase().includes('snow') &&
+                !adapted.toLowerCase().includes('gelo')) {
+                
+                // Substituir personagem genérico por monge se mencionado no título
+                if (titleMentionsMonks) {
+                    adapted = adapted.replace(
+                        /(?:ancient|historical|figure|person|character|subject)\s+(?:with|wearing|featuring)/gi,
+                        'monk or historical figure with'
+                    );
+                }
+                
+                // Substituir ambiente genérico por ambiente de gelo/neve se mencionado
+                if (titleMentionsIce || titleMentionsSnow) {
+                    adapted = adapted.replace(
+                        /(?:desert|dunes|sand|warm|hot)\s+(?:background|setting|environment|scene)/gi,
+                        'icy mountains, glacial valleys, frozen landscape background'
+                    );
+                    adapted = adapted.replace(
+                        /(?:background|setting)[\s:]+(?:desert|dunes|sand|warm|hot)/gi,
+                        'background: icy mountains, glacial valleys, frozen landscape'
+                    );
+                }
+            }
+            
+            // 6. Remover apenas padrões de erro de renderização
             const errorTextPatterns = [
                 /(?:MPITELOW|ALLCAPES|FRIGH|YELAPOS|NOT NOT|EXTRAD|BOLAPS|FRIGHT|YFDLOW|ALLLAPS|IMPOSSICTLC|COPELIITIACOM|PELTOS).*?\./gi,
                 /CRITICAL.*?REMOVE.*?CORNER.*?MARKNGS.*?\./gi,
@@ -18777,7 +19006,7 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
                 adapted = adapted.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
             }
             
-            // 6. Limpar apenas espaços múltiplos, preservando toda a estrutura do prompt
+            // 7. Limpar apenas espaços múltiplos, preservando toda a estrutura do prompt
             adapted = adapted.replace(/\s{3,}/g, ' ').trim();
             
             return adapted;
