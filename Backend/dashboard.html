@@ -181,7 +181,7 @@
             color: #fecaca;
             font-weight: 600;
         }
-        
+
         /* --- ANIMAÇÕES PARA MODAL --- */
         @keyframes fadeOut {
             from { opacity: 1; }
@@ -1306,7 +1306,7 @@
                                 <select id="model-select" name="model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                     <option value="all">Comparar (Multimodal)</option>
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                                 <p class="text-xs text-gray-400 mt-1">
@@ -1420,7 +1420,7 @@
                                         <label for="analyze-model-select" class="text-xs text-gray-400 mb-1">Modelo de IA para Análise:</label>
                                         <select id="analyze-model-select" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                             <option value="auto">Escolher Automaticamente</option>
-                                            <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                            <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                             <option value="gpt-4o">GPT-4o (2025)</option>
                                             <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                         </select>
@@ -1509,7 +1509,7 @@
                                     <label for="thumb-ai-model-simple" class="block text-sm font-medium mb-2">Modelo de IA</label>
                                     <select id="thumb-ai-model-simple" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
                                         <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                             </div>
@@ -1621,7 +1621,7 @@
                                 <label for="niche-model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
                                 <select id="niche-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                    <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                             </div>
@@ -1651,7 +1651,7 @@
                                 <label for="competitor-model-select" class="block text-sm font-medium mb-2">Motor de IA</label>
                                 <select id="competitor-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                    <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                             </div>
@@ -3129,7 +3129,7 @@
                                 <label class="block text-sm font-medium text-gray-300 mb-2">Modelo de IA</label>
                                 <select id="metadata-model" class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-amber-500">
                                     <option value="gpt-4o">GPT-4o (2025)</option>
-                                    <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                             </div>
@@ -3850,7 +3850,7 @@
                                 <label for="scene-model-select" class="block text-sm font-medium text-gray-300 mb-2">Modelo de IA</label>
                                 <select id="scene-model-select" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                     <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                    <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                    <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                     <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                 </select>
                             </div>
@@ -6404,10 +6404,10 @@ Equipe La Casa Dark Core</textarea>
                 cleanModel = cleanModel.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
                 
                 // Mapear para nomes amigáveis (apenas modelos)
-                if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
+                if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o (2025)';
                 if (cleanModel.includes('gpt-4o-mini') || model.includes('gpt-4o-mini')) return 'GPT-4o Mini';
                 if (cleanModel.includes('gpt-4-turbo') || model.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
-                if (cleanModel.includes('claude-3-7-sonnet') || model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+                if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-3-7')) return 'Claude 4 Sonnet';
                 if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Claude Sonnet 4';
                 if (cleanModel.includes('claude-opus-4') || model.includes('claude-opus-4') || model.includes('opus-4')) return 'Claude Opus 4';
                 if (cleanModel.includes('claude-3-5-haiku') || model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return 'Claude 3.5 Haiku';
@@ -6420,7 +6420,7 @@ Equipe La Casa Dark Core</textarea>
                 cleanModel = cleanModel.replace(/laozhang|openai|anthropic|google/gi, '').trim();
                 
                 // Se ficou vazio ou só tem hífens, retornar padrão
-                if (!cleanModel || cleanModel === '-' || cleanModel.length < 2) return 'GPT-4o';
+                if (!cleanModel || cleanModel === '-' || cleanModel.length < 2) return 'GPT-4o (2025)';
                 
                 return cleanModel;
             };
@@ -11311,7 +11311,55 @@ Equipe La Casa Dark Core</textarea>
                 document.getElementById('kpi-new-subscribers').textContent = formatNumber(kpis.new_subscribers || 0);
                 document.getElementById('kpi-cancellations').textContent = formatNumber(kpis.cancellations || 0);
                 document.getElementById('kpi-ltv').textContent = formatCurrency(kpis.ltv || 0);
-                document.getElementById('kpi-avg-duration').textContent = `${kpis.avg_duration || 0} dias`;
+                document.getElementById('kpi-avg-duration').textContent = `${Math.round(kpis.avg_duration || 0)} dias`;
+                
+                // Resumo Geral
+                const totalRevenueEl = document.getElementById('summary-total-revenue');
+                const monthlyRevenueEl = document.getElementById('summary-monthly-revenue');
+                const totalSubscriptionsEl = document.getElementById('summary-total-subscriptions');
+                const conversionRateEl = document.getElementById('summary-conversion-rate');
+                
+                if (totalRevenueEl) totalRevenueEl.textContent = formatCurrency(kpis.total_revenue || 0);
+                if (monthlyRevenueEl) monthlyRevenueEl.textContent = formatCurrency(kpis.monthly_revenue || 0);
+                if (totalSubscriptionsEl) totalSubscriptionsEl.textContent = formatNumber(kpis.total_subscriptions || 0);
+                if (conversionRateEl) conversionRateEl.textContent = `${(kpis.conversion_rate || 0).toFixed(2)}%`;
+                
+                // Análise Mensal
+                const monthlyRevenueMonthEl = document.getElementById('monthly-revenue');
+                const monthlyNewEl = document.getElementById('monthly-new');
+                const monthlyCanceledEl = document.getElementById('monthly-canceled');
+                const monthlyGrowthEl = document.getElementById('monthly-growth');
+                
+                if (monthlyRevenueMonthEl) monthlyRevenueMonthEl.textContent = formatCurrency(kpis.monthly_revenue || 0);
+                if (monthlyNewEl) monthlyNewEl.textContent = formatNumber(kpis.monthly_new || 0);
+                if (monthlyCanceledEl) monthlyCanceledEl.textContent = formatNumber(kpis.monthly_canceled || 0);
+                if (monthlyGrowthEl) monthlyGrowthEl.textContent = `${(kpis.monthly_growth || 0).toFixed(2)}%`;
+                
+                // Relatório de Receitas
+                const reportTotalRevenueEl = document.getElementById('report-total-revenue');
+                const report30dRevenueEl = document.getElementById('report-30d-revenue');
+                const report90dRevenueEl = document.getElementById('report-90d-revenue');
+                const reportYearRevenueEl = document.getElementById('report-year-revenue');
+                const reportAvgTicketEl = document.getElementById('report-avg-ticket');
+                
+                if (reportTotalRevenueEl) reportTotalRevenueEl.textContent = formatCurrency(kpis.total_revenue || 0);
+                if (report30dRevenueEl) report30dRevenueEl.textContent = formatCurrency(kpis.revenue_30d || 0);
+                if (report90dRevenueEl) report90dRevenueEl.textContent = formatCurrency(kpis.revenue_90d || 0);
+                if (reportYearRevenueEl) reportYearRevenueEl.textContent = formatCurrency(kpis.revenue_year || 0);
+                if (reportAvgTicketEl) reportAvgTicketEl.textContent = formatCurrency(kpis.avg_ticket || 0);
+                
+                // Relatório de Assinaturas
+                const reportTotalSubsEl = document.getElementById('report-total-subs');
+                const reportActiveSubsEl = document.getElementById('report-active-subs');
+                const reportCanceledSubsEl = document.getElementById('report-canceled-subs');
+                const reportRetentionRateEl = document.getElementById('report-retention-rate');
+                const reportChurnRateEl = document.getElementById('report-churn-rate');
+                
+                if (reportTotalSubsEl) reportTotalSubsEl.textContent = formatNumber(kpis.total_subscriptions || 0);
+                if (reportActiveSubsEl) reportActiveSubsEl.textContent = formatNumber(kpis.active_subscribers || 0);
+                if (reportCanceledSubsEl) reportCanceledSubsEl.textContent = formatNumber(kpis.total_canceled || 0);
+                if (reportRetentionRateEl) reportRetentionRateEl.textContent = `${(kpis.retention_rate || 0).toFixed(2)}%`;
+                if (reportChurnRateEl) reportChurnRateEl.textContent = `${(kpis.churn_rate || 0).toFixed(2)}%`;
             }
 
             // Atualizar gráficos
@@ -11595,6 +11643,10 @@ Equipe La Casa Dark Core</textarea>
             // Funções auxiliares
             function formatCurrency(value) {
                 return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+            }
+
+            function formatNumber(value) {
+                return new Intl.NumberFormat('pt-BR').format(value);
             }
 
             function formatChange(change) {
@@ -12317,7 +12369,7 @@ Equipe La Casa Dark Core</textarea>
                     
                     const title = document.getElementById('metadata-title').value;
                     const model = document.getElementById('metadata-model').value;
-                    const modelName = model === 'gpt-4o' ? 'GPT-4o' : model === 'claude-3-7-sonnet-20250219' ? 'Claude 3.7 Sonnet' : 'Gemini 2.5 Pro';
+                    const modelName = model === 'gpt-4o' ? 'GPT-4o (2025)' : model === 'claude-sonnet-4-20250514' ? 'Claude 4 Sonnet' : 'Gemini 2.5 Pro';
                     
                     showLoadingModal(`Gerando metadata com ${modelName}...`, 'wand-2');
                     
@@ -12822,9 +12874,24 @@ Equipe La Casa Dark Core</textarea>
             
             // Atualizar info do modelo quando mudar seleção
             if (modelSelect && modelInfoText) {
-                modelSelect.addEventListener('change', (e) => {
+                modelSelect.addEventListener('change', async (e) => {
                     if (e.target.value === 'all') {
-                        modelInfoText.textContent = 'Multimodal: 5 títulos de cada IA (total: 15)';
+                        // Verificar se usuário marcou preferência para usar créditos
+                        try {
+                            const prefsResponse = await fetch(`${API_BASE}/api/user/preferences`, {
+                                headers: { 'Authorization': `Bearer ${userToken}` }
+                            });
+                            const prefs = await prefsResponse.json();
+                            const useCredits = prefs.use_credits_instead_of_own_api;
+                            
+                            if (useCredits) {
+                                modelInfoText.textContent = 'Multimodal: 5 títulos de cada IA usando créditos (total: 15)';
+                            } else {
+                                modelInfoText.textContent = 'Multimodal: 5 títulos de cada IA com suas APIs próprias (total: 15)';
+                            }
+                        } catch (err) {
+                            modelInfoText.textContent = 'Multimodal: 5 títulos de cada IA (total: 15)';
+                        }
                         modelInfoText.classList.add('text-amber-400');
                     } else {
                         modelInfoText.textContent = 'Modo único: 5 títulos';
@@ -13062,7 +13129,16 @@ Equipe La Casa Dark Core</textarea>
                     const viewsFormatted = new Intl.NumberFormat('pt-BR').format(views);
                     const commentsFormatted = new Intl.NumberFormat('pt-BR').format(comments);
                     
-                    let videoSummaryHtml = `
+                    let videoSummaryHtml = '';
+                    if (data.ux_message) {
+                        videoSummaryHtml += `
+                            <div class="mb-6 p-4 bg-amber-900/30 border border-amber-500/50 rounded-lg flex items-start space-x-3">
+                                <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-500 mt-0.5 shrink-0"></i>
+                                <p class="text-sm text-amber-200">${data.ux_message}</p>
+                            </div>
+                        `;
+                    }
+                    videoSummaryHtml += `
                         <div class="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-6 mb-6 bg-gray-800 p-4 rounded-lg border border-gray-700">
                             <img src="${thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
                             <div class="flex-1">
@@ -13206,7 +13282,7 @@ Equipe La Casa Dark Core</textarea>
                         </div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${window.formatModelNameForDisplay ? window.formatModelNameForDisplay(data.modelUsed || 'GPT-4o') : (() => { const m = String(data.modelUsed || 'GPT-4o').toLowerCase(); if (m.includes('gemini')) return 'Gemini'; if (m.includes('claude')) return 'Claude'; if (m.includes('openai') || m.includes('gpt')) return 'GPT-4o'; return data.modelUsed || 'GPT-4o'; })()})`}</h3>
+                            <h3 class="text-xl font-semibold text-white">Títulos Gerados ${data.modelUsed && data.modelUsed.includes('Comparação') ? '<span class="text-amber-400">(Comparação Multimodal - 3 Modelos)</span>' : `(Modelo: ${window.formatModelNameForDisplay ? window.formatModelNameForDisplay(data.modelUsed || 'GPT-4o (2025)') : (() => { const m = String(data.modelUsed || 'GPT-4o (2025)').toLowerCase(); if (m.includes('gemini')) return 'Gemini'; if (m.includes('claude')) return 'Claude'; if (m.includes('openai') || m.includes('gpt')) return 'GPT-4o (2025)'; return data.modelUsed || 'GPT-4o (2025)'; })()})`}</h3>
                             <button type="button" id="btn-generate-more-titles" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gray-700 hover:bg-gray-600 text-white text-xs">
                                 <i data-lucide="refresh-cw" class="w-4 h-4 mr-1.5"></i>
                                 <span>Gerar Mais Títulos</span>
@@ -13229,24 +13305,18 @@ Equipe La Casa Dark Core</textarea>
                         titlesHtml += '<li class="bg-gray-800 p-4 rounded-lg border border-gray-700 text-gray-400 text-center">Nenhum título encontrado para esta análise.</li>';
                     } else {
                     data.titulosSugeridos.forEach((titleObj, index) => {
-                        let scoreColor = 'bg-gray-600 text-gray-200';
-                        if (titleObj.pontuacao >= 8) scoreColor = 'bg-green-600 text-green-100';
-                        else if (titleObj.pontuacao >= 5) scoreColor = 'bg-yellow-600 text-yellow-100';
-                        else if (titleObj.pontuacao > 0) scoreColor = 'bg-red-600 text-red-100';
+                        // Badge de qualidade/pontuação viral - sempre verde
+                        let scoreColor = 'bg-green-600 text-white';
                         
-                        // Badge de impacto (impact_score)
-                        let impactColor = 'bg-gray-600 text-gray-200';
+                        // Badge de impacto visual - sempre laranja
+                        let impactColor = 'bg-orange-600 text-white';
                         const impactScore = titleObj.impact_score || 0;
-                        if (impactScore >= 8) impactColor = 'bg-purple-600 text-purple-100';
-                        else if (impactScore >= 6) impactColor = 'bg-blue-600 text-blue-100';
-                        else if (impactScore >= 4) impactColor = 'bg-orange-600 text-orange-100';
-                        else if (impactScore > 0) impactColor = 'bg-gray-600 text-gray-200';
                         
                         // Remover prefixo do modelo (ex: "[Claude] Título" -> "Título")
                         // Também remove badges de modelo que possam estar no início do título
                         let cleanTitle = titleObj.titulo
-                            .replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '')
-                            .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
+                            .replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '')
+                            .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
                             .trim();
                         const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
                         const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
@@ -13258,7 +13328,7 @@ Equipe La Casa Dark Core</textarea>
                             const m = String(model).toLowerCase();
                             if (m.includes('gemini')) return { name: 'Gemini', color: 'blue' };
                             if (m.includes('claude')) return { name: 'Claude', color: 'orange' };
-                            if (m.includes('openai') || m.includes('gpt')) return { name: 'GPT-4o', color: 'green' };
+                            if (m.includes('openai') || m.includes('gpt')) return { name: 'GPT-4o (2025)', color: 'green' };
                             return { name: model, color: 'amber' };
                         };
                         
@@ -13296,8 +13366,8 @@ Equipe La Casa Dark Core</textarea>
                                                 <span class="text-gray-100 font-semibold text-base leading-snug ${isCheckedLabelClass} group-hover/label:text-white transition-colors">
                                                     ${cleanTitle}
                                                 </span>
-                                            </label>
-                                        </div>
+                                    </label>
+                                </div>
                                     </div>
                                     
                                     <!-- Formula Section - Detalhada como análise do título original -->
@@ -13314,7 +13384,7 @@ Equipe La Casa Dark Core</textarea>
                                             <div class="mb-4">
                                                 <p class="text-sm text-gray-300 mb-2">
                                                     <strong>Motivo do Sucesso:</strong> ${titleObj.explicacao.replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>')}
-                                                </p>
+                                    </p>
                                             </div>
                                             ` : ''}
                                             
@@ -13333,37 +13403,20 @@ Equipe La Casa Dark Core</textarea>
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pl-9 pt-3 border-t border-gray-700/50">
                                         <div class="flex items-center gap-4 flex-wrap">
                                             ${titleObj.pontuacao > 0 ? `
-                                                <div class="flex flex-col bg-gray-800/30 rounded-lg border border-gray-700/50 overflow-hidden">
-                                                    <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-900/50">
-                                                        <span class="text-xs font-medium text-gray-300">Pontuação Viral</span>
-                                                        <span class="text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${scoreColor} shadow-sm">${titleObj.pontuacao}/10</span>
-                                                    </div>
-                                                    <div class="px-2.5 py-1.5 bg-gray-800/50">
-                                                        <p class="text-[10px] text-gray-400 leading-tight">
-                                                            Mede o potencial de viralização do título baseado em elementos psicológicos e gatilhos virais
-                                                        </p>
-                                                    </div>
-                                                </div>
+                                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${scoreColor} font-bold text-sm shadow-sm">
+                                                    <span>✓</span>
+                                                    <span>Qualidade ${titleObj.pontuacao}/10</span>
+                                                </span>
                                             ` : ''}
                                             ${impactScore > 0 ? `
-                                                <div class="flex flex-col bg-gray-800/30 rounded-lg border border-gray-700/50 overflow-hidden">
-                                                    <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-900/50">
-                                                        <span class="text-xs font-medium text-gray-300">Impacto Visual</span>
-                                                        <span class="text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${impactColor} shadow-sm flex items-center gap-1">
-                                                            <span>🔥</span>
-                                                            <span>${impactScore}/10</span>
-                                                        </span>
-                                                    </div>
-                                                    <div class="px-2.5 py-1.5 bg-gray-800/50">
-                                                        <p class="text-[10px] text-gray-400 leading-tight">
-                                                            Avalia o impacto visual do título no feed, considerando caixa alta estratégica e elementos de destaque
-                                                        </p>
-                                                    </div>
-                                                </div>
+                                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${impactColor} font-bold text-sm shadow-sm">
+                                                    <span>🔥</span>
+                                                    <span>Impacto ${impactScore}/10</span>
+                                                </span>
                                             ` : ''}
                                             <button title="Copiar Título" class="btn-copy p-2 rounded-lg bg-gray-700/50 hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 border border-gray-700/50 hover:border-amber-500/50 transition-all duration-200 shadow-sm hover:shadow-md" data-copy-text="${escapedTitle}">
-                                                <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
-                                            </button>
+                                            <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                        </button>
                                         </div>
                                     </div>
                                 </div>
@@ -13437,7 +13490,7 @@ Equipe La Casa Dark Core</textarea>
                         const modelValue = data.modelUsed;
                         // Se o modelo usado for "Comparação", usar modelo padrão
                         if (modelValue.includes('Comparação') || modelValue === 'all') {
-                            thumbModelSelect.value = 'claude-3-7-sonnet-20250219';
+                            thumbModelSelect.value = 'claude-sonnet-4-20250514';
                         } else {
                             // Tentar encontrar o modelo exato ou usar o primeiro disponível
                             const option = Array.from(thumbModelSelect.options).find(opt => 
@@ -14490,14 +14543,14 @@ Equipe La Casa Dark Core</textarea>
                         if (listItem) {
                             // Tentar pegar apenas o texto do span do título, não do badge
                             const label = listItem.querySelector('label');
-                            if (label) {
+                        if (label) {
                                 // Procurar pelo span que contém o título (geralmente o último span dentro do label)
                                 const titleSpan = label.querySelector('span:last-child');
                                 if (titleSpan && titleSpan.innerText) {
                                     titleText = titleSpan.innerText.trim();
                                 } else {
                                     // Fallback: pegar todo o texto do label e limpar
-                                    titleText = label.innerText.trim();
+                                titleText = label.innerText.trim();
                                 }
                             } else {
                                 // Se não encontrar label, tentar pegar do próximo elemento
@@ -14513,7 +14566,7 @@ Equipe La Casa Dark Core</textarea>
                             // Também remove badges de modelo que possam estar no início
                             titleText = titleText
                                 .replace(/^\[.*?\]\s*/i, '') // Remove [Modelo]
-                                .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '') // Remove modelo sem colchetes
+                                .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '') // Remove modelo sem colchetes
                                 .trim();
                             
                             // Atualizar o input do gerador de thumbnails completo
@@ -15566,10 +15619,10 @@ Equipe La Casa Dark Core</textarea>
                 const selectedModel = document.getElementById('analyze-model-select')?.value || 'auto';
                 const modelName = selectedModel === 'auto' 
                     ? 'modelo automático (será escolhido automaticamente)' 
-                    : selectedModel === 'claude-3-7-sonnet-20250219' 
-                        ? 'Claude 3.7 Sonnet'
+                    : selectedModel === 'claude-sonnet-4-20250514' 
+                        ? 'Claude 4 Sonnet'
                         : selectedModel === 'gpt-4o'
-                            ? 'GPT-4o'
+                            ? 'GPT-4o (2025)'
                             : selectedModel === 'gemini-2.5-pro'
                                 ? 'Gemini 2.5 Pro'
                                 : selectedModel;
@@ -20501,7 +20554,7 @@ Equipe La Casa Dark Core</textarea>
                                 <div>
                                     <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
                                     <select id="generate-script-model" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
-                                        <option value="claude-3-7-sonnet-20250219" selected>Claude 3.7 Sonnet (Fev/25) ⭐ Recomendado</option>
+                                        <option value="claude-sonnet-4-20250514" selected>Claude 4 Sonnet ⭐ Recomendado</option>
                                         <option value="gpt-4o">GPT-4o (2025)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                     </select>
@@ -20612,7 +20665,7 @@ Equipe La Casa Dark Core</textarea>
                             }
                             
                             const endpoint = useLaozhang ? `/api/script-agents/${agentId}/generate/laozhang` : `/api/script-agents/${agentId}/generate`;
-                            const selectedModel = model || 'claude-3-7-sonnet-20250219';
+                            const selectedModel = model || 'claude-sonnet-4-20250514';
                             
                             const response = await fetch(`${API_BASE}${endpoint}`, {
                                 method: 'POST',
@@ -20759,7 +20812,7 @@ Equipe La Casa Dark Core</textarea>
                     }
                 }
                 document.getElementById('generate-script-language').value = 'pt';
-                document.getElementById('generate-script-model').value = 'claude-3-7-sonnet-20250219';
+                document.getElementById('generate-script-model').value = 'claude-sonnet-4-20250514';
                 document.getElementById('cta-inicio').checked = false;
                 document.getElementById('cta-meio').checked = false;
                 document.getElementById('cta-final').checked = true;
@@ -24292,8 +24345,8 @@ Equipe La Casa Dark Core</textarea>
                         cleanModel = cleanModel.replace(/^(laozhang-|claude-|gemini-|gpt-|openai-|anthropic-)/i, '');
                         cleanModel = cleanModel.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
                         // Mapear para nomes amigáveis
-                        if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o';
-                        if (cleanModel.includes('claude-3-7-sonnet') || model.includes('claude-3-7-sonnet') || model.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+                        if (cleanModel.includes('gpt-4o') || model.includes('gpt-4o')) return 'GPT-4o (2025)';
+                        if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-3-7')) return 'Claude 4 Sonnet';
                         if (cleanModel.includes('claude-sonnet-4') || model.includes('claude-sonnet-4') || model.includes('sonnet-4')) return 'Claude Sonnet 4';
                         if (cleanModel.includes('claude-opus-4') || model.includes('claude-opus-4') || model.includes('opus-4')) return 'Claude Opus 4';
                         if (cleanModel.includes('claude-3-5-haiku') || model.includes('claude-3-5-haiku') || model.includes('haiku-3-5')) return 'Claude 3.5 Haiku';
@@ -24301,7 +24354,7 @@ Equipe La Casa Dark Core</textarea>
                         if (model.includes('gemini-2.5-pro') || model.includes('2.5-pro')) return '2.5 Pro';
                         if (model.includes('gemini-2.5-flash') || model.includes('2.5-flash')) return '2.5 Flash';
                         if (model.includes('gemini-2.0-flash') || model.includes('2.0-flash')) return '2.0 Flash';
-                        if (model.includes('gpt-4o')) return 'GPT-4o';
+                        if (model.includes('gpt-4o')) return 'GPT-4o (2025)';
                         if (model.includes('gpt-4o-mini')) return 'GPT-4o Mini';
                         if (model.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
                         // Se ainda contém fornecedor, remover
@@ -29247,7 +29300,7 @@ Equipe La Casa Dark Core</textarea>
                                     <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
                                     <select id="viral-agent-model-input" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                         <option value="gpt-4o" selected>GPT-4o (2025)</option>
-                                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-sonnet-4-20250514">Claude 4 Sonnet</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                     </select>
                                 </div>
@@ -29348,7 +29401,7 @@ Equipe La Casa Dark Core</textarea>
                                     <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
                                     <select id="viral-edit-agent-model" class="styled-select w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
                                         <option value="gpt-4o" ${currentViralAgent.model === 'gpt-4o' ? 'selected' : ''}>GPT-4o (2025)</option>
-                                        <option value="claude-3-7-sonnet-20250219" ${currentViralAgent.model === 'claude-3-7-sonnet-20250219' ? 'selected' : ''}>Claude 3.7 Sonnet (Fev/25)</option>
+                                        <option value="claude-sonnet-4-20250514" ${currentViralAgent.model === 'claude-sonnet-4-20250514' ? 'selected' : ''}>Claude 4 Sonnet</option>
                                         <option value="gemini-2.5-pro" ${currentViralAgent.model === 'gemini-2.5-pro' ? 'selected' : ''}>Gemini 2.5 Pro (2025)</option>
                                     </select>
                                 </div>

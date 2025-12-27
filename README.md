@@ -286,6 +286,7 @@ Uma solução SaaS avançada que utiliza múltiplas IAs (Claude, Gemini, OpenAI)
 ### Integrações de IA
 - **OpenAI API** - GPT-4, GPT-4 Turbo
 - **Anthropic API** - Claude 3.5 Sonnet, Claude 3.7 Sonnet
+- **OpenAI API** - GPT-4o, GPT-4o Mini
 - **Google Gemini API** - Gemini 2.0 Flash, Gemini 2.5 Flash
 - **ImageFX** - Geração de imagens
 - **Whisk** - Edição de imagens com IA

@@ -388,12 +388,8 @@ app.use((req, res, next) => {
         return next();
     }
     
-    // Debug: logar informações do host (apenas primeira requisição para não poluir logs)
-    if (!req._hostLogged) {
-        console.log(`[Host Detection] host="${host}", hostHeader="${hostHeader}", hostname="${hostname}", xForwardedHost="${xForwardedHost}", xOriginalHost="${xOriginalHost}", xSubdomain="${xSubdomain}", hostWithoutPort="${hostWithoutPort}"`);
-        console.log(`[Host Detection] referer="${referer}", origin="${origin}", refererHost="${refererHost}", originHost="${originHost}"`);
-        req._hostLogged = true;
-    }
+    // Debug: logar informações do host apenas em desenvolvimento ou quando houver mudança
+    // Removido para reduzir poluição de logs em produção
     
     // Simplificar detecção de subdomínio - lógica mais clara e confiável
     const hostLower = host.toLowerCase();
@@ -436,11 +432,7 @@ app.use((req, res, next) => {
     req.isAppSubdomain = isAppSubdomainProd || isAppSubdomainDev;
     req.isLandingDomain = isLandingDomainProd || isLandingDomainDev;
     
-    // Debug: logar resultado (apenas primeira vez)
-    if (!req._hostResultLogged) {
-        console.log(`[Host Detection Result] isAppSubdomain=${req.isAppSubdomain}, isLandingDomain=${req.isLandingDomain}, forceApp=${forceApp}, forceLanding=${forceLanding}`);
-        req._hostResultLogged = true;
-    }
+    // Debug: logar resultado removido para reduzir poluição de logs
     
     next();
 });
@@ -1011,6 +1003,21 @@ function extractCompleteJson(text, startPattern = /\{/) {
 }
 
 // --- Helper para analisar resposta JSON da IA ---
+// Função para sanitizar nome do serviço antes de exibir ao usuário
+function sanitizeServiceNameForUser(serviceName) {
+    if (!serviceName) return 'IA';
+    const sanitized = String(serviceName)
+        .replace(/laozhang(\.ai)?/gi, 'IA')
+        .replace(/lao\s*zhang/gi, 'IA')
+        .replace(/openai/gi, 'IA')
+        .replace(/anthropic/gi, 'IA')
+        .replace(/google/gi, 'IA')
+        .replace(/gemini/gi, 'IA')
+        .replace(/claude/gi, 'IA')
+        .trim();
+    return sanitized || 'IA';
+}
+
 function parseAIResponse(responseText, serviceName) {
     const rawText = (typeof responseText === 'string')
         ? responseText
@@ -1121,7 +1128,7 @@ function parseAIResponse(responseText, serviceName) {
             console.error(`[Análise-${serviceName}] Fallback também falhou:`, fallbackError);
         }
         
-        throw new Error(`A IA (${serviceName}) retornou um formato JSON inválido.`);
+        throw new Error(`A IA retornou um formato JSON inválido.`);
     }
 }
 
@@ -1153,10 +1160,41 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         let title = rawText;
         let formula = null;
         
+        // Remover número inicial se presente (ex: "1. ", "1)", "1:")
+        title = title.replace(/^\d+[\.\)\:\-\s]+/i, '').trim();
+        
+        // Remover "TÍTULO:" ou "TITULO:" se aparecer no início
+        title = title.replace(/^T[ÍI]TULO\s*:\s*/i, '').trim();
+        
+        // Remover "FÓRMULA:" se aparecer no início do título (erro da IA)
+        title = title.replace(/^F[ÓO]RMULA\s*:\s*/i, '').trim();
+        
         const formulaMatch = rawText.match(/^(.+?)\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
         if (formulaMatch) {
             title = formulaMatch[1].trim();
             formula = formulaMatch[2].trim();
+            // Limpezas extras no título extraído
+            title = title.replace(/^\d+[\.\)\:\-\s]+/i, '').trim();
+            title = title.replace(/^T[ÍI]TULO\s*:\s*/i, '').trim();
+            title = title.replace(/^F[ÓO]RMULA\s*:\s*/i, '').trim();
+        }
+        
+        // Remover qualquer ocorrência de "FÓRMULA:" no meio do título (limpeza adicional)
+        title = title.replace(/\s*F[ÓO]RMULA\s*:\s*/gi, ' ').trim();
+        
+        // VALIDAÇÃO: Título não pode conter a palavra "FÓRMULA" ou parecer JSON
+        if (/F[ÓO]RMULA/i.test(title) || /["'\{\}\[\]]/.test(title)) {
+            return; 
+        }
+        
+        // VALIDAÇÃO CRÍTICA: Limite de 100 caracteres (YouTube Safe)
+        if (title.length > 100) {
+            return; 
+        }
+        
+        // Se não há título válido após limpeza, rejeitar
+        if (!title || title.length < 10) {
+            return; 
         }
         
         const key = title.toLowerCase();
@@ -1192,6 +1230,10 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
                     const titleText = item.title || item.titulo || item.text;
                     const formulaText = item.formula || item.fórmula;
                     if (titleText) {
+                        // VALIDAÇÃO: Limite de 100 caracteres
+                        if (titleText.length > 100) {
+                            return; // Rejeitar títulos acima de 100 caracteres (sem log para reduzir poluição)
+                        }
                         const fullText = formulaText ? `${titleText} | FÓRMULA: ${formulaText}` : titleText;
                         pushTitle(fullText);
                     }
@@ -1201,7 +1243,29 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         }
     } catch {}
 
-    // Preferência: linhas numeradas
+    // NOVO FORMATO: "1. TÍTULO: [texto]\n   Qualidade: X/10\n   Impacto: X/10\n   Fórmula: [descrição]"
+    // Tentar parsear formato estruturado multi-linha
+    const structuredFormatRegex = /(\d+)\.\s*T[ÍI]TULO\s*:\s*(.+?)(?:\n\s*(?:Qualidade|Impacto|F[ÓO]RMULA)\s*:.*?)?(?=\n\s*\d+\.\s*T[ÍI]TULO|$)/gis;
+    const structuredMatches = [...normalized.matchAll(structuredFormatRegex)];
+    if (structuredMatches.length > 0) {
+        for (const match of structuredMatches) {
+            const titleText = match[2].trim();
+            // Buscar fórmula no bloco completo deste título
+            const blockStart = normalized.indexOf(match[0]);
+            const nextBlockStart = normalized.indexOf(`\n${parseInt(match[1]) + 1}. TÍTULO:`, blockStart);
+            const blockEnd = nextBlockStart > 0 ? nextBlockStart : normalized.length;
+            const titleBlock = normalized.substring(blockStart, blockEnd);
+            
+            const formulaMatch = titleBlock.match(/F[ÓO]RMULA\s*:\s*(.+?)(?=\n|$)/is);
+            const formula = formulaMatch ? formulaMatch[1].trim() : null;
+            
+            const fullText = formula ? `${titleText} | FÓRMULA: ${formula}` : titleText;
+            pushTitle(fullText);
+        }
+        if (titles.length >= expectedCount) return titles.slice(0, expectedCount);
+    }
+
+    // Preferência: linhas numeradas (formato antigo)
     const lines = normalized.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     for (const line of lines) {
         const m = line.match(/^(\d{1,2})\s*[\)\.\:\-\–\—\]\>]\s*(.+)$/);
@@ -1251,11 +1315,9 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         for (const line of lines) pushTitle(line);
     }
 
-    if (titles.length < expectedCount) {
-        console.warn(`[PARSE] parseNumberedTitles: esperado ${expectedCount}, extraído ${titles.length}`);
-        if (titles.length > 0) {
-            console.warn(`[PARSE] Títulos extraídos:`, titles.map(t => `"${t.title}"`).join(', '));
-        }
+    // Se não extraímos nada, abortar; se extraímos algo, devolver mesmo que seja < expectedCount
+    if (titles.length === 0) {
+        console.warn(`[PARSE] parseNumberedTitles: esperado ${expectedCount}, extraído 0`);
         return null;
     }
     return titles.slice(0, expectedCount);
@@ -1267,8 +1329,9 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
         : (responseText === null || responseText === undefined ? '' : String(responseText));
     const trimmed = raw.trim();
 
-    // PRIORIDADE 1: Se parece JSON (começa com [ ou {), tentar parsear JSON primeiro
-    const looksLikeJson = trimmed.startsWith('[') || trimmed.startsWith('{');
+    // PRIORIDADE 1: Se parece JSON (começa com [ ou { ou ```json), tentar parsear JSON primeiro
+    const cleanedForCheck = trimmed.replace(/^```json\s*/i, '').trim();
+    const looksLikeJson = cleanedForCheck.startsWith('[') || cleanedForCheck.startsWith('{');
     
     if (looksLikeJson) {
         try {
@@ -1282,13 +1345,23 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                 // Verificar se são strings ou objetos
                 const hasObjects = parsed.some(x => typeof x === 'object' && x !== null);
                 if (hasObjects) {
-                    // Array de objetos: [{id: 1, title: "...", formula: "..."}]
+                    // Array de objetos: [{id: 1, title: "...", formula: "...", qualidade: 9, impacto: 9}]
                     const titlesData = parsed
                         .map(item => {
                             if (typeof item === 'object' && item !== null) {
-                                const titulo = item.title || item.titulo || item.text;
-                                const formula = item.formula || item.fórmula;
-                                if (titulo) return { titulo, formula };
+                                // Suportar múltiplos formatos: title/titulo/text/TÍTULO
+                                const titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
+                                const qualidade = item.qualidade || item.qualidade_score || item.quality || item.quality_score;
+                                const impacto = item.impacto || item.impacto_score || item.impact || item.impact_score;
+                                const formula = item.Fórmula || item.FORMULA || item.formula || item.fórmula;
+                                if (titulo) {
+                                    return { 
+                                        titulo, 
+                                        pontuacao: typeof qualidade === 'number' ? qualidade : 9,
+                                        impact_score: typeof impacto === 'number' ? impacto : null,
+                                        formula: formula || null 
+                                    };
+                                }
                             }
                             return null;
                         })
@@ -1300,9 +1373,10 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                 niche: null,
                 subniche: null,
                 analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                            titulosSugeridos: titlesData.map(({ titulo, formula }) => ({ 
+                            titulosSugeridos: titlesData.map(({ titulo, pontuacao, impact_score, formula }) => ({ 
                                 titulo, 
-                    pontuacao: 9, 
+                    pontuacao, 
+                    impact_score: impact_score || null, // Preservar impacto se disponível
                     explicacao: '', 
                                 formula: formula || null 
                 }))
@@ -1321,13 +1395,56 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     }
             }
         }
-        // 1.c) JSON com array em outros campos comuns
+        
+        // 1.c) JSON com array em outros campos comuns (response, titulos, titles, result)
         const altArr = parsed && (
-            (Array.isArray(parsed.titles) ? parsed.titles : null) ||
+            (Array.isArray(parsed.response) ? parsed.response : null) ||
             (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
+            (Array.isArray(parsed.titles) ? parsed.titles : null) ||
             (Array.isArray(parsed.result) ? parsed.result : null)
         );
         if (altArr) {
+            // Verificar se são objetos com campos titulo/qualidade/impacto ou strings simples
+            const hasObjects = altArr.some(x => typeof x === 'object' && x !== null);
+            if (hasObjects) {
+                // Array de objetos: extrair titulo, qualidade, impacto, formula
+                const titlesData = altArr
+                    .map(item => {
+                        if (typeof item === 'object' && item !== null) {
+                            const titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
+                            const qualidade = item.qualidade || item.qualidade_score || item.quality || item.quality_score;
+                            const impacto = item.impacto || item.impacto_score || item.impact || item.impact_score;
+                            const formula = item.Fórmula || item.FORMULA || item.formula || item.fórmula;
+                            if (titulo) {
+                                return { 
+                                    titulo, 
+                                    pontuacao: typeof qualidade === 'number' ? qualidade : 9,
+                                    impact_score: typeof impacto === 'number' ? impacto : null,
+                                    formula: formula || null
+                                };
+                            }
+                        }
+                        return null;
+                    })
+                    .filter(Boolean)
+                    .slice(0, expectedCount);
+                
+                if (titlesData.length >= expectedCount) {
+                    return {
+                        niche: null,
+                        subniche: null,
+                        analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                        titulosSugeridos: titlesData.map(({ titulo, pontuacao, impact_score, formula }) => ({
+                            titulo,
+                            pontuacao,
+                            impact_score: impact_score || null, // Preservar impacto se disponível
+                            explicacao: '',
+                            formula: formula || null
+                        }))
+                    };
+                }
+            } else {
+                // Array de strings simples
             const titles = altArr.filter(x => typeof x === 'string').slice(0, expectedCount);
             if (titles.length >= expectedCount) {
                 return {
@@ -1336,7 +1453,141 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
                     titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
                 };
+                }
             }
+        }
+        
+        // 1.d) Múltiplos objetos JSON separados com campo TÍTULO (formato novo da IA)
+        // A IA pode retornar múltiplos objetos JSON separados por linhas em branco
+        try {
+            const jsonObjects = [];
+            const seenTitles = new Set();
+            
+            // Função para extrair título de um objeto (REFORÇADA)
+            const extractTitleFromObj = (obj) => {
+                if (!obj || typeof obj !== 'object') return null;
+                
+                // Campos de título conhecidos - PRIORIDADE para títulos reais
+                const titulo = obj.TÍTULO || obj.TITULO || obj.title || obj.titulo || obj.text;
+                if (!titulo || typeof titulo !== 'string' || titulo.length < 10) {
+                    return null;
+                }
+                
+                // LIMPEZA CRÍTICA: Remover aspas e resíduos de JSON se a IA falhou na formatação
+                let cleanTitle = titulo.trim().replace(/^["']|["']$/g, '').trim();
+                
+                // Ignorar se o título é na verdade uma chave de JSON ou meta-dado
+                if (/^(qualidade|impacto|formula|analise|score|quality|impact|titulos|results|pontos_fortes|analise_titulo_original)/i.test(cleanTitle) && cleanTitle.length < 30) {
+                    return null;
+                }
+                
+                // REJEITAR: Se o texto parece uma fórmula (muitos + ou parênteses)
+                // Ex: "real) + cenário hostil + promessa central"
+                const plusCount = (cleanTitle.match(/\+/g) || []).length;
+                if (plusCount >= 2 || (cleanTitle.includes('(') && cleanTitle.includes('+'))) {
+                    return null;
+                }
+
+                // Ignorar títulos que parecem fragmentos de código JSON mal-formado
+                if (/["'\{\}\[\]]/.test(cleanTitle) && !cleanTitle.includes(' ')) {
+                    return null;
+                }
+                
+                const tituloLower = cleanTitle.toLowerCase();
+                if (seenTitles.has(tituloLower)) return null;
+                seenTitles.add(tituloLower);
+                
+                // Extrair scores
+                let qualidade = obj.qualidade || obj.qualidade_score || obj.quality || obj.quality_score || obj.Qualidade || obj.Score || (obj.score ? obj.score.qualidade : null);
+                let impacto = obj.impacto || obj.impacto_score || obj.impact || obj.impact_score || obj.Impacto || (obj.score ? obj.score.impacto : null);
+                
+                const parseScore = (s) => {
+                    if (typeof s === 'number') return s;
+                    if (typeof s === 'string') {
+                        const m = s.match(/(\d+)/);
+                        return m ? parseInt(m[1]) : 9;
+                    }
+                    return 9;
+                };
+
+                return {
+                    titulo: cleanTitle,
+                    pontuacao: parseScore(qualidade),
+                    impact_score: parseScore(impacto),
+                    formula: obj.Fórmula || obj.FORMULA || obj.formula || obj.fórmula || obj.structure || obj.formula_usada || null
+                };
+            };
+            
+            // Tentar encontrar e parsear QUALQUER objeto JSON ou Array no texto
+            const allBlocks = [];
+            // Regex para pegar objetos {} ou arrays []
+            const jsonRegex = /(\{|\[)[\s\S]*?(\}|\])/g;
+            let match;
+            while ((match = jsonRegex.exec(raw)) !== null) {
+                try {
+                    const block = match[0];
+                    // Só tentar parsear se parecer um JSON válido (mínimo de estrutura)
+                    if (block.includes(':') || block.includes(',')) {
+                        const parsed = JSON.parse(block);
+                        allBlocks.push(parsed);
+                    }
+                } catch (e) {}
+            }
+
+            const processNode = (node) => {
+                if (Array.isArray(node)) {
+                    node.forEach(processNode);
+                } else if (typeof node === 'object' && node !== null) {
+                    const extracted = extractTitleFromObj(node);
+                    if (extracted) {
+                        jsonObjects.push(extracted);
+                        // CRÍTICO: Se extraiu um título deste objeto, NÃO buscar nos filhos
+                        // Isso evita pegar sub-objetos de fórmula/análise como novos títulos
+                        return;
+                    } 
+                    
+                    // Se não extraiu título, procurar nos valores (aninhados)
+                    Object.values(node).forEach(val => {
+                        if (typeof val === 'object' && val !== null) processNode(val);
+                    });
+                }
+            };
+
+            allBlocks.forEach(processNode);
+            
+            // Se encontrou títulos suficientes, retornar
+            if (jsonObjects.length >= expectedCount) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: jsonObjects.slice(0, expectedCount).map(({ titulo, pontuacao, impact_score, formula }) => ({
+                        titulo,
+                        pontuacao: pontuacao || 9,
+                        impact_score: impact_score || null,
+                        explicacao: '',
+                        formula: formula || null
+                    }))
+                };
+            }
+            
+            // Se encontrou pelo menos alguns títulos, retornar o que tem
+            if (jsonObjects.length > 0) {
+                return {
+                    niche: null,
+                    subniche: null,
+                    analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                    titulosSugeridos: jsonObjects.map(({ titulo, pontuacao, impact_score, formula }) => ({
+                        titulo,
+                        pontuacao: pontuacao || 9,
+                        impact_score: impact_score || null,
+                        explicacao: '',
+                        formula: formula || null
+                    }))
+                };
+            }
+        } catch (e) {
+            // Continuar para outros formatos
         }
     } catch (e) {
             // Se JSON falhar, tentar lista numerada abaixo
@@ -1381,10 +1632,18 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
         };
     }
 
-    // Debug: log da resposta bruta quando falhar
-    console.error(`[PARSE ERROR] IA: ${serviceName}, Resposta recebida (primeiros 500 chars):`);
-    console.error(raw.substring(0, 500));
-    throw new Error(`A IA (${serviceName}) retornou um formato inválido para títulos. Esperado: JSON ou lista numerada com ${expectedCount} títulos.`);
+    // Como último recurso, retornar estrutura vazia para permitir que fluxos de refinamento continuem
+    console.warn(`[PARSE] IA (${serviceName}) não retornou títulos em formato válido. Prosseguindo com fallback vazio.`);
+    if (process.env.NODE_ENV === 'development') {
+        console.error(`[PARSE ERROR] IA: ${serviceName}, Resposta recebida (primeiros 500 chars):`);
+        console.error(raw.substring(0, 500));
+    }
+    return {
+        niche: null,
+        subniche: null,
+        analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+        titulosSugeridos: []
+    };
 }
 
 // --- Score 2: Impacto Visual (0–10) ---
@@ -1485,211 +1744,149 @@ function buildTitleRefinePrompt({
         }
         return `\nAUTO-FALLBACK (3ª tentativa — generalizar cenário)\n- Se houver risco factual, GENERALIZE cenário/povo/local (ex: “uma CIVILIZAÇÃO ANTIGA”, “uma cidade improvável”, “um AMBIENTE HOSTIL”)\n`;
     };
-    return `PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS (≥ ${minImpact} COM AUTO-FALLBACK)
+    return `Você é um especialista em títulos virais para YouTube, focado em ALTO CTR e ALTA RETENÇÃO.
+
+Sua tarefa é:
+- Analisar um TÍTULO JÁ VIRALIZADO
+- Extrair sua ESTRUTURA PSICOLÓGICA (não o tema)
+- Gerar VARIAÇÕES extremamente chamativas
+- Aplicar a MESMA FÓRMULA em CONTEXTOS DIFERENTES
+- Garantir impacto visual e curiosidade imediata
+
+━━━━━━━━━━━━━━━━━━
+REGRAS CRÍTICAS
+━━━━━━━━━━━━━━━━━━
+
+1) LIMITE
+- Nenhum título pode ultrapassar 100 caracteres (limite do YouTube).
+
+2) IMPACTO
+- Gere apenas títulos com IMPACTO ≥ ${minImpact}/10.
+- Se um título ficar abaixo disso, REFAÇA automaticamente antes de entregar.
+- Nunca exiba títulos com impacto menor que ${minImpact}.
+
+3) CAIXA ALTA (GATILHOS)
+- As principais palavras-gatilho DEVEM estar em CAIXA ALTA.
+Exemplos:
+SEGREDO, IMPOSSÍVEL, NUNCA, GENIALIDADE, PROIBIDO, REVELADO, NINGUÉM, HOSTIL
+
+4) VARIAÇÃO REAL (OBRIGATÓRIA)
+Cada título DEVE variar:
+- O POVO ou ATOR (civilização, tribo, império, grupo, ordem, engenheiros, monges, etc.)
+- O LOCAL ou AMBIENTE (deserto, montanhas, gelo, selva, oceano, subterrâneo, ilhas, planícies)
+- O CENÁRIO HISTÓRICO ou CONTEXTUAL
+
+É PROIBIDO repetir sempre:
+- a mesma civilização
+- o mesmo povo
+- o mesmo tipo de ambiente
+
+━━━━━━━━━━━━━━━━━━
+CONCRETUDE CONTROLADA
+━━━━━━━━━━━━━━━━━━
+
+Todo título DEVE conter pelo menos UM elemento concreto e visual:
+- um LOCAL físico claro (deserto, montanhas, gelo, lago, selva, subterrâneo)
+OU
+- um ATOR identificável (tribo, império, ordem, engenheiros, monges)
+OU
+- uma AÇÃO clara (ergueram, dominaram, sobreviveram, transformaram, desafiaram)
+
+É PROIBIDO gerar títulos apenas abstratos
+(ex: "sociedade", "sistema", "cultura", "era") sem visualização clara.
+
+━━━━━━━━━━━━━━━━━━
+FÓRMULAS (pode misturar até 5)
+━━━━━━━━━━━━━━━━━━
+
+Você pode combinar até 5 fórmulas no mesmo título, como:
+
+- Promessa central
+- Contraste extremo (hostil vs feito / impossível vs real)
+- Curiosidade aberta (segredo, verdade, mistério)
+- Benefício implícito (sobrevivência, domínio, genialidade)
+- Loop mental ("como foi possível?", "ninguém explica")
+
+━━━━━━━━━━━━━━━━━━
+FORMATAÇÃO DE SAÍDA (OBRIGATÓRIA)
+━━━━━━━━━━━━━━━━━━
+
+Para CADA título, entregue:
+
+1. TÍTULO (texto limpo, sem numeração, sem aspas)
+2. SCORE
+   - Qualidade: X/10
+   - Impacto: X/10
+3. FÓRMULA USADA (explicação curta, 1 linha)
+
+━━━━━━━━━━━━━━━━━━
+EXEMPLO DE SAÍDA
+━━━━━━━━━━━━━━━━━━
+
+TÍTULO:
+A GENIALIDADE PROIBIDA que ergueu uma CIDADE no MEIO DO DESERTO
+
+Qualidade: 9/10  
+Impacto: 9/10  
+
+Fórmula:
+Promessa central + contraste extremo + gatilho de segredo + cenário hostil
+
+━━━━━━━━━━━━━━━━━━
+CONTEXTO DO VÍDEO
+━━━━━━━━━━━━━━━━━━
 
-Você receberá o título de um vídeo que JÁ VIRALIZOU, comprovadamente com alto CTR e retenção.
-
-OBJETIVO CENTRAL (REGRA ABSOLUTA)
-
-Gerar ${titlesRequired} títulos ALTAMENTE COMPETITIVOS, focados em:
-- CTR alto
-- Retenção inicial
-- Impacto visual no feed
-
-👉 Somente títulos com IMPACTO VISUAL ESTIMADO ≥ ${minImpact}/10 podem ser entregues ao frontend.
-
-PRINCÍPIO-CHAVE
-
-O título original já venceu o algoritmo.
-Sua função é clonar a fórmula psicológica vencedora, intensificando impacto,
-variando o cenário, sem quebrar fidelidade temática.
-
-⚠️ REGRA FUNDAMENTAL (NÃO NEGOCIÁVEL)
-
-Todos os títulos gerados DEVEM:
-
-✓ Replicar a FÓRMULA PSICOLÓGICA do título original viralizado
-  (estrutura, gancho, curiosidade, promessa, tensão, contraste)
-
-✓ Manter o mesmo TIPO DE PROMESSA e NÍVEL DE CURIOSIDADE
-
-✓ MAS aplicar essa fórmula em um CONTEXTO DIFERENTE, alterando explicitamente:
-  • LOCAL (onde acontece)
-  • POVO / ATOR COLETIVO (quem fez)
-  • CIVILIZAÇÃO / SISTEMA (em que mundo isso existe)
-
-❌ É PROIBIDO reutilizar o mesmo contexto do título original.
-❌ Se detectar repetição de mundo narrativo, você DEVE reescrever antes de entregar.
-
-Modelo mental correto:
-"Inspirado no que viralizou, não preso ao mesmo contexto."
-Mesma FÓRMULA → Mundo diferente.
-
-Execute silenciosamente.
-
-REGRAS OBRIGATÓRIAS DE IMPACTO
-
-Cada título precisa conter:
-
-1️⃣ GATILHOS EM CAIXA ALTA (OBRIGATÓRIO)
-
-Use 1 a 3 termos em CAIXA ALTA
-
-Priorize gatilhos fortes:
-
-IMPOSSÍVEL
-NUNCA
-SEGREDO
-NINGUÉM
-VERDADE
-GENIALIDADE
-OBRA IMPOSSÍVEL
-NÃO DEVERIA EXISTIR
-
-Sem CAIXA ALTA estratégica → impacto insuficiente.
-
-2️⃣ LOOP MENTAL INCOMPLETO
-
-O título não pode explicar tudo.
-Deve criar expectativa clara de revelação após o clique.
-
-Exemplos válidos:
-
-“NUNCA DEVERIA TER FUNCIONADO”
-“NINGUÉM EXPLICA ISSO”
-“O DETALHE IGNORADO”
-
-3️⃣ CONTRASTE OU TENSÃO
-
-Cada título deve conter ao menos um contraste:
-
-ambiente hostil × sucesso
-impossível × realizado
-esquecido × grandioso
-antigo × avançado
-
-4️⃣ VARIAÇÃO OBRIGATÓRIA DE CENÁRIO
-
-Entre os ${titlesRequired} títulos:
-
-NO MÍNIMO 3 DEVEM trocar explicitamente:
-
-local
-povo / civilização
-cenário ambiental ou contextual
-
-Se houver risco factual, GENERALIZE:
-
-“uma CIVILIZAÇÃO ANTIGA”
-“uma CIDADE ESQUECIDA”
-“um AMBIENTE HOSTIL”
-
-5️⃣ LEITURA EM ATÉ 3 SEGUNDOS
-
-Frases curtas
-Estrutura simples
-Impacto imediato
-
-6️⃣ VARIAÇÃO CONTEXTUAL UNIVERSAL (OBRIGATÓRIA)
-
-Entre os ${titlesRequired} títulos gerados, você DEVE variar explicitamente os ELEMENTOS CONTEXTUAIS,
-independentemente do nicho.
-
-Distribua os títulos para que cada um enfatize um eixo diferente:
-
-1. Um título com foco no ATOR (quem fez / quem viveu)
-2. Um título com foco no AMBIENTE ou CONTEXTO (onde / em que situação)
-3. Um título com foco no DESAFIO ou LIMITAÇÃO (o que tornava difícil)
-4. Um título com foco na SOLUÇÃO ou AÇÃO (o que foi feito)
-5. Um título com foco no RESULTADO ou IMPACTO (o que mudou)
-
-Não reutilize o mesmo elemento contextual como foco principal em mais de um título.
-Se houver risco de imprecisão, generalize (ex: "alguém", "um grupo", "uma situação extrema").
-
-Execute silenciosamente.
-
-7️⃣ VARIAÇÃO DE ATOR (OBRIGATÓRIA)
-
-Entre os ${titlesRequired} títulos gerados, você DEVE variar explicitamente o ATOR principal.
-O ATOR é quem executa a ação central do título.
-
-Cada título deve usar um ATOR DIFERENTE, escolhendo entre:
-
-- um povo
-- uma civilização
-- um grupo
-- uma sociedade
-- uma organização
-- um ator genérico (ex: "um povo esquecido", "uma civilização perdida", "um grupo improvável")
-
-É PROIBIDO que mais de dois títulos usem o mesmo ATOR implícito ou explícito.
-Se detectar repetição do mesmo ATOR (mesmo que sem nome), você DEVE reescrever antes de entregar.
-
-Se houver risco factual, use ATOR genérico, mas DIFERENTE do anterior.
-
-Execute silenciosamente.
-
-8️⃣ EQUILÍBRIO CONCRETO vs GENÉRICO (OBRIGATÓRIO)
-
-Ao variar LOCAL, POVO e CIVILIZAÇÃO entre os ${titlesRequired} títulos:
-
-✓ Pelo menos 2 títulos devem usar referências CONCRETAS (nomes reais, povos específicos, locais identificáveis)
-✓ Pelo menos 2 títulos devem usar referências GENÉRICAS ("um povo", "uma ordem", "uma sociedade", "uma civilização")
-✓ Nenhum título pode ser totalmente vago em TODOS os elementos
-
-Se um título estiver excessivamente genérico (todos os elementos vagos), você DEVE reescrevê-lo
-para torná-lo mais tangível, sem perder impacto.
-
-Execute silenciosamente.
-
-AUTO-REFINO OBRIGATÓRIO (CRÍTICO)
-
-Antes de entregar os títulos:
-
-Avalie mentalmente o IMPACTO VISUAL (0–10) de cada título
-
-Se algum título ficar < ${minImpact}, você DEVE:
-
-reescrevê-lo imediatamente
-reforçar CAIXA ALTA, contraste ou loop mental
-
-Repita esse processo internamente até que:
-
-todos os ${titlesRequired} títulos estejam com impacto ≥ ${minImpact}
-
-⚠️ Nunca entregue títulos < ${minImpact}.
-    ⚠️ Não explique o processo. Apenas entregue o resultado final.
-${attemptBlock()}
-
-IDIOMA
-- Todos os títulos devem estar ${languageInstruction}.
-
-CONTEXTO DO VÍDEO (para fidelidade — não copie texto literalmente)
 ${performanceContext ? performanceContext : ''}
 - Título original (idioma original): "${originalTitle}"
 - Título traduzido (PT-BR): "${translatedTitle || originalTitle}"
 - Descrição (início): ${descriptionStart || 'N/A'}...
 - Transcrição (início): ${transcriptStart || 'N/A'}...
 ${avoidBlock}
-FORMATO DE SAÍDA (OBRIGATÓRIO)
 
-Retorne EXATAMENTE ${titlesRequired} títulos, numerados de 1 a ${titlesRequired}.
+IDIOMA
+- Todos os títulos devem estar ${languageInstruction}.
 
-Cada linha deve seguir este formato:
-NÚMERO. TÍTULO | FÓRMULA: [descrição breve da estrutura usada]
+FORMATO DE ENTREGA FINAL — PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS
 
-A FÓRMULA deve identificar:
-- Qual ATOR foi usado (ex: "povo esquecido", "civilização antiga", "grupo improvável")
-- Qual EIXO CONTEXTUAL foi enfatizado (ATOR/AMBIENTE/DESAFIO/SOLUÇÃO/IMPACTO)
-- Qual GATILHO PSICOLÓGICO dominante (MISTÉRIO/CONTRASTE/IMPOSSÍVEL/SEGREDO/REVELAÇÃO)
+Formato de lista numerada (não JSON). Retorne EXATAMENTE ${titlesRequired} títulos no seguinte formato:
 
-Exemplo de formato válido:
-1. A GENIALIDADE que criou uma CIDADE no NADA | FÓRMULA: Civilização antiga + DESAFIO + Contraste impossível
-2. O SEGREDO por trás de uma OBRA PROIBIDA | FÓRMULA: Grupo desconhecido + SOLUÇÃO + Mistério oculto
+1. TÍTULO: [texto do título]
+   Qualidade: X/10
+   Impacto: X/10
+   Fórmula: [descrição breve]
 
-Sem explicações adicionais.
-Sem emojis.
-Formato de lista numerada (não JSON).`;
+2. TÍTULO: [texto do título]
+   Qualidade: X/10
+   Impacto: X/10
+   Fórmula: [descrição breve]
+
+... (continue até ${titlesRequired})
+
+⚠️ REGRA CRÍTICA DE SAÍDA (ANTI-META):
+
+É ESTRITAMENTE PROIBIDO:
+- exibir a palavra "FÓRMULA" dentro do TÍTULO
+- exibir descrições estruturais no título
+- exibir explicações do processo no título
+- exibir listas conceituais no título
+- exibir raciocínio interno ou análise no título
+
+A saída DEVE conter APENAS títulos finais prontos para uso no YouTube.
+
+Se qualquer linha parecer análise ou metacomentário,
+ela DEVE ser removida ou reescrita como um TÍTULO REAL
+antes de entregar.
+
+━━━━━━━━━━━━━━━━━━
+REGRAS FINAIS
+━━━━━━━━━━━━━━━━━━
+
+- Nunca explique o vídeo, apenas o título.
+- Nunca invente fatos específicos.
+- Priorize curiosidade, impacto e visualização mental.
+- Se necessário, refaça silenciosamente antes de entregar.
+
+${attemptBlock()}`;
 }
 
 function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, descriptionStart, transcriptStart }) {
@@ -1790,7 +1987,7 @@ async function generatePassingTitlesWithRefine({
 // --- FUNÇÕES AUXILIARES DE API (O DISTRIBUIDOR) ---
 
 async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalImages = []) {
-    if (!apiKey) throw new Error("Chave de API do Utilizador (Gemini) não configurada.");
+    if (!apiKey) throw new Error("Chave de API não configurada.");
     
     const modelName = model; // Usar o nome do modelo diretamente do frontend
 
@@ -1927,7 +2124,7 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
                 
                 // Tratar erro de autenticação
                 if (response.status === 400 && result.error?.message.includes('API key not valid')) {
-                    throw new Error(`A sua Chave de API do Gemini é inválida.`);
+                    throw new Error(`A sua Chave de API é inválida.`);
                 }
                 
                 // Tratar erro 429 (Resource exhausted) com retry
@@ -1939,12 +2136,12 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
                         continue; // Tentar novamente
                     } else {
                         // Todas as tentativas falharam
-                        throw new Error(`Limite de requisições atingido para a API Gemini. Aguarde alguns minutos ou use outro modelo de IA (Claude ou OpenAI). Detalhes: ${result.error?.message || response.statusText}`);
+                        throw new Error(`Limite de requisições atingido. Aguarde alguns minutos ou tente novamente. Detalhes: ${result.error?.message || response.statusText}`);
                     }
                 }
                 
                 // Outros erros não relacionados a rate limit
-                throw new Error(`Erro da API Gemini: ${result.error?.message || response.statusText}`);
+                throw new Error(`Erro na API: ${result.error?.message || response.statusText}`);
             }
             
             // Sucesso - processar resposta
@@ -1982,7 +2179,7 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
     }
 }
 async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalImages = []) {
-    if (!apiKey) throw new Error("Chave de API do Utilizador (OpenAI) não configurada.");
+    if (!apiKey) throw new Error("Chave de API não configurada.");
     
     const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
     
@@ -2089,9 +2286,9 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
         if (!response.ok) {
             console.error('[La Casa Dark Core] Erro da API:', result);
             if (result.error?.code === 'invalid_api_key') {
-                 throw new Error(`A sua Chave de API do OpenAI é inválida.`);
+                 throw new Error(`A sua Chave de API é inválida.`);
             }
-            throw new Error(`Erro da API OpenAI: ${result.error?.message || response.statusText}`);
+            throw new Error(`Erro na API: ${result.error?.message || response.statusText}`);
         }
         if (result.choices && result.choices[0].message && result.choices[0].message.content) {
             const content = result.choices[0].message.content;
@@ -2114,31 +2311,28 @@ async function callOpenAIAPI(prompt, apiKey, model, imageUrl = null, additionalI
 }
 
 async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeout = null, additionalImages = []) {
-    if (!apiKey) throw new Error("Chave de API do Utilizador (Claude) não configurada.");
+    if (!apiKey) throw new Error("Chave de API não configurada.");
     
     const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
     
     // Mapeamento de nomes amigáveis para nomes corretos da API da Anthropic
-    // MODELOS VÁLIDOS CONFIRMADOS (Novembro 2025 - Anthropic API):
-    // - claude-3-7-sonnet-20250219 (Sonnet mais recente)
-    // - claude-sonnet-4-20250514 (Sonnet 4)
+    // MODELOS VÁLIDOS CONFIRMADOS (Maio 2025 - Anthropic API):
+    // - claude-sonnet-4-20250514 (Sonnet 4 - Mais recente)
     // - claude-opus-4-20250514 (Opus 4)
     const modelAliases = {
-        'claude-3-5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
-        'claude-3-5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
-        'claude-3-5-sonnet-latest': 'claude-3-7-sonnet-20250219',
-        'claude-3-sonnet-20240229': 'claude-3-7-sonnet-20250219',
-        'claude-3.5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
-        'claude-3.5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
-        'claude-3-haiku-20240307': 'claude-3-7-sonnet-20250219',
-        'claude-3.5-haiku-20241022': 'claude-3-7-sonnet-20250219',
-        'claude-3-5-haiku-20241022': 'claude-3-7-sonnet-20250219',
-        'claude-3-5-haiku-latest': 'claude-3-7-sonnet-20250219',
+        'claude-3-5-sonnet-20241022': 'claude-sonnet-4-20250514',
+        'claude-3-5-sonnet-20240620': 'claude-sonnet-4-20250514',
+        'claude-3-5-sonnet-latest': 'claude-sonnet-4-20250514',
+        'claude-3-sonnet-20240229': 'claude-sonnet-4-20250514',
+        'claude-3.5-sonnet-20241022': 'claude-sonnet-4-20250514',
+        'claude-3.5-sonnet-20240620': 'claude-sonnet-4-20250514',
+        'claude-3-haiku-20240307': 'claude-sonnet-4-20250514',
+        'claude-3-5-haiku-20241022': 'claude-sonnet-4-20250514',
+        'claude-3-haiku-latest': 'claude-sonnet-4-20250514',
         'claude-3-opus-20240229': 'claude-opus-4-20250514'
     };
     
     const supportedModels = new Set([
-        'claude-3-7-sonnet-20250219',  // Modelo mais recente
         'claude-sonnet-4-20250514',    // Sonnet 4
         'claude-opus-4-20250514'       // Opus 4
     ]);
@@ -2148,15 +2342,13 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
     if (!supportedModels.has(modelName)) {
         if (model && model.toLowerCase().includes('opus')) {
             modelName = 'claude-opus-4-20250514';
-        } else if (model && (model.toLowerCase().includes('sonnet') || model.toLowerCase().includes('4'))) {
-            modelName = 'claude-sonnet-4-20250514';
         } else {
-            modelName = 'claude-3-7-sonnet-20250219';
+            modelName = 'claude-sonnet-4-20250514';
         }
         console.warn(`[Claude API] Modelo ${model} não reconhecido. Usando ${modelName} como padrão.`);
     }
     
-    const validModels = ['claude-3-7-sonnet-20250219', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'];
+    const validModels = ['claude-sonnet-4-20250514', 'claude-opus-4-20250514'];
     
     console.log(`[Claude API] Modelo original: ${model}, Modelo mapeado: ${modelName}`);
 
@@ -2298,13 +2490,13 @@ async function callClaudeAPI(prompt, apiKey, model, imageUrl = null, customTimeo
             console.error('Erro da API Claude:', result);
             console.error(`[Claude API] Modelo tentado: ${modelName} (original: ${model})`);
             if (result.error?.type === 'authentication_error') {
-                 throw new Error(`A sua Chave de API do Claude é inválvida.`);
+                 throw new Error(`A sua Chave de API é inválida.`);
             }
             // Mensagem de erro mais detalhada
             const errorMsg = result.error?.message || response.statusText;
             if (errorMsg.includes('model') || errorMsg.includes('invalid') || errorMsg.includes('not found') || errorMsg.includes('does not exist')) {
                 // Tentar fallback automático com os modelos válidos mais recentes
-    const validModels = ['claude-3-7-sonnet-20250219', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'];
+    const validModels = ['claude-sonnet-4-20250514', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'];
                 
                 // Tentar outros modelos válidos se o atual falhou
                 for (const altModel of validModels) {
@@ -2908,7 +3100,9 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                 role: 'system',
                 content: isScriptRequest 
                     ? "Você é um roteirista profissional. Responda APENAS com o texto do roteiro, sem usar JSON, objetos ou formatações especiais. Escreva texto corrido e natural."
-                    : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }."
+                    : (prompt.includes('GERAÇÃO DE TÍTULOS')
+                        ? "Você é um especialista em títulos virais. Responda APENAS com um objeto JSON contendo uma lista de objetos, cada um com os campos: 'titulo', 'qualidade', 'impacto' e 'formula'."
+                        : "Responda APENAS com o objeto JSON solicitado, começando com { e terminando com }.")
             },
             {
                 role: 'user',
@@ -2969,9 +3163,17 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                 timeoutDuration = timeoutForScenes;
                 console.log(`[API] Timeout ajustado para ${timeoutDuration / 1000 / 60} minutos (${isScenePrompts ? 'scene prompts' : isViralAgent ? 'agente viral' : 'roteiro'})`);
             }
-            const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+            let response;
+            let lastFetchError = null;
+            const maxRetries = 2; // Tentar até 2 vezes em caso de timeout de conexão
             
-            const response = await fetch(endpoint, {
+            // Tentar fazer o fetch com retry em caso de timeout de conexão
+            for (let retryAttempt = 0; retryAttempt <= maxRetries; retryAttempt++) {
+                let controller = new AbortController();
+                let timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+                
+                try {
+                    response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2981,8 +3183,25 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                 body: JSON.stringify(payload),
                 signal: controller.signal
             });
-            
             clearTimeout(timeoutId);
+                    break; // Sucesso, sair do loop
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+                    lastFetchError = fetchError;
+                    // Se for timeout de conexão e ainda temos tentativas, tentar novamente
+                    if (fetchError.cause && fetchError.cause.code === 'UND_ERR_CONNECT_TIMEOUT' && retryAttempt < maxRetries) {
+                        console.warn(`[API] ⚠️ Timeout de conexão (tentativa ${retryAttempt + 1}/${maxRetries + 1}), tentando novamente em 2 segundos...`);
+                        await new Promise(resolve => setTimeout(resolve, 2000)); // Aguardar 2 segundos antes de tentar novamente
+                        continue;
+                    }
+                    // Se não for timeout de conexão ou esgotaram as tentativas, lançar erro
+                    throw fetchError;
+                }
+            }
+            
+            if (!response) {
+                throw lastFetchError || new Error('Falha ao conectar com a API após múltiplas tentativas');
+            }
             
             if (!response.ok) {
                 const errorText = await response.text().catch(() => response.statusText);
@@ -3102,7 +3321,7 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
 
 async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'openai', 'gemini']) {
     const defaultModels = {
-        claude: 'claude-3-7-sonnet-20250219',  // Claude 3.7 Sonnet (Fev/2025)
+        claude: 'claude-sonnet-4-20250514',    // Claude 4 Sonnet
         openai: 'gpt-4o',                       // GPT-4o (2025)
         gemini: 'gemini-2.5-pro',               // Gemini 2.5 Pro (2025)
         laozhang: 'gpt-4o'                      // Laozhang.ai (usa GPT-4o como padrão)
@@ -4452,7 +4671,7 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
         // Se não encontrou nos details, tentar extrair do operationType ou endpoint
         if (!modelName && detailsObj?.endpoint) {
             // Alguns endpoints podem ter o modelo no nome
-            const endpointModelMatch = detailsObj.endpoint.match(/(gpt-4o|claude-3-7-sonnet|gemini-2\.5-pro)/i);
+            const endpointModelMatch = detailsObj.endpoint.match(/(gpt-4o|claude-sonnet-4|gemini-2\.5-pro)/i);
             if (endpointModelMatch) {
                 modelName = endpointModelMatch[1];
             }
@@ -4495,8 +4714,8 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
                 modelName = modelName.replace('veo-', 'Veo ').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             }
             // Claude
-            else if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
-                modelName = 'Claude 3.7 Sonnet';
+            else if (modelName.includes('claude-sonnet-4') || modelName === 'claude-sonnet-4-20250514') {
+                modelName = 'Claude 4 Sonnet';
             } else if (modelName.includes('claude-3-5')) {
                 modelName = 'Claude 3.5';
             } else if (modelName.includes('claude')) {
@@ -8734,8 +8953,8 @@ app.get('/api/credits/transactions', authenticateToken, async (req, res) => {
                 
                 // Formatar modelo se necessário
                 if (modelName && modelName !== 'N/A') {
-                    if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
-                        modelName = 'Claude 3.7 Sonnet';
+                    if (modelName.includes('claude-sonnet-4') || modelName === 'claude-sonnet-4-20250514') {
+                        modelName = 'Claude 4 Sonnet';
                     } else if (modelName.includes('gemini-2.5-pro') || modelName === 'gemini-2.5-pro') {
                         modelName = 'Gemini 2.5 Pro';
                     } else if (modelName === 'gpt-4o' || modelName.includes('gpt-4o')) {
@@ -9720,8 +9939,8 @@ app.get('/api/admin/credits/transactions/:userId', authenticateToken, isAdmin, a
                 
                 // Formatar modelo se necessário
                 if (modelName && modelName !== 'N/A') {
-                    if (modelName.includes('claude-3-7-sonnet') || modelName === 'claude-3-7-sonnet-20250219') {
-                        modelName = 'Claude 3.7 Sonnet';
+                    if (modelName.includes('claude-sonnet-4') || modelName === 'claude-sonnet-4-20250514') {
+                        modelName = 'Claude 4 Sonnet';
                     } else if (modelName.includes('gemini-2.5-pro') || modelName === 'gemini-2.5-pro') {
                         modelName = 'Gemini 2.5 Pro';
                     } else if (modelName === 'gpt-4o' || modelName.includes('gpt-4o')) {
@@ -11025,7 +11244,7 @@ app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res)
                     kpis.total_subscriptions = activeCount;
                     kpis.ltv = activeCount > 0 ? totalPaid / activeCount : 0;
                     kpis.avg_duration = subscriptions.length > 0 
-                        ? subscriptions.reduce((sum, s) => sum + (s.duration_days || 0), 0) / subscriptions.length 
+                        ? Math.round(subscriptions.reduce((sum, s) => sum + (s.duration_days || 0), 0) / subscriptions.length)
                         : 0;
                     
                     // Calcular métricas mensais
@@ -11126,7 +11345,7 @@ app.get('/api/admin/subscriptions', authenticateToken, isAdmin, async (req, res)
                 kpis.new_subscribers = newCount;
                 kpis.cancellations = cancelCount;
                 kpis.ltv = activeCount > 0 ? totalPaid / activeCount : 0;
-                kpis.avg_duration = subs.length > 0 ? totalDuration / subs.length : 0;
+                kpis.avg_duration = subs.length > 0 ? Math.round(totalDuration / subs.length) : 0;
                 
                 // Calcular receitas
                 kpis.total_revenue = totalPaid;
@@ -11884,11 +12103,11 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     // Calcular próxima cobrança (30 dias para mensal, 365 para anual)
                     const nextBillingDate = nextBillingDateStripe || (() => {
                         const date = new Date();
-                        if (planKey.includes('annual')) {
+                    if (planKey.includes('annual')) {
                             date.setFullYear(date.getFullYear() + 1);
-                        } else {
+                    } else {
                             date.setMonth(date.getMonth() + 1);
-                        }
+                    }
                         return date;
                     })();
                     const nextBilling = nextBillingDate.toLocaleDateString('pt-BR');
@@ -12097,7 +12316,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                 
                 // Buscar usuário para logs e email
                 if (subscriptionData) {
-                    const userData = await db.get(
+                const userData = await db.get(
                         "SELECT id, name, email, subscription_plan FROM users WHERE id = ?",
                         [subscriptionData.user_id]
                     );
@@ -12163,36 +12382,36 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     const userData = await db.get(
                         "SELECT id, name, email, subscription_plan FROM users WHERE id = ?",
                         [subscriptionData.user_id]
-                    );
+                );
+                
+                if (userData) {
+                    // Enviar email de cancelamento
+                    const cancelDate = new Date().toLocaleDateString('pt-BR');
+                    const endDate = new Date();
+                    endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
+                    const endAccessDate = endDate.toLocaleDateString('pt-BR');
                     
-                    if (userData) {
-                        // Enviar email de cancelamento
-                        const cancelDate = new Date().toLocaleDateString('pt-BR');
-                        const endDate = new Date();
-                        endDate.setMonth(endDate.getMonth() + 1); // Acesso até fim do período pago
-                        const endAccessDate = endDate.toLocaleDateString('pt-BR');
-                        
-                        const planNames = {
-                            'plan-start': 'START CREATOR',
-                            'plan-turbo': 'TURBO MAKER',
-                            'plan-master': 'MASTER PRO',
-                            'plan-start-annual': 'START CREATOR Anual',
-                            'plan-turbo-annual': 'TURBO MAKER Anual',
-                            'plan-master-annual': 'MASTER PRO Anual'
-                        };
-                        
-                        const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
-                        
+                    const planNames = {
+                        'plan-start': 'START CREATOR',
+                        'plan-turbo': 'TURBO MAKER',
+                        'plan-master': 'MASTER PRO',
+                        'plan-start-annual': 'START CREATOR Anual',
+                        'plan-turbo-annual': 'TURBO MAKER Anual',
+                        'plan-master-annual': 'MASTER PRO Anual'
+                    };
+                    
+                    const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
+                    
                         try {
-                            await sendTemplateEmail('cancel', userData.email, {
-                                nome: userData.name,
-                                email: userData.email,
-                                plano: planName,
-                                data_cancelamento: cancelDate,
-                                data_fim_acesso: endAccessDate
-                            });
-                        } catch (emailError) {
-                            console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                    await sendTemplateEmail('cancel', userData.email, {
+                        nome: userData.name,
+                        email: userData.email,
+                        plano: planName,
+                        data_cancelamento: cancelDate,
+                        data_fim_acesso: endAccessDate
+                    });
+            } catch (emailError) {
+                console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
                         }
                     }
                 }
@@ -14757,7 +14976,7 @@ Tradução em PT-BR:`;
                 translateModel = model.includes('2.5-pro') ? 'gemini-2.5-pro' : (model.includes('2.5-flash') ? 'gemini-2.5-flash' : 'gemini-2.0-flash');
             } else if (model.startsWith('claude') || model.includes('claude') || model.includes('sonnet')) {
                 translateService = 'claude';
-                translateModel = model.includes('3.7') ? 'claude-3-7-sonnet-20250219' : model;
+                translateModel = model.includes('3.7') ? 'claude-sonnet-4-20250514' : model;
             } else if (model.startsWith('gpt') || model.includes('gpt') || model.includes('openai')) {
                 translateService = 'openai';
                 translateModel = model.includes('4o') ? 'gpt-4o' : model;
@@ -14800,7 +15019,7 @@ Tradução em PT-BR:`;
                                 if (keyData && keyData.api_key) {
                                     const key = decrypt(keyData.api_key);
                                     if (key) {
-                                        translateProvider = { service: svc, apiKey: key, model: svc === 'claude' ? 'claude-3-7-sonnet-20250219' : (svc === 'openai' ? 'gpt-4o' : 'gemini-2.5-pro') };
+                                        translateProvider = { service: svc, apiKey: key, model: svc === 'claude' ? 'claude-sonnet-4-20250514' : (svc === 'openai' ? 'gpt-4o' : 'gemini-2.5-pro') };
                                         break;
                                     }
                                 }
@@ -14917,126 +15136,216 @@ Tradução em PT-BR:`;
         let modelUsedForDisplay = model;
         let finalAnalysisData;
         let finalNicheData;
+        let uxMessage = null;
         
         // --- INÍCIO DA LÓGICA DO DISTRIBUIDOR (SWITCHER) ---
         if (model === 'all') {
-            // Comparação multimodal SEM laozhang (usa chaves próprias)
+            // Comparação multimodal: verificar preferência do usuário
             modelUsedForDisplay = 'Comparação (Gemini, Claude, OpenAI)';
-
-            const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
-            const keys = {};
-            keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
-
-            if (!keys.gemini || !keys.claude || !keys.openai) {
-                return res.status(400).json({ msg: 'Para "Comparar", precisa de ter as chaves de Gemini, Claude E OpenAI configuradas.' });
+            
+            // Verificar se usuário marcou preferência para usar créditos
+            const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
+            const shouldUseCredits = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
+            
+            let keys = {};
+            
+            if (shouldUseCredits) {
+                // Usuário marcou preferência: usar API Laozhang (créditos)
+                console.log('[Análise-All] Modo multimodal COM créditos (preferência marcada)...');
+                const laozhangKey = await getLaozhangApiKey();
+                if (!laozhangKey) {
+                    return res.status(400).json({ msg: 'API Laozhang não configurada no painel admin.' });
+                }
+                // No modo multimodal com créditos, faremos 3 chamadas ao Laozhang com modelos diferentes
+                keys = {
+                    laozhang: laozhangKey,
+                    useCredits: true
+                };
+            } else {
+                // Usar APIs próprias do usuário
+                console.log('[Análise-All] Modo multimodal COM APIs próprias...');
+                const keysData = await db.all('SELECT service_name, api_key FROM user_api_keys WHERE user_id = ?', [userId]);
+                keysData.forEach(k => { keys[k.service_name] = decrypt(k.api_key); });
+                
+                if (!keys.gemini || !keys.claude || !keys.openai) {
+                    return res.status(400).json({ msg: 'Para "Comparar" com APIs próprias, precisa ter as chaves de Gemini, Claude E OpenAI configuradas.' });
+                }
+                keys.useCredits = false;
             }
 
-            console.log('[Análise-All] A chamar IA em paralelo (APIs próprias)...');
+            console.log(`[Análise-All] A chamar IA em paralelo (${keys.useCredits ? 'créditos Laozhang' : 'APIs próprias'})...`);
             const MIN_IMPACT_SCORE = 7;
-            const serviceConfigs = [
-                { name: 'Gemini', apiFunc: callGeminiAPI, apiKey: keys.gemini, model: 'gemini-2.5-pro' },
-                { name: 'Claude', apiFunc: callClaudeAPI, apiKey: keys.claude, model: 'claude-3-7-sonnet-20250219' },
-                { name: 'OpenAI', apiFunc: callOpenAIAPI, apiKey: keys.openai, model: 'gpt-4o' }
-            ];
+            let serviceConfigs;
+            
+            if (keys.useCredits) {
+                // Modo créditos: usar Laozhang com 3 modelos diferentes
+                serviceConfigs = [
+                    { name: 'Gemini', apiFunc: callLaozhangAPI, apiKey: keys.laozhang, model: 'gemini-2.5-pro', userId },
+                    { name: 'Claude', apiFunc: callLaozhangAPI, apiKey: keys.laozhang, model: 'claude-sonnet-4-20250514', userId },
+                    { name: 'OpenAI', apiFunc: callLaozhangAPI, apiKey: keys.laozhang, model: 'gpt-4o', userId }
+                ];
+            } else {
+                // Modo APIs próprias
+                serviceConfigs = [
+                    { name: 'Gemini', apiFunc: callGeminiAPI, apiKey: keys.gemini, model: 'gemini-2.5-pro' },
+                    { name: 'Claude', apiFunc: callClaudeAPI, apiKey: keys.claude, model: 'claude-sonnet-4-20250514' },
+                    { name: 'OpenAI', apiFunc: callOpenAIAPI, apiKey: keys.openai, model: 'gpt-4o' }
+                ];
+            }
+            
             // Primeiro round em paralelo
-            const promises = serviceConfigs.map(cfg => cfg.apiFunc(titlePrompt, cfg.apiKey, cfg.model));
+            const promises = serviceConfigs.map(cfg => {
+                if (keys.useCredits) {
+                    // callLaozhangAPI precisa de userId e operationType
+                    return cfg.apiFunc(
+                        titlePrompt, 
+                        cfg.apiKey, 
+                        cfg.model, 
+                        null, 
+                        cfg.userId, 
+                        '/api/analyze/titles/multimodal', 
+                        JSON.stringify({ endpoint: '/api/analyze/titles/multimodal', model: cfg.model })
+                    );
+                } else {
+                    return cfg.apiFunc(titlePrompt, cfg.apiKey, cfg.model);
+                }
+            });
             const results = await Promise.allSettled(promises);
 
             let firstSuccessfulAnalysis = null;
+            let multimodalFallbackCount = 0;
+            let totalHighImpact = 0;
+            
+            // Processar resultados em paralelo - SEM chamadas extras
             for (let index = 0; index < results.length; index++) {
                 const result = results[index];
                 const cfg = serviceConfigs[index];
                 const serviceName = cfg?.name || ['Gemini', 'Claude', 'OpenAI'][index];
 
-                // Se o 1º round falhar, não derrubar a rota: apenas registrar e seguir (vamos tentar preencher com outras IAs)
+                // Se falhou, apenas logar e seguir
                 if (result.status !== 'fulfilled') {
-                    console.error(`[Análise-All] Falha com ${serviceName}:`, result.reason?.message || result.reason);
+                    console.error(`[Análise Multimodal] ${serviceName}: ❌ Falha:`, result.reason?.message || result.reason);
                     continue;
                 }
 
-                // Envolver todo o processamento em try-catch para não quebrar o multimodal se uma IA falhar
                 try {
-                // extrair texto do 1º round
-                const rawText = typeof result.value === 'string'
-                    ? result.value
-                    : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
-                const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
-                if (!firstSuccessfulAnalysis) firstSuccessfulAnalysis = parsedData;
-
-                    // Completar 5 aprovados com refinamento rápido (modo multimodal otimizado)
-                const passing = await generatePassingTitlesWithRefine({
-                    apiFunc: cfg.apiFunc,
-                    apiKey: cfg.apiKey,
-                    model: cfg.model,
-                    serviceName,
-                    basePromptBuilder: buildTitleRefinePrompt,
-                    buildArgs: {
-                        originalTitle: videoDetails.title,
-                        translatedTitle,
-                        performanceContext,
-                        descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
-                        transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                        languageInstruction
-                    },
-                    titlesRequired,
-                    minImpact: MIN_IMPACT_SCORE,
-                        maxRefines: 1  // Reduzido para 1 tentativa extra (modo multimodal mais rápido)
-                });
-
-                // Não falhar: adicionar o que passou (>=7) e seguir; depois tentamos preencher o total até 15.
-                console.log(`[Análise Multimodal] ${serviceName}: ${passing.length}/${titlesRequired} títulos aprovados (Impacto >= ${MIN_IMPACT_SCORE})`);
-                passing.forEach(t => allGeneratedTitles.push({ ...t, model: serviceName }));
+                    // Extrair texto da resposta
+                    const rawText = typeof result.value === 'string'
+                        ? result.value
+                        : (result.value && typeof result.value.titles === 'string' ? result.value.titles : '');
+                    
+                    if (!rawText || rawText.trim().length === 0) {
+                        console.warn(`[Análise Multimodal] ${serviceName}: ⚠️ Resposta vazia`);
+                        continue;
+                    }
+                    
+                    // Parse direto
+                    const parsedData = parseTitleAnalysisResponse(rawText, serviceName, titlesRequired);
+                    if (!firstSuccessfulAnalysis && parsedData && parsedData.titulosSugeridos?.length > 0) {
+                        firstSuccessfulAnalysis = parsedData;
+                    }
+                    
+                    // Extrair títulos válidos com lógica de fallback por IA
+                    if (parsedData && parsedData.titulosSugeridos && parsedData.titulosSugeridos.length > 0) {
+                        const withScores = parsedData.titulosSugeridos.map(t => ({
+                            ...t,
+                            model: serviceName,
+                            impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
+                        }));
+                        
+                        // 1. Filtrar impacto alto (>= 7)
+                        let highImpact = withScores.filter(t => (t.impact_score || 0) >= 7);
+                        totalHighImpact += highImpact.length;
+                        
+                        let finalForIA = [...highImpact];
+                        
+                        // 2. Fallback se necessário para esta IA
+                        if (finalForIA.length < titlesRequired) {
+                            const remaining = withScores
+                                .filter(t => !finalForIA.some(ft => ft.titulo === t.titulo))
+                                .sort((a, b) => (b.impact_score || 0) - (a.impact_score || 0));
+                            
+                            const needed = titlesRequired - finalForIA.length;
+                            const fallbacks = remaining.slice(0, needed);
+                            finalForIA = [...finalForIA, ...fallbacks];
+                            multimodalFallbackCount += fallbacks.length;
+                        }
+                        
+                        // Adicionar os títulos finais desta IA (máximo 5)
+                        allGeneratedTitles.push(...finalForIA.slice(0, titlesRequired));
+                        
+                        console.log(`[Análise Multimodal] ${serviceName}: ✅ ${finalForIA.length} títulos (Filtro: ${highImpact.length} high impact)`);
+                    } else {
+                        console.warn(`[Análise Multimodal] ${serviceName}: ⚠️ Nenhum título parseado`);
+                    }
                 } catch (parseError) {
-                    console.error(`[Análise Multimodal] Erro ao processar ${serviceName}:`, parseError.message);
-                    // Continuar com as outras IAs mesmo se esta falhar
-                    continue;
+                    console.error(`[Análise Multimodal] ${serviceName}: ❌ Erro ao processar:`, parseError.message);
                 }
+            }
+
+            // Criar mensagem UX global para multimodal
+            if (multimodalFallbackCount > 0) {
+                uxMessage = `⚠️ Geramos ${totalHighImpact} títulos com 🔥 alto impacto (≥7/10). Incluímos ${multimodalFallbackCount} título(s) complementar(es) para completar a comparação.`;
             }
             
-            if (!firstSuccessfulAnalysis) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
+            if (!firstSuccessfulAnalysis && allGeneratedTitles.length === 0) throw new Error("Todas as IAs falharam em retornar uma análise válida.");
 
-            // Se alguma IA não conseguiu 5, tentar preencher até 15 usando as IAs que funcionaram
-            const targetTotal = titlesRequired * 3; // 15
-            const maxFillRounds = 3; // no máximo 3 rodadas extras para preencher
-            let fillRound = 0;
-            while (allGeneratedTitles.length < targetTotal && fillRound < maxFillRounds) {
-                const remaining = targetTotal - allGeneratedTitles.length;
-                // Preferir IAs que já responderam (mantém consistência)
-                for (const cfg of serviceConfigs) {
-                    if (allGeneratedTitles.length >= targetTotal) break;
-                    const needNow = Math.min(remaining, titlesRequired);
-                    const avoidAll = allGeneratedTitles.map(t => t.titulo);
-                    try {
-                        const more = await generatePassingTitlesWithRefine({
-                            apiFunc: cfg.apiFunc,
-                            apiKey: cfg.apiKey,
-                            model: cfg.model,
-                            serviceName: cfg.name,
-                            basePromptBuilder: buildTitleRefinePrompt,
-                            buildArgs: {
-                                originalTitle: videoDetails.title,
-                                translatedTitle,
-                                performanceContext,
-                                descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
-                                transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                                languageInstruction,
-                                avoidTitles: avoidAll
-                            },
-                            titlesRequired: needNow,
-                            minImpact: MIN_IMPACT_SCORE,
-                            maxRefines: 0  // Sem refinamento extra no preenchimento (mais rápido)
-                        });
-                        more.forEach(t => allGeneratedTitles.push({ ...t, model: cfg.name }));
-                    } catch (e) {
-                        console.warn(`[Análise Multimodal] Não foi possível preencher com ${cfg.name}:`, e.message);
-                    }
+            // META DEFINITIVA: 15 títulos
+            const targetTotal = 15;
+            
+            // SE faltarem títulos (IA falhou ou timeout), completar usando a IA que funcionou
+            if (allGeneratedTitles.length < targetTotal) {
+                console.log(`[Multimodal] Faltam ${targetTotal - allGeneratedTitles.length} títulos. Iniciando recuperação rápida...`);
+                
+                const workingConfigs = serviceConfigs.filter((cfg, idx) => results[idx].status === 'fulfilled');
+                const backupConfig = workingConfigs.length > 0 ? workingConfigs[0] : serviceConfigs[2]; // OpenAI como último recurso
+
+                try {
+                    const apiWrapper = keys.useCredits ? 
+                        async (p, k, m) => await callLaozhangAPI(p, k, m, null, userId, '/api/analyze/titles/multimodal') : backupConfig.apiFunc;
+
+                    const extra = await generatePassingTitlesWithRefine({
+                        apiFunc: apiWrapper,
+                        apiKey: backupConfig.apiKey,
+                        model: backupConfig.model,
+                        serviceName: backupConfig.name + " (Recuperação)",
+                        basePromptBuilder: buildTitleRefinePrompt,
+                        buildArgs: {
+                            originalTitle: videoDetails.title,
+                            translatedTitle,
+                            performanceContext,
+                            descriptionStart: 'N/A',
+                            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '',
+                            languageInstruction,
+                            avoidTitles: allGeneratedTitles.map(t => t.titulo)
+                        },
+                        titlesRequired: targetTotal - allGeneratedTitles.length,
+                        minImpact: 5, // Impacto reduzido para garantir entrega rápida
+                        maxRefines: 1
+                    });
+                    
+                    extra.forEach(t => allGeneratedTitles.push({ ...t, model: backupConfig.name }));
+                } catch (err) {
+                    console.error("[Multimodal] Falha na recuperação:", err.message);
                 }
-                fillRound++;
             }
 
-            // Garantia: não exceder 15
-            if (allGeneratedTitles.length > targetTotal) {
-                allGeneratedTitles = allGeneratedTitles.slice(0, targetTotal);
+            // Garantir exatamente 15 no final e distribuição
+            allGeneratedTitles = allGeneratedTitles.slice(0, targetTotal);
+            
+            // Recontar distribuição após recuperação
+            const finalDistribution = {};
+            allGeneratedTitles.forEach(t => {
+                if (!finalDistribution[t.model]) finalDistribution[t.model] = 0;
+                finalDistribution[t.model]++;
+            });
+            
+            console.log(`[Análise Multimodal] ✅ Distribuição final:`, finalDistribution);
+            console.log(`[Análise Multimodal] ✅ Total: ${allGeneratedTitles.length} títulos`);
+            
+            // Verificar se temos pelo menos o mínimo aceitável (5 títulos)
+            if (allGeneratedTitles.length < 5) {
+                throw new Error(`Falha crítica: Apenas ${allGeneratedTitles.length} títulos gerados.`);
             }
             
             // Log final do total de títulos multimodal
@@ -15148,7 +15457,7 @@ Tradução em PT-BR:`;
             // --- ETAPA 2.1: Extrair dados da resposta ---
             let parsedData;
             try {
-                parsedData = parseTitleAnalysisResponse(rawResponse, service === 'laozhang' ? 'Laozhang.ai' : service, titlesRequired);
+                parsedData = parseTitleAnalysisResponse(rawResponse, 'IA', titlesRequired); // Sempre genérico para evitar exposição
             } catch (parseErr) {
                 console.error('[Análise] Erro ao parsear resposta:', parseErr.message);
                 throw new Error('A resposta da IA não está no formato esperado.');
@@ -15159,13 +15468,13 @@ Tradução em PT-BR:`;
                 throw new Error('A IA não retornou títulos sugeridos.');
             }
             
-            // Registrar títulos (SCORE 2 por backend) + gate Impacto>=7 com até 3 refinamentos
+            // Registrar títulos (SCORE 2 por backend) com lógica de fallback UX
             const MIN_IMPACT_SCORE = 7;
-            const passing = await generatePassingTitlesWithRefine({
+            const titlesFromIA = await generatePassingTitlesWithRefine({
                 apiFunc: apiCallFunction,
                 apiKey: decryptedKey,
                 model,
-                serviceName: service === 'laozhang' ? 'Laozhang.ai' : service,
+                serviceName: 'IA', // Sempre genérico para evitar exposição
                 basePromptBuilder: buildTitleRefinePrompt,
                 buildArgs: {
                     originalTitle: videoDetails.title,
@@ -15179,13 +15488,43 @@ Tradução em PT-BR:`;
                 minImpact: MIN_IMPACT_SCORE,
                 maxRefines: 2
             });
-            if (passing.length < titlesRequired) {
-                throw new Error(`Não foi possível gerar ${titlesRequired} títulos com 🔥 Impacto ≥ ${MIN_IMPACT_SCORE}/10. Tente novamente.`);
+
+            // Lógica de Fallback UX
+            let finalTitles = [...titlesFromIA];
+
+            if (finalTitles.length < titlesRequired) {
+                // Tentar pegar os melhores títulos que sobraram do parse original
+                const allWithScores = parsedData.titulosSugeridos.map(t => ({
+                    ...t,
+                    impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
+                }));
+
+                const remaining = allWithScores
+                    .filter(t => !finalTitles.some(ft => ft.titulo === t.titulo))
+                    .sort((a, b) => (b.impact_score || 0) - (a.impact_score || 0));
+                
+                const needed = titlesRequired - finalTitles.length;
+                const fallbackTitles = remaining.slice(0, needed);
+                finalTitles = [...finalTitles, ...fallbackTitles];
+
+                // Criar mensagem UX
+                if (titlesFromIA.length > 0) {
+                    const bestFallbackScore = fallbackTitles.length > 0 ? fallbackTitles[0].impact_score : 0;
+                    uxMessage = `⚠️ Geramos ${titlesFromIA.length} títulos com 🔥 alto impacto (≥7/10). Incluímos ${fallbackTitles.length} título(s) complementar(es) com bom potencial (${bestFallbackScore}/10).`;
+                } else {
+                    uxMessage = `⚠️ Não foi possível atingir o critério de alto impacto (7/10). Geramos os melhores títulos possíveis baseados no contexto.`;
+                }
             }
+
+            if (finalTitles.length === 0) {
+                throw new Error('A IA não retornou títulos válidos para este vídeo.');
+            }
+
+            const passing = finalTitles.slice(0, titlesRequired);
 
             allGeneratedTitles = passing.map(t => ({
                 ...t,
-                model: service === 'laozhang' ? 'Laozhang.ai' : model
+                model: model // Usar modelo original do frontend, não nome do serviço
             }));
             
             // SEMPRE usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
@@ -15369,11 +15708,11 @@ Tradução em PT-BR:`;
         // Formatar modelo para exibição se necessário
         const formatModelForResponse = (modelName) => {
             if (!modelName) return 'GPT-4o';
-            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
+            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 4 Sonnet' || modelName === 'Gemini 2.5 Pro (2025)') {
                 return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
             }
-            if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
-                return 'Claude 3.7 Sonnet';
+            if (modelName.includes('claude-sonnet-4') || modelName.includes('Claude 4 Sonnet')) {
+                return 'Claude 4 Sonnet';
             } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
                 return 'Gemini 2.5 Pro';
             } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
@@ -15393,6 +15732,7 @@ Tradução em PT-BR:`;
             subniche: finalNicheData?.subniche || 'N/A',
             analiseOriginal: finalAnalysisData || {},
             titulosSugeridos: formattedTitles,
+            ux_message: uxMessage, // Mensagem de transparência para fallback
             modelUsed: formatModelForResponse(model) || 'GPT-4o', 
             videoDetails: { 
                 ...videoDetails, 
@@ -15472,7 +15812,17 @@ Tradução em PT-BR:`;
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analyze/titles]:', err);
-        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao processar a análise.' });
+        // Sanitizar mensagem de erro para remover nomes de serviços
+        let errorMessage = err.message || 'Erro interno do servidor ao processar a análise.';
+        errorMessage = errorMessage
+            .replace(/laozhang(\.ai)?/gi, 'IA')
+            .replace(/lao\s*zhang/gi, 'IA')
+            .replace(/openai/gi, 'IA')
+            .replace(/anthropic/gi, 'IA')
+            .replace(/google/gi, 'IA')
+            .replace(/gemini/gi, 'IA')
+            .replace(/claude/gi, 'IA');
+        res.status(500).json({ msg: errorMessage });
     }
 });
 
@@ -15499,8 +15849,8 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         // Mapear modelos para os nomes corretos da laozhang.ai
         if (modelToUse === 'gpt-4o') {
             modelToUse = 'gpt-4o';
-        } else if (modelToUse === 'claude-3-7-sonnet-20250219') {
-            modelToUse = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse === 'claude-sonnet-4-20250514') {
+            modelToUse = 'claude-sonnet-4-20250514';
         } else if (modelToUse === 'gemini-2.5-pro') {
             modelToUse = 'gemini-2.5-pro';
         }
@@ -15670,34 +16020,78 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             );
             // callLaozhangAPI retorna string diretamente agora
             responseText = typeof response === 'string' ? response.trim() : JSON.stringify(response);
+            // Retry único se vier vazio
+            if (!responseText || responseText.trim().length === 0) {
+                console.warn('[Análise Laozhang] Resposta vazia. Retentando 1x com Laozhang...');
+                const retry = await callLaozhangAPI(
+                    titlePrompt, 
+                    apiKeyToUse, 
+                    modelToUse, 
+                    null, 
+                    userId, 
+                    '/api/analyze/titles/laozhang', 
+                    JSON.stringify({ endpoint: '/api/analyze/titles/laozhang', model: modelToUse, retry: true })
+                );
+                responseText = typeof retry === 'string' ? retry.trim() : JSON.stringify(retry);
+            }
         } else {
             console.log(`[Análise Laozhang] A chamar API própria (${serviceToUse})...`);
             const apiResponse = await apiCallFunction(titlePrompt, apiKeyToUse, modelToUse);
             // APIs próprias retornam objeto com propriedade titles
             responseText = typeof apiResponse === 'string' ? apiResponse.trim() : (apiResponse.titles || JSON.stringify(apiResponse));
+            if (!responseText || responseText.trim().length === 0) {
+                console.warn('[Análise Laozhang] Resposta vazia da API própria. Retentando 1x...');
+                const retry = await apiCallFunction(titlePrompt, apiKeyToUse, modelToUse);
+                responseText = typeof retry === 'string' ? retry.trim() : (retry?.titles || JSON.stringify(retry));
+            }
         }
         console.log(`[Análise Laozhang] Resposta recebida (primeiros 500 chars):`, responseText.substring(0, 500));
-        const serviceNameForParse = useLaozhang ? 'Laozhang.ai' : (serviceToUse === 'openai' ? 'OpenAI' : serviceToUse === 'claude' ? 'Claude' : 'Gemini');
+        // NUNCA passar nome de serviço real para parsing - sempre usar genérico para evitar exposição no frontend
+        const serviceNameForParse = 'IA';
         const parsedData = parseTitleAnalysisResponse(responseText, serviceNameForParse, 5);
-        const passing = await generatePassingTitlesWithRefine({
-            apiFunc: apiCallFunction,
-            apiKey: apiKeyToUse,
-            model: modelToUse,
-            serviceName: serviceNameForParse,
-            basePromptBuilder: buildTitleRefinePrompt,
-            buildArgs: {
-                originalTitle: videoDetails.title,
-                translatedTitle,
-                performanceContext,
-                descriptionStart: 'N/A',
-                transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                languageInstruction
-            },
-            titlesRequired,
-            minImpact: MIN_IMPACT_SCORE,
-            maxRefines: 2
-        });
-        if (passing.length < titlesRequired) throw new Error(`Não foi possível gerar ${titlesRequired} títulos com 🔥 Impacto ≥ ${MIN_IMPACT_SCORE}/10. Tente novamente.`);
+        
+        // Aplicar score de impacto aos títulos parseados
+        let allWithScores = [];
+        if (parsedData && parsedData.titulosSugeridos && parsedData.titulosSugeridos.length > 0) {
+            allWithScores = parsedData.titulosSugeridos.map(t => ({
+                ...t,
+                impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
+            }));
+        }
+
+        // 1. Pegar os que são >= 7
+        let highImpact = allWithScores.filter(t => (t.impact_score || 0) >= 7);
+        let finalTitles = [...highImpact];
+        let uxMessage = null;
+
+        // 2. Se faltar, completar com os melhores restantes (preferência >= 6)
+        if (finalTitles.length < titlesRequired) {
+            const remaining = allWithScores
+                .filter(t => !finalTitles.some(ft => ft.titulo === t.titulo))
+                .sort((a, b) => (b.impact_score || 0) - (a.impact_score || 0));
+            
+            const needed = titlesRequired - finalTitles.length;
+            const fallbackTitles = remaining.slice(0, needed);
+            finalTitles = [...finalTitles, ...fallbackTitles];
+
+            // Criar mensagem UX de transparência
+            if (highImpact.length > 0) {
+                const countHigh = highImpact.length;
+                const countLow = fallbackTitles.length;
+                const bestFallbackScore = fallbackTitles.length > 0 ? fallbackTitles[0].impact_score : 0;
+                uxMessage = `⚠️ Geramos ${countHigh} títulos com 🔥 alto impacto (≥7/10). Incluímos ${countLow} título(s) complementar(es) com bom potencial (${bestFallbackScore}/10).`;
+            } else {
+                uxMessage = `⚠️ Não foi possível atingir o critério de alto impacto (7/10). Geramos os melhores títulos possíveis baseados no contexto.`;
+            }
+        }
+
+        // Se mesmo com fallback não tiver NADA, aí sim erro
+        if (finalTitles.length === 0) {
+            throw new Error(`A IA não retornou títulos válidos para este vídeo. Verifique o conteúdo ou tente outro motor.`);
+        }
+
+        // Limitar ao solicitado
+        const passing = finalTitles.slice(0, titlesRequired);
         
         // Sempre usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
         const derivedNiche = deriveNicheAndSubnicheFromContext({
@@ -15732,18 +16126,18 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         const formatModelForDisplay = (modelName) => {
             if (!modelName) return 'GPT-4o';
             // Se já está no formato de exibição do frontend, retornar formatado
-            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 3.7 Sonnet (Fev/25)' || modelName === 'Gemini 2.5 Pro (2025)') {
+            if (modelName === 'GPT-4o (2025)' || modelName === 'Claude 4 Sonnet' || modelName === 'Gemini 2.5 Pro (2025)') {
                 return modelName.replace(' (2025)', '').replace(' (Fev/25)', '');
             }
             // Mapear formatos técnicos para nomes amigáveis
-            if (modelName.includes('claude-3-7-sonnet') || modelName.includes('Claude 3.7 Sonnet')) {
-                return 'Claude 3.7 Sonnet';
+            if (modelName.includes('claude-sonnet-4') || modelName.includes('Claude 4 Sonnet')) {
+                return 'Claude 4 Sonnet';
             } else if (modelName.includes('gemini-2.5-pro') || modelName.includes('Gemini 2.5 Pro')) {
                 return 'Gemini 2.5 Pro';
             } else if (modelName.includes('gpt-4o') || modelName.includes('GPT-4o')) {
                 return 'GPT-4o';
             } else if (modelName.includes('claude')) {
-                return 'Claude 3.7 Sonnet';
+                return 'Claude 4 Sonnet';
             } else if (modelName.includes('gemini')) {
                 return 'Gemini 2.5 Pro';
             } else if (modelName.includes('gpt')) {
@@ -15758,7 +16152,7 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         console.log(`[Análise Laozhang] Modelo para exibição: "${modelToUse}" -> Formatado: "${modelNameForDisplay}"`);
         const allGeneratedTitles = passing.map(t => ({
             ...t,
-            impact_score: computeImpactVisualScore(t.titulo),
+            impact_score: t.impact_score || computeImpactVisualScore(t.titulo),
             model: modelNameForDisplay
         }));
 
@@ -15890,12 +16284,13 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             niche: finalNiche,
             subniche: finalSubniche
         });
-        
+
         res.status(200).json({
             niche: finalNiche,
             subniche: finalSubniche,
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: allGeneratedTitles,
+            ux_message: uxMessage, // Mensagem de transparência para fallback
             modelUsed: modelNameForDisplay || 'GPT-4o',
             videoDetails: {
                 ...videoDetails,
@@ -15913,7 +16308,17 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
 
     } catch (err) {
         console.error('[ERRO NA ROTA /api/analyze/titles/laozhang]:', err);
-        res.status(500).json({ msg: err.message || 'Erro interno do servidor ao processar a análise.' });
+        // Sanitizar mensagem de erro para remover nomes de serviços
+        let errorMessage = err.message || 'Erro interno do servidor ao processar a análise.';
+        errorMessage = errorMessage
+            .replace(/laozhang(\.ai)?/gi, 'IA')
+            .replace(/lao\s*zhang/gi, 'IA')
+            .replace(/openai/gi, 'IA')
+            .replace(/anthropic/gi, 'IA')
+            .replace(/google/gi, 'IA')
+            .replace(/gemini/gi, 'IA')
+            .replace(/claude/gi, 'IA');
+        res.status(500).json({ msg: errorMessage });
     }
 });
 
@@ -17028,7 +17433,7 @@ app.post('/api/thumbnail-references/upload', authenticateToken, async (req, res)
                             try {
                                 apiKey = decrypt(keyData.api_key);
                                 service = svc;
-                                if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                                if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                                 else if (svc === 'openai') modelToUse = 'gpt-4o';
                                 else modelToUse = 'gemini-2.5-pro';
                                 break;
@@ -17309,9 +17714,9 @@ app.post('/api/thumbnail-references/analyze-style', authenticateToken, async (re
         
         if (model && model !== 'auto') {
             // Usar modelo especificado pelo usuário
-            if (model.includes('claude') || model === 'claude-3-7-sonnet-20250219') {
+            if (model.includes('claude') || model === 'claude-sonnet-4-20250514') {
                 service = 'claude';
-                modelToUse = 'claude-3-7-sonnet-20250219';
+                modelToUse = 'claude-sonnet-4-20250514';
             } else if (model.includes('gpt') || model === 'gpt-4o') {
                 service = 'openai';
                 modelToUse = 'gpt-4o';
@@ -17348,7 +17753,7 @@ app.post('/api/thumbnail-references/analyze-style', authenticateToken, async (re
                     try {
                         apiKey = decrypt(keyData.api_key);
                         service = svc;
-                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                         else if (svc === 'openai') modelToUse = 'gpt-4o';
                         else modelToUse = 'gemini-2.5-pro';
                         break;
@@ -18129,9 +18534,9 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
         
         // Se ai_model foi fornecido, usar o modelo especificado
         if (ai_model) {
-            if (ai_model.includes('claude') || ai_model === 'claude-3-7-sonnet-20250219') {
+            if (ai_model.includes('claude') || ai_model === 'claude-sonnet-4-20250514') {
                 service = 'claude';
-                modelToUse = 'claude-3-7-sonnet-20250219';
+                modelToUse = 'claude-sonnet-4-20250514';
             } else if (ai_model.includes('gpt') || ai_model === 'gpt-4o') {
                 service = 'openai';
                 modelToUse = 'gpt-4o';
@@ -18166,7 +18571,7 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
                     try {
                         apiKey = decrypt(keyData.api_key);
                         service = svc;
-                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                         else if (svc === 'openai') modelToUse = 'gpt-4o';
                         else modelToUse = 'gemini-2.5-pro';
                         break;
@@ -18982,9 +19387,9 @@ app.post('/api/analyze/thumbnail', authenticateToken, async (req, res) => {
         if (model === 'gpt-4o') {
             service = 'openai';
             model = 'gpt-4o';
-        } else if (model === 'claude-3-7-sonnet-20250219') {
+        } else if (model === 'claude-sonnet-4-20250514') {
             service = 'claude';
-            model = 'claude-3-7-sonnet-20250219';
+            model = 'claude-sonnet-4-20250514';
         } else if (model === 'gemini-2.5-pro') {
             service = 'gemini';
             model = 'gemini-2.5-pro';
@@ -20848,12 +21253,12 @@ app.post('/api/analyze/thumbnail/laozhang', authenticateToken, async (req, res) 
             // Mapear para modelo Laozhang
             if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
                 modelForAPI = 'gpt-4o';
-            } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
-                modelForAPI = 'claude-3-7-sonnet-20250219';
+            } else if (modelToUse === 'claude-sonnet-4-20250514' || modelToUse === 'Claude 4 Sonnet') {
+                modelForAPI = 'claude-sonnet-4-20250514';
             } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
                 modelForAPI = 'gemini-2.5-pro';
             } else if (modelToUse && modelToUse.includes('claude')) {
-                modelForAPI = 'claude-3-7-sonnet-20250219';
+                modelForAPI = 'claude-sonnet-4-20250514';
             } else if (modelToUse && modelToUse.includes('gemini')) {
                 modelForAPI = 'gemini-2.5-pro';
             } else if (modelToUse && modelToUse.includes('gpt')) {
@@ -22039,7 +22444,7 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             clean = clean.replace(/-(laozhang|claude|gemini|gpt|openai|anthropic)$/i, '');
             // Mapear para nomes amigáveis
             if (clean.includes('gpt-4o')) return 'GPT-4o';
-            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-3-7')) return 'Claude 4 Sonnet';
             if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
             if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
             return clean || 'GPT-4o';
@@ -22350,12 +22755,12 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             // Mapear para modelo Laozhang
             if (selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
                 modelForAPI = 'gpt-4o';
-            } else if (selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
-                modelForAPI = 'claude-3-7-sonnet-20250219';
+            } else if (selectedModel === 'claude-sonnet-4-20250514' || selectedModel === 'Claude 4 Sonnet') {
+                modelForAPI = 'claude-sonnet-4-20250514';
             } else if (selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
                 modelForAPI = 'gemini-2.5-pro';
             } else if (selectedModel && selectedModel.includes('claude')) {
-                modelForAPI = 'claude-3-7-sonnet-20250219';
+                modelForAPI = 'claude-sonnet-4-20250514';
             } else if (selectedModel && selectedModel.includes('gemini')) {
                 modelForAPI = 'gemini-2.5-pro';
             } else if (selectedModel && selectedModel.includes('gpt')) {
@@ -22656,7 +23061,7 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
             let clean = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
             // Mapear para nomes amigáveis
             if (clean.includes('gpt-4o')) return 'GPT-4o';
-            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-3-7')) return 'Claude 4 Sonnet';
             if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
             if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
             if (clean.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
@@ -23074,7 +23479,7 @@ app.post('/api/detect/characters/laozhang', authenticateToken, async (req, res) 
 
         // Mapear modelo selecionado para modelo Laozhang
         // Se não houver modelo selecionado, usar GPT-4o como padrão
-        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+        const laozhangModel = selectedModel === 'Claude 4 Sonnet' ? 'claude-sonnet-4-20250514' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
                              (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
@@ -23300,7 +23705,7 @@ app.post('/api/rewrite/blocked-prompt/laozhang', authenticateToken, async (req, 
 
         // Mapear modelo selecionado para modelo Laozhang
         // Se não houver modelo selecionado, usar GPT-4o como padrão
-        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+        const laozhangModel = selectedModel === 'Claude 4 Sonnet' ? 'claude-sonnet-4-20250514' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
                              (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
@@ -25236,8 +25641,8 @@ app.post('/api/video/transcript/analyze/laozhang', authenticateToken, async (req
         let modelToUse = requestedModel || 'gpt-4o';
         if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
             modelToUse = 'gpt-4o';
-        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
-            modelToUse = 'claude-3-7-sonnet-20250219';
+        } else if (modelToUse === 'claude-sonnet-4-20250514' || modelToUse === 'Claude 4 Sonnet') {
+            modelToUse = 'claude-sonnet-4-20250514';
         } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
             modelToUse = 'gemini-2.5-pro';
         }
@@ -25792,11 +26197,11 @@ Retorne JSON:
         const response = await callLaozhangAPI(
             agentPrompt,
             laozhangApiKey,
-            'claude-3-7-sonnet-20250219',
+            'claude-sonnet-4-20250514',
             null,
             userId,
             'api_script_agents_create',
-            JSON.stringify({ endpoint: '/api/script-agents/create/laozhang', model: 'claude-3-7-sonnet-20250219' })
+            JSON.stringify({ endpoint: '/api/script-agents/create/laozhang', model: 'claude-sonnet-4-20250514' })
         );
 
         // Parsear resposta
@@ -26009,7 +26414,7 @@ app.post('/api/script-agents/:agentId/generate', authenticateToken, async (req, 
         };
         
         // Se não fornecer modelo, usar Claude como padrão (recomendado para roteiros)
-        const selectedModel = model || 'claude-3-7-sonnet-20250219';
+        const selectedModel = model || 'claude-sonnet-4-20250514';
         
         // A duração já vem ajustada do frontend (com 3-5 minutos extras)
         // Não adicionar mais minutos aqui para evitar duplicação
@@ -26790,7 +27195,7 @@ Responda com o roteiro expandido imediatamente, sem envolver em objetos ou forma
                                     const fallbackModel = fallbackService === 'gemini' 
                                         ? 'gemini-2.5-pro' 
                                         : fallbackService === 'claude'
-                                        ? 'claude-3-7-sonnet-20250219'
+                                        ? 'claude-sonnet-4-20250514'
                                         : 'gpt-4o';
                                     
                                     console.log(`[Roteiro] 🔄 Tentando ${fallbackService} como fallback...`);
@@ -27555,8 +27960,8 @@ app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, asy
         let laozhangModel = null;
         if (selectedModel) {
             const modelLower = selectedModel.toLowerCase();
-            if (modelLower.includes('claude') || modelLower.includes('sonnet') || selectedModel === 'claude-3-7-sonnet-20250219' || selectedModel === 'Claude 3.7 Sonnet (Fev/25)') {
-                laozhangModel = 'claude-3-7-sonnet-20250219';
+            if (modelLower.includes('claude') || modelLower.includes('sonnet') || selectedModel === 'claude-sonnet-4-20250514' || selectedModel === 'Claude 4 Sonnet') {
+                laozhangModel = 'claude-sonnet-4-20250514';
             } else if (modelLower.includes('gemini') || modelLower.includes('pro') || selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
                 laozhangModel = 'gemini-2.5-pro';
             } else if (modelLower.includes('gpt') || modelLower.includes('4o') || selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
@@ -27590,7 +27995,7 @@ app.post('/api/script-agents/:agentId/generate/laozhang', authenticateToken, asy
         if (laozhangModel === 'gpt-4o') {
             wordsPerMinute = 200; // Aumentado para 200 para garantir duração mínima
             console.log(`[Script Laozhang] GPT detectado: usando ${wordsPerMinute} palavras/minuto (aumentado para garantir duração mínima)`);
-        } else if (laozhangModel === 'claude-3-7-sonnet-20250219') {
+        } else if (laozhangModel === 'claude-sonnet-4-20250514') {
             wordsPerMinute = 180; // Aumentado para 180 para garantir duração mínima
             console.log(`[Script Laozhang] Claude detectado: usando ${wordsPerMinute} palavras/minuto (aumentado para garantir duração mínima)`);
         } else {
@@ -28056,7 +28461,7 @@ ROTEIRO EXPANDIDO:`;
             // Remover prefixos e mapear para nomes amigáveis
             let clean = model.replace(/^(laozhang-|claude-|gemini-|gpt-)/i, '');
             if (clean.includes('gpt-4o')) return 'GPT-4o';
-            if (clean.includes('claude-3-7-sonnet') || clean.includes('sonnet-3-7')) return 'Claude 3.7 Sonnet';
+            if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-3-7')) return 'Claude 4 Sonnet';
             if (clean.includes('claude-sonnet-4') || clean.includes('sonnet-4')) return 'Claude Sonnet 4';
             if (clean.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
             return clean || 'GPT-4o';
@@ -29266,12 +29671,12 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                     if (modelToUse) {
                         if (modelToUse === 'gpt-4o' || modelToUse === 'GPT-4o (2025)') {
                             laozhangModel = 'gpt-4o';
-                        } else if (modelToUse === 'claude-3-7-sonnet-20250219' || modelToUse === 'Claude 3.7 Sonnet (Fev/25)') {
-                            laozhangModel = 'claude-3-7-sonnet-20250219';
+                        } else if (modelToUse === 'claude-sonnet-4-20250514' || modelToUse === 'Claude 4 Sonnet') {
+                            laozhangModel = 'claude-sonnet-4-20250514';
                         } else if (modelToUse === 'gemini-2.5-pro' || modelToUse === 'Gemini 2.5 Pro (2025)') {
                             laozhangModel = 'gemini-2.5-pro';
                         } else if (modelToUse.includes('claude')) {
-                            laozhangModel = 'claude-3-7-sonnet-20250219';
+                            laozhangModel = 'claude-sonnet-4-20250514';
                         } else if (modelToUse.includes('gemini')) {
                             laozhangModel = 'gemini-2.5-pro';
                         } else if (modelToUse.includes('gpt')) {
@@ -29365,22 +29770,22 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
             
             // Mapear modelo se necessário
             const modelAliases = {
-                'claude-3-5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
-                'claude-3-5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
-                'claude-3-5-sonnet-latest': 'claude-3-7-sonnet-20250219',
-                'claude-3-sonnet-20240229': 'claude-3-7-sonnet-20250219',
-                'claude-3.5-sonnet-20241022': 'claude-3-7-sonnet-20250219',
-                'claude-3.5-sonnet-20240620': 'claude-3-7-sonnet-20250219',
-                'claude-3-haiku-20240307': 'claude-3-7-sonnet-20250219',
-                'claude-3.5-haiku-20241022': 'claude-3-7-sonnet-20250219',
-                'claude-3-5-haiku-20241022': 'claude-3-7-sonnet-20250219',
-                'claude-3-5-haiku-latest': 'claude-3-7-sonnet-20250219',
+                'claude-3-5-sonnet-20241022': 'claude-sonnet-4-20250514',
+                'claude-3-5-sonnet-20240620': 'claude-sonnet-4-20250514',
+                'claude-3-5-sonnet-latest': 'claude-sonnet-4-20250514',
+                'claude-3-sonnet-20240229': 'claude-sonnet-4-20250514',
+                'claude-3.5-sonnet-20241022': 'claude-sonnet-4-20250514',
+                'claude-3.5-sonnet-20240620': 'claude-sonnet-4-20250514',
+                'claude-3-haiku-20240307': 'claude-sonnet-4-20250514',
+                'claude-3.5-haiku-20241022': 'claude-sonnet-4-20250514',
+                'claude-3-5-haiku-20241022': 'claude-sonnet-4-20250514',
+                'claude-3-5-haiku-latest': 'claude-sonnet-4-20250514',
                 'claude-3-opus-20240229': 'claude-opus-4-20250514'
             };
             
             let modelName = modelAliases[modelToUse] || modelToUse;
             const supportedModels = new Set([
-                'claude-3-7-sonnet-20250219',
+                'claude-sonnet-4-20250514',
                 'claude-sonnet-4-20250514',
                 'claude-opus-4-20250514'
             ]);
@@ -29391,7 +29796,7 @@ app.post('/api/viral-agents/:agentId/chat', authenticateToken, async (req, res) 
                 } else if (modelToUse && (modelToUse.toLowerCase().includes('sonnet') || modelToUse.toLowerCase().includes('4'))) {
                     modelName = 'claude-sonnet-4-20250514';
                 } else {
-                    modelName = 'claude-3-7-sonnet-20250219';
+                    modelName = 'claude-sonnet-4-20250514';
                 }
             }
             
@@ -30274,7 +30679,7 @@ app.post('/api/niche/find-subniche/laozhang', authenticateToken, async (req, res
         }
 
         // Se não houver modelo selecionado, usar GPT-4o como padrão
-        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+        const laozhangModel = selectedModel === 'Claude 4 Sonnet' ? 'claude-sonnet-4-20250514' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
                              (!selectedModel || !selectedModel.trim()) ? 'gpt-4o' : selectedModel;
 
@@ -30632,7 +31037,7 @@ app.post('/api/niche/analyze-competitor/laozhang', authenticateToken, async (req
         const competitorData = await getChannelVideosWithDetails(ytChannelId, apiKey, 'viewCount', 5);
 
         // Criar prompt para análise - usar GPT-4o como padrão se não houver modelo selecionado
-        const laozhangModel = selectedModel === 'Claude 3.7 Sonnet (Fev/25)' ? 'claude-3-7-sonnet-20250219' :
+        const laozhangModel = selectedModel === 'Claude 4 Sonnet' ? 'claude-sonnet-4-20250514' :
                              selectedModel === 'Gemini 2.5 Pro (2025)' ? 'gemini-2.5-pro' :
                              selectedModel && selectedModel.trim() ? selectedModel : 'gpt-4o';
 
@@ -34111,8 +34516,8 @@ app.post('/api/youtube/generate-metadata', authenticateToken, async (req, res) =
                 if (requestedModel) {
                     if (requestedModel.includes('gpt') || requestedModel === 'gpt-4o') {
                         modelToUse = 'gpt-4o';
-                    } else if (requestedModel.includes('claude') || requestedModel === 'claude-3-7-sonnet-20250219') {
-                        modelToUse = 'claude-3-7-sonnet-20250219';
+                    } else if (requestedModel.includes('claude') || requestedModel === 'claude-sonnet-4-20250514') {
+                        modelToUse = 'claude-sonnet-4-20250514';
                     } else if (requestedModel.includes('gemini') || requestedModel === 'gemini-2.5-pro') {
                         modelToUse = 'gemini-2.5-pro';
                     }
@@ -34302,9 +34707,9 @@ Responda APENAS com o JSON, sem texto adicional.`;
                 if (targetModel.includes('gpt') || targetModel === 'gpt-4o') {
                     service = 'openai';
                     targetModel = 'gpt-4o';
-                } else if (targetModel.includes('claude') || targetModel === 'claude-3-7-sonnet-20250219') {
+                } else if (targetModel.includes('claude') || targetModel === 'claude-sonnet-4-20250514') {
                     service = 'claude';
-                    targetModel = 'claude-3-7-sonnet-20250219';
+                    targetModel = 'claude-sonnet-4-20250514';
                 } else if (targetModel.includes('gemini') || targetModel === 'gemini-2.5-pro') {
                     service = 'gemini';
                     targetModel = 'gemini-2.5-pro';
@@ -34342,7 +34747,7 @@ Responda APENAS com o JSON, sem texto adicional.`;
                         model = targetModel && targetModel.includes('gemini') ? targetModel : 'gemini-2.5-pro';
                     } else if (serviceToUse === 'claude') {
                         apiCallFunction = callClaudeAPI;
-                        model = targetModel && targetModel.includes('claude') ? targetModel : 'claude-3-7-sonnet-20250219';
+                        model = targetModel && targetModel.includes('claude') ? targetModel : 'claude-sonnet-4-20250514';
                     } else {
                         apiCallFunction = callOpenAIAPI;
                         model = targetModel && targetModel.includes('gpt') ? targetModel : 'gpt-4o';
@@ -40519,7 +40924,7 @@ app.post('/api/viral-analysis/detect-niche', authenticateToken, async (req, res)
                 try {
                     apiKey = decrypt(keyData.api_key);
                     service = svc;
-                    if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                    if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                     else if (svc === 'openai') modelToUse = 'gpt-4o';
                     else modelToUse = 'gemini-2.5-pro';
                     break;
@@ -40747,7 +41152,7 @@ app.post('/api/viral-analysis/channels/:analysisId/analyze', authenticateToken, 
         if (ai_model && ai_model !== 'auto') {
             if (ai_model.includes('claude')) {
                 service = 'claude';
-                modelToUse = 'claude-3-7-sonnet-20250219';
+                modelToUse = 'claude-sonnet-4-20250514';
             } else if (ai_model.includes('gpt')) {
                 service = 'openai';
                 modelToUse = 'gpt-4o';
@@ -40765,7 +41170,7 @@ app.post('/api/viral-analysis/channels/:analysisId/analyze', authenticateToken, 
                     try {
                         apiKey = decrypt(keyData.api_key);
                         service = svc;
-                        if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                        if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                         else if (svc === 'openai') modelToUse = 'gpt-4o';
                         else modelToUse = 'gemini-2.5-pro';
                         break;
@@ -41488,7 +41893,7 @@ app.post('/api/viral-analysis/videos/:videoId/analyze-comments', authenticateTok
                 try {
                     apiKey = decrypt(keyData.api_key);
                     service = svc;
-                    if (svc === 'claude') modelToUse = 'claude-3-7-sonnet-20250219';
+                    if (svc === 'claude') modelToUse = 'claude-sonnet-4-20250514';
                     else if (svc === 'openai') modelToUse = 'gpt-4o';
                     else modelToUse = 'gemini-2.5-pro';
                     break;
