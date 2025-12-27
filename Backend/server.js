@@ -614,6 +614,51 @@ app.get('/manifest.json', (req, res) => {
     res.sendFile(path.join(__dirname, 'manifest.json'));
 });
 
+// Rota para sitemap.xml (dinâmico baseado no domínio)
+app.get('/sitemap.xml', (req, res) => {
+    res.setHeader('Content-Type', 'application/xml');
+    
+    if (req.isAppSubdomain) {
+        const sitemapPath = path.join(__dirname, 'sitemaps', 'sitemap-app.xml');
+        if (fs.existsSync(sitemapPath)) {
+            res.sendFile(sitemapPath);
+        } else {
+            res.status(404).send('Sitemap não encontrado');
+        }
+    } else {
+        // Landing domain (default)
+        const sitemapPath = path.join(__dirname, 'sitemaps', 'sitemap-landing.xml');
+        if (fs.existsSync(sitemapPath)) {
+            res.sendFile(sitemapPath);
+        } else {
+            res.status(404).send('Sitemap não encontrado');
+        }
+    }
+});
+
+// Rota para robots.txt (dinâmico baseado no domínio)
+app.get('/robots.txt', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain');
+    
+    if (req.isAppSubdomain) {
+        res.send(`User-agent: *
+Allow: /
+
+Sitemap: https://app.canaisdarks.com.br/sitemap.xml`);
+    } else {
+        // Para landing, podemos servir o arquivo estático ou gerar dinamicamente
+        const robotsPath = path.join(__dirname, 'landing-dist', 'robots.txt');
+        if (fs.existsSync(robotsPath)) {
+            res.sendFile(robotsPath);
+        } else {
+             res.send(`User-agent: *
+Allow: /
+
+Sitemap: https://canaisdarks.com.br/sitemap.xml`);
+        }
+    }
+});
+
 // Rota catch-all para landing page (SPA) - deve vir ANTES das rotas de API
 // Isso permite que o React Router funcione corretamente
 app.get('*', (req, res, next) => {
@@ -5392,7 +5437,7 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                     const responseText = typeof labsTaskResponse.data === 'string' ? labsTaskResponse.data : '';
                     if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì') || responseText.includes('<!DOCTYPE')) {
                         console.log('[La Casa Dark Core] ⚠️ API Labs está em manutenção');
-                        throw new Error('O serviço de voz está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
+                        throw new Error('O serviço de Voz Premium (Labs) está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
                     }
                 }
                 
@@ -5634,7 +5679,7 @@ const generateVoicePremiumTtsAudio = async ({ apiKey, textInput, voiceName }) =>
                 const responseText = typeof maxTaskResponse.data === 'string' ? maxTaskResponse.data : '';
                 if (responseText.includes('Maintenance') || responseText.includes('Bảo Trì')) {
                     console.log('[La Casa Dark Core] ⚠️ API Max está em manutenção');
-                    throw new Error('O serviço de Voz Premium está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
+                    throw new Error('O serviço de Voz Premium (Max) está temporariamente em manutenção. Por favor, tente novamente em alguns minutos.');
                 }
             }
             
@@ -5826,13 +5871,13 @@ const generateLaozhangTtsAudio = async ({ apiKey, textInput, voiceName = 'alloy'
                 throw new Error(`Erro na requisição: ${errorData.substring(0, 200)}`);
             }
             if (error.response.status === 503) {
-                throw new Error('O DarkVoz está temporariamente indisponível. Tente novamente em alguns minutos.');
+                throw new Error('O serviço DarkVoz está temporariamente indisponível (503). Tente novamente em alguns minutos.');
             }
         }
         if (error.code === 'ECONNABORTED') {
             throw new Error('Timeout ao conectar com a API do DarkVoz. Tente novamente em instantes.');
         }
-        throw new Error(error.message || 'Erro ao gerar áudio com o DarkVoz.');
+        throw new Error(`Erro DarkVoz: ${error.message || 'Erro desconhecido ao gerar áudio'}`);
     }
 };
 
@@ -7805,6 +7850,9 @@ app.post('/api/admin/notifications/loop/start', authenticateToken, isAdmin, asyn
             [loop_type, interval_seconds || 5]
         );
         
+        // Iniciar o loop em memória
+        startNotificationLoop(loop_type, interval_seconds || 5);
+        
         console.log(`[NOTIFICATIONS] Loop ${loop_type} iniciado e salvo no banco de dados`);
         res.json({ success: true, message: `Loop ${loop_type} iniciado com sucesso` });
     } catch (error) {
@@ -8329,19 +8377,19 @@ async function getStorageLimit(planName, isAdmin = false, userId = null) {
         }
     }
     
-    // Admin tem 100 GB de armazenamento e acesso ilimitado
+    // Admin tem 1000 GB de armazenamento e acesso ilimitado
     if (isAdmin) {
-        return 100 * 1024 * 1024 * 1024; // 100 GB
+        return 1000 * 1024 * 1024 * 1024; // 1000 GB
     }
     
     const storageLimits = {
         'plan-free': 10 * 1024 * 1024, // 10 MB
         'plan-start': 150 * 1024 * 1024, // 150 MB
         'plan-turbo': 250 * 1024 * 1024, // 250 MB
-        'plan-master': 500 * 1024 * 1024, // 500 MB
+        'plan-master': 1000 * 1024 * 1024 * 1024, // 1000 GB (Master Anual)
         'plan-start-annual': 1024 * 1024 * 1024, // 1 GB
         'plan-turbo-annual': 1024 * 1024 * 1024, // 1 GB
-        'plan-master-annual': 1024 * 1024 * 1024 // 1 GB
+        'plan-master-annual': 1000 * 1024 * 1024 * 1024 // 1000 GB
     };
     return storageLimits[planName] || storageLimits['plan-free'];
 }
@@ -8410,6 +8458,36 @@ async function calculateAndUpdateDatabaseStorage(userId) {
             }
         } catch (err) {
             console.warn('[STORAGE] Erro ao calcular armazenamento de generated_scripts:', err.message);
+        }
+
+        // generated_videos (vídeos gerados)
+        try {
+            const videos = await db.all(
+                'SELECT video_uri, prompt, model FROM generated_videos WHERE user_id = ?', 
+                [userId]
+            );
+            for (const video of videos) {
+                totalSize += calculateTextSize(video.video_uri);
+                totalSize += calculateTextSize(video.prompt);
+                totalSize += calculateTextSize(video.model);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de generated_videos:', err.message);
+        }
+
+        // viral_thumbnails_library (biblioteca de thumbnails)
+        try {
+            const thumbnails = await db.all(
+                'SELECT thumbnail_url, thumbnail_description, style FROM viral_thumbnails_library WHERE user_id = ?', 
+                [userId]
+            );
+            for (const thumb of thumbnails) {
+                totalSize += calculateTextSize(thumb.thumbnail_url);
+                totalSize += calculateTextSize(thumb.thumbnail_description);
+                totalSize += calculateTextSize(thumb.style);
+            }
+        } catch (err) {
+            console.warn('[STORAGE] Erro ao calcular armazenamento de viral_thumbnails_library:', err.message);
         }
         
         // analyzed_videos (usar colunas corretas: original_title, translated_title, analysis_data_json)
@@ -9451,6 +9529,9 @@ app.post('/api/admin/storage/sync', authenticateToken, isAdmin, async (req, res)
                 }
             }
             
+            // Recalcular armazenamento do banco de dados para este usuário
+            await calculateAndUpdateDatabaseStorage(userId);
+            
             syncedCount++;
         }
         
@@ -9528,6 +9609,9 @@ app.put('/api/admin/storage/reset/:userId', authenticateToken, isAdmin, async (r
         } catch (err) {
             // Tabela pode não existir, ignorar
         }
+        
+        // Recalcular uso do banco (pois não foi deletado, apenas arquivos)
+        await calculateAndUpdateDatabaseStorage(userId);
         
         res.json({
             success: true,
@@ -14649,6 +14733,7 @@ async function processScriptTtsJob(jobId, jobData) {
         
         const audioExt = 'mp3'; // Sempre usar MP3
         const validTempFiles = [];
+        let lastError = null;
         
         // Processar cada chunk
         for (let i = 0; i < chunks.length; i++) {
@@ -14696,6 +14781,7 @@ async function processScriptTtsJob(jobId, jobData) {
                     await new Promise(resolve => setTimeout(resolve, minDelayBetweenRequests));
                 }
             } catch (chunkError) {
+                lastError = chunkError;
                 console.error(`❌ Erro ao gerar parte ${i + 1}/${chunks.length}:`, chunkError);
                 console.error(`❌ Detalhes do erro:`, {
                     message: chunkError.message,
@@ -14742,7 +14828,8 @@ async function processScriptTtsJob(jobId, jobData) {
                 voice: jobData.voice
             };
             console.error('❌ Nenhuma parte de áudio foi gerada com sucesso. Detalhes:', errorDetails);
-            throw new Error(`Nenhuma parte de áudio foi gerada com sucesso. Verifique os logs do servidor para mais detalhes. Provider: ${errorDetails.provider}, Voz: ${errorDetails.voice}`);
+            const errorMessage = lastError ? (lastError.message || lastError.toString()) : 'Erro desconhecido';
+            throw new Error(`Nenhuma parte de áudio foi gerada com sucesso. Erro: ${errorMessage}. Provider: ${errorDetails.provider}, Voz: ${errorDetails.voice}`);
         }
         
         // Log de sucesso parcial se nem todos os chunks foram gerados
@@ -24376,6 +24463,9 @@ PROMPT REWRITTEN:`;
                 console.warn('[ImageFX] Erro ao salvar thumbnail na biblioteca:', libErr.message);
             }
         }
+        
+        // Recalcular armazenamento do usuário
+        recalculateStorageAsync(userId);
 
         res.status(200).json({ 
             msg: 'Imagem gerada com sucesso!',
@@ -24678,6 +24768,10 @@ app.post('/api/generate/imagefx/by-title', authenticateToken, async (req, res) =
             });
         }
         try { await saveAmbientationSnapshot(userId, niche, theme, titleText, sceneElements, scenarioHints, subjectDescription); } catch {}
+        
+        // Recalcular armazenamento do usuário
+        recalculateStorageAsync(userId);
+
         return res.json({ success: true, promptUsed: finalPrompt, images });
     } catch (err) {
         console.error('[ByTitle] Erro:', err);
@@ -36660,6 +36754,9 @@ app.get('/api/video/status/:operationId', authenticateToken, async (req, res) =>
                         operationData.resolution || null
                     ]);
                     console.log('[Video History] ✅ Vídeo salvo no histórico:', operationId);
+                    
+                    // Recalcular armazenamento do usuário
+                    recalculateStorageAsync(userId);
                 }
             } catch (error) {
                 console.error('[Video History] Erro ao salvar vídeo no histórico:', error);

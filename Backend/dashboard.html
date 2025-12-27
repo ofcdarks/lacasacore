@@ -480,14 +480,17 @@
         
         /* Modal customizado */
         .custom-modal-overlay {
-            position: fixed;
-            inset: 0;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
             background: rgba(0, 0, 0, 0.85);
             backdrop-filter: blur(8px) saturate(180%);
-            z-index: 9999;
+            z-index: 20000 !important;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            align-items: center !important;
+            justify-content: center !important;
             padding: 20px;
             animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
@@ -506,8 +509,9 @@
             max-height: 90vh;
             overflow-y: auto;
             animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            position: relative;
+            position: relative !important;
             transform-origin: center center;
+            margin: auto !important;
         }
         
         @keyframes fadeInModal {
@@ -6219,7 +6223,7 @@ Equipe La Casa Dark Core</textarea>
     </div>
 
     <!-- Modal Personalizado para Mensagens -->
-    <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-[100]" style="display: none;">
+    <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-[20001]" style="display: none;">
         <div id="custom-modal-box" class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all animate-fade-in overflow-y-auto">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center space-x-3">
@@ -8218,92 +8222,77 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                const interval = parseInt(document.getElementById('notif-purchase-interval').value) * 1000;
-                const message = document.getElementById('notif-purchase-message').value;
+                const interval = parseInt(document.getElementById('notif-purchase-interval').value);
                 
-                // Buscar usuários fictícios de compra
-                const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
-                    headers: { 'Authorization': `Bearer ${userToken}` }
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ message: 'Erro ao buscar usuários fictícios' }));
-                    throw new Error(error.message || 'Erro ao buscar usuários fictícios');
-                }
-                
-                const users = await response.json();
-                const purchaseUsers = users.filter(u => u.type === 'purchase' && u.is_active);
-                
-                if (purchaseUsers.length === 0) {
-                    showMessage('admin-error-message', 'Nenhum usuário fictício de compra cadastrado!', true);
-                    return;
-                }
-                
-                // Função para criar notificação de compra
-                const createPurchaseNotification = async () => {
-                    // Selecionar usuário aleatório
-                    const randomUserIndex = Math.floor(Math.random() * purchaseUsers.length);
-                    const user = purchaseUsers[randomUserIndex];
+                try {
+                    const startBtn = document.getElementById('start-purchase-loop');
+                    startBtn.disabled = true;
+                    document.getElementById('purchase-loop-status').textContent = 'Iniciando...';
                     
-                    // Usar plano do usuário fictício ou plano aleatório
-                    const planNames = ['START CREATOR', 'TURBO MAKER', 'MASTER PRO'];
-                    const plan = user.plan_name || planNames[Math.floor(Math.random() * planNames.length)];
-                    
-                    const notificationMessage = message
-                        .replace('{name}', user.name)
-                        .replace('{plan}', plan);
-                    
-                    // Criar notificação global (user_id = null)
-                    await fetch(`${API_BASE}/api/admin/notifications/create`, {
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/loop/start`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${userToken}`
                         },
                         body: JSON.stringify({
-                            title: 'Nova Compra!',
-                            message: notificationMessage,
-                            type: 'purchase',
-                            user_id: null
+                            loop_type: 'purchase',
+                            interval_seconds: interval
                         })
                     });
-                };
-                
-                // Criar primeira notificação imediatamente
-                createPurchaseNotification();
-                
-                // Agendar próxima notificação com intervalo aleatório
-                const scheduleNext = () => {
-                    // Intervalo aleatório entre 50% e 150% do intervalo configurado
-                    const minInterval = interval * 0.5;
-                    const maxInterval = interval * 1.5;
-                    const randomInterval = Math.floor(Math.random() * (maxInterval - minInterval) + minInterval);
                     
-                    purchaseLoopInterval = setTimeout(async () => {
-                        await createPurchaseNotification();
-                        scheduleNext();
-                    }, randomInterval);
-                };
-                
-                scheduleNext();
-                
-                document.getElementById('start-purchase-loop').disabled = true;
-                document.getElementById('stop-purchase-loop').disabled = false;
-                document.getElementById('purchase-loop-status').textContent = 'Em execução';
+                    if (response.ok) {
+                        document.getElementById('start-purchase-loop').disabled = true;
+                        document.getElementById('stop-purchase-loop').disabled = false;
+                        document.getElementById('purchase-loop-status').textContent = 'Em execução';
+                        showMessage('admin-success-message', 'Loop de compras iniciado com sucesso!');
+                    } else {
+                        throw new Error('Erro ao iniciar loop');
+                    }
+                } catch (err) {
+                    console.error('Erro ao iniciar loop de compras:', err);
+                    showMessage('admin-error-message', 'Erro ao iniciar loop de compras', true);
+                    document.getElementById('start-purchase-loop').disabled = false;
+                    document.getElementById('purchase-loop-status').textContent = 'Parado';
+                }
             }
             
-            function stopPurchaseLoop() {
-                if (purchaseLoopInterval) {
-                    clearTimeout(purchaseLoopInterval);
-                    purchaseLoopInterval = null;
+            async function stopPurchaseLoop() {
+                try {
+                    const stopBtn = document.getElementById('stop-purchase-loop');
+                    stopBtn.disabled = true;
+                    document.getElementById('purchase-loop-status').textContent = 'Parando...';
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/loop/stop`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            loop_type: 'purchase'
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        document.getElementById('start-purchase-loop').disabled = false;
+                        document.getElementById('stop-purchase-loop').disabled = true;
+                        document.getElementById('purchase-loop-status').textContent = 'Parado';
+                        showMessage('admin-success-message', 'Loop de compras parado com sucesso!');
+                    } else {
+                        throw new Error('Erro ao parar loop');
+                    }
+                } catch (err) {
+                    console.error('Erro ao parar loop de compras:', err);
+                    showMessage('admin-error-message', 'Erro ao parar loop de compras', true);
+                    document.getElementById('stop-purchase-loop').disabled = false;
+                    document.getElementById('purchase-loop-status').textContent = 'Em execução';
                 }
-                document.getElementById('start-purchase-loop').disabled = false;
-                document.getElementById('stop-purchase-loop').disabled = true;
-                document.getElementById('purchase-loop-status').textContent = 'Parado';
             }
             
             async function startUserLoop() {
-                if (userLoopInterval) return;
+                const startBtn = document.getElementById('start-user-loop');
+                if (startBtn.disabled) return;
                 
                 const enabled = document.getElementById('notif-user-enabled').checked;
                 if (!enabled) {
@@ -8312,11 +8301,12 @@ Equipe La Casa Dark Core</textarea>
                 }
                 
                 const interval = parseInt(document.getElementById('notif-user-interval').value);
-                const message = document.getElementById('notif-user-message').value;
                 
-                // Salvar estado no banco de dados
                 try {
-                    await fetch(`${API_BASE}/api/admin/notifications/loop/start`, {
+                    startBtn.disabled = true;
+                    document.getElementById('user-loop-status').textContent = 'Iniciando...';
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/loop/start`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -8327,85 +8317,30 @@ Equipe La Casa Dark Core</textarea>
                             interval_seconds: interval
                         })
                     });
+                    
+                    if (response.ok) {
+                        document.getElementById('start-user-loop').disabled = true;
+                        document.getElementById('stop-user-loop').disabled = false;
+                        document.getElementById('user-loop-status').textContent = 'Em execução';
+                        showMessage('admin-success-message', 'Loop de novos usuários iniciado com sucesso!');
+                    } else {
+                        throw new Error('Erro ao iniciar loop');
+                    }
                 } catch (err) {
-                    console.error('Erro ao salvar estado do loop:', err);
+                    console.error('Erro ao iniciar loop de usuários:', err);
+                    showMessage('admin-error-message', 'Erro ao iniciar loop de usuários', true);
+                    startBtn.disabled = false;
+                    document.getElementById('user-loop-status').textContent = 'Parado';
                 }
-                
-                // Buscar usuários fictícios de usuário
-                const response = await fetch(`${API_BASE}/api/admin/notifications/fake-users`, {
-                    headers: { 'Authorization': `Bearer ${userToken}` }
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ message: 'Erro ao buscar usuários fictícios' }));
-                    throw new Error(error.message || 'Erro ao buscar usuários fictícios');
-                }
-                
-                const users = await response.json();
-                const userUsers = users.filter(u => u.type === 'user' && u.is_active);
-                
-                if (userUsers.length === 0) {
-                    showMessage('admin-error-message', 'Nenhum usuário fictício de novo usuário cadastrado!', true);
-                    return;
-                }
-                
-                // Função para criar notificação de novo usuário
-                const createUserNotification = async () => {
-                    // Selecionar usuário aleatório
-                    const randomUserIndex = Math.floor(Math.random() * userUsers.length);
-                    const user = userUsers[randomUserIndex];
-                    
-                    const notificationMessage = message.replace('{name}', user.name);
-                    
-                    // Criar notificação global (user_id = null)
-                    await fetch(`${API_BASE}/api/admin/notifications/create`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${userToken}`
-                        },
-                        body: JSON.stringify({
-                            title: 'Novo Usuário!',
-                            message: notificationMessage,
-                            type: 'user',
-                            user_id: null
-                        })
-                    });
-                };
-                
-                // Criar primeira notificação imediatamente
-                createUserNotification();
-                
-                // Agendar próxima notificação com intervalo aleatório
-                const scheduleNext = () => {
-                    // Intervalo aleatório entre 50% e 150% do intervalo configurado
-                    const intervalMs = interval * 1000;
-                    const minInterval = intervalMs * 0.5;
-                    const maxInterval = intervalMs * 1.5;
-                    const randomInterval = Math.floor(Math.random() * (maxInterval - minInterval) + minInterval);
-                    
-                    userLoopInterval = setTimeout(async () => {
-                        await createUserNotification();
-                        scheduleNext();
-                    }, randomInterval);
-                };
-                
-                scheduleNext();
-                
-                document.getElementById('start-user-loop').disabled = true;
-                document.getElementById('stop-user-loop').disabled = false;
-                document.getElementById('user-loop-status').textContent = 'Em execução';
             }
             
             async function stopUserLoop() {
-                if (userLoopInterval) {
-                    clearTimeout(userLoopInterval);
-                    userLoopInterval = null;
-                }
-                
-                // Salvar estado no banco de dados
                 try {
-                    await fetch(`${API_BASE}/api/admin/notifications/loop/stop`, {
+                    const stopBtn = document.getElementById('stop-user-loop');
+                    stopBtn.disabled = true;
+                    document.getElementById('user-loop-status').textContent = 'Parando...';
+                    
+                    const response = await fetch(`${API_BASE}/api/admin/notifications/loop/stop`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -8415,13 +8350,21 @@ Equipe La Casa Dark Core</textarea>
                             loop_type: 'user'
                         })
                     });
+                    
+                    if (response.ok) {
+                        document.getElementById('start-user-loop').disabled = false;
+                        document.getElementById('stop-user-loop').disabled = true;
+                        document.getElementById('user-loop-status').textContent = 'Parado';
+                        showMessage('admin-success-message', 'Loop de novos usuários parado com sucesso!');
+                    } else {
+                        throw new Error('Erro ao parar loop');
+                    }
                 } catch (err) {
-                    console.error('Erro ao salvar estado do loop:', err);
+                    console.error('Erro ao parar loop de usuários:', err);
+                    showMessage('admin-error-message', 'Erro ao parar loop de usuários', true);
+                    document.getElementById('stop-user-loop').disabled = false;
+                    document.getElementById('user-loop-status').textContent = 'Em execução';
                 }
-                
-                document.getElementById('start-user-loop').disabled = false;
-                document.getElementById('stop-user-loop').disabled = true;
-                document.getElementById('user-loop-status').textContent = 'Parado';
             }
 
             // Função para carregar permissões de planos
@@ -28136,6 +28079,13 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
+                // Obter token de forma segura
+                const token = safeLocalStorageGet('core_token');
+                if (!token || token === 'undefined') {
+                    showMessage('tts-error-message', 'Token de autenticação não encontrado. Por favor, faça login novamente.');
+                    return;
+                }
+                
                 // Obter velocidade se for DarkVoz (modelo será 'tts-1' por padrão)
                 let model = getProviderDefaultTtsModel(provider);
                 let speed = 1.0;
@@ -28195,6 +28145,14 @@ Equipe La Casa Dark Core</textarea>
             // Polling de status
             async function pollTtsStatus() {
                 if (!ttsJobId) return;
+                
+                // Obter token de forma segura
+                const token = safeLocalStorageGet('core_token');
+                if (!token || token === 'undefined') {
+                    console.error('Token não encontrado durante polling');
+                    clearInterval(ttsPollInterval);
+                    return;
+                }
                 
                 try {
                     const response = await fetch(`${API_BASE}/api/tts/status/${ttsJobId}`, {
@@ -28329,6 +28287,13 @@ Equipe La Casa Dark Core</textarea>
             
             // Importar último roteiro
             document.getElementById('tts-import-last-script')?.addEventListener('click', async () => {
+                // Obter token de forma segura
+                const token = safeLocalStorageGet('core_token');
+                if (!token || token === 'undefined') {
+                    showMessage('tts-error-message', 'Token de autenticação não encontrado. Por favor, faça login novamente.');
+                    return;
+                }
+
                 try {
                     const response = await fetch(`${API_BASE}/api/scripts/last`, {
                         headers: {
@@ -28790,6 +28755,13 @@ Equipe La Casa Dark Core</textarea>
             }
 
             async function handleVideoGenerate(config = null) {
+                // Obter token de forma segura
+                const token = safeLocalStorageGet('core_token');
+                if (!token || token === 'undefined') {
+                    showMessage('video-error-message', 'Token de autenticação não encontrado. Por favor, faça login novamente.', true);
+                    return;
+                }
+
                 // Sempre pegar valores atuais do formulário
                 const promptInput = document.getElementById('video-prompt-input');
                 const prompt = promptInput ? promptInput.value.trim() : '';
@@ -28885,6 +28857,14 @@ Equipe La Casa Dark Core</textarea>
 
             async function pollVideoStatus() {
                 if (!currentVideoOperationId) return;
+
+                // Obter token de forma segura
+                const token = safeLocalStorageGet('core_token');
+                if (!token || token === 'undefined') {
+                    console.error('Token não encontrado durante polling de vídeo');
+                    clearInterval(videoPollInterval);
+                    return;
+                }
 
                 try {
                     // Codificar o operationId para lidar com barras e caracteres especiais
