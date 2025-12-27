@@ -26,6 +26,20 @@
             -webkit-user-select: none; /* Safari */
             -ms-user-select: none; /* IE 10+ */
             user-select: none; /* Padrão */
+            position: relative;
+            min-height: 100vh;
+        }
+        
+        /* Animação de pulso para o background */
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        /* Garantir que o conteúdo fique acima do background */
+        body > *:not(.fixed) {
+            position: relative;
+            z-index: 1;
         }
         .brand-title {
             font-weight: 500;
@@ -839,9 +853,53 @@
             width: 12px;
             height: 12px;
         }
+        
+        /* Efeito Glass (transparência) nos cards principais */
+        .glass-card {
+            background: rgba(17, 24, 39, 0.6) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        
+        /* Sidebar com transparência */
+        #sidebar {
+            background: rgba(17, 24, 39, 0.8) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        
+        /* Cards de métricas com transparência */
+        .bg-gray-900 {
+            background: rgba(17, 24, 39, 0.6) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+        }
+        
+        /* Cards com gradiente também recebem transparência */
+        .bg-gradient-to-br {
+            background: linear-gradient(to bottom right, rgba(17, 24, 39, 0.7), rgba(31, 41, 55, 0.6)) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+        }
+        
+        /* Hover effect nos cards */
+        .glass-card:hover,
+        .bg-gray-900:hover,
+        .bg-gradient-to-br:hover {
+            background: rgba(17, 24, 39, 0.8) !important;
+            border-color: rgba(245, 158, 11, 0.3) !important;
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-black text-gray-300">
+    <!-- Background fixo com gradientes -->
+    <div class="fixed inset-0 -z-10">
+        <div class="absolute inset-0 bg-gradient-to-b from-black via-black to-amber-900/15"></div>
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(245,158,11,0.16),transparent_55%),radial-gradient(circle_at_70%_70%,rgba(59,130,246,0.10),transparent_60%)]"></div>
+    </div>
 
     <!-- Script de Proteção de Rota -->
     <script>

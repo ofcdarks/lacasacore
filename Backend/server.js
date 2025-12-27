@@ -3282,13 +3282,25 @@ async function callLaozhangAPI(prompt, apiKey, model = null, imageUrl = null, us
                 continue; // Tentar próximo endpoint
             }
         } catch (error) {
-            // Se a chamada falhou e já debitamos créditos, reembolsar
-            if (userId && creditDebitResult) {
+            // Se a chamada falhou e já debitamos créditos, reembolsar IMEDIATAMENTE
+            if (userId && creditDebitResult && creditDebitResult.creditsUsed) {
                 try {
-                    await refundCredits(userId, creditDebitResult.creditsUsed, 'Erro ao processar solicitação');
-                    console.log(`[API] 💰 Créditos reembolsados: ${creditDebitResult.creditsUsed.toFixed(4)}`);
+                    const refundResult = await refundCredits(
+                        userId, 
+                        creditDebitResult.creditsUsed, 
+                        `Erro ao processar solicitação: ${error.message || 'Falha na API'}`
+                    );
+                    if (refundResult.success) {
+                        console.log(`[API] 💰 Créditos reembolsados IMEDIATAMENTE: ${refundResult.creditsRefunded}. Novo saldo: ${refundResult.newBalance}`);
+                    }
                 } catch (refundError) {
-                    console.error('[API] ⚠️ Erro ao reembolsar créditos:', refundError.message);
+                    console.error('[API] ⚠️ Erro crítico ao reembolsar créditos:', refundError.message);
+                    // Tentar novamente com log detalhado
+                    console.error('[API] ⚠️ Detalhes do reembolso falho:', {
+                        userId,
+                        creditsUsed: creditDebitResult.creditsUsed,
+                        error: refundError.message
+                    });
                 }
             }
             
@@ -4962,12 +4974,16 @@ const checkAndDebitCredits = async (userId, apiProviderId, unitsConsumed, operat
 
 /**
  * Reembolsa créditos ao usuário em caso de erro
+ * SEMPRE retorna valores inteiros (sem decimais quebrados)
  */
 const refundCredits = async (userId, creditsAmount, reason = 'Erro na operação') => {
     try {
         if (!creditsAmount || creditsAmount <= 0) {
             return { success: false, message: 'Valor inválido' };
         }
+
+        // GARANTIR: Créditos sempre inteiros (sem decimais quebrados)
+        const creditsToRefund = Math.ceil(creditsAmount);
 
         let userCredits = await db.get('SELECT balance FROM user_credits WHERE user_id = ?', [userId]);
         
@@ -4976,7 +4992,10 @@ const refundCredits = async (userId, creditsAmount, reason = 'Erro na operação
             userCredits = { balance: 0 };
         }
 
-        const newBalance = userCredits.balance + creditsAmount;
+        // Arredondar saldo atual para cima antes de reembolsar
+        const currentBalance = Math.ceil(userCredits.balance);
+        const newBalance = Math.ceil(currentBalance + creditsToRefund);
+        
         await db.run(`
             UPDATE user_credits 
             SET balance = ?, updated_at = CURRENT_TIMESTAMP 
@@ -4988,11 +5007,13 @@ const refundCredits = async (userId, creditsAmount, reason = 'Erro na operação
         await db.run(`
             INSERT INTO credit_transactions (user_id, amount, transaction_type, description)
             VALUES (?, ?, 'refund', ?)
-        `, [userId, creditsAmount, sanitizedReason]);
+        `, [userId, creditsToRefund, sanitizedReason]);
+
+        console.log(`💰 [REEMBOLSO] Usuário ${userId}: ${creditsToRefund} créditos reembolsados. Novo saldo: ${newBalance}. Motivo: ${reason}`);
 
         return {
             success: true,
-            creditsRefunded: creditsAmount,
+            creditsRefunded: creditsToRefund,
             newBalance: newBalance
         };
     } catch (error) {
@@ -13678,8 +13699,9 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
     const previewText = DEFAULT_TTS_SAMPLE_TEXT; // Remover prefixo "Narrador:"
     const validatedModel = validateTtsModel(model);
     
-    // Declarar actualProvider fora do try para estar disponível no catch
+    // Declarar actualProvider e creditDebitResult fora do try para estar disponível no catch
     let actualProvider = provider;
+    let creditDebitResult = null;
 
     try {
         // Verificar se tem API própria ou usar API do admin (com créditos)
@@ -14101,7 +14123,7 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                 // Estimar tokens (aproximadamente 1 token por caractere para TTS)
                 const estimatedTokens = Math.ceil(previewText.length / 4);
                 
-                const creditResult = await checkAndDebitCredits(
+                creditDebitResult = await checkAndDebitCredits(
                     req.user.id,
                     adminApi.id,
                     estimatedTokens,
@@ -14109,9 +14131,10 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
                     JSON.stringify({ model: validatedModel, provider: provider, endpoint: '/api/tts/preview' })
                 );
                 
-                console.log(`💳 [CRÉDITOS] ${creditResult.creditsUsed.toFixed(2)} créditos debitados. Saldo restante: ${creditResult.newBalance.toFixed(2)}`);
+                console.log(`💳 [CRÉDITOS] ${creditDebitResult.creditsUsed} créditos debitados. Saldo restante: ${creditDebitResult.newBalance}`);
             } catch (creditError) {
                 console.error('❌ [CRÉDITOS] Erro ao debitar créditos:', creditError);
+                throw creditError; // Re-lançar para ser tratado no catch externo
             }
         }
 
@@ -14123,6 +14146,22 @@ app.post('/api/tts/preview', authenticateToken, async (req, res) => {
             }
         });
     } catch (err) {
+        // Se já debitamos créditos e houve erro, reembolsar IMEDIATAMENTE
+        if (creditDebitResult && creditDebitResult.creditsUsed) {
+            try {
+                const refundResult = await refundCredits(
+                    req.user.id,
+                    creditDebitResult.creditsUsed,
+                    `Erro ao gerar prévia de voz: ${err.message || 'Falha na operação'}`
+                );
+                if (refundResult.success) {
+                    console.log(`[TTS Preview] 💰 Créditos reembolsados IMEDIATAMENTE: ${refundResult.creditsRefunded}. Novo saldo: ${refundResult.newBalance}`);
+                }
+            } catch (refundError) {
+                console.error('[TTS Preview] ⚠️ Erro crítico ao reembolsar créditos:', refundError.message);
+            }
+        }
+        
         console.error('Erro ao gerar prévia de voz:', err);
         if (err.response) {
             console.error('Status:', err.response.status);
@@ -35409,6 +35448,7 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                 }, null, 2));
                 
                 // Debitar créditos antes da chamada
+                let creditDebitResult = null;
                 const laozhangProviderId = await getLaozhangApiProviderId();
                 if (laozhangProviderId && userId) {
                     // Estimar créditos baseado na resolução e modelo
@@ -35416,7 +35456,7 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                     const isSora2 = laozhangModel.includes('sora_video2');
                     const isFastModel = laozhangModel.includes('fast');
                     const estimatedCredits = (isSora2 || isFastModel) ? 15 : 25; // Aproximado em créditos
-                    await checkAndDebitCredits(
+                    creditDebitResult = await checkAndDebitCredits(
                         userId,
                         laozhangProviderId,
                         estimatedCredits,
@@ -35845,6 +35885,22 @@ app.post('/api/video/generate', authenticateToken, async (req, res) => {
                 });
                 
             } catch (laozhangError) {
+                // Se já debitamos créditos e houve erro, reembolsar IMEDIATAMENTE
+                if (creditDebitResult && creditDebitResult.creditsUsed) {
+                    try {
+                        const refundResult = await refundCredits(
+                            userId,
+                            creditDebitResult.creditsUsed,
+                            `Erro ao gerar vídeo: ${laozhangError.message || 'Falha na operação'}`
+                        );
+                        if (refundResult.success) {
+                            console.log(`[Veo Laozhang] 💰 Créditos reembolsados IMEDIATAMENTE: ${refundResult.creditsRefunded}. Novo saldo: ${refundResult.newBalance}`);
+                        }
+                    } catch (refundError) {
+                        console.error('[Veo Laozhang] ⚠️ Erro crítico ao reembolsar créditos:', refundError.message);
+                    }
+                }
+                
                 console.error('[Veo Laozhang] Erro ao chamar Laozhang.ai:', laozhangError);
                 return res.status(500).json({ 
                     message: 'Erro ao gerar vídeo: ' + (laozhangError.message || 'Erro desconhecido'),
