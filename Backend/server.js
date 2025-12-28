@@ -65,7 +65,7 @@ console.log(`[Sistema] FFprobe configurado: ${ffprobeInstaller.path}`);
 
 // --- CONFIGURAÇÃO ---
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
 const JWT_SECRET = process.env.JWT_SECRET || 'seu-segredo-jwt-super-secreto-trocar-em-prod';
 
 // Configurar trust proxy para reconhecer corretamente o host quando há proxy reverso (Nginx, Caddy, etc)
@@ -448,11 +448,14 @@ if (fs.existsSync(landingDistPath)) {
         }
         // Para outros casos (landing domain ou assets), servir arquivos estáticos
         express.static(landingDistPath, {
-            setHeaders: (res, path) => {
-                if (path.endsWith('.html')) {
+            setHeaders: (res, filePath) => {
+                // Desabilitar cache para HTML e JS para garantir atualizações imediatas
+                if (filePath.endsWith('.html') || filePath.endsWith('.js')) {
                     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
                     res.setHeader('Pragma', 'no-cache');
                     res.setHeader('Expires', '0');
+                    // Adicionar timestamp para forçar reload
+                    res.setHeader('Last-Modified', new Date().toUTCString());
                 }
             }
         })(req, res, next);
@@ -1162,11 +1165,16 @@ function parseAIResponse(responseText, serviceName) {
                         motivoSucesso: cleanValue(motivoMatch[1]),
                         formulaTitulo: formulaMatch ? cleanValue(formulaMatch[1]) : 'N/A'
                     },
-                    titulosSugeridos: titulos.map((titulo, index) => ({
-                        titulo: cleanValue(titulo),
-                        pontuacao: 8,
-                        explicacao: `Título gerado pela IA (parsing fallback)`
-                    }))
+                    titulosSugeridos: titulos.map((titulo, index) => {
+                        const tituloLimpo = cleanValue(titulo);
+                        // Corrigir números zerados
+                        const tituloCorrigido = fixZeroedNumbers(tituloLimpo);
+                        return {
+                            titulo: tituloCorrigido,
+                            pontuacao: 8,
+                            explicacao: `Título gerado pela IA (parsing fallback)`
+                        };
+                    })
                 };
             }
         } catch (fallbackError) {
@@ -1198,12 +1206,62 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
     const seen = new Set();
 
     const pushTitle = (t) => {
-        let rawText = String(t || '').trim().replace(/^["']|["']$/g, '').trim();
+        // Se t for objeto, extrair propriedades
+            let rawText, formula, canalAdequacao, motivoAdequacao;
+            if (typeof t === 'object' && t !== null && t.title) {
+                rawText = String(t.title || '').trim().replace(/^["']|["']$/g, '').trim();
+                // Remover "FÓRMULA:" do título se estiver presente
+                const formulaMatch = rawText.match(/\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
+                if (formulaMatch) {
+                    rawText = rawText.replace(/\s*\|\s*F[ÓO]RMULA\s*:.+$/i, '').trim();
+                    formula = formulaMatch[1].trim();
+                } else {
+                    formula = t.formula || null;
+                }
+                canalAdequacao = t.canal_adequacao || null;
+                motivoAdequacao = t.motivo_adequacao || null;
+            } else {
+                rawText = String(t || '').trim().replace(/^["']|["']$/g, '').trim();
+                // Remover "FÓRMULA:" do título se estiver presente
+                const formulaMatch = rawText.match(/\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
+                if (formulaMatch) {
+                    rawText = rawText.replace(/\s*\|\s*F[ÓO]RMULA\s*:.+$/i, '').trim();
+                    formula = formulaMatch[1].trim();
+                } else {
+                    formula = null;
+                }
+                canalAdequacao = null;
+                motivoAdequacao = null;
+            }
         if (!rawText) return;
         
-        // Extrair título e fórmula se presente (formato: "TÍTULO | FÓRMULA: descrição")
+        // Extrair título, fórmula e adequação ao canal se presente
         let title = rawText;
-        let formula = null;
+        
+        // Se não veio do objeto, tentar extrair do texto
+        if (!formula) {
+            const formulaMatch = rawText.match(/^(.+?)\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
+            if (formulaMatch) {
+                title = formulaMatch[1].trim();
+                formula = formulaMatch[2].trim();
+            }
+        }
+        
+        // Se não veio do objeto, tentar extrair adequação do texto
+        if (!canalAdequacao) {
+            const adequacaoMatch = rawText.match(/Adequação\s+ao\s+Canal\s*:\s*(IDEAL|ADEQUADO|FORA_DO_TEMA|FORA DO TEMA)/i);
+            if (adequacaoMatch) {
+                canalAdequacao = adequacaoMatch[1].toUpperCase().replace(/\s+/g, '_');
+            }
+        }
+        
+        // Se não veio do objeto, tentar extrair motivo do texto
+        if (!motivoAdequacao) {
+            const motivoMatch = rawText.match(/Motivo\s*:\s*(.+?)(?:\n|$)/i);
+            if (motivoMatch) {
+                motivoAdequacao = motivoMatch[1].trim();
+            }
+        }
         
         // Remover número inicial se presente (ex: "1. ", "1)", "1:")
         title = title.replace(/^\d+[\.\)\:\-\s]+/i, '').trim();
@@ -1214,18 +1272,12 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         // Remover "FÓRMULA:" se aparecer no início do título (erro da IA)
         title = title.replace(/^F[ÓO]RMULA\s*:\s*/i, '').trim();
         
-        const formulaMatch = rawText.match(/^(.+?)\s*\|\s*F[ÓO]RMULA\s*:\s*(.+)$/i);
-        if (formulaMatch) {
-            title = formulaMatch[1].trim();
-            formula = formulaMatch[2].trim();
-            // Limpezas extras no título extraído
-            title = title.replace(/^\d+[\.\)\:\-\s]+/i, '').trim();
-            title = title.replace(/^T[ÍI]TULO\s*:\s*/i, '').trim();
-            title = title.replace(/^F[ÓO]RMULA\s*:\s*/i, '').trim();
-        }
-        
         // Remover qualquer ocorrência de "FÓRMULA:" no meio do título (limpeza adicional)
         title = title.replace(/\s*F[ÓO]RMULA\s*:\s*/gi, ' ').trim();
+        
+        // Remover linhas de adequação ao canal do título
+        title = title.replace(/Adequação\s+ao\s+Canal\s*:\s*(IDEAL|ADEQUADO|FORA_DO_TEMA|FORA DO TEMA)/gi, '').trim();
+        title = title.replace(/Motivo\s*:\s*.+?(?:\n|$)/gi, '').trim();
         
         // VALIDAÇÃO: Título não pode conter a palavra "FÓRMULA" ou parecer JSON
         if (/F[ÓO]RMULA/i.test(title) || /["'\{\}\[\]]/.test(title)) {
@@ -1245,7 +1297,14 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
         const key = title.toLowerCase();
         if (seen.has(key)) return;
         seen.add(key);
-        titles.push({ title, formula });
+        
+            titles.push({ 
+                title, 
+                // Gerar fórmula única para cada título se não vier da IA ou do parsing
+                formula: formula || generateTitleSpecificFormula(title),
+                canal_adequacao: canalAdequacao,
+                motivo_adequacao: motivoAdequacao
+            });
     };
 
     // Normalizar alguns formatos comuns (ex: 1️⃣, travessões)
@@ -1271,16 +1330,24 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
                 if (typeof item === 'string') {
                     pushTitle(item);
                 } else if (typeof item === 'object' && item !== null) {
-                    // Array de objetos: [{id: 1, title: "...", formula: "..."}]
-                    const titleText = item.title || item.titulo || item.text;
-                    const formulaText = item.formula || item.fórmula;
+                    // Array de objetos: [{id: 1, title: "...", formula: "...", AdequacaoCanal: "..."}]
+                    const titleText = item.title || item.titulo || item.text || item.TÍTULO || item.TITULO;
+                    const formulaText = item.formula || item.fórmula || item.Fórmula || item.FORMULA;
+                    const adequacaoText = item.AdequacaoCanal || item.adequacaoCanal || item.adequacao_canal || item.canalAdequacao;
+                    const motivoText = item.MotivoAdequacao || item.motivoAdequacao || item.motivo_adequacao;
                     if (titleText) {
                         // VALIDAÇÃO: Limite de 100 caracteres
                         if (titleText.length > 100) {
                             return; // Rejeitar títulos acima de 100 caracteres (sem log para reduzir poluição)
                         }
                         const fullText = formulaText ? `${titleText} | FÓRMULA: ${formulaText}` : titleText;
-                        pushTitle(fullText);
+                        pushTitle({ 
+                            title: fullText, 
+                            // Gerar fórmula única para cada título se não vier da IA
+                            formula: formulaText || generateTitleSpecificFormula(titleText),
+                            canal_adequacao: adequacaoText || null,
+                            motivo_adequacao: motivoText || null
+                        });
                     }
                 }
             });
@@ -1304,8 +1371,22 @@ function parseNumberedTitles(responseText, expectedCount = 5) {
             const formulaMatch = titleBlock.match(/F[ÓO]RMULA\s*:\s*(.+?)(?=\n|$)/is);
             const formula = formulaMatch ? formulaMatch[1].trim() : null;
             
+            // Extrair adequação ao canal se presente
+            const adequacaoMatch = titleBlock.match(/Adequação\s+ao\s+Canal\s*:\s*(IDEAL|ADEQUADO|FORA_DO_TEMA|FORA\s+DO\s+TEMA)/i);
+            const canalAdequacao = adequacaoMatch ? adequacaoMatch[1].toUpperCase().replace(/\s+/g, '_') : null;
+            
+            // Extrair motivo da adequação
+            const motivoMatch = titleBlock.match(/Motivo\s*:\s*(.+?)(?=\n|$)/is);
+            const motivoAdequacao = motivoMatch ? motivoMatch[1].trim() : null;
+            
             const fullText = formula ? `${titleText} | FÓRMULA: ${formula}` : titleText;
-            pushTitle(fullText);
+            pushTitle({ 
+                title: fullText, 
+                // Gerar fórmula única para cada título se não vier da IA
+                formula: formula || generateTitleSpecificFormula(titleText),
+                canal_adequacao: canalAdequacao || null,
+                motivo_adequacao: motivoAdequacao || null
+            });
         }
         if (titles.length >= expectedCount) return titles.slice(0, expectedCount);
     }
@@ -1381,9 +1462,45 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
     if (looksLikeJson) {
         try {
             const parsed = parseAIResponse(raw, serviceName);
-            // 1.a) Formato antigo completo
+            // 1.a) Formato antigo completo (com titulosSugeridos)
             if (parsed && Array.isArray(parsed.titulosSugeridos) && parsed.titulosSugeridos.length > 0) {
                 return parsed;
+            }
+            // 1.a.1) Formato novo (com titulos e analiseOriginal)
+            if (parsed && Array.isArray(parsed.titulos) && parsed.titulos.length > 0) {
+                // Converter formato novo para formato interno
+                const analiseOriginal = parsed.analiseOriginal && 
+                    parsed.analiseOriginal.motivoSucesso && 
+                    parsed.analiseOriginal.formulaTitulo &&
+                    parsed.analiseOriginal.motivoSucesso !== 'N/A' &&
+                    parsed.analiseOriginal.formulaTitulo !== 'N/A'
+                    ? parsed.analiseOriginal
+                    : { motivoSucesso: 'N/A', formulaTitulo: 'N/A' };
+                
+                const titulosSugeridos = parsed.titulos.map(item => {
+                    let titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
+                    // Corrigir números zerados
+                    titulo = fixZeroedNumbers(titulo || '');
+                    const qualidade = item.Qualidade || item.qualidade || item.quality || 9;
+                    const impacto = item.Impacto || item.impacto || item.impact || null;
+                    const formula = item.Fórmula || item.FORMULA || item.formula || null;
+                    return {
+                        titulo: titulo || '',
+                        pontuacao: typeof qualidade === 'number' ? qualidade : 9,
+                        impact_score: typeof impacto === 'number' ? impacto : null,
+                        formula: formula || generateTitleSpecificFormula(titulo || ''),
+                        explicacao: ''
+                    };
+                }).filter(t => t.titulo && t.titulo.length > 0);
+                
+                if (titulosSugeridos.length > 0) {
+                    return {
+                        niche: parsed.niche || null,
+                        subniche: parsed.subniche || null,
+                        analiseOriginal: analiseOriginal,
+                        titulosSugeridos: titulosSugeridos
+                    };
+                }
             }
             // 1.b) JSON array simples: ["t1","t2"...] ou [{id:1, title:"..."}]
             if (Array.isArray(parsed)) {
@@ -1395,16 +1512,23 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                         .map(item => {
                             if (typeof item === 'object' && item !== null) {
                                 // Suportar múltiplos formatos: title/titulo/text/TÍTULO
-                                const titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
+                                let titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
+                                // Corrigir números zerados
+                                titulo = fixZeroedNumbers(titulo || '');
                                 const qualidade = item.qualidade || item.qualidade_score || item.quality || item.quality_score;
                                 const impacto = item.impacto || item.impacto_score || item.impact || item.impact_score;
                                 const formula = item.Fórmula || item.FORMULA || item.formula || item.fórmula;
+                                const adequacao = item.AdequacaoCanal || item.adequacaoCanal || item.adequacao_canal || item.canalAdequacao;
+                                const motivo = item.MotivoAdequacao || item.motivoAdequacao || item.motivo_adequacao;
                                 if (titulo) {
                                     return { 
                                         titulo, 
                                         pontuacao: typeof qualidade === 'number' ? qualidade : 9,
                                         impact_score: typeof impacto === 'number' ? impacto : null,
-                                        formula: formula || null 
+                                        // Gerar fórmula única para cada título se não vier da IA
+                                        formula: formula || generateTitleSpecificFormula(titulo),
+                                        canal_adequacao: adequacao || null,
+                                        motivo_adequacao: motivo || null
                                     };
                                 }
                             }
@@ -1423,7 +1547,8 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     pontuacao, 
                     impact_score: impact_score || null, // Preservar impacto se disponível
                     explicacao: '', 
-                                formula: formula || null 
+                                // Gerar fórmula única para cada título se não vier da IA
+                                formula: formula || generateTitleSpecificFormula(titulo)
                 }))
             };
         }
@@ -1435,16 +1560,27 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     niche: null,
                     subniche: null,
                     analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                    titulosSugeridos: titles.map(titulo => {
+                        // Corrigir números zerados
+                        const tituloCorrigido = fixZeroedNumbers(titulo);
+                        return { 
+                            titulo: tituloCorrigido, 
+                            pontuacao: 9, 
+                            explicacao: '',
+                            // Gerar fórmula única para cada título
+                            formula: generateTitleSpecificFormula(tituloCorrigido)
+                        };
+                    })
                 };
-                    }
+            }
             }
         }
         
         // 1.c) JSON com array em outros campos comuns (response, titulos, titles, result)
+        // PRIORIDADE: Verificar campo "titulos" primeiro (formato Gemini)
         const altArr = parsed && (
-            (Array.isArray(parsed.response) ? parsed.response : null) ||
             (Array.isArray(parsed.titulos) ? parsed.titulos : null) ||
+            (Array.isArray(parsed.response) ? parsed.response : null) ||
             (Array.isArray(parsed.titles) ? parsed.titles : null) ||
             (Array.isArray(parsed.result) ? parsed.result : null)
         );
@@ -1459,15 +1595,20 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                             const titulo = item.TÍTULO || item.TITULO || item.title || item.titulo || item.text;
                             const qualidade = item.qualidade || item.qualidade_score || item.quality || item.quality_score;
                             const impacto = item.impacto || item.impacto_score || item.impact || item.impact_score;
-                            const formula = item.Fórmula || item.FORMULA || item.formula || item.fórmula;
-                            if (titulo) {
-                                return { 
-                                    titulo, 
-                                    pontuacao: typeof qualidade === 'number' ? qualidade : 9,
-                                    impact_score: typeof impacto === 'number' ? impacto : null,
-                                    formula: formula || null
-                                };
-                            }
+                                const formula = item.Fórmula || item.FORMULA || item.formula || item.fórmula;
+                                const adequacao = item.AdequacaoCanal || item.adequacaoCanal || item.adequacao_canal || item.canalAdequacao;
+                                const motivo = item.MotivoAdequacao || item.motivoAdequacao || item.motivo_adequacao;
+                                if (titulo) {
+                                    return { 
+                                        titulo, 
+                                        pontuacao: typeof qualidade === 'number' ? qualidade : 9,
+                                        impact_score: typeof impacto === 'number' ? impacto : null,
+                                        // Gerar fórmula única para cada título se não vier da IA
+                                        formula: formula || generateTitleSpecificFormula(titulo),
+                                        canal_adequacao: adequacao || null,
+                                        motivo_adequacao: motivo || null
+                                    };
+                                }
                         }
                         return null;
                     })
@@ -1484,7 +1625,8 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                             pontuacao,
                             impact_score: impact_score || null, // Preservar impacto se disponível
                             explicacao: '',
-                            formula: formula || null
+                            // Gerar fórmula única para cada título se não vier da IA
+                            formula: formula || generateTitleSpecificFormula(titulo)
                         }))
                     };
                 }
@@ -1496,7 +1638,17 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     niche: null,
                     subniche: null,
                     analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                    titulosSugeridos: titles.map(titulo => ({ titulo, pontuacao: 9, explicacao: '' }))
+                    titulosSugeridos: titles.map(titulo => {
+                        // Corrigir números zerados
+                        const tituloCorrigido = fixZeroedNumbers(titulo);
+                        return { 
+                            titulo: tituloCorrigido, 
+                            pontuacao: 9, 
+                            explicacao: '',
+                            // Gerar fórmula única para cada título
+                            formula: generateTitleSpecificFormula(tituloCorrigido)
+                        };
+                    })
                 };
                 }
             }
@@ -1559,7 +1711,10 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     titulo: cleanTitle,
                     pontuacao: parseScore(qualidade),
                     impact_score: parseScore(impacto),
-                    formula: obj.Fórmula || obj.FORMULA || obj.formula || obj.fórmula || obj.structure || obj.formula_usada || null
+                    // Gerar fórmula única para cada título se não vier da IA
+                    formula: obj.Fórmula || obj.FORMULA || obj.formula || obj.fórmula || obj.structure || obj.formula_usada || generateTitleSpecificFormula(cleanTitle),
+                    canal_adequacao: obj.AdequacaoCanal || obj.adequacaoCanal || obj.adequacao_canal || obj.canalAdequacao || null,
+                    motivo_adequacao: obj.MotivoAdequacao || obj.motivoAdequacao || obj.motivo_adequacao || obj.motivoAdequacao || null
                 };
             };
             
@@ -1606,12 +1761,15 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                     niche: null,
                     subniche: null,
                     analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
-                    titulosSugeridos: jsonObjects.slice(0, expectedCount).map(({ titulo, pontuacao, impact_score, formula }) => ({
+                    titulosSugeridos: jsonObjects.slice(0, expectedCount).map(({ titulo, pontuacao, impact_score, formula, canal_adequacao, motivo_adequacao }) => ({
                         titulo,
                         pontuacao: pontuacao || 9,
                         impact_score: impact_score || null,
                         explicacao: '',
-                        formula: formula || null
+                        // Gerar fórmula única para cada título se não vier da IA
+                        formula: formula || generateTitleSpecificFormula(titulo),
+                        canal_adequacao: canal_adequacao || null,
+                        motivo_adequacao: motivo_adequacao || null
                     }))
                 };
             }
@@ -1627,7 +1785,8 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
                         pontuacao: pontuacao || 9,
                         impact_score: impact_score || null,
                         explicacao: '',
-                        formula: formula || null
+                        // Gerar fórmula única para cada título se não vier da IA
+                        formula: formula || generateTitleSpecificFormula(titulo)
                     }))
                 };
             }
@@ -1642,12 +1801,23 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
 
     // PRIORIDADE 2: Se parece lista numerada, tentar parsear como lista
     if (/^(?:\s*(?:\d{1,2}|[1-9]️⃣|10️⃣)\s*[\)\.\:\-\–\—])/.test(trimmed)) {
+        // Tentar extrair análise do título original se presente antes dos títulos
+        let analiseFromText = { motivoSucesso: 'N/A', formulaTitulo: 'N/A' };
+        const motivoMatch = trimmed.match(/Motivo\s+do\s+Sucesso\s*:\s*(.+?)(?=\n|F[óÓ]rmula|T[ÍI]TULOS)/is);
+        const formulaMatch = trimmed.match(/F[óÓ]rmula\s*:\s*(.+?)(?=\n|T[ÍI]TULOS|$)/is);
+        if (motivoMatch || formulaMatch) {
+            analiseFromText = {
+                motivoSucesso: motivoMatch ? motivoMatch[1].trim() : 'N/A',
+                formulaTitulo: formulaMatch ? formulaMatch[1].trim() : 'N/A'
+            };
+        }
+        
         const titles = parseNumberedTitles(trimmed, expectedCount);
         if (titles) {
             return {
                 niche: null,
                 subniche: null,
-                analiseOriginal: { motivoSucesso: 'N/A', formulaTitulo: 'N/A' },
+                analiseOriginal: analiseFromText,
                 titulosSugeridos: titles.map(item => ({ 
                     titulo: item.title, 
                     pontuacao: 9, 
@@ -1659,15 +1829,23 @@ function parseTitleAnalysisResponse(responseText, serviceName, expectedCount = 5
     }
 
     // 3) Tentar lista numerada como último recurso
+    // Tentar extrair análise do título original se presente antes dos títulos
+    let analiseFromText = { motivoSucesso: 'N/A', formulaTitulo: 'N/A' };
+    const motivoMatch = raw.match(/Motivo\s+do\s+Sucesso\s*:\s*(.+?)(?=\n|F[óÓ]rmula|T[ÍI]TULOS)/is);
+    const formulaMatch = raw.match(/F[óÓ]rmula\s*:\s*(.+?)(?=\n|T[ÍI]TULOS|$)/is);
+    if (motivoMatch || formulaMatch) {
+        analiseFromText = {
+            motivoSucesso: motivoMatch ? motivoMatch[1].trim() : 'N/A',
+            formulaTitulo: formulaMatch ? formulaMatch[1].trim() : 'N/A'
+        };
+    }
+    
     const titles = parseNumberedTitles(raw, expectedCount);
     if (titles) {
         return {
             niche: null,
             subniche: null,
-            analiseOriginal: {
-                motivoSucesso: 'N/A',
-                formulaTitulo: 'N/A'
-            },
+            analiseOriginal: analiseFromText,
             titulosSugeridos: titles.map(item => ({
                 titulo: item.title,
                 pontuacao: 9,
@@ -1766,6 +1944,264 @@ function enforceImpactGate(titles, { minImpact = 7, expectedCount = 5 } = {}) {
     return { passing: passing.slice(0, expectedCount), withScore };
 }
 
+/**
+ * Analisa o estilo do título original para aplicar aos títulos gerados
+ * Detecta: pipes (|), caixa alta, estrutura, pontuação, etc.
+ */
+function analyzeTitleStyle(originalTitle) {
+    if (!originalTitle || typeof originalTitle !== 'string') {
+        return {
+            hasPipes: false,
+            hasUpperCase: false,
+            upperCasePattern: null,
+            structure: 'simple',
+            punctuation: []
+        };
+    }
+    
+    const title = originalTitle.trim();
+    
+    // Detectar pipes
+    const hasPipes = title.includes('|');
+    const pipeParts = hasPipes ? title.split('|').map(p => p.trim()).filter(Boolean) : [];
+    
+    // Detectar padrões de caixa alta
+    const upperCaseWords = title.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{2,}/g) || [];
+    const hasUpperCase = upperCaseWords.length > 0;
+    
+    // Detectar estrutura (pipes, dois pontos, etc.)
+    let structure = 'simple';
+    if (hasPipes && pipeParts.length >= 2) {
+        structure = 'pipes';
+    } else if (title.includes(':')) {
+        structure = 'colon';
+    } else if (title.includes(' - ')) {
+        structure = 'dash';
+    }
+    
+    // Detectar pontuação especial
+    const punctuation = [];
+    if (title.includes('?')) punctuation.push('question');
+    if (title.includes('!')) punctuation.push('exclamation');
+    if (title.includes('...')) punctuation.push('ellipsis');
+    
+    return {
+        hasPipes,
+        hasUpperCase,
+        upperCasePattern: upperCaseWords.length > 0 ? upperCaseWords : null,
+        structure,
+        punctuation,
+        pipeCount: pipeParts.length
+    };
+}
+
+/**
+ * Aplica o estilo do título original aos títulos gerados
+ */
+function applyTitleStyle(generatedTitle, originalStyle) {
+    if (!generatedTitle || !originalStyle) return generatedTitle;
+    
+    let styled = generatedTitle.trim();
+    
+    // Corrigir números zerados ou placeholders
+    // Detecta padrões como "000", "000VS", "000 vs", etc. e os corrige
+    styled = fixZeroedNumbers(styled);
+    
+    // Se o original tem pipes e o gerado não, tentar aplicar estrutura similar
+    if (originalStyle.hasPipes && originalStyle.pipeCount >= 2 && !styled.includes('|')) {
+        // Tentar dividir o título em partes lógicas e adicionar pipes
+        // Exemplo: "IRAN | Os mistérios por trás de uma das civilizações mais antigas"
+        const words = styled.split(/\s+/);
+        if (words.length > 8) {
+            // Dividir aproximadamente no meio ou em ponto lógico
+            const midPoint = Math.floor(words.length / 2);
+            const firstPart = words.slice(0, midPoint).join(' ');
+            const secondPart = words.slice(midPoint).join(' ');
+            styled = `${firstPart} | ${secondPart}`;
+        }
+    }
+    
+    // Manter padrões de caixa alta do original (se houver palavras em caps no gerado)
+    // Não forçar tudo em caps, mas manter palavras importantes em caps se já estiverem
+    
+    // Aplicar pontuação do original se não tiver no gerado
+    if (originalStyle.punctuation.length > 0 && !/[?!]/.test(styled)) {
+        if (originalStyle.punctuation.includes('question') && styled.includes('como') || styled.includes('por que')) {
+            styled = styled.replace(/([^?!.])$/, '$1?');
+        }
+    }
+    
+    return styled;
+}
+
+/**
+ * Corrige números zerados ou placeholders nos títulos
+ * Exemplos: "000VS10,000" -> "300 vs 300.000", "000 vs 10.000" -> "300 vs 300.000"
+ */
+function fixZeroedNumbers(title) {
+    if (!title || typeof title !== 'string') return title;
+    
+    let fixed = title;
+    
+    // Padrão 1: "000VS" ou "000 VS" (sem espaço antes do VS)
+    // Substituir por números reais comuns em títulos virais
+    fixed = fixed.replace(/\b000\s*VS\s*(\d+(?:[.,]\d{3})*)/gi, (match, secondNumber) => {
+        // Se o segundo número existe, usar um número proporcional para o primeiro
+        const secondNum = parseFloat(secondNumber.replace(/\./g, '').replace(',', '.'));
+        if (secondNum >= 100000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 10000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 1000) {
+            return `100 vs ${secondNumber}`;
+        }
+        return `300 vs ${secondNumber}`;
+    });
+    
+    // Padrão 2: "000 vs" ou "000VS" seguido de número
+    fixed = fixed.replace(/\b000\s+vs\s+(\d+(?:[.,]\d{3})*)/gi, (match, secondNumber) => {
+        const secondNum = parseFloat(secondNumber.replace(/\./g, '').replace(',', '.'));
+        if (secondNum >= 100000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 10000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 1000) {
+            return `100 vs ${secondNumber}`;
+        }
+        return `300 vs ${secondNumber}`;
+    });
+    
+    // Padrão 3: "000" sozinho no início (antes de VS/versus)
+    fixed = fixed.replace(/\b000\s*(VS|vs|versus|contra)/gi, '300 $1');
+    
+    // Padrão 4: Números com múltiplos zeros como placeholder (ex: "000.000" ou "000,000")
+    fixed = fixed.replace(/\b000[.,]000\b/gi, '300.000');
+    fixed = fixed.replace(/\b000\s*[.,]\s*000\b/gi, '300.000');
+    
+    // Padrão 5: "000VS" ou "000VS10,000" sem espaço (caso específico mencionado pelo usuário)
+    fixed = fixed.replace(/\b000VS(\d+(?:[.,]\d{3})*)/gi, (match, secondNumber) => {
+        const secondNum = parseFloat(secondNumber.replace(/\./g, '').replace(',', '.'));
+        if (secondNum >= 100000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 10000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 1000) {
+            return `100 vs ${secondNumber}`;
+        }
+        return `300 vs ${secondNumber}`;
+    });
+    
+    // Padrão 5b: "000VS10,000" (com vírgula no segundo número)
+    fixed = fixed.replace(/\b000VS(\d{1,3}(?:,\d{3})*)/gi, (match, secondNumber) => {
+        const secondNum = parseFloat(secondNumber.replace(/,/g, ''));
+        if (secondNum >= 100000) {
+            return `300 vs ${secondNumber.replace(/,/g, '.')}`;
+        } else if (secondNum >= 10000) {
+            return `300 vs ${secondNumber.replace(/,/g, '.')}`;
+        } else if (secondNum >= 1000) {
+            return `100 vs ${secondNumber.replace(/,/g, '.')}`;
+        }
+        return `300 vs ${secondNumber.replace(/,/g, '.')}`;
+    });
+    
+    // Padrão 6: Números zerados isolados (ex: "000" no meio do texto que deveria ser um número real)
+    // Só corrigir se estiver em contexto numérico (antes de "vs", "versus", "contra", "x")
+    fixed = fixed.replace(/\b000\b(?=\s*(?:vs|versus|contra|x|X)\s*\d)/gi, '300');
+    
+    // Padrão 7: Título começando com "vs" sem número antes (ex: "vs 300.000")
+    // Corrigir adicionando um número apropriado baseado no contexto
+    fixed = fixed.replace(/^\s*vs\s+(\d+(?:[.,]\d{3})*)/gi, (match, secondNumber) => {
+        const secondNum = parseFloat(secondNumber.replace(/\./g, '').replace(',', '.'));
+        // Usar números proporcionais baseados no segundo número
+        if (secondNum >= 200000) {
+            return `47.000 vs ${secondNumber}`; // Similar a Gaugamela
+        } else if (secondNum >= 100000) {
+            return `300 vs ${secondNumber}`; // Similar a Termópilas
+        } else if (secondNum >= 50000) {
+            return `50.000 vs ${secondNumber}`; // Similar a Canas
+        } else if (secondNum >= 10000) {
+            return `10.000 vs ${secondNumber}`;
+        } else if (secondNum >= 1000) {
+            return `5.000 vs ${secondNumber}`;
+        }
+        return `300 vs ${secondNumber}`;
+    });
+    
+    // Padrão 8: "vs" sem espaço (ex: "vs300.000")
+    fixed = fixed.replace(/^\s*vs(\d+(?:[.,]\d{3})*)/gi, (match, secondNumber) => {
+        const secondNum = parseFloat(secondNumber.replace(/\./g, '').replace(',', '.'));
+        if (secondNum >= 200000) {
+            return `47.000 vs ${secondNumber}`;
+        } else if (secondNum >= 100000) {
+            return `300 vs ${secondNumber}`;
+        } else if (secondNum >= 50000) {
+            return `50.000 vs ${secondNumber}`;
+        } else if (secondNum >= 10000) {
+            return `10.000 vs ${secondNumber}`;
+        }
+        return `300 vs ${secondNumber}`;
+    });
+    
+    return fixed;
+}
+
+/**
+ * Gera uma fórmula única baseada na análise do título específico
+ */
+function generateTitleSpecificFormula(titleText) {
+    if (!titleText || typeof titleText !== 'string') {
+        return 'Fórmula não disponível';
+    }
+    
+    const title = titleText.trim();
+    const titleLower = title.toLowerCase();
+    const parts = [];
+    
+    // Detectar elementos da fórmula baseado no título
+    // 1. Promessa central
+    if (/^(a|o|como|por que|nunca|ninguém|o que|quem)/i.test(title)) {
+        parts.push('Promessa central');
+    }
+    
+    // 2. Gatilhos em CAIXA ALTA
+    const upperWords = title.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,}/g) || [];
+    if (upperWords.length > 0) {
+        parts.push(`${upperWords.length} termo(s) em CAIXA ALTA (gatilho principal)`);
+    }
+    
+    // 3. Loop mental
+    if (/(segredo|mistério|verdade|revelado|oculto|proibido|impossível|nunca|ninguém|como foi possível)/i.test(titleLower)) {
+        parts.push('Loop mental (o detalhe/segredo/verdade)');
+    }
+    
+    // 4. Contraste
+    if (/(mas|porém|contra|apesar|hostil|impossível|desafio|sobreviveu|dominou|ergueu)/i.test(titleLower)) {
+        parts.push('Contraste leve (antes vs depois / hostil vs feito)');
+    }
+    
+    // 5. Benefício implícito
+    if (/(genialidade|sabedoria|tecnologia|arte|segredo|mistério|dominou|transformou|ergueu|sobreviveu)/i.test(titleLower)) {
+        parts.push('Benefício implícito');
+    }
+    
+    // 6. Estrutura com pipes
+    if (title.includes('|')) {
+        parts.push('Estrutura com separador (pipe)');
+    }
+    
+    // Se não detectou nada específico, usar fórmula genérica baseada na estrutura
+    if (parts.length === 0) {
+        const wordCount = title.split(/\s+/).length;
+        if (wordCount <= 10) {
+            parts.push('Título direto e objetivo');
+        } else {
+            parts.push('Estrutura narrativa');
+        }
+    }
+    
+    return parts.join(' + ') || 'Fórmula não disponível';
+}
+
 function buildTitleRefinePrompt({
     originalTitle,
     translatedTitle,
@@ -1776,7 +2212,11 @@ function buildTitleRefinePrompt({
     titlesRequired = 5,
     minImpact = 7,
     avoidTitles = [],
-    attemptLevel = 1
+    attemptLevel = 1,
+    channelInfo = null,
+    detectedNiche = null,
+    detectedSubniche = null,
+    originalFormula = null
 }) {
     const avoidBlock = avoidTitles && avoidTitles.length
         ? `\nTÍTULOS JÁ ACEITOS (NÃO REPETIR IDEIA/NEM FRASE):\n${avoidTitles.map(t => `- ${t}`).join('\n')}\n`
@@ -1787,8 +2227,63 @@ function buildTitleRefinePrompt({
         if (level === 2) {
             return `\nAUTO-FALLBACK (2ª tentativa — relaxar 1 regra)\n- CAIXA ALTA pode ser apenas 1 palavra (a mais forte)\n- Contraste pode ser sutil (não precisa ser extremo)\n`;
         }
-        return `\nAUTO-FALLBACK (3ª tentativa — generalizar cenário)\n- Se houver risco factual, GENERALIZE cenário/povo/local (ex: “uma CIVILIZAÇÃO ANTIGA”, “uma cidade improvável”, “um AMBIENTE HOSTIL”)\n`;
+        return `\nAUTO-FALLBACK (3ª tentativa — generalizar cenário)\n- Se houver risco factual, GENERALIZE cenário/povo/local (ex: "uma CIVILIZAÇÃO ANTIGA", "uma cidade improvável", "um AMBIENTE HOSTIL")\n`;
     };
+    
+    // Preparar informações do canal de forma segura
+    let channelContext = '';
+    if (channelInfo && channelInfo.name) {
+        const chName = channelInfo.name || 'Não especificado';
+        const chNiche = channelInfo.niche || 'Não especificado';
+        const chLang = channelInfo.language || 'pt-BR';
+        const chCountry = channelInfo.country || 'BR';
+        channelContext = `
+━━━━━━━━━━━━━━━━━━
+CONTEXTO DO CANAL (ADEQUAÇÃO OBRIGATÓRIA)
+━━━━━━━━━━━━━━━━━━
+
+O usuário selecionou um canal específico para esta análise. TODOS os títulos gerados DEVEM ser adequados ao tema e nicho deste canal.
+
+INFORMAÇÕES DO CANAL:
+- Nome: "${chName}"
+- Nicho: ${chNiche}
+- Idioma: ${chLang}
+- País: ${chCountry}
+
+REGRAS DE ADEQUAÇÃO:
+1. Os títulos devem estar ALINHADOS com o nicho do canal: ${chNiche}
+2. Se o canal tem um tema específico, os títulos devem REFLETIR esse tema
+3. Evite títulos que saiam completamente do contexto do canal
+4. Para CADA título gerado, você DEVE avaliar e indicar:
+   - Se é "IDEAL" para o canal (alinhado ao nicho e tema)
+   - Se é "ADEQUADO" para o canal (pode funcionar com ajustes)
+   - Se é "FORA DO TEMA" (não recomendado para este canal)
+
+IMPORTANTE: Mesmo que o vídeo analisado seja de outro nicho, adapte os títulos para que sejam relevantes para o canal selecionado, mantendo a fórmula viral mas ajustando o contexto.
+`;
+    }
+    
+    // Analisar estilo do título original
+    const originalStyle = analyzeTitleStyle(originalTitle);
+    let styleInstruction = '';
+    
+    if (originalStyle.hasPipes) {
+        styleInstruction += `\n━━━━━━━━━━━━━━━━━━\nESTILO DO TÍTULO ORIGINAL (OBRIGATÓRIO)\n━━━━━━━━━━━━━━━━━━\n\nO título original usa PIPE (|) como separador. TODOS os títulos gerados DEVEM seguir EXATAMENTE este mesmo formato:\n`;
+        styleInstruction += `- Título original: "${originalTitle}"\n`;
+        styleInstruction += `- Formato obrigatório: [PARTE 1] | [PARTE 2]${originalStyle.pipeCount > 2 ? ' | [PARTE 3]' : ''}\n`;
+        styleInstruction += `- Exemplo de formato correto: "IRAN | Os mistérios por trás de uma das civilizações mais antigas"\n`;
+        styleInstruction += `- CRÍTICO: Use o pipe (|) para separar as partes do título, mantendo a mesma estrutura visual.\n\n`;
+    }
+    
+    if (originalStyle.hasUpperCase && originalStyle.upperCasePattern) {
+        styleInstruction += `O título original usa palavras em CAIXA ALTA: ${originalStyle.upperCasePattern.slice(0, 3).join(', ')}.\n`;
+        styleInstruction += `Mantenha palavras-chave importantes em CAIXA ALTA nos títulos gerados, seguindo o mesmo padrão.\n\n`;
+    }
+    
+    if (originalStyle.punctuation.length > 0) {
+        styleInstruction += `O título original usa: ${originalStyle.punctuation.join(', ')}.\n`;
+        styleInstruction += `Considere usar a mesma pontuação quando apropriado.\n\n`;
+    }
     return `Você é um especialista em títulos virais para YouTube, focado em ALTO CTR e ALTA RETENÇÃO.
 
 Sua tarefa é:
@@ -1815,42 +2310,82 @@ REGRAS CRÍTICAS
 Exemplos:
 SEGREDO, IMPOSSÍVEL, NUNCA, GENIALIDADE, PROIBIDO, REVELADO, NINGUÉM, HOSTIL
 
-4) VARIAÇÃO REAL (OBRIGATÓRIA)
-Cada título DEVE variar:
-- O POVO ou ATOR (civilização, tribo, império, grupo, ordem, engenheiros, monges, etc.)
-- O LOCAL ou AMBIENTE (deserto, montanhas, gelo, selva, oceano, subterrâneo, ilhas, planícies)
-- O CENÁRIO HISTÓRICO ou CONTEXTUAL
+4) MANTER TEMA E NICHO DO VÍDEO ORIGINAL (OBRIGATÓRIO)
+${detectedNiche ? `- Nicho detectado: ${detectedNiche}${detectedSubniche ? ` (Subnicho: ${detectedSubniche})` : ''}` : ''}
+- TODOS os títulos sugeridos DEVEM estar no MESMO nicho e tema do vídeo original
+- Aplique a FÓRMULA do título original, mas mantenha o contexto/tema/assunto relacionado
+- Pode variar ligeiramente o contexto (ex: diferentes pessoas, situações similares, cenários relacionados), mas SEMPRE dentro do mesmo nicho
+- É PROIBIDO mudar completamente o tema (ex: se o original é sobre storage units/millionaires, não criar sobre náufragos, monges, engenheiros em gelo, etc.)
 
-É PROIBIDO repetir sempre:
-- a mesma civilização
-- o mesmo povo
-- o mesmo tipo de ambiente
-
-━━━━━━━━━━━━━━━━━━
-CONCRETUDE CONTROLADA
-━━━━━━━━━━━━━━━━━━
-
-Todo título DEVE conter pelo menos UM elemento concreto e visual:
-- um LOCAL físico claro (deserto, montanhas, gelo, lago, selva, subterrâneo)
-OU
-- um ATOR identificável (tribo, império, ordem, engenheiros, monges)
-OU
-- uma AÇÃO clara (ergueram, dominaram, sobreviveram, transformaram, desafiaram)
-
-É PROIBIDO gerar títulos apenas abstratos
-(ex: "sociedade", "sistema", "cultura", "era") sem visualização clara.
+VARIAÇÃO PERMITIDA (dentro do mesmo tema):
+- Pode variar: pessoas diferentes (outras mães, outras pessoas em situação difícil, outros milionários, etc.)
+- Pode variar: situações similares (outros tipos de leilões, outras descobertas, outras transformações de vida)
+- Pode variar: detalhes específicos (diferentes objetos, diferentes quantias, diferentes lugares)
+- DEVE manter: o tipo de assunto, o nicho, a estrutura da história
 
 ━━━━━━━━━━━━━━━━━━
-FÓRMULAS (pode misturar até 5)
+CONTEXTO E TEMA
 ━━━━━━━━━━━━━━━━━━
 
-Você pode combinar até 5 fórmulas no mesmo título, como:
+Todo título DEVE refletir o mesmo tipo de conteúdo do vídeo original:
+- Se o original é sobre transformação de vida/riqueza, mantenha esse tema
+- Se o original é sobre descobertas/invenções, mantenha esse tema
+- Se o original é sobre histórias pessoais, mantenha esse tema
+- Aplique a FÓRMULA do original, mas adapte ao contexto relacionado
 
-- Promessa central
-- Contraste extremo (hostil vs feito / impossível vs real)
-- Curiosidade aberta (segredo, verdade, mistério)
-- Benefício implícito (sobrevivência, domínio, genialidade)
-- Loop mental ("como foi possível?", "ninguém explica")
+━━━━━━━━━━━━━━━━━━
+FÓRMULA E APLICAÇÃO
+━━━━━━━━━━━━━━━━━━
+
+${originalFormula ? `USE A FÓRMULA DO TÍTULO ORIGINAL:
+${originalFormula}
+
+Você pode melhorar ou combinar com outros elementos, mas MANTENHA os elementos principais da fórmula original.` : `Identifique a fórmula do título original e aplique-a aos títulos sugeridos, mantendo o mesmo tema/nicho.`}
+
+Se a fórmula original inclui:
+- Contraste extremo: mantenha o padrão de contraste, mas adapte ao tema do vídeo
+- Curiosidade aberta: use perguntas ou mistérios relacionados ao tema
+- Tempo limitado: mantenha urgência temporal se presente na fórmula original
+- Promessa central: mantenha promessas claras relacionadas ao tema
+- Loop mental: use elementos que criem curiosidade dentro do tema
+- Números/escala: Se o título original usa números (ex: "300 vs 300.000"), mantenha números REAIS e ESPECÍFICOS (não use "000" ou placeholders). Use números concretos como 300, 300.000, 10.000, 1.000.000, etc.
+
+REGRAS PARA NÚMEROS:
+- NUNCA use "000" como placeholder - sempre use números reais (ex: 300, 3000, 300000)
+- Se o original tem números, mantenha números similares mas pode variar (ex: 300 vs 300.000 pode virar 500 vs 500.000)
+- Se não houver números no original, pode adicionar números relevantes ao contexto
+- Formate números corretamente: use ponto para milhares (ex: 300.000, 10.000)
+- NUNCA deixe títulos começando com "vs" sem número antes - sempre inclua o primeiro número
+
+━━━━━━━━━━━━━━━━━━
+DADOS HISTÓRICOS REAIS (CRÍTICO PARA HISTÓRIA/GUERRAS/CIVILIZAÇÕES)
+━━━━━━━━━━━━━━━━━━
+
+QUANDO O TEMA FOR HISTÓRIA, GUERRA, CIVILIZAÇÃO, PAÍS, POVO, BATALHA, IMPÉRIO, etc:
+
+OBRIGATÓRIO usar dados históricos REAIS e PRECISOS:
+- Números de soldados/tropas devem ser HISTORICAMENTE CORRETOS para a batalha/campanha mencionada
+- Datas devem ser PRECISAS ou ao menos no período histórico correto
+- Nomes de locais, batalhas, líderes devem ser AUTÊNTICOS
+- Contextos históricos devem estar ALINHADOS com fatos históricos conhecidos
+
+EXEMPLOS DE DADOS HISTÓRICOS CORRETOS:
+- Termópilas (480 a.C.): ~300 espartanos vs ~100.000-300.000 persas
+- Gaugamela (331 a.C.): ~47.000 macedônios vs ~250.000 persas
+- Canas (216 a.C.): ~50.000 cartagineses vs ~86.000 romanos
+- Hastings (1066): ~7.000 normandos vs ~8.000 saxões
+- Batalha das Termópilas: números reais são 300 espartanos + ~700 tespianos = ~1.000 gregos vs ~100.000-300.000 persas
+
+REGRAS ESPECÍFICAS:
+1. Pesquise mentalmente os números reais da batalha/evento histórico antes de escrever
+2. Mantenha proporções realistas (ex: se uma batalha foi 10.000 vs 50.000, não use 10 vs 1.000.000)
+3. Use nomes históricos corretos de batalhas, locais, líderes
+4. Se não tiver certeza, use números aproximados mas realistas baseados no período histórico
+5. SEMPRE mantenha a estrutura do título original, apenas ajuste os dados para serem históricamente precisos
+
+IMPORTANTE: Mantenha a FÓRMULA e ESTRUTURA do título original, mas com dados históricos REAIS.
+
+CRÍTICO: Aplique a fórmula do original, mas SEMPRE mantendo o tema, nicho e contexto do vídeo original COM DADOS HISTÓRICOS PRECISOS.
 
 ━━━━━━━━━━━━━━━━━━
 FORMATAÇÃO DE SAÍDA (OBRIGATÓRIA)
@@ -1878,34 +2413,83 @@ Fórmula:
 Promessa central + contraste extremo + gatilho de segredo + cenário hostil
 
 ━━━━━━━━━━━━━━━━━━
+ANÁLISE DO TÍTULO ORIGINAL (OBRIGATÓRIO)
+━━━━━━━━━━━━━━━━━━
+
+Título original: "${originalTitle}"
+Título traduzido (PT-BR): "${translatedTitle || originalTitle}"
+${detectedNiche ? `Nicho detectado: ${detectedNiche}${detectedSubniche ? ` (Subnicho: ${detectedSubniche})` : ''}` : ''}
+
+${originalFormula ? `FÓRMULA DO TÍTULO ORIGINAL (OBRIGATÓRIO USAR):
+${originalFormula}
+
+IMPORTANTE: Todos os títulos sugeridos DEVEM usar esta mesma fórmula, aplicada a contextos similares dentro do MESMO NICHO/TEMA.
+Você pode melhorar ou combinar elementos da fórmula, mas DEVE manter os elementos principais identificados acima.` : `ANALISE NECESSÁRIA:
+Identifique a FÓRMULA ESPECÍFICA do título original acima. Todos os títulos sugeridos devem usar a mesma fórmula aplicada ao mesmo tema/nicho.`}
+
+━━━━━━━━━━━━━━━━━━
 CONTEXTO DO VÍDEO
 ━━━━━━━━━━━━━━━━━━
 
 ${performanceContext ? performanceContext : ''}
-- Título original (idioma original): "${originalTitle}"
-- Título traduzido (PT-BR): "${translatedTitle || originalTitle}"
 - Descrição (início): ${descriptionStart || 'N/A'}...
 - Transcrição (início): ${transcriptStart || 'N/A'}...
 ${avoidBlock}
-
+${styleInstruction}
 IDIOMA
 - Todos os títulos devem estar ${languageInstruction}.
-
+${channelContext}
 FORMATO DE ENTREGA FINAL — PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS
 
-Formato de lista numerada (não JSON). Retorne EXATAMENTE ${titlesRequired} títulos no seguinte formato:
+IMPORTANTE: Para modelos Gemini, você DEVE retornar no formato JSON estruturado abaixo. Para Claude e OpenAI, use lista numerada.
 
-1. TÍTULO: [texto do título]
+FORMATO JSON (Gemini - OBRIGATÓRIO):
+{
+  "analiseOriginal": {
+    "motivoSucesso": "[análise específica do motivo do sucesso do título original baseada nos elementos únicos do título]",
+    "formulaTitulo": "[fórmula ESPECÍFICA extraída do título original, identificando elementos únicos como palavras em CAIXA ALTA, estrutura, gatilhos, etc.]"
+  },
+  "titulos": [
+    {
+      "TÍTULO": "[texto do título seguindo EXATAMENTE o estilo do título original]",
+      "Qualidade": X,
+      "Impacto": X,
+      "Fórmula": "[descrição breve da estrutura/fórmula usada]",
+      ${channelInfo && channelInfo.name ? '"AdequacaoCanal": "IDEAL" | "ADEQUADO" | "FORA_DO_TEMA",' : ''}
+      ${channelInfo && channelInfo.name ? '"MotivoAdequacao": "[explicação breve de por que é ideal/adequado/fora do tema para o canal]"' : ''}
+    },
+    ... (continue até ${titlesRequired})
+  ]
+}
+
+FORMATO LISTA NUMERADA (Claude/OpenAI):
+
+ANÁLISE DO TÍTULO ORIGINAL:
+Motivo do Sucesso: [análise específica do motivo do sucesso do título original baseada nos elementos únicos do título]
+Fórmula: [fórmula ESPECÍFICA extraída do título original, identificando elementos únicos como palavras em CAIXA ALTA, estrutura, gatilhos, etc.]
+
+TÍTULOS SUGERIDOS:
+
+1. TÍTULO: [texto do título seguindo EXATAMENTE o estilo do título original]
    Qualidade: X/10
    Impacto: X/10
-   Fórmula: [descrição breve]
+   Fórmula: [descrição breve da estrutura/fórmula usada]
+   ${channelInfo && channelInfo.name ? 'Adequação ao Canal: IDEAL | ADEQUADO | FORA_DO_TEMA' : ''}
+   ${channelInfo && channelInfo.name ? 'Motivo: [explicação breve]' : ''}
 
-2. TÍTULO: [texto do título]
+2. TÍTULO: [texto do título seguindo EXATAMENTE o estilo do título original]
    Qualidade: X/10
    Impacto: X/10
-   Fórmula: [descrição breve]
+   Fórmula: [descrição breve da estrutura/fórmula usada]
+   ${channelInfo && channelInfo.name ? 'Adequação ao Canal: IDEAL | ADEQUADO | FORA_DO_TEMA' : ''}
+   ${channelInfo && channelInfo.name ? 'Motivo: [explicação breve]' : ''}
 
 ... (continue até ${titlesRequired})
+
+⚠️ REGRA CRÍTICA DE ESTILO:
+- Se o título original usa PIPE (|), TODOS os títulos gerados DEVEM usar PIPE também
+- Se o título original tem palavras em CAIXA ALTA, mantenha palavras-chave em CAIXA ALTA
+- Mantenha a mesma estrutura visual e formatação do título original
 
 ⚠️ REGRA CRÍTICA DE SAÍDA (ANTI-META):
 
@@ -1974,26 +2558,116 @@ function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, des
 function deriveTitleAnalysis({ originalTitle, translatedTitle, views, days }) {
     const t = String(translatedTitle || originalTitle || '').trim();
     const lower = t.toLowerCase();
-    const isList = /\b(\d+)\b/.test(lower) || /(pilares|raz[õo]es|fundamentos|segredos|passos)/i.test(lower);
+    const original = String(originalTitle || '').trim();
+    
+    // Análise específica do título
+    const isList = /\b(\d+)\b/.test(lower) || /(pilares|raz[õo]es|fundamentos|segredos|passos|motivos|coisas|fatos|formas|maneiras)/i.test(lower);
     const hasHow = /(como|how)/i.test(lower);
     const hasWhy = /(por que|porque|why)/i.test(lower);
-    const hasBigWord = /(genial|imposs[ií]vel|segredo|mist[eé]rio|verdade|ningu[eé]m|nunca)/i.test(lower);
+    const hasBigWord = /(genial|imposs[ií]vel|segredo|mist[eé]rio|verdade|ningu[eé]m|nunca|proibido|revelado|oculto)/i.test(lower);
+    const hasContrast = /(mas|porém|contra|apesar|hostil|impossível|desafio|sobreviveu|dominou|ergueu|transformou|quebrou|venceram|resistiu)/i.test(lower);
+    const hasLocation = /(deserto|montanha|gelo|selva|oceano|subterrâneo|ilha|cidade|civilização|império|tribo|vila)/i.test(lower);
+    const hasAction = /(ergueram|dominaram|sobreviveram|transformaram|desafiaram|construíram|criaram|inventaram|descobriram)/i.test(lower);
+    
+    // Detectar palavras em CAIXA ALTA específicas
+    const upperWords = original.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,}/g) || [];
+    const upperWordsCount = upperWords.length;
+    
+    // Detectar separadores (pipes)
+    const hasPipes = original.includes('|');
+    const pipeParts = hasPipes ? original.split('|').map(p => p.trim()) : [];
+    
+    // Detectar estrutura específica do título
+    const formulaParts = [];
+    
+    // 1. Estrutura base
+    if (isList) {
+        formulaParts.push('Estrutura de lista + promessa de clareza');
+    } else if (hasPipes && pipeParts.length >= 2) {
+        formulaParts.push(`Estrutura segmentada (${pipeParts.length} partes com pipe)`);
+    } else {
+        formulaParts.push('Promessa central + benefício');
+    }
+    
+    // 2. Gatilhos específicos detectados
+    if (hasHow) {
+        formulaParts.push('+ gancho "COMO FOI POSSÍVEL"');
+    }
+    if (hasWhy) {
+        formulaParts.push('+ gancho "POR QUE"');
+    }
+    
+    // 3. Termos em CAIXA ALTA (específico do título)
+    if (upperWordsCount > 0) {
+        const upperWordsList = upperWords.slice(0, 3).join(', ');
+        formulaParts.push(`+ ${upperWordsCount} termo(s) em CAIXA ALTA: ${upperWordsList} (gatilho principal)`);
+    } else {
+        formulaParts.push('+ 1-3 termos em CAIXA ALTA (gatilho principal)');
+    }
+    
+    // 4. Loop mental específico
+    if (hasBigWord) {
+        const bigWordMatch = lower.match(/(genial|imposs[ií]vel|segredo|mist[eé]rio|verdade|ningu[eé]m|nunca|proibido|revelado|oculto)/);
+        if (bigWordMatch) {
+            formulaParts.push(`+ loop mental (${bigWordMatch[0]} - o detalhe/segredo/verdade) sem inventar fatos`);
+        } else {
+            formulaParts.push('+ loop mental (o detalhe/segredo/verdade) sem inventar fatos');
+        }
+    } else {
+        formulaParts.push('+ loop mental (o detalhe/segredo/verdade) sem inventar fatos');
+    }
+    
+    // 5. Contraste específico
+    if (hasContrast) {
+        const contrastMatch = lower.match(/(mas|porém|contra|apesar|hostil|impossível|desafio|sobreviveu|dominou|ergueu|transformou|quebrou|venceram|resistiu)/);
+        if (contrastMatch) {
+            formulaParts.push(`+ contraste (${contrastMatch[0]} - antes vs depois / hostil vs feito)`);
+        } else {
+            formulaParts.push('+ contraste leve (antes vs depois / hostil vs feito)');
+        }
+    } else if (hasLocation || hasAction) {
+        // Se tem local ou ação, pode ter contraste implícito
+        formulaParts.push('+ contraste leve (antes vs depois / hostil vs feito) quando aplicável');
+    }
+    
+    // 6. Elementos concretos específicos
+    if (hasLocation) {
+        const locationMatch = lower.match(/(deserto|montanha|gelo|selva|oceano|subterrâneo|ilha|cidade|civilização|império|tribo|vila)/);
+        if (locationMatch) {
+            formulaParts.push(`+ elemento concreto visual (${locationMatch[0]})`);
+        }
+    }
+    
     const vpd = days ? Math.round((views || 0) / Math.max(days, 1)) : null;
 
-    const motivoSucesso = [
-        vpd ? `Ganhou tração por consistência de interesse (≈${vpd.toLocaleString()} views/dia).` : 'Ganhou tração por consistência de interesse.',
-        isList ? 'Promessa clara de estrutura (lista) ajuda clique e retenção.' : 'Promessa clara do tema ajuda clique.',
-        hasHow || hasWhy ? 'Ângulo de curiosidade (“como/por que”) aumenta expectativa inicial.' : (hasBigWord ? 'Palavra de impacto aumenta o stop-scroll.' : 'Tema forte sustenta o clique.')
-    ].join(' ');
-
-    const formulaTitulo = [
-        isList ? 'Estrutura de lista + promessa de clareza' : 'Promessa central + benefício',
-        hasHow ? '+ gancho “COMO FOI POSSÍVEL”' : '',
-        hasWhy ? '+ gancho “POR QUE”' : '',
-        '+ 1–3 termos em CAIXA ALTA (gatilho principal)',
-        '+ loop mental (o detalhe/segredo/verdade) sem inventar fatos',
-        '+ contraste leve (antes vs depois / hostil vs feito) quando aplicável'
-    ].filter(Boolean).join(' ');
+    // Motivo do sucesso baseado na análise específica
+    const motivoParts = [];
+    if (vpd) {
+        motivoParts.push(`Ganhou tração por consistência de interesse (≈${vpd.toLocaleString()} views/dia).`);
+    } else {
+        motivoParts.push('Ganhou tração por consistência de interesse.');
+    }
+    
+    if (isList) {
+        motivoParts.push('Promessa clara de estrutura (lista) ajuda clique e retenção.');
+    } else if (hasPipes && pipeParts.length >= 2) {
+        motivoParts.push('Estrutura segmentada (pipe) aumenta legibilidade e impacto visual.');
+    } else {
+        motivoParts.push('Promessa clara do tema ajuda clique.');
+    }
+    
+    if (hasHow || hasWhy) {
+        motivoParts.push('Ângulo de curiosidade ("como/por que") aumenta expectativa inicial.');
+    } else if (hasBigWord) {
+        motivoParts.push('Palavra de impacto aumenta o stop-scroll.');
+    } else if (upperWordsCount > 0) {
+        motivoParts.push('Termos em CAIXA ALTA criam destaque visual e aumentam o CTR.');
+    } else {
+        motivoParts.push('Tema forte sustenta o clique.');
+    }
+    
+    const motivoSucesso = motivoParts.join(' ');
+    const formulaTitulo = formulaParts.filter(Boolean).join(' ');
 
     return { motivoSucesso, formulaTitulo };
 }
@@ -2132,6 +2806,13 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
         prompt.includes('PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS') ||
         prompt.includes('Formato de lista numerada (não JSON)')
     );
+    
+    // Detectar se o prompt pede formato JSON para títulos (Gemini)
+    const isTitleJsonRequest = typeof prompt === 'string' && (
+        prompt.includes('FORMATO JSON (Gemini') ||
+        prompt.includes('"titulos":') ||
+        (prompt.includes('PROMPT FINAL — GERAÇÃO DE TÍTULOS VIRAIS') && prompt.includes('FORMATO JSON'))
+    );
 
     const generationConfig = {
             temperature: 0.7, 
@@ -2140,10 +2821,16 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
             maxOutputTokens: 32000  // Aumentar para permitir gerar muitas cenas (31 cenas x ~1000 chars = ~31000 tokens)
     };
     
-    // CRÍTICO: Só adicionar responseMimeType JSON se NÃO for pedido de roteiro OU lista de títulos
-    // Para lista de títulos, deixar o Gemini retornar texto livre (lista numerada)
-    if (!isScriptRequest && !isTitleListRequest) {
-        generationConfig.responseMimeType = "application/json";
+    // CRÍTICO: Para Gemini, usar JSON quando solicitado no prompt (títulos)
+    // Para outros casos (roteiro ou lista numerada), usar texto livre
+    if (!isScriptRequest) {
+        if (isTitleJsonRequest) {
+            // Gemini deve retornar JSON estruturado para títulos
+            generationConfig.responseMimeType = "application/json";
+        } else if (!isTitleListRequest) {
+            // Outros casos não relacionados a títulos ou roteiros
+            generationConfig.responseMimeType = "application/json";
+        }
     }
 
     const payload = {
@@ -2200,6 +2887,21 @@ async function callGeminiAPI(prompt, apiKey, model, imageUrl = null, additionalI
                 } else {
                     // Para JSON ou lista numerada, retornar conteúdo para parsing posterior
                     // O parseTitleAnalysisResponse vai detectar automaticamente o formato
+                    // Se o Gemini retornou JSON, garantir que está no formato esperado
+                    if (isTitleJsonRequest) {
+                        try {
+                            // Tentar parsear como JSON primeiro
+                            const jsonContent = JSON.parse(content);
+                            // Se tiver campo "titulos", retornar como string para parsing posterior
+                            if (jsonContent.titulos && Array.isArray(jsonContent.titulos)) {
+                                console.log('[La Casa Dark Core] Gemini retornou JSON estruturado com títulos');
+                                return { titles: JSON.stringify(jsonContent), model: model };
+                            }
+                        } catch (e) {
+                            // Se não for JSON válido, retornar como texto para parsing
+                            console.warn('[La Casa Dark Core] Resposta do Gemini não é JSON válido, tentando parsear como texto');
+                        }
+                    }
                     return { titles: content, model: model };
                 }
             } else {
@@ -6172,6 +6874,14 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 await db.run('ALTER TABLE generated_titles ADD COLUMN formula TEXT DEFAULT NULL');
                 console.log('[MIGRATION] Adicionado campo formula em generated_titles');
             }
+            if (!existingColumns.includes('canal_adequacao')) {
+                await db.run('ALTER TABLE generated_titles ADD COLUMN canal_adequacao TEXT DEFAULT NULL');
+                console.log('[MIGRATION] Adicionado campo canal_adequacao em generated_titles');
+            }
+            if (!existingColumns.includes('motivo_adequacao')) {
+                await db.run('ALTER TABLE generated_titles ADD COLUMN motivo_adequacao TEXT DEFAULT NULL');
+                console.log('[MIGRATION] Adicionado campo motivo_adequacao em generated_titles');
+            }
         } catch (migrationErr) {
             console.warn('[MIGRATION] Falha ao migrar generated_titles:', migrationErr.message);
         }
@@ -6909,6 +7619,32 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 is_favorite INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        `);
+
+        // Tabela para Palavra do Dia (versículos bíblicos NVI)
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS daily_bible_verses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_of_year INTEGER NOT NULL UNIQUE,
+                verse_text TEXT NOT NULL,
+                reference TEXT NOT NULL,
+                book TEXT NOT NULL,
+                chapter INTEGER NOT NULL,
+                verse INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Tabela para status "feito" da Palavra do Dia por usuário
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS daily_bible_verse_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                day_of_year INTEGER NOT NULL,
+                completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, day_of_year)
             );
         `);
 
@@ -12061,6 +12797,58 @@ app.get('/api/stripe/plans', authenticateToken, async (req, res) => {
     }
 });
 
+// GET /api/public/plans - Endpoint público para obter valores dos planos (para landing page)
+app.get('/api/public/plans', async (req, res) => {
+    try {
+        // Retornar valores corretos dos planos (sem autenticação)
+        const plans = {
+            'plan-free': {
+                credits: 50,
+                name: 'Acesso Inicial',
+                monthly_credits: 50
+            },
+            'plan-start': {
+                credits: 800,
+                name: 'START CREATOR',
+                monthly_credits: 800
+            },
+            'plan-turbo': {
+                credits: 1600,
+                name: 'TURBO MAKER',
+                monthly_credits: 1600
+            },
+            'plan-master': {
+                credits: 2400,
+                name: 'MASTER PRO',
+                monthly_credits: 2400
+            },
+            'plan-start-annual': {
+                credits: 9600,
+                name: 'START CREATOR Anual',
+                monthly_credits: 800,
+                annual_credits: 9600
+            },
+            'plan-turbo-annual': {
+                credits: 19200,
+                name: 'TURBO MAKER Anual',
+                monthly_credits: 1600,
+                annual_credits: 19200
+            },
+            'plan-master-annual': {
+                credits: 28800,
+                name: 'MASTER PRO Anual',
+                monthly_credits: 2400,
+                annual_credits: 28800
+            }
+        };
+        
+        res.json({ success: true, plans });
+    } catch (error) {
+        console.error('[PUBLIC PLANS] Erro ao buscar planos:', error.message);
+        res.status(500).json({ success: false, message: 'Erro ao buscar planos' });
+    }
+});
+
 // POST /api/stripe/create-checkout - Criar sessão de checkout
 app.post('/api/stripe/create-checkout', authenticateToken, async (req, res) => {
     try {
@@ -15168,7 +15956,8 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
             videoUrl: req.body?.videoUrl,
             model: req.body?.model,
             selectedModel: req.body?.selectedModel,
-            folderId: req.body?.folderId
+            folderId: req.body?.folderId,
+            channelId: req.body?.channelId
         });
     } catch {}
 
@@ -15176,8 +15965,33 @@ app.post('/api/analyze/titles', authenticateToken, async (req, res) => {
     const model = typeof rawModel === 'string' ? rawModel.trim() : '';
     const videoUrl = typeof req.body?.videoUrl === 'string' ? req.body.videoUrl.trim() : '';
     const folderId = req.body?.folderId;
+    const channelId = req.body?.channelId ? parseInt(req.body.channelId) : null;
     const language = req.body?.language || 'Português'; // Idioma padrão: Português
     const userId = req.user.id;
+    
+    // Buscar informações do canal se fornecido
+    let channelInfo = null;
+    if (channelId) {
+        try {
+            const channel = await db.get(
+                'SELECT id, channel_name, channel_url, niche, language, country FROM user_channels WHERE id = ? AND user_id = ? AND is_active = 1',
+                [channelId, userId]
+            );
+            if (channel) {
+                channelInfo = {
+                    id: channel.id,
+                    name: channel.channel_name,
+                    url: channel.channel_url,
+                    niche: channel.niche,
+                    language: channel.language,
+                    country: channel.country
+                };
+                console.log('[Análise] Canal selecionado:', channelInfo);
+            }
+        } catch (err) {
+            console.warn('[Análise] Erro ao buscar informações do canal:', err.message);
+        }
+    }
 
     if (!videoUrl || !model) {
         return res.status(400).json({ msg: 'URL do vídeo e modelo de IA são obrigatórios.' });
@@ -15406,6 +16220,21 @@ Tradução em PT-BR:`;
                     : 'EM PORTUGUÊS BRASILEIRO';
 
         const MIN_IMPACT_SCORE = 7;
+        
+        // Derivar nicho e análise ANTES de construir o prompt (para passar ao prompt)
+        const derivedNiche = deriveNicheAndSubnicheFromContext({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+            transcriptStart: transcriptText || ''
+        });
+        const derivedAnalysis = deriveTitleAnalysis({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            views: videoDetails.views,
+            days: videoDetails.days
+        });
+        
         const titlePrompt = buildTitleRefinePrompt({
             originalTitle: videoDetails.title,
             translatedTitle,
@@ -15414,13 +16243,17 @@ Tradução em PT-BR:`;
             transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
             languageInstruction,
             titlesRequired,
-            minImpact: MIN_IMPACT_SCORE
+            minImpact: MIN_IMPACT_SCORE,
+            channelInfo: channelInfo, // Informações do canal para adequação
+            detectedNiche: derivedNiche.niche,
+            detectedSubniche: derivedNiche.subniche,
+            originalFormula: derivedAnalysis.formulaTitulo
         });
         
         let allGeneratedTitles = [];
         let modelUsedForDisplay = model;
-        let finalAnalysisData;
-        let finalNicheData;
+        let finalAnalysisData = derivedAnalysis;
+        let finalNicheData = derivedNiche;
         let uxMessage = null;
         
         // --- INÍCIO DA LÓGICA DO DISTRIBUIDOR (SWITCHER) ---
@@ -15501,6 +16334,9 @@ Tradução em PT-BR:`;
             let multimodalFallbackCount = 0;
             let totalHighImpact = 0;
             
+            // Analisar estilo do título original para aplicar aos gerados
+            const originalStyle = analyzeTitleStyle(videoDetails.title);
+            
             // Processar resultados em paralelo - SEM chamadas extras
             for (let index = 0; index < results.length; index++) {
                 const result = results[index];
@@ -15534,6 +16370,7 @@ Tradução em PT-BR:`;
                     if (parsedData && parsedData.titulosSugeridos && parsedData.titulosSugeridos.length > 0) {
                         const withScores = parsedData.titulosSugeridos.map(t => ({
                             ...t,
+                            titulo: applyTitleStyle(t.titulo, originalStyle), // Aplicar estilo do título original
                             model: serviceName,
                             impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
                         }));
@@ -15602,7 +16439,11 @@ Tradução em PT-BR:`;
                             descriptionStart: 'N/A',
                             transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '',
                             languageInstruction,
-                            avoidTitles: allGeneratedTitles.map(t => t.titulo)
+                            avoidTitles: allGeneratedTitles.map(t => t.titulo),
+                            channelInfo: channelInfo,
+                            detectedNiche: finalNicheData.niche,
+                            detectedSubniche: finalNicheData.subniche,
+                            originalFormula: finalAnalysisData.formulaTitulo
                         },
                         titlesRequired: targetTotal - allGeneratedTitles.length,
                         minImpact: 5, // Impacto reduzido para garantir entrega rápida
@@ -15753,6 +16594,9 @@ Tradução em PT-BR:`;
                 throw new Error('A IA não retornou títulos sugeridos.');
             }
             
+            // Analisar estilo do título original para aplicar aos gerados
+            const originalStyle = analyzeTitleStyle(videoDetails.title);
+            
             // Registrar títulos (SCORE 2 por backend) com lógica de fallback UX
             const MIN_IMPACT_SCORE = 7;
             const titlesFromIA = await generatePassingTitlesWithRefine({
@@ -15761,26 +16605,38 @@ Tradução em PT-BR:`;
                 model,
                 serviceName: 'IA', // Sempre genérico para evitar exposição
                 basePromptBuilder: buildTitleRefinePrompt,
-                buildArgs: {
-                    originalTitle: videoDetails.title,
-                    translatedTitle,
-                    performanceContext,
-                    descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
-                    transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
-                    languageInstruction
-                },
+                        buildArgs: {
+                            originalTitle: videoDetails.title,
+                            translatedTitle,
+                            performanceContext,
+                            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : 'N/A',
+                            transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
+                            languageInstruction,
+                            channelInfo: channelInfo,
+                            detectedNiche: finalNicheData.niche,
+                            detectedSubniche: finalNicheData.subniche,
+                            originalFormula: finalAnalysisData.formulaTitulo
+                        },
                 titlesRequired,
                 minImpact: MIN_IMPACT_SCORE,
                 maxRefines: 2
             });
 
+            // Aplicar estilo do título original aos títulos gerados
+            // A função applyTitleStyle já inclui fixZeroedNumbers, então não precisa chamar separadamente
+            const titlesWithStyle = titlesFromIA.map(t => ({
+                ...t,
+                titulo: applyTitleStyle(t.titulo, originalStyle)
+            }));
+
             // Lógica de Fallback UX
-            let finalTitles = [...titlesFromIA];
+            let finalTitles = [...titlesWithStyle];
 
             if (finalTitles.length < titlesRequired) {
                 // Tentar pegar os melhores títulos que sobraram do parse original
                 const allWithScores = parsedData.titulosSugeridos.map(t => ({
                     ...t,
+                    titulo: applyTitleStyle(t.titulo, originalStyle), // Aplicar estilo
                     impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
                 }));
 
@@ -15909,8 +16765,8 @@ Tradução em PT-BR:`;
             for (const titleData of allGeneratedTitles) {
                 try {
                     await db.run(
-                        'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null]
+                        'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula, canal_adequacao, motivo_adequacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null, titleData.canal_adequacao ?? null, titleData.motivo_adequacao ?? null]
                     );
                     savedCount++;
                 } catch (saveErr) {
@@ -15983,7 +16839,21 @@ Tradução em PT-BR:`;
         }
 
         // --- ETAPA 5: Enviar Resposta (com IDs dos títulos, receita e RPM) ---
-        const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
+        // Garantir que analysisId existe antes de buscar títulos
+        if (!analysisId) {
+            console.error('[Análise] ❌ analysisId não foi criado, não é possível buscar títulos com ID');
+            return res.status(500).json({ msg: 'Erro ao criar análise no banco de dados.' });
+        }
+        
+        const finalTitlesWithIds = await db.all('SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, canal_adequacao, motivo_adequacao, is_checked FROM generated_titles WHERE video_analysis_id = ?', [analysisId]);
+        
+        // Log para debug: verificar se os IDs estão presentes
+        console.log(`[Análise] Títulos retornados do banco: ${finalTitlesWithIds.length} títulos`);
+        finalTitlesWithIds.forEach((t, idx) => {
+            if (!t.id) {
+                console.error(`[Análise] ⚠️ Título ${idx} não tem ID!`, t);
+            }
+        });
 
         // NÃO salvar automaticamente - apenas quando o usuário marcar o checkbox
         // O salvamento será feito quando o usuário marcar o título como selecionado
@@ -16006,10 +16876,11 @@ Tradução em PT-BR:`;
             return modelName;
         };
         
-        // Garantir que os títulos do banco tenham o modelo formatado corretamente
+        // Garantir que os títulos do banco tenham o modelo formatado corretamente e is_checked como boolean
         const formattedTitles = (finalTitlesWithIds || []).map(t => ({
             ...t,
-            model: formatModelForResponse(t.model || model)
+            model: formatModelForResponse(t.model || model),
+            is_checked: Boolean(t.is_checked) // Converter 0/1 para true/false
         }));
         
         const responseData = {
@@ -16113,7 +16984,7 @@ Tradução em PT-BR:`;
 
 // Rota alternativa que SEMPRE usa Laozhang.ai para análise de títulos
 app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => {
-    const { videoUrl, model: requestedModel, folderId, language } = req.body;
+    const { videoUrl, model: requestedModel, folderId, language, channelId } = req.body;
     const userId = req.user.id;
     const selectedLanguage = language || 'Português'; // Idioma padrão: Português
     
@@ -16122,6 +16993,30 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
 
     if (!videoUrl) {
         return res.status(400).json({ msg: 'URL do vídeo é obrigatória.' });
+    }
+    
+    // Buscar informações do canal se fornecido
+    let channelInfo = null;
+    if (channelId) {
+        try {
+            const channel = await db.get(
+                'SELECT id, channel_name, channel_url, niche, language, country FROM user_channels WHERE id = ? AND user_id = ? AND is_active = 1',
+                [channelId, userId]
+            );
+            if (channel) {
+                channelInfo = {
+                    id: channel.id,
+                    name: channel.channel_name,
+                    url: channel.channel_url,
+                    niche: channel.niche,
+                    language: channel.language,
+                    country: channel.country
+                };
+                console.log('[Análise Laozhang] Canal selecionado:', channelInfo);
+            }
+        } catch (err) {
+            console.warn('[Análise Laozhang] Erro ao buscar informações do canal:', err.message);
+        }
     }
     
     try {
@@ -16277,6 +17172,20 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         const titlesRequired = 5;
         const MIN_IMPACT_SCORE = 7;
         const performanceContext = `Este vídeo tem ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) e foi classificado como ${isViral ? 'VIRAL' : 'Popular'}.`;
+        // Derivar nicho e análise ANTES de construir o prompt (Laozhang)
+        const laozhangDerivedNiche = deriveNicheAndSubnicheFromContext({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            descriptionStart: 'N/A',
+            transcriptStart: transcriptText || ''
+        });
+        const laozhangDerivedAnalysis = deriveTitleAnalysis({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            views: videoDetails.views,
+            days: videoDetails.days
+        });
+        
         const titlePrompt = buildTitleRefinePrompt({
             originalTitle: videoDetails.title,
             translatedTitle,
@@ -16285,7 +17194,11 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             transcriptStart: transcriptText ? transcriptText.substring(0, 500) : '(Transcrição não disponível)',
             languageInstruction,
             titlesRequired,
-            minImpact: MIN_IMPACT_SCORE
+            minImpact: MIN_IMPACT_SCORE,
+            channelInfo: channelInfo,
+            detectedNiche: laozhangDerivedNiche.niche,
+            detectedSubniche: laozhangDerivedNiche.subniche,
+            originalFormula: laozhangDerivedAnalysis.formulaTitulo
         });
 
         // Chamar API apropriada (Laozhang ou API própria)
@@ -16497,8 +17410,8 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
 
             for (const titleData of allGeneratedTitles) {
                 await db.run(
-                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null]
+                    'INSERT INTO generated_titles (video_analysis_id, title_text, model_used, pontuacao, impact_score, explicacao, formula, canal_adequacao, motivo_adequacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [analysisId, titleData.titulo, titleData.model, titleData.pontuacao, titleData.impact_score ?? null, titleData.explicacao, titleData.formula ?? null, titleData.canal_adequacao ?? null, titleData.motivo_adequacao ?? null]
                 );
             }
             console.log(`[Análise Laozhang] Análise ${analysisId} salva no histórico.`);
@@ -16638,11 +17551,18 @@ app.put('/api/titles/:titleId/check', authenticateToken, async (req, res) => {
         });
 
         // Atualiza o status do título específico
+        // Garantir que is_checked seja 1 ou 0 (não true/false) para SQLite
+        const isCheckedValue = is_checked === true || is_checked === 1 || is_checked === 'true' || is_checked === '1' ? 1 : 0;
+        
+        console.log(`[Biblioteca] Atualizando título ${titleId}: is_checked = ${isCheckedValue} (valor original: ${is_checked}, tipo: ${typeof is_checked})`);
+        
         const result = await db.run(
             `UPDATE generated_titles SET is_checked = ? 
              WHERE id = ? AND video_analysis_id IN (SELECT id FROM analyzed_videos WHERE user_id = ?)`,
-            [is_checked, titleId, userId]
+            [isCheckedValue, titleId, userId]
         );
+        
+        console.log(`[Biblioteca] Resultado da atualização: ${result.changes} linha(s) alterada(s)`);
 
         if (result.changes === 0) {
             return res.status(404).json({ msg: 'Título não encontrado ou não pertence a este utilizador.' });
@@ -32178,7 +33098,7 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
         console.log(`[Histórico] Total de títulos no banco para análise ${analysisId}: ${totalCount?.total || 0}`);
         
         const titles = await db.all(
-            'SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, is_checked FROM generated_titles WHERE video_analysis_id = ? ORDER BY id ASC',
+            'SELECT id, title_text as titulo, model_used as model, pontuacao, impact_score, explicacao, formula, canal_adequacao, motivo_adequacao, is_checked FROM generated_titles WHERE video_analysis_id = ? ORDER BY id ASC',
             [analysisId]
         );
         
@@ -32266,11 +33186,17 @@ app.get('/api/history/load/:analysisId', authenticateToken, async (req, res) => 
             subniche: analysis.detected_subniche
         });
 
+        // Garantir que is_checked seja boolean nos títulos do histórico
+        const formattedTitlesForHistory = titles.map(t => ({
+            ...t,
+            is_checked: Boolean(t.is_checked) // Converter 0/1 para true/false
+        }));
+        
         const responseData = {
             niche: analysis.detected_niche || 'N/A',
             subniche: analysis.detected_subniche || 'N/A',
             analiseOriginal: analiseOriginal,
-            titulosSugeridos: titles,
+            titulosSugeridos: formattedTitlesForHistory,
             modelUsed: titles.length > 0 ? titles[0].model : 'Carregado',
             videoDetails: {
                 title: analysis.original_title,
@@ -33134,7 +34060,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
                     LEFT JOIN user_channels uc ON vt.channel_id = uc.id
                     WHERE vt.user_id = ?
                     ORDER BY COALESCE(vt.published_at, vt.tracked_at) DESC
-                    LIMIT 50
+                    LIMIT 2
                 `, [userId]);
                 
                 recentVideos = videos || [];
@@ -33255,6 +34181,228 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
             recentVideos: [],
             error: err.message || 'Erro no servidor ao buscar dados do dashboard.'
         });
+    }
+});
+
+// Função helper para obter lista de versículos bíblicos populares (NVI)
+function getDailyBibleVerses() {
+    return [
+        { text: 'No princípio era aquele que é a Palavra. Ele estava com Deus, e era Deus.', ref: 'João 1:1', book: 'João', chapter: 1, verse: 1 },
+        { text: 'Porque Deus tanto amou o mundo que deu o seu Filho Unigênito, para que todo o que nele crer não pereça, mas tenha a vida eterna.', ref: 'João 3:16', book: 'João', chapter: 3, verse: 16 },
+        { text: 'Confie no Senhor de todo o seu coração e não se apoie em seu próprio entendimento.', ref: 'Provérbios 3:5', book: 'Provérbios', chapter: 3, verse: 5 },
+        { text: 'Tudo posso naquele que me fortalece.', ref: 'Filipenses 4:13', book: 'Filipenses', chapter: 4, verse: 13 },
+        { text: 'Porque eu bem sei os pensamentos que tenho a vosso respeito, diz o Senhor; pensamentos de paz, e não de mal, para vos dar o fim que esperais.', ref: 'Jeremias 29:11', book: 'Jeremias', chapter: 29, verse: 11 },
+        { text: 'O Senhor é o meu pastor; nada me faltará.', ref: 'Salmos 23:1', book: 'Salmos', chapter: 23, verse: 1 },
+        { text: 'Entrega o teu caminho ao Senhor; confia nele, e ele o fará.', ref: 'Salmos 37:5', book: 'Salmos', chapter: 37, verse: 5 },
+        { text: 'Porque para Deus nada é impossível.', ref: 'Lucas 1:37', book: 'Lucas', chapter: 1, verse: 37 },
+        { text: 'Mas os que esperam no Senhor renovam as suas forças; sobem com asas como águias; correm e não se cansam; andam e não se fatigam.', ref: 'Isaías 40:31', book: 'Isaías', chapter: 40, verse: 31 },
+        { text: 'Lança sobre o Senhor o teu cuidado, e ele te susterá; nunca permitirá que o justo seja abalado.', ref: 'Salmos 55:22', book: 'Salmos', chapter: 55, verse: 22 },
+        { text: 'Não temas, porque eu sou contigo; não te assombres, porque eu sou teu Deus; eu te fortaleço, e te ajudo, e te sustento com a destra da minha justiça.', ref: 'Isaías 41:10', book: 'Isaías', chapter: 41, verse: 10 },
+        { text: 'Tudo tem o seu tempo determinado, e há tempo para todo o propósito debaixo do céu.', ref: 'Eclesiastes 3:1', book: 'Eclesiastes', chapter: 3, verse: 1 },
+        { text: 'Porque eu sou o Senhor, teu Deus, que te seguro pela tua mão direita e te digo: Não temas; eu te ajudo.', ref: 'Isaías 41:13', book: 'Isaías', chapter: 41, verse: 13 },
+        { text: 'O Senhor te abençoe e te guarde; o Senhor faça resplandecer o seu rosto sobre ti e tenha misericórdia de ti; o Senhor sobre ti levante o seu rosto e te dê a paz.', ref: 'Números 6:24-26', book: 'Números', chapter: 6, verse: 24 },
+        { text: 'Buscai ao Senhor enquanto se pode achar, invocai-o enquanto está perto.', ref: 'Isaías 55:6', book: 'Isaías', chapter: 55, verse: 6 },
+        { text: 'Porque onde estiver o teu tesouro, aí estará também o teu coração.', ref: 'Mateus 6:21', book: 'Mateus', chapter: 6, verse: 21 },
+        { text: 'Vinde a mim, todos os que estais cansados e oprimidos, e eu vos aliviarei.', ref: 'Mateus 11:28', book: 'Mateus', chapter: 11, verse: 28 },
+        { text: 'Porque não me envergonho do evangelho de Cristo, pois é o poder de Deus para salvação de todo aquele que crê.', ref: 'Romanos 1:16', book: 'Romanos', chapter: 1, verse: 16 },
+        { text: 'E sabemos que todas as coisas contribuem juntamente para o bem daqueles que amam a Deus, daqueles que são chamados segundo o seu propósito.', ref: 'Romanos 8:28', book: 'Romanos', chapter: 8, verse: 28 },
+        { text: 'Mas, como está escrito: As coisas que o olho não viu, e o ouvido não ouviu, e não subiram ao coração do homem, são as que Deus preparou para os que o amam.', ref: '1 Coríntios 2:9', book: '1 Coríntios', chapter: 2, verse: 9 },
+        { text: 'Agora, pois, permanecem a fé, a esperança e o amor, estes três, mas o maior destes é o amor.', ref: '1 Coríntios 13:13', book: '1 Coríntios', chapter: 13, verse: 13 },
+        { text: 'Portanto, se alguém está em Cristo, nova criatura é; as coisas velhas já passaram; eis que tudo se fez novo.', ref: '2 Coríntios 5:17', book: '2 Coríntios', chapter: 5, verse: 17 },
+        { text: 'Posso todas as coisas em Cristo que me fortalece.', ref: 'Filipenses 4:13', book: 'Filipenses', chapter: 4, verse: 13 },
+        { text: 'Não estejais inquietos por coisa alguma; antes, as vossas petições sejam em tudo conhecidas diante de Deus, pela oração e súplica, com ação de graças.', ref: 'Filipenses 4:6', book: 'Filipenses', chapter: 4, verse: 6 },
+        { text: 'Toda a Escritura é divinamente inspirada e proveitosa para ensinar, para redarguir, para corrigir, para instruir em justiça.', ref: '2 Timóteo 3:16', book: '2 Timóteo', chapter: 3, verse: 16 },
+        { text: 'Porque a palavra de Deus é viva e eficaz, e mais penetrante do que espada alguma de dois gumes.', ref: 'Hebreus 4:12', book: 'Hebreus', chapter: 4, verse: 12 },
+        { text: 'Pela fé entendemos que os mundos pela palavra de Deus foram criados.', ref: 'Hebreus 11:3', book: 'Hebreus', chapter: 11, verse: 3 },
+        { text: 'Lançando sobre ele toda a vossa ansiedade, porque ele tem cuidado de vós.', ref: '1 Pedro 5:7', book: '1 Pedro', chapter: 5, verse: 7 },
+        { text: 'Mas, se andarmos na luz, como ele na luz está, temos comunhão uns com os outros, e o sangue de Jesus Cristo, seu Filho, nos purifica de todo o pecado.', ref: '1 João 1:7', book: '1 João', chapter: 1, verse: 7 },
+        { text: 'Eis que estou à porta e bato; se alguém ouvir a minha voz e abrir a porta, entrarei em sua casa e cearei com ele, e ele comigo.', ref: 'Apocalipse 3:20', book: 'Apocalipse', chapter: 3, verse: 20 },
+        { text: 'O Senhor é a minha luz e a minha salvação; de quem terei medo? O Senhor é o meu forte refúgio; de quem terei medo?', ref: 'Salmos 27:1', book: 'Salmos', chapter: 27, verse: 1 },
+        { text: 'Esperei com paciência pelo Senhor, e ele se inclinou para mim e ouviu o meu clamor.', ref: 'Salmos 40:1', book: 'Salmos', chapter: 40, verse: 1 },
+        { text: 'O Senhor é o meu rochedo, e o meu lugar forte, e o meu libertador.', ref: 'Salmos 18:2', book: 'Salmos', chapter: 18, verse: 2 },
+        { text: 'Porque os meus pensamentos não são os vossos pensamentos, nem os vossos caminhos, os meus caminhos, diz o Senhor.', ref: 'Isaías 55:8', book: 'Isaías', chapter: 55, verse: 8 },
+        { text: 'Mas buscai primeiro o reino de Deus, e a sua justiça, e todas essas coisas vos serão acrescentadas.', ref: 'Mateus 6:33', book: 'Mateus', chapter: 6, verse: 33 },
+        { text: 'Porque o Senhor não desampara o seu povo, nem abandona a sua herança.', ref: 'Salmos 94:14', book: 'Salmos', chapter: 94, verse: 14 },
+        { text: 'O Senhor é o meu pastor; nada me faltará. Deitar-me faz em verdes pastos, guia-me mansamente a águas tranqüilas.', ref: 'Salmos 23:1-2', book: 'Salmos', chapter: 23, verse: 1 },
+        { text: 'Porque eu sou o Senhor, teu Deus, que te seguro pela tua mão direita e te digo: Não temas; eu te ajudo.', ref: 'Isaías 41:13', book: 'Isaías', chapter: 41, verse: 13 },
+        { text: 'O Senhor é a minha força e o meu escudo; nele confiou o meu coração, e fui socorrido; pelo que o meu coração salta de prazer, e com o meu cântico o louvarei.', ref: 'Salmos 28:7', book: 'Salmos', chapter: 28, verse: 7 },
+        { text: 'Porque a palavra de Deus é viva e eficaz, e mais penetrante do que espada alguma de dois gumes, e penetra até à divisão da alma e do espírito, e das juntas e medulas, e é apta para discernir os pensamentos e intenções do coração.', ref: 'Hebreus 4:12', book: 'Hebreus', chapter: 4, verse: 12 },
+        { text: 'Porque todos pecaram e destituídos estão da glória de Deus.', ref: 'Romanos 3:23', book: 'Romanos', chapter: 3, verse: 23 },
+        { text: 'Porque o salário do pecado é a morte, mas o dom gratuito de Deus é a vida eterna, por Cristo Jesus, nosso Senhor.', ref: 'Romanos 6:23', book: 'Romanos', chapter: 6, verse: 23 },
+        { text: 'Mas Deus prova o seu amor para conosco em que Cristo morreu por nós, sendo nós ainda pecadores.', ref: 'Romanos 5:8', book: 'Romanos', chapter: 5, verse: 8 },
+        { text: 'Porque pela graça sois salvos, por meio da fé; e isso não vem de vós; é dom de Deus.', ref: 'Efésios 2:8', book: 'Efésios', chapter: 2, verse: 8 },
+        { text: 'Porque não temos um sumo sacerdote que não possa compadecer-se das nossas fraquezas; porém um que, como nós, em tudo foi tentado, mas sem pecado.', ref: 'Hebreus 4:15', book: 'Hebreus', chapter: 4, verse: 15 },
+        { text: 'E sabemos que todas as coisas contribuem juntamente para o bem daqueles que amam a Deus, daqueles que são chamados segundo o seu propósito.', ref: 'Romanos 8:28', book: 'Romanos', chapter: 8, verse: 28 },
+        { text: 'Porque estou certo de que nem a morte, nem a vida, nem os anjos, nem os principados, nem as potestades, nem o presente, nem o porvir, nem a altura, nem a profundidade, nem alguma outra criatura nos poderá separar do amor de Deus, que está em Cristo Jesus, nosso Senhor.', ref: 'Romanos 8:38-39', book: 'Romanos', chapter: 8, verse: 38 },
+        { text: 'Porque não me envergonho do evangelho de Cristo, pois é o poder de Deus para salvação de todo aquele que crê.', ref: 'Romanos 1:16', book: 'Romanos', chapter: 1, verse: 16 },
+        { text: 'Portanto, se alguém está em Cristo, nova criatura é; as coisas velhas já passaram; eis que tudo se fez novo.', ref: '2 Coríntios 5:17', book: '2 Coríntios', chapter: 5, verse: 17 },
+        { text: 'Agora, pois, permanecem a fé, a esperança e o amor, estes três, mas o maior destes é o amor.', ref: '1 Coríntios 13:13', book: '1 Coríntios', chapter: 13, verse: 13 },
+        { text: 'O amor é paciente, o amor é bondoso. Não inveja, não se vangloria, não se orgulha.', ref: '1 Coríntios 13:4', book: '1 Coríntios', chapter: 13, verse: 4 },
+        { text: 'Porque Deus não nos deu o espírito de temor, mas de fortaleza, e de amor, e de moderação.', ref: '2 Timóteo 1:7', book: '2 Timóteo', chapter: 1, verse: 7 },
+        { text: 'Porque eu bem sei os pensamentos que tenho a vosso respeito, diz o Senhor; pensamentos de paz, e não de mal, para vos dar o fim que esperais.', ref: 'Jeremias 29:11', book: 'Jeremias', chapter: 29, verse: 11 },
+        { text: 'Clama a mim, e responder-te-ei, e anunciar-te-ei coisas grandes e firmes, que não sabes.', ref: 'Jeremias 33:3', book: 'Jeremias', chapter: 33, verse: 3 },
+        { text: 'Porque eu sou o Senhor, teu Deus, que te seguro pela tua mão direita e te digo: Não temas; eu te ajudo.', ref: 'Isaías 41:13', book: 'Isaías', chapter: 41, verse: 13 },
+        { text: 'Mas os que esperam no Senhor renovam as suas forças; sobem com asas como águias; correm e não se cansam; andam e não se fatigam.', ref: 'Isaías 40:31', book: 'Isaías', chapter: 40, verse: 31 },
+        { text: 'Porque para Deus nada é impossível.', ref: 'Lucas 1:37', book: 'Lucas', chapter: 1, verse: 37 },
+        { text: 'Vinde a mim, todos os que estais cansados e oprimidos, e eu vos aliviarei.', ref: 'Mateus 11:28', book: 'Mateus', chapter: 11, verse: 28 },
+        { text: 'Tomai sobre vós o meu jugo, e aprendei de mim, que sou manso e humilde de coração; e encontrareis descanso para as vossas almas.', ref: 'Mateus 11:29', book: 'Mateus', chapter: 11, verse: 29 },
+        { text: 'Porque onde estiver o teu tesouro, aí estará também o teu coração.', ref: 'Mateus 6:21', book: 'Mateus', chapter: 6, verse: 21 },
+        { text: 'Buscai ao Senhor enquanto se pode achar, invocai-o enquanto está perto.', ref: 'Isaías 55:6', book: 'Isaías', chapter: 55, verse: 6 },
+        { text: 'Tudo tem o seu tempo determinado, e há tempo para todo o propósito debaixo do céu.', ref: 'Eclesiastes 3:1', book: 'Eclesiastes', chapter: 3, verse: 1 },
+        { text: 'Lança sobre o Senhor o teu cuidado, e ele te susterá; nunca permitirá que o justo seja abalado.', ref: 'Salmos 55:22', book: 'Salmos', chapter: 55, verse: 22 },
+        { text: 'Entrega o teu caminho ao Senhor; confia nele, e ele o fará.', ref: 'Salmos 37:5', book: 'Salmos', chapter: 37, verse: 5 },
+        { text: 'Confie no Senhor de todo o seu coração e não se apoie em seu próprio entendimento.', ref: 'Provérbios 3:5', book: 'Provérbios', chapter: 3, verse: 5 },
+        { text: 'Reconhece-o em todos os teus caminhos, e ele endireitará as tuas veredas.', ref: 'Provérbios 3:6', book: 'Provérbios', chapter: 3, verse: 6 },
+        { text: 'Não estejais inquietos por coisa alguma; antes, as vossas petições sejam em tudo conhecidas diante de Deus, pela oração e súplica, com ação de graças.', ref: 'Filipenses 4:6', book: 'Filipenses', chapter: 4, verse: 6 },
+        { text: 'E a paz de Deus, que excede todo o entendimento, guardará os vossos corações e os vossos pensamentos em Cristo Jesus.', ref: 'Filipenses 4:7', book: 'Filipenses', chapter: 4, verse: 7 },
+        { text: 'Tudo posso naquele que me fortalece.', ref: 'Filipenses 4:13', book: 'Filipenses', chapter: 4, verse: 13 },
+        { text: 'Toda a Escritura é divinamente inspirada e proveitosa para ensinar, para redarguir, para corrigir, para instruir em justiça.', ref: '2 Timóteo 3:16', book: '2 Timóteo', chapter: 3, verse: 16 },
+        { text: 'Pela fé entendemos que os mundos pela palavra de Deus foram criados.', ref: 'Hebreus 11:3', book: 'Hebreus', chapter: 11, verse: 3 },
+        { text: 'Ora, a fé é o firme fundamento das coisas que se esperam, e a prova das coisas que se não veem.', ref: 'Hebreus 11:1', book: 'Hebreus', chapter: 11, verse: 1 },
+        { text: 'Lançando sobre ele toda a vossa ansiedade, porque ele tem cuidado de vós.', ref: '1 Pedro 5:7', book: '1 Pedro', chapter: 5, verse: 7 },
+        { text: 'Mas, se andarmos na luz, como ele na luz está, temos comunhão uns com os outros, e o sangue de Jesus Cristo, seu Filho, nos purifica de todo o pecado.', ref: '1 João 1:7', book: '1 João', chapter: 1, verse: 7 },
+        { text: 'Eis que estou à porta e bato; se alguém ouvir a minha voz e abrir a porta, entrarei em sua casa e cearei com ele, e ele comigo.', ref: 'Apocalipse 3:20', book: 'Apocalipse', chapter: 3, verse: 20 },
+        { text: 'E o Deus de toda a graça, que em Cristo Jesus vos chamou à sua eterna glória, depois de haverdes padecido um pouco, ele mesmo vos aperfeiçoará, confirmará, fortificará e estabelecerá.', ref: '1 Pedro 5:10', book: '1 Pedro', chapter: 5, verse: 10 },
+        { text: 'Porque o Senhor não desampara o seu povo, nem abandona a sua herança.', ref: 'Salmos 94:14', book: 'Salmos', chapter: 94, verse: 14 },
+        { text: 'O Senhor é a minha luz e a minha salvação; de quem terei medo? O Senhor é o meu forte refúgio; de quem terei medo?', ref: 'Salmos 27:1', book: 'Salmos', chapter: 27, verse: 1 },
+        { text: 'Esperei com paciência pelo Senhor, e ele se inclinou para mim e ouviu o meu clamor.', ref: 'Salmos 40:1', book: 'Salmos', chapter: 40, verse: 1 },
+        { text: 'O Senhor é o meu rochedo, e o meu lugar forte, e o meu libertador.', ref: 'Salmos 18:2', book: 'Salmos', chapter: 18, verse: 2 },
+        { text: 'Porque os meus pensamentos não são os vossos pensamentos, nem os vossos caminhos, os meus caminhos, diz o Senhor.', ref: 'Isaías 55:8', book: 'Isaías', chapter: 55, verse: 8 },
+        { text: 'Mas buscai primeiro o reino de Deus, e a sua justiça, e todas essas coisas vos serão acrescentadas.', ref: 'Mateus 6:33', book: 'Mateus', chapter: 6, verse: 33 },
+        { text: 'O Senhor é o meu pastor; nada me faltará. Deitar-me faz em verdes pastos, guia-me mansamente a águas tranqüilas.', ref: 'Salmos 23:1-2', book: 'Salmos', chapter: 23, verse: 1 },
+        { text: 'O Senhor é a minha força e o meu escudo; nele confiou o meu coração, e fui socorrido; pelo que o meu coração salta de prazer, e com o meu cântico o louvarei.', ref: 'Salmos 28:7', book: 'Salmos', chapter: 28, verse: 7 },
+        { text: 'Porque a palavra de Deus é viva e eficaz, e mais penetrante do que espada alguma de dois gumes, e penetra até à divisão da alma e do espírito, e das juntas e medulas, e é apta para discernir os pensamentos e intenções do coração.', ref: 'Hebreus 4:12', book: 'Hebreus', chapter: 4, verse: 12 },
+        { text: 'Porque todos pecaram e destituídos estão da glória de Deus.', ref: 'Romanos 3:23', book: 'Romanos', chapter: 3, verse: 23 },
+        { text: 'Porque o salário do pecado é a morte, mas o dom gratuito de Deus é a vida eterna, por Cristo Jesus, nosso Senhor.', ref: 'Romanos 6:23', book: 'Romanos', chapter: 6, verse: 23 },
+        { text: 'Mas Deus prova o seu amor para conosco em que Cristo morreu por nós, sendo nós ainda pecadores.', ref: 'Romanos 5:8', book: 'Romanos', chapter: 5, verse: 8 },
+        { text: 'Porque pela graça sois salvos, por meio da fé; e isso não vem de vós; é dom de Deus.', ref: 'Efésios 2:8', book: 'Efésios', chapter: 2, verse: 8 },
+        { text: 'Porque não temos um sumo sacerdote que não possa compadecer-se das nossas fraquezas; porém um que, como nós, em tudo foi tentado, mas sem pecado.', ref: 'Hebreus 4:15', book: 'Hebreus', chapter: 4, verse: 15 },
+        { text: 'Porque estou certo de que nem a morte, nem a vida, nem os anjos, nem os principados, nem as potestades, nem o presente, nem o porvir, nem a altura, nem a profundidade, nem alguma outra criatura nos poderá separar do amor de Deus, que está em Cristo Jesus, nosso Senhor.', ref: 'Romanos 8:38-39', book: 'Romanos', chapter: 8, verse: 38 },
+        { text: 'O amor é paciente, o amor é bondoso. Não inveja, não se vangloria, não se orgulha.', ref: '1 Coríntios 13:4', book: '1 Coríntios', chapter: 13, verse: 4 },
+        { text: 'Porque Deus não nos deu o espírito de temor, mas de fortaleza, e de amor, e de moderação.', ref: '2 Timóteo 1:7', book: '2 Timóteo', chapter: 1, verse: 7 },
+        { text: 'Clama a mim, e responder-te-ei, e anunciar-te-ei coisas grandes e firmes, que não sabes.', ref: 'Jeremias 33:3', book: 'Jeremias', chapter: 33, verse: 3 },
+        { text: 'Tomai sobre vós o meu jugo, e aprendei de mim, que sou manso e humilde de coração; e encontrareis descanso para as vossas almas.', ref: 'Mateus 11:29', book: 'Mateus', chapter: 11, verse: 29 },
+        { text: 'Reconhece-o em todos os teus caminhos, e ele endireitará as tuas veredas.', ref: 'Provérbios 3:6', book: 'Provérbios', chapter: 3, verse: 6 },
+        { text: 'E a paz de Deus, que excede todo o entendimento, guardará os vossos corações e os vossos pensamentos em Cristo Jesus.', ref: 'Filipenses 4:7', book: 'Filipenses', chapter: 4, verse: 7 },
+        { text: 'Ora, a fé é o firme fundamento das coisas que se esperam, e a prova das coisas que se não veem.', ref: 'Hebreus 11:1', book: 'Hebreus', chapter: 11, verse: 1 },
+        { text: 'E o Deus de toda a graça, que em Cristo Jesus vos chamou à sua eterna glória, depois de haverdes padecido um pouco, ele mesmo vos aperfeiçoará, confirmará, fortificará e estabelecerá.', ref: '1 Pedro 5:10', book: '1 Pedro', chapter: 5, verse: 10 }
+    ];
+    
+    // Expandir para 365 versículos usando os versículos disponíveis em ciclo
+    // Cada dia do ano terá um versículo único baseado no índice
+    const expandedVerses = [];
+    for (let i = 0; i < 365; i++) {
+        const baseVerse = popularVerses[i % popularVerses.length];
+        expandedVerses.push({
+            ...baseVerse,
+            // Cada versículo será único para o dia do ano
+        });
+    }
+    return expandedVerses;
+}
+
+// Endpoint para obter a Palavra do Dia
+app.get('/api/daily-verse', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        // Calcular o dia do ano (1-365/366)
+        const now = new Date();
+        const start = new Date(now.getFullYear(), 0, 0);
+        const diff = now - start;
+        const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+        
+        // Buscar versículo do dia
+        let verse = await db.get(
+            'SELECT * FROM daily_bible_verses WHERE day_of_year = ?',
+            [dayOfYear]
+        );
+        
+        // Se não existe, criar um versículo padrão usando uma lista de versículos populares
+        if (!verse) {
+            // Lista de versículos populares da Bíblia NVI (365 versículos)
+            const popularVerses = getDailyBibleVerses();
+            
+            // Usar o dia do ano como índice (modulo para repetir se necessário)
+            const verseIndex = (dayOfYear - 1) % popularVerses.length;
+            const defaultVerse = popularVerses[verseIndex];
+            
+            // Inserir versículo padrão
+            await db.run(
+                'INSERT OR IGNORE INTO daily_bible_verses (day_of_year, verse_text, reference, book, chapter, verse) VALUES (?, ?, ?, ?, ?, ?)',
+                [dayOfYear, defaultVerse.text, defaultVerse.ref, defaultVerse.book, defaultVerse.chapter, defaultVerse.verse]
+            );
+            
+            verse = await db.get(
+                'SELECT * FROM daily_bible_verses WHERE day_of_year = ?',
+                [dayOfYear]
+            );
+        }
+        
+        // Verificar se o usuário já marcou como feito
+        const completion = await db.get(
+            'SELECT * FROM daily_bible_verse_completions WHERE user_id = ? AND day_of_year = ?',
+            [userId, dayOfYear]
+        );
+        
+        res.status(200).json({
+            verse: verse,
+            isCompleted: !!completion,
+            dayOfYear: dayOfYear
+        });
+    } catch (err) {
+        console.error('[Palavra do Dia] Erro:', err);
+        res.status(500).json({ msg: 'Erro ao buscar palavra do dia.', error: err.message });
+    }
+});
+
+// Endpoint para marcar/desmarcar Palavra do Dia como feita
+app.post('/api/daily-verse/complete', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { dayOfYear: providedDay } = req.body;
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        // Calcular o dia do ano (ou usar o fornecido)
+        let dayOfYear = providedDay;
+        if (!dayOfYear) {
+            const now = new Date();
+            const start = new Date(now.getFullYear(), 0, 0);
+            const diff = now - start;
+            dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+        }
+        
+        // Verificar se já está marcado como feito
+        const existing = await db.get(
+            'SELECT * FROM daily_bible_verse_completions WHERE user_id = ? AND day_of_year = ?',
+            [userId, dayOfYear]
+        );
+        
+        if (existing) {
+            // Se já está marcado, desmarcar (remover)
+            await db.run(
+                'DELETE FROM daily_bible_verse_completions WHERE user_id = ? AND day_of_year = ?',
+                [userId, dayOfYear]
+            );
+            res.status(200).json({ msg: 'Palavra do dia desmarcada.', isCompleted: false });
+        } else {
+            // Marcar como feito
+            await db.run(
+                'INSERT INTO daily_bible_verse_completions (user_id, day_of_year) VALUES (?, ?)',
+                [userId, dayOfYear]
+            );
+            res.status(200).json({ msg: 'Palavra do dia marcada como feita.', isCompleted: true });
+        }
+    } catch (err) {
+        console.error('[Palavra do Dia] Erro ao marcar como feita:', err);
+        res.status(500).json({ msg: 'Erro ao marcar palavra do dia como feita.', error: err.message });
     }
 });
 
@@ -34135,6 +35283,865 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
 });
 
 // Excluir thumbnails em lote
+// Endpoint para buscar thumbnails semelhantes
+app.post('/api/thumbnails/similar', authenticateToken, async (req, res) => {
+    const { thumbnailUrl, videoTitle } = req.body;
+    const userId = req.user.id;
+    
+    if (!thumbnailUrl) {
+        return res.status(400).json({ msg: 'URL da thumbnail é obrigatória.' });
+    }
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        // Buscar thumbnails da biblioteca do usuário e de vídeos analisados
+        const userThumbnails = await db.all(
+            `SELECT DISTINCT 
+                v.original_thumbnail_url as thumbnailUrl,
+                v.original_title as title,
+                v.video_url as videoUrl,
+                v.original_views as views,
+                v.detected_niche as niche,
+                v.detected_subniche as subniche
+            FROM analyzed_videos v
+            WHERE v.user_id = ? AND v.original_thumbnail_url IS NOT NULL AND v.original_thumbnail_url != ''
+            ORDER BY v.analyzed_at DESC
+            LIMIT 100`,
+            [userId]
+        );
+        
+        // Buscar também thumbnails da biblioteca
+        const libraryThumbnails = await db.all(
+            `SELECT DISTINCT 
+                t.thumbnail_url as thumbnailUrl,
+                t.thumbnail_description as title,
+                NULL as videoUrl,
+                t.original_views as views,
+                t.niche,
+                t.subniche
+            FROM viral_thumbnails_library t
+            WHERE t.user_id = ? AND t.thumbnail_url IS NOT NULL AND t.thumbnail_url != ''
+            ORDER BY t.id DESC
+            LIMIT 50`,
+            [userId]
+        );
+        
+        // Combinar thumbnails e remover duplicatas por URL
+        const thumbnailMap = new Map();
+        const seenUrls = new Set();
+        
+        // Adicionar thumbnails de vídeos analisados
+        userThumbnails.forEach(thumb => {
+            if (thumb.thumbnailUrl && thumb.thumbnailUrl !== thumbnailUrl && !seenUrls.has(thumb.thumbnailUrl)) {
+                seenUrls.add(thumb.thumbnailUrl);
+                thumbnailMap.set(thumb.thumbnailUrl, {
+                    ...thumb,
+                    views: thumb.views || 0 // Garantir que views não seja null
+                });
+            }
+        });
+        
+        // Adicionar thumbnails da biblioteca (sem sobrescrever se já existir)
+        libraryThumbnails.forEach(thumb => {
+            if (thumb.thumbnailUrl && thumb.thumbnailUrl !== thumbnailUrl && !seenUrls.has(thumb.thumbnailUrl)) {
+                seenUrls.add(thumb.thumbnailUrl);
+                thumbnailMap.set(thumb.thumbnailUrl, {
+                    ...thumb,
+                    views: thumb.views || 0 // Garantir que views não seja null
+                });
+            }
+        });
+        
+        const allThumbnails = Array.from(thumbnailMap.values());
+        
+        // Buscar nicho e subnicho do vídeo atual se disponível
+        // Tentar buscar por thumbnail URL primeiro, depois por título se disponível
+        let currentVideo = await db.get(
+            `SELECT detected_niche as niche, detected_subniche as subniche, original_views as views
+             FROM analyzed_videos 
+             WHERE original_thumbnail_url = ? AND user_id = ? LIMIT 1`,
+            [thumbnailUrl, userId]
+        );
+        
+        // Se não encontrou por thumbnail, tentar por título
+        if (!currentVideo && videoTitle) {
+            currentVideo = await db.get(
+                `SELECT detected_niche as niche, detected_subniche as subniche, original_views as views
+                 FROM analyzed_videos 
+                 WHERE original_title LIKE ? AND user_id = ? LIMIT 1`,
+                [`%${videoTitle.substring(0, 50)}%`, userId]
+            );
+        }
+        
+        // FILTRO OBRIGATÓRIO: Apenas thumbnails do mesmo nicho e subnicho
+        let filteredThumbnails = allThumbnails;
+        if (currentVideo && currentVideo.niche) {
+            filteredThumbnails = allThumbnails.filter(thumb => {
+                // Deve ter o mesmo nicho
+                if (!thumb.niche || thumb.niche !== currentVideo.niche) {
+                    return false;
+                }
+                // Se ambos têm subnicho, devem ser iguais
+                if (currentVideo.subniche && thumb.subniche) {
+                    return thumb.subniche === currentVideo.subniche;
+                }
+                // Se só um tem subnicho, ainda pode ser similar (mas com score menor)
+                return true;
+            });
+        }
+        
+        // Se não encontrou nenhuma com mesmo nicho/subnicho, usar todas mas com score muito baixo
+        if (filteredThumbnails.length === 0) {
+            console.warn('[Thumbnails Semelhantes] Nenhuma thumbnail encontrada com mesmo nicho/subnicho, usando todas disponíveis');
+            filteredThumbnails = allThumbnails;
+        }
+        
+        // Calcular similaridade melhorada (por título, nicho e subnicho)
+        const similarThumbnails = filteredThumbnails.map(thumb => {
+            let similarityScore = 0;
+            let maxPossibleScore = 0;
+            
+            // Fator 1: Similaridade por título (peso: 25%)
+            maxPossibleScore += 0.25;
+            if (videoTitle && thumb.title) {
+                const titleWords = videoTitle.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2);
+                const thumbWords = thumb.title.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2);
+                
+                // Palavras comuns (sem stopwords)
+                const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'o', 'a', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas', 'por', 'para', 'com', 'sem', 'que', 'uma', 'um']);
+                const titleSet = new Set(titleWords.filter(w => !stopWords.has(w)));
+                const thumbSet = new Set(thumbWords.filter(w => !stopWords.has(w)));
+                
+                const commonWords = [...titleSet].filter(w => thumbSet.has(w));
+                const totalUniqueWords = new Set([...titleSet, ...thumbSet]).size;
+                
+                if (totalUniqueWords > 0) {
+                    const titleSimilarity = commonWords.length / totalUniqueWords;
+                    similarityScore += titleSimilarity * 0.25;
+                }
+            }
+            
+            // Fator 2: Similaridade por nicho (peso: 35% - CRÍTICO)
+            maxPossibleScore += 0.35;
+            if (currentVideo && currentVideo.niche && thumb.niche) {
+                if (thumb.niche === currentVideo.niche) {
+                    similarityScore += 0.35;
+                } else {
+                    // Se nicho diferente, score muito baixo (mas ainda pode aparecer se não houver outras opções)
+                    similarityScore += 0.05;
+                }
+            }
+            
+            // Fator 3: Similaridade por subnicho (peso: 30% - MUITO IMPORTANTE)
+            maxPossibleScore += 0.3;
+            if (currentVideo && currentVideo.subniche && thumb.subniche) {
+                if (thumb.subniche === currentVideo.subniche) {
+                    similarityScore += 0.3;
+                } else if (thumb.niche === currentVideo.niche) {
+                    // Mesmo nicho mas subnicho diferente - score médio
+                    similarityScore += 0.1;
+                }
+            } else if (currentVideo && currentVideo.niche && thumb.niche === currentVideo.niche) {
+                // Mesmo nicho mas sem subnicho definido - score médio
+                similarityScore += 0.15;
+            }
+            
+            // Fator 4: Similaridade por views (peso: 10% - performance similar)
+            maxPossibleScore += 0.1;
+            if (currentVideo && thumb.views) {
+                const currentViews = parseInt(currentVideo.views) || 0;
+                const thumbViews = parseInt(thumb.views) || 0;
+                if (currentViews > 0 && thumbViews > 0) {
+                    // Normalizar para escala logarítmica
+                    const currentLog = Math.log10(currentViews + 1);
+                    const thumbLog = Math.log10(thumbViews + 1);
+                    const viewSimilarity = 1 - Math.abs(currentLog - thumbLog) / Math.max(currentLog, thumbLog, 1);
+                    similarityScore += Math.max(0, viewSimilarity) * 0.1;
+                }
+            }
+            
+            // Normalizar score
+            const normalizedScore = maxPossibleScore > 0 
+                ? similarityScore / maxPossibleScore 
+                : 0;
+            
+            // Garantir mínimo de 15% e máximo de 95%
+            const finalScore = Math.max(0.15, Math.min(0.95, normalizedScore || 0.15));
+            
+            return {
+                ...thumb,
+                similarityScore: finalScore
+            };
+        })
+        // FILTRO CRÍTICO: Priorizar thumbnails do mesmo nicho E subnicho
+        .filter(t => {
+            if (!currentVideo || !currentVideo.niche) return t.similarityScore > 0;
+            // Se tem nicho definido, só aceitar se for o mesmo nicho
+            if (t.niche && t.niche !== currentVideo.niche) return false;
+            // Se ambos têm subnicho, devem ser iguais para score alto
+            return true;
+        })
+        .sort((a, b) => {
+            // Ordenar: primeiro por mesmo nicho+subnicho, depois por score
+            const aSameNicheSubniche = currentVideo && 
+                a.niche === currentVideo.niche && 
+                a.subniche === currentVideo.subniche;
+            const bSameNicheSubniche = currentVideo && 
+                b.niche === currentVideo.niche && 
+                b.subniche === currentVideo.subniche;
+            
+            if (aSameNicheSubniche && !bSameNicheSubniche) return -1;
+            if (!aSameNicheSubniche && bSameNicheSubniche) return 1;
+            return b.similarityScore - a.similarityScore;
+        })
+        .slice(0, 4); // Limitar a 4 thumbnails
+        
+        res.status(200).json({ similarThumbnails });
+    } catch (err) {
+        console.error('[Thumbnails Semelhantes] Erro:', err);
+        res.status(500).json({ msg: 'Erro ao buscar thumbnails semelhantes.', error: err.message });
+    }
+});
+
+// Endpoint para buscar canais semelhantes
+app.post('/api/channels/similar', authenticateToken, async (req, res) => {
+    const { channelUrl, criteria = {}, limit = 20 } = req.body;
+    const userId = req.user.id;
+    
+    if (!channelUrl) {
+        return res.status(400).json({ msg: 'URL do canal é obrigatória.' });
+    }
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        let referenceChannel = null;
+        
+        // Extrair channel_id da URL
+        let extractedChannelId = null;
+        const YT_API_KEY_CHANNEL_SEARCH = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+        
+        if (channelUrl.includes('/channel/')) {
+            // Formato: youtube.com/channel/UC...
+            extractedChannelId = channelUrl.split('/channel/')[1].split('/')[0].split('?')[0].trim();
+            if (!extractedChannelId || extractedChannelId.length < 10) {
+                return res.status(400).json({ msg: 'ID do canal inválido na URL. Verifique se a URL está completa.' });
+            }
+        } else if (channelUrl.includes('/c/')) {
+            // Formato: youtube.com/c/nomecanal
+            const customUrl = channelUrl.split('/c/')[1].split('/')[0].split('?')[0].trim();
+            if (YT_API_KEY_CHANNEL_SEARCH) {
+                try {
+                    // Buscar via search API
+                    const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(customUrl)}&type=channel&key=${YT_API_KEY_CHANNEL_SEARCH}&maxResults=1`);
+                    if (searchRes.ok) {
+                        const searchData = await searchRes.json();
+                        if (searchData.items && searchData.items.length > 0) {
+                            extractedChannelId = searchData.items[0].snippet.channelId;
+                        }
+                    }
+                } catch (searchErr) {
+                    console.error('[Canais Semelhantes] Erro ao buscar custom URL:', searchErr);
+                }
+            }
+        } else if (channelUrl.includes('/@') || channelUrl.includes('/user/')) {
+            // Formato: youtube.com/@handle ou youtube.com/user/username
+            let handle = null;
+            if (channelUrl.includes('/@')) {
+                handle = channelUrl.split('/@')[1].split('/')[0].split('?')[0].trim();
+            } else if (channelUrl.includes('/user/')) {
+                handle = channelUrl.split('/user/')[1].split('/')[0].split('?')[0].trim();
+            }
+            
+            if (handle && YT_API_KEY_CHANNEL_SEARCH) {
+                try {
+                    console.log(`[Canais Semelhantes] Buscando channel ID para handle: ${handle}`);
+                    
+                    // Para handles modernos (@handle), usar a API de search com o handle exato
+                    if (channelUrl.includes('/@')) {
+                        // Método 1: Usar search API com o handle exato (mais confiável para handles)
+                        const searchQuery = `@${handle}`;
+                        console.log(`[Canais Semelhantes] Buscando com search API: ${searchQuery}`);
+                        const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=channel&key=${YT_API_KEY_CHANNEL_SEARCH}&maxResults=10`);
+                        
+                        if (searchRes.ok) {
+                            const searchData = await searchRes.json();
+                            console.log(`[Canais Semelhantes] Search API retornou ${searchData.items?.length || 0} resultados`);
+                            
+                            if (searchData.items && searchData.items.length > 0) {
+                                // Procurar pelo handle exato nos resultados
+                                for (const item of searchData.items) {
+                                    const customUrl = item.snippet?.customUrl;
+                                    const channelId = item.snippet?.channelId;
+                                    
+                                    // Verificar se o customUrl corresponde ao handle
+                                    if (customUrl && (customUrl === `@${handle}` || customUrl.toLowerCase() === `@${handle.toLowerCase()}`)) {
+                                        extractedChannelId = channelId;
+                                        console.log(`[Canais Semelhantes] ✅ Encontrado channel ID pelo customUrl: ${extractedChannelId}`);
+                                        break;
+                                    }
+                                }
+                                
+                                // Se não encontrou exato, buscar mais detalhes do primeiro resultado
+                                if (!extractedChannelId && searchData.items[0]) {
+                                    const firstItemChannelId = searchData.items[0].snippet.channelId;
+                                    // Buscar detalhes completos do canal para verificar o handle
+                                    const channelDetailsRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${firstItemChannelId}&key=${YT_API_KEY_CHANNEL_SEARCH}`);
+                                    if (channelDetailsRes.ok) {
+                                        const channelDetails = await channelDetailsRes.json();
+                                        if (channelDetails.items && channelDetails.items.length > 0) {
+                                            const customUrl = channelDetails.items[0].snippet?.customUrl;
+                                            // Se o customUrl corresponde ao handle, usar este canal
+                                            if (customUrl && (customUrl === `@${handle}` || customUrl.toLowerCase() === `@${handle.toLowerCase()}`)) {
+                                                extractedChannelId = firstItemChannelId;
+                                                console.log(`[Canais Semelhantes] ✅ Encontrado channel ID pelos detalhes: ${extractedChannelId}`);
+                                            } else {
+                                                // Mesmo que não corresponda exatamente, usar se for o resultado mais relevante
+                                                extractedChannelId = firstItemChannelId;
+                                                console.log(`[Canais Semelhantes] ⚠️ Usando primeiro resultado da busca (handle pode não corresponder exatamente): ${extractedChannelId}`);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            const errorData = await searchRes.json().catch(() => ({}));
+                            console.error(`[Canais Semelhantes] Erro na search API: ${searchRes.status}`, errorData);
+                        }
+                    }
+                    
+                    // Para /user/ URLs, tentar usar channels.list com forUsername (método antigo)
+                    if (!extractedChannelId && channelUrl.includes('/user/')) {
+                        console.log(`[Canais Semelhantes] Tentando forUsername para /user/ URL: ${handle}`);
+                        const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=id&forUsername=${encodeURIComponent(handle)}&key=${YT_API_KEY_CHANNEL_SEARCH}`);
+                        if (channelRes.ok) {
+                            const channelData = await channelRes.json();
+                            if (channelData.items && channelData.items.length > 0) {
+                                extractedChannelId = channelData.items[0].id;
+                                console.log(`[Canais Semelhantes] ✅ Encontrado channel ID por forUsername: ${extractedChannelId}`);
+                            }
+                        }
+                    }
+                } catch (searchErr) {
+                    console.error('[Canais Semelhantes] Erro ao buscar handle:', searchErr);
+                }
+            }
+        } else if (channelUrl.includes('youtube.com/') && channelUrl.match(/UC[a-zA-Z0-9_-]{22}/)) {
+            // ID do canal diretamente na URL (formato UC...)
+            const match = channelUrl.match(/UC[a-zA-Z0-9_-]{22}/);
+            if (match) {
+                extractedChannelId = match[0];
+            }
+        } else {
+            // Se não detectou nenhum formato conhecido, tentar extrair qualquer handle ou ID da URL
+            console.log(`[Canais Semelhantes] URL não corresponde a nenhum formato conhecido, tentando extrair manualmente: ${channelUrl}`);
+            
+            // Tentar detectar handle na URL (formato @algo)
+            const handleMatch = channelUrl.match(/@([a-zA-Z0-9_-]+)/);
+            if (handleMatch && handleMatch[1] && YT_API_KEY_CHANNEL_SEARCH) {
+                const handle = handleMatch[1];
+                console.log(`[Canais Semelhantes] Handle detectado na URL: ${handle}`);
+                
+                try {
+                    const searchQuery = `@${handle}`;
+                    const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=channel&key=${YT_API_KEY_CHANNEL_SEARCH}&maxResults=5`);
+                    
+                    if (searchRes.ok) {
+                        const searchData = await searchRes.json();
+                        if (searchData.items && searchData.items.length > 0) {
+                            // Buscar o canal que corresponde ao handle
+                            for (const item of searchData.items) {
+                                const customUrl = item.snippet?.customUrl;
+                                if (customUrl && (customUrl === `@${handle}` || customUrl.toLowerCase() === `@${handle.toLowerCase()}`)) {
+                                    extractedChannelId = item.snippet.channelId;
+                                    console.log(`[Canais Semelhantes] ✅ Channel ID encontrado: ${extractedChannelId}`);
+                                    break;
+                                }
+                            }
+                            
+                            // Se não encontrou correspondência exata, usar o primeiro resultado
+                            if (!extractedChannelId && searchData.items[0]) {
+                                extractedChannelId = searchData.items[0].snippet.channelId;
+                                console.log(`[Canais Semelhantes] ⚠️ Usando primeiro resultado da busca: ${extractedChannelId}`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Canais Semelhantes] Erro ao buscar handle manual:', err);
+                }
+            }
+            
+            // Se ainda não encontrou, retornar erro
+            if (!extractedChannelId) {
+                return res.status(400).json({ msg: 'URL inválida. Use uma URL do YouTube válida:\n- https://www.youtube.com/@canal\n- https://www.youtube.com/channel/UC...\n- https://www.youtube.com/c/nomecanal' });
+            }
+        }
+        
+        if (!extractedChannelId) {
+            return res.status(400).json({ msg: 'Não foi possível extrair o ID do canal da URL fornecida. Verifique se a URL está correta e completa, ou tente usar o formato: https://www.youtube.com/channel/UC...' });
+        }
+        
+        console.log(`[Canais Semelhantes] ✅ Channel ID extraído com sucesso: ${extractedChannelId}`);
+        
+        // Buscar informações do canal via YouTube API
+        const YT_API_KEY_CHANNELS = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+        if (!YT_API_KEY_CHANNELS) {
+            return res.status(500).json({ msg: 'Chave da API do YouTube não configurada.' });
+        }
+        
+        try {
+            const channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${extractedChannelId}&key=${YT_API_KEY_CHANNELS}`);
+            if (!channelRes.ok) {
+                const errorText = await channelRes.text();
+                console.error('[Canais Semelhantes] Erro na API do YouTube:', channelRes.status, errorText);
+                return res.status(400).json({ msg: 'Erro ao buscar informações do canal. Verifique se a URL está correta.' });
+            }
+            
+            const channelData = await channelRes.json();
+            if (!channelData.items || channelData.items.length === 0) {
+                return res.status(404).json({ msg: 'Canal não encontrado.' });
+            }
+            
+            const channel = channelData.items[0];
+            const channelName = channel.snippet.title;
+            const description = channel.snippet.description || '';
+            
+            referenceChannel = {
+                channel_id: extractedChannelId,
+                channel_name: channelName,
+                niche: null, // Pode ser detectado depois se necessário
+                language: channel.snippet.defaultLanguage || channel.snippet.country || 'pt-BR',
+                country: channel.snippet.country || 'BR'
+            };
+            
+            // Tentar detectar nicho básico pela descrição (opcional)
+            const descLower = description.toLowerCase();
+            if (descLower.includes('história') || descLower.includes('history')) {
+                referenceChannel.niche = 'História';
+            } else if (descLower.includes('ciência') || descLower.includes('science')) {
+                referenceChannel.niche = 'Ciência';
+            } else if (descLower.includes('tecnologia') || descLower.includes('tech')) {
+                referenceChannel.niche = 'Tecnologia';
+            } else if (descLower.includes('entretenimento') || descLower.includes('entertainment')) {
+                referenceChannel.niche = 'Entretenimento';
+            }
+        } catch (apiErr) {
+            console.error('[Canais Semelhantes] Erro ao processar URL:', apiErr);
+            return res.status(400).json({ msg: 'Erro ao processar URL do canal. Verifique se a URL está correta.' });
+        }
+        
+        if (!referenceChannel) {
+            return res.status(404).json({ msg: 'Canal de referência não encontrado.' });
+        }
+        
+        // Buscar canais semelhantes usando YouTube Data API v3
+        if (!YT_API_KEY_CHANNEL_SEARCH) {
+            return res.status(500).json({ msg: 'Chave da API do YouTube não configurada.' });
+        }
+        
+        let similarChannelsFromAPI = [];
+        
+        try {
+            // Buscar canais relacionados usando a API do YouTube
+            // Estratégia: buscar canais que fazem uploads de conteúdo similar
+            const searchQuery = referenceChannel.channel_name || referenceChannel.channel_id;
+            
+            // Buscar canais relacionados usando search API
+            const searchResponse = await fetch(
+                `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(searchQuery)}&key=${YT_API_KEY_CHANNEL_SEARCH}&maxResults=${Math.min(limit * 2, 50)}`
+            );
+            
+            if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                
+                if (searchData.items && searchData.items.length > 0) {
+                    // Extrair IDs dos canais encontrados (excluindo o canal de referência)
+                    const channelIds = searchData.items
+                        .map(item => item.snippet?.channelId)
+                        .filter(id => id && id !== extractedChannelId)
+                        .slice(0, limit);
+                    
+                    if (channelIds.length > 0) {
+                        // Buscar detalhes completos dos canais
+                        const channelsResponse = await fetch(
+                            `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${channelIds.join(',')}&key=${YT_API_KEY_CHANNEL_SEARCH}`
+                        );
+                        
+                        if (channelsResponse.ok) {
+                            const channelsData = await channelsResponse.json();
+                            
+                            if (channelsData.items && channelsData.items.length > 0) {
+                                similarChannelsFromAPI = channelsData.items.map(item => {
+                                    const snippet = item.snippet || {};
+                                    const stats = item.statistics || {};
+                                    
+                                    // Calcular score de similaridade
+                                    let similarityScore = 0.1; // Base mínimo
+                                    
+                                    // Verificar se tem mesmo país (se disponível)
+                                    if (criteria.country && referenceChannel.country && 
+                                        snippet.country === referenceChannel.country) {
+                                        similarityScore += 0.3;
+                                    }
+                                    
+                                    // Verificar idioma (se disponível)
+                                    if (criteria.language && referenceChannel.language && 
+                                        snippet.defaultLanguage === referenceChannel.language) {
+                                        similarityScore += 0.3;
+                                    }
+                                    
+                                    // Score baseado em estatísticas similares (subscribers, views)
+                                    if (referenceChannel.subscriber_count && stats.subscriberCount) {
+                                        const refSubs = parseInt(referenceChannel.subscriber_count) || 0;
+                                        const channelSubs = parseInt(stats.subscriberCount) || 0;
+                                        if (refSubs > 0 && channelSubs > 0) {
+                                            const ratio = Math.min(refSubs, channelSubs) / Math.max(refSubs, channelSubs);
+                                            similarityScore += ratio * 0.2;
+                                        }
+                                    }
+                                    
+                                    return {
+                                        id: item.id,
+                                        channel_id: item.id,
+                                        channelName: snippet.title || 'Sem nome',
+                                        channelUrl: `https://www.youtube.com/channel/${item.id}`,
+                                        thumbnailUrl: snippet.thumbnails?.high?.url || snippet.thumbnails?.default?.url || null,
+                                        description: snippet.description || '',
+                                        niche: null, // Não disponível na API
+                                        language: snippet.defaultLanguage || null,
+                                        country: snippet.country || null,
+                                        subscriberCount: parseInt(stats.subscriberCount) || 0,
+                                        videoCount: parseInt(stats.videoCount) || 0,
+                                        viewCount: parseInt(stats.viewCount) || 0,
+                                        similarityScore: Math.min(1, similarityScore)
+                                    };
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (apiErr) {
+            console.error('[Canais Semelhantes] Erro ao buscar canais via API:', apiErr);
+        }
+        
+        // Também buscar do banco de dados local (se houver critérios específicos)
+        let similarChannelsFromDB = [];
+        try {
+            let query = `
+                SELECT DISTINCT
+                    yi.id,
+                    yi.channel_id,
+                    yi.channel_name as channelName,
+                    yi.channel_url as channelUrl,
+                    yi.niche,
+                    yi.language,
+                    yi.country,
+                    yi.subscriber_count as subscriberCount,
+                    yi.video_count as videoCount,
+                    yi.view_count as viewCount
+                FROM youtube_integrations yi
+                WHERE yi.user_id != ? AND yi.is_active = 1
+            `;
+            const params = [userId];
+            
+            // Aplicar critérios de similaridade
+            if (criteria.niche && referenceChannel.niche) {
+                query += ` AND yi.niche = ?`;
+                params.push(referenceChannel.niche);
+            }
+            
+            if (criteria.language && referenceChannel.language) {
+                query += ` AND yi.language = ?`;
+                params.push(referenceChannel.language);
+            }
+            
+            if (criteria.country && referenceChannel.country) {
+                query += ` AND yi.country = ?`;
+                params.push(referenceChannel.country);
+            }
+            
+            query += ` ORDER BY yi.created_at DESC LIMIT ?`;
+            params.push(Math.floor(limit / 2)); // Metade do limite para DB
+            
+            similarChannelsFromDB = await db.all(query, params);
+            
+            // Calcular score de similaridade para canais do DB
+            similarChannelsFromDB = similarChannelsFromDB.map(channel => {
+                let similarityScore = 0;
+                
+                if (criteria.niche && channel.niche === referenceChannel.niche) {
+                    similarityScore += 0.4;
+                }
+                if (criteria.language && channel.language === referenceChannel.language) {
+                    similarityScore += 0.3;
+                }
+                if (criteria.country && channel.country === referenceChannel.country) {
+                    similarityScore += 0.3;
+                }
+                
+                return {
+                    ...channel,
+                    similarityScore: similarityScore || 0.1
+                };
+            });
+        } catch (dbErr) {
+            console.error('[Canais Semelhantes] Erro ao buscar canais do DB:', dbErr);
+        }
+        
+        // Combinar resultados da API e do DB, remover duplicatas e ordenar por score
+        const allChannels = [...similarChannelsFromAPI, ...similarChannelsFromDB];
+        const uniqueChannels = [];
+        const seenChannelIds = new Set();
+        
+        for (const channel of allChannels) {
+            const channelId = channel.channel_id || channel.id;
+            if (channelId && !seenChannelIds.has(channelId)) {
+                seenChannelIds.add(channelId);
+                uniqueChannels.push(channel);
+            }
+        }
+        
+        // Ordenar por score e limitar
+        const channelsWithScore = uniqueChannels
+            .sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0))
+            .slice(0, limit);
+        
+        res.status(200).json({ channels: channelsWithScore });
+    } catch (err) {
+        console.error('[Canais Semelhantes] Erro:', err);
+        res.status(500).json({ msg: 'Erro ao buscar canais semelhantes.', error: err.message });
+    }
+});
+
+// Endpoint para buscar vídeos semelhantes por URL
+app.post('/api/videos/similar', authenticateToken, async (req, res) => {
+    const { videoUrl } = req.body;
+    const userId = req.user.id;
+    
+    if (!videoUrl) {
+        return res.status(400).json({ msg: 'URL do vídeo é obrigatória.' });
+    }
+    
+    try {
+        if (!db) {
+            return res.status(503).json({ msg: 'Banco de dados não está disponível.' });
+        }
+        
+        // Extrair video_id da URL
+        let videoId = null;
+        if (videoUrl.includes('youtu.be/')) {
+            videoId = videoUrl.split('youtu.be/')[1].split('?')[0].split('&')[0];
+        } else if (videoUrl.includes('youtube.com/watch?v=')) {
+            videoId = videoUrl.split('v=')[1].split('&')[0];
+        }
+        
+        if (!videoId) {
+            return res.status(400).json({ msg: 'URL do vídeo inválida.' });
+        }
+        
+        // Buscar informações do vídeo de referência
+        const referenceVideo = await db.get(
+            `SELECT original_title, detected_niche, detected_subniche, original_thumbnail_url, video_url, original_views
+             FROM analyzed_videos 
+             WHERE youtube_video_id = ? AND user_id = ? LIMIT 1`,
+            [videoId, userId]
+        );
+        
+        // Se não encontrou no banco, buscar via YouTube API
+        let videoTitle = null;
+        let videoNiche = null;
+        let videoThumbnail = null;
+        let videoViews = null;
+        
+        if (referenceVideo) {
+            videoTitle = referenceVideo.original_title;
+            videoNiche = referenceVideo.detected_niche;
+            videoThumbnail = referenceVideo.original_thumbnail_url;
+            videoViews = referenceVideo.original_views;
+        } else {
+            // Buscar via YouTube API
+            const YT_API_KEY = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+            if (YT_API_KEY) {
+                try {
+                    const videoRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YT_API_KEY}`);
+                    if (videoRes.ok) {
+                        const videoData = await videoRes.json();
+                        if (videoData.items && videoData.items.length > 0) {
+                            const snippet = videoData.items[0].snippet;
+                            videoTitle = snippet.title;
+                            videoThumbnail = snippet.thumbnails.maxres?.url || snippet.thumbnails.high?.url || snippet.thumbnails.default?.url;
+                        }
+                    }
+                } catch (apiErr) {
+                    console.warn('[Vídeos Semelhantes] Erro ao buscar vídeo via API:', apiErr);
+                }
+            }
+        }
+        
+        // Buscar vídeos semelhantes do banco
+        // IMPORTANTE: Apenas vídeos do YouTube (com youtube_video_id válido)
+        let query = `
+            SELECT DISTINCT 
+                v.youtube_video_id as videoId,
+                v.original_title as title,
+                v.video_url as videoUrl,
+                v.original_thumbnail_url as thumbnailUrl,
+                v.original_views as views,
+                v.detected_niche as niche,
+                v.detected_subniche as subniche,
+                v.analyzed_at as analyzedAt
+            FROM analyzed_videos v
+            WHERE v.user_id = ? 
+              AND v.youtube_video_id != ?
+              AND v.youtube_video_id IS NOT NULL
+              AND v.youtube_video_id != ''
+              AND v.video_url LIKE '%youtube.com%'
+        `;
+        const params = [userId, videoId];
+        
+        // Filtrar por nicho se disponível
+        if (videoNiche) {
+            query += ` AND v.detected_niche = ?`;
+            params.push(videoNiche);
+        }
+        
+        query += ` ORDER BY v.analyzed_at DESC LIMIT 50`;
+        
+        const similarVideos = await db.all(query, params);
+        
+        // Remover duplicatas usando Map baseado no youtube_video_id
+        const videoMap = new Map();
+        similarVideos.forEach(video => {
+            if (video.videoId && !videoMap.has(video.videoId)) {
+                videoMap.set(video.videoId, video);
+            }
+        });
+        
+        const uniqueVideos = Array.from(videoMap.values());
+        
+        // Calcular score de similaridade (múltiplos fatores para gerar porcentagens variadas)
+        const videosWithScore = uniqueVideos.map(video => {
+            let similarityScore = 0;
+            let maxPossibleScore = 0;
+            
+            // Fator 1: Similaridade por título (peso: 30%)
+            maxPossibleScore += 0.3;
+            if (videoTitle && video.title) {
+                const titleWords = videoTitle.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2);
+                const videoWords = video.title.toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2);
+                
+                // Palavras comuns (sem stopwords comuns)
+                const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'o', 'a', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas', 'por', 'para', 'com', 'sem', 'que', 'uma', 'um']);
+                const titleSet = new Set(titleWords.filter(w => !stopWords.has(w)));
+                const videoSet = new Set(videoWords.filter(w => !stopWords.has(w)));
+                
+                const commonWords = [...titleSet].filter(w => videoSet.has(w));
+                const totalUniqueWords = new Set([...titleSet, ...videoSet]).size;
+                
+                if (totalUniqueWords > 0) {
+                    const titleSimilarity = commonWords.length / totalUniqueWords;
+                    similarityScore += titleSimilarity * 0.3;
+                }
+            }
+            
+            // Fator 2: Similaridade por nicho (peso: 25%)
+            maxPossibleScore += 0.25;
+            if (videoNiche && video.niche && video.niche === videoNiche) {
+                similarityScore += 0.25;
+            }
+            
+            // Fator 3: Similaridade por subnicho (peso: 20%)
+            maxPossibleScore += 0.2;
+            if (referenceVideo && referenceVideo.detected_subniche && video.subniche && 
+                video.subniche === referenceVideo.detected_subniche) {
+                similarityScore += 0.2;
+            }
+            
+            // Fator 4: Similaridade por estrutura do título (peso: 15%)
+            maxPossibleScore += 0.15;
+            if (videoTitle && video.title) {
+                // Verificar se ambos usam pipes, números, etc.
+                const refHasPipes = videoTitle.includes('|');
+                const videoHasPipes = video.title.includes('|');
+                if (refHasPipes === videoHasPipes) {
+                    similarityScore += 0.05;
+                }
+                
+                // Verificar palavras em CAIXA ALTA (indicador de estilo similar)
+                const refUpperWords = (videoTitle.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,}/g) || []).length;
+                const videoUpperWords = (video.title.match(/[A-ZÁÉÍÓÚÃÕÂÊÎÔÛÇ]{3,}/g) || []).length;
+                if (refUpperWords > 0 && videoUpperWords > 0) {
+                    const upperRatio = Math.min(refUpperWords, videoUpperWords) / Math.max(refUpperWords, videoUpperWords);
+                    similarityScore += upperRatio * 0.1;
+                }
+            }
+            
+            // Fator 5: Similaridade por views (peso: 10% - vídeos com performance similar)
+            maxPossibleScore += 0.1;
+            if (referenceVideo && referenceVideo.original_views && video.views) {
+                const refViews = parseInt(referenceVideo.original_views) || 0;
+                const videoViews = parseInt(video.views) || 0;
+                if (refViews > 0 && videoViews > 0) {
+                    // Normalizar para escala logarítmica (vídeos com milhões vs milhares)
+                    const refLog = Math.log10(refViews + 1);
+                    const videoLog = Math.log10(videoViews + 1);
+                    const viewSimilarity = 1 - Math.abs(refLog - videoLog) / Math.max(refLog, videoLog, 1);
+                    similarityScore += Math.max(0, viewSimilarity) * 0.1;
+                }
+            }
+            
+            // Normalizar o score baseado no máximo possível (mas não deixar todos iguais)
+            // Se não há muitos fatores disponíveis, ajustar para criar variação
+            const normalizedScore = maxPossibleScore > 0 
+                ? similarityScore / maxPossibleScore 
+                : 0.1;
+            
+            // Garantir mínimo de 15% e máximo de 95% para manter variação
+            const finalScore = Math.max(0.15, Math.min(0.95, normalizedScore || 0.15));
+            
+            return {
+                ...video,
+                similarityScore: finalScore
+            };
+        }).filter(v => v.similarityScore > 0 && v.videoId) // Garantir que tem videoId válido (apenas YouTube)
+          .sort((a, b) => b.similarityScore - a.similarityScore)
+          .slice(0, 15);
+        
+        res.status(200).json({ 
+            videos: videosWithScore,
+            referenceVideo: {
+                videoId,
+                title: videoTitle,
+                thumbnailUrl: videoThumbnail,
+                niche: videoNiche,
+                detected_subniche: referenceVideo ? referenceVideo.detected_subniche : null,
+                original_views: videoViews
+            }
+        });
+    } catch (err) {
+        console.error('[Vídeos Semelhantes] Erro:', err);
+        res.status(500).json({ msg: 'Erro ao buscar vídeos semelhantes.', error: err.message });
+    }
+});
+
 app.post('/api/library/thumbnails/bulk-delete', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { ids } = req.body || {};
@@ -34339,13 +36346,36 @@ app.get('/api/youtube/oauth/authorize', authenticateToken, async (req, res) => {
 app.get('/api/youtube/oauth/callback', async (req, res) => {
     const { code, error, state } = req.query;
     
+    console.log('[YouTube OAuth] 📥 Callback recebido:', {
+        hasCode: !!code,
+        hasError: !!error,
+        hasState: !!state,
+        error: error || null,
+        stateLength: state?.length || 0
+    });
+    
     let userId = null;
     
     // Decodificar state para obter userId
     try {
         if (state) {
-            const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+            // Tentar decodificar o state (pode vir URL-encoded)
+            let decodedState = state;
+            try {
+                decodedState = decodeURIComponent(state);
+            } catch (e) {
+                // Se já estiver decodificado, usar como está
+                decodedState = state;
+            }
+            
+            const stateData = JSON.parse(Buffer.from(decodedState, 'base64').toString());
             userId = stateData.userId;
+            
+            console.log('[YouTube OAuth] ✅ State decodificado:', {
+                userId: userId,
+                timestamp: stateData.timestamp,
+                age: Date.now() - stateData.timestamp
+            });
             
             // Validar que o state não é muito antigo (máximo 10 minutos)
             const maxAge = 10 * 60 * 1000; // 10 minutos
@@ -34376,7 +36406,11 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
             `);
         }
     } catch (e) {
-        console.error('[YouTube OAuth] Erro ao decodificar state:', e);
+        console.error('[YouTube OAuth] ❌ Erro ao decodificar state:', {
+            error: e.message,
+            stack: e.stack,
+            stateReceived: state ? state.substring(0, 50) + '...' : 'null'
+        });
         return res.status(400).send(`
             <!DOCTYPE html>
             <html>
@@ -34384,7 +36418,8 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
             <body style="font-family: Arial; text-align: center; padding: 50px;">
                 <h1>❌ Erro na Autorização</h1>
                 <p>Estado inválido ou corrompido. Por favor, tente conectar novamente.</p>
-                <button onclick="window.close()">Fechar</button>
+                <p style="font-size: 0.9em; color: #666;">Erro técnico: ${e.message}</p>
+                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
             </body>
             </html>
         `);
@@ -34406,12 +36441,30 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
     }
 
     if (!code) {
-        return res.status(400).json({ msg: 'Código de autorização não fornecido.' });
+        console.error('[YouTube OAuth] ❌ Código de autorização não fornecido');
+        return res.status(400).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Erro - Código Não Fornecido</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>❌ Erro na Autorização</h1>
+                <p>Código de autorização não fornecido pelo Google.</p>
+                <p style="font-size: 0.9em; color: #666;">Por favor, tente conectar novamente.</p>
+                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
+            </body>
+            </html>
+        `);
     }
 
     const CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID';
     const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || 'YOUR_CLIENT_SECRET';
     let REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:5001/api/youtube/oauth/callback';
+    
+    console.log('[YouTube OAuth] 🔑 Credenciais:', {
+        hasClientId: CLIENT_ID !== 'YOUR_CLIENT_ID',
+        hasClientSecret: CLIENT_SECRET !== 'YOUR_CLIENT_SECRET',
+        redirectUri: REDIRECT_URI
+    });
 
     // Limpar e validar REDIRECT_URI
     REDIRECT_URI = REDIRECT_URI.trim();
@@ -34420,9 +36473,22 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
     }
 
     if (CLIENT_ID === 'YOUR_CLIENT_ID' || CLIENT_SECRET === 'YOUR_CLIENT_SECRET') {
-        return res.status(500).json({ msg: 'Credenciais do YouTube não configuradas. Configure YOUTUBE_CLIENT_ID e YOUTUBE_CLIENT_SECRET no arquivo .env' });
+        console.error('[YouTube OAuth] ❌ Credenciais não configuradas');
+        return res.status(500).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Erro - Configuração</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>❌ Erro de Configuração</h1>
+                <p>Credenciais do YouTube não configuradas.</p>
+                <p style="font-size: 0.9em; color: #666;">Configure YOUTUBE_CLIENT_ID e YOUTUBE_CLIENT_SECRET no arquivo .env</p>
+                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
+            </body>
+            </html>
+        `);
     }
     try {
+        console.log('[YouTube OAuth] 🔄 Trocando código por tokens...');
         // Trocar code por access_token e refresh_token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
@@ -34440,16 +36506,59 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
 
         if (!tokenResponse.ok) {
             const errorText = await tokenResponse.text();
-            console.error('[YouTube OAuth] Erro ao trocar código por token:', errorText);
-            return res.status(400).json({ msg: 'Falha ao obter tokens de acesso.' });
+            console.error('[YouTube OAuth] ❌ Erro ao trocar código por token:', {
+                status: tokenResponse.status,
+                statusText: tokenResponse.statusText,
+                error: errorText
+            });
+            
+            let errorMessage = 'Falha ao obter tokens de acesso.';
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.error_description || errorJson.error || errorMessage;
+            } catch (e) {
+                // Se não for JSON, usar o texto como está
+            }
+            
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Erro - Falha na Autenticação</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Erro na Autenticação</h1>
+                    <p>${errorMessage}</p>
+                    <p style="font-size: 0.9em; color: #666;">Status: ${tokenResponse.status}</p>
+                    <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
+                </body>
+                </html>
+            `);
         }
+        
+        console.log('[YouTube OAuth] ✅ Tokens obtidos com sucesso');
 
         const tokenData = await tokenResponse.json();
         const { access_token, refresh_token, expires_in } = tokenData;
 
         if (!access_token) {
-            return res.status(400).json({ msg: 'Token de acesso não recebido.' });
+            console.error('[YouTube OAuth] ❌ Token de acesso não recebido na resposta:', tokenData);
+            return res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Erro - Token Não Recebido</title></head>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>❌ Erro na Autenticação</h1>
+                    <p>Token de acesso não recebido do Google.</p>
+                    <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
+                </body>
+                </html>
+            `);
         }
+        
+        console.log('[YouTube OAuth] ✅ Token de acesso recebido:', {
+            hasAccessToken: !!access_token,
+            hasRefreshToken: !!refresh_token,
+            expiresIn: expires_in
+        });
 
         // Buscar TODOS os canais da conta Google (até 50 canais)
         // IMPORTANTE: Uma conta Google pode não ter um canal do YouTube criado automaticamente
@@ -34886,8 +36995,23 @@ app.get('/api/youtube/oauth/callback', async (req, res) => {
             </html>
         `);
     } catch (err) {
-        console.error('[YouTube OAuth] Erro no callback:', err);
-        return res.status(500).json({ msg: `Erro ao processar autorização: ${err.message}` });
+        console.error('[YouTube OAuth] ❌ Erro não tratado no callback:', {
+            message: err.message,
+            stack: err.stack,
+            name: err.name
+        });
+        return res.status(500).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Erro - Servidor</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>❌ Erro no Servidor</h1>
+                <p>Ocorreu um erro inesperado ao processar a autenticação.</p>
+                <p style="font-size: 0.9em; color: #666;">${err.message || 'Erro desconhecido'}</p>
+                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; cursor: pointer;">Fechar</button>
+            </body>
+            </html>
+        `);
     }
 });
 
@@ -37531,19 +39655,27 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                 if (existingUserChannel) {
                     await db.run(
                         `UPDATE user_channels
-                         SET channel_url = ?, channel_id = ?, language = ?, country = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP
+                         SET channel_url = ?, channel_id = ?, channel_name = ?, language = ?, country = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP
                          WHERE id = ? AND user_id = ?`,
-                        [channelUrl, channelId, channelLanguage || 'pt-BR', channelCountry || 'BR', existingUserChannel.id, userIdNum]
+                        [channelUrl, channelId, channelName, channelLanguage || 'pt-BR', channelCountry || 'BR', existingUserChannel.id, userIdNum]
                     );
+                    console.log(`[YouTube OAuth] ✅ Canal atualizado em user_channels: ${channelName} (${channelId})`);
                 } else {
-                    await db.run(
-                        `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
-                         VALUES (?, ?, ?, ?, NULL, ?, ?, 1)`,
-                        [userIdNum, channelName, channelUrl, channelId, channelLanguage || 'pt-BR', channelCountry || 'BR']
-                    );
+                    // Verificar limite antes de inserir
+                    const activeCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ? AND is_active = 1', [userIdNum]);
+                    if ((activeCount?.count || 0) < 10) {
+                        await db.run(
+                            `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
+                             VALUES (?, ?, ?, ?, NULL, ?, ?, 1)`,
+                            [userIdNum, channelName, channelUrl, channelId, channelLanguage || 'pt-BR', channelCountry || 'BR']
+                        );
+                        console.log(`[YouTube OAuth] ✅ Canal criado em user_channels: ${channelName} (${channelId})`);
+                    } else {
+                        console.warn(`[YouTube OAuth] ⚠️ Limite de 10 canais atingido em user_channels para userId ${userIdNum}`);
+                    }
                 }
             } catch (syncErr) {
-                console.warn('[YouTube OAuth] Falha ao sincronizar user_channels:', syncErr.message);
+                console.error('[YouTube OAuth] ❌ Falha ao sincronizar user_channels:', syncErr);
             }
 
             // Analisar canal em background (não bloqueia a resposta)
@@ -37603,7 +39735,53 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
                 });
         }
 
-        console.log(`[YouTube OAuth] Canais conectados: ${connectedCount} novos, ${updatedCount} atualizados para userId: ${userIdNum}`);
+        console.log(`[YouTube OAuth] ✅ Canais conectados: ${connectedCount} novos, ${updatedCount} atualizados para userId: ${userIdNum}`);
+        
+        // Garantir sincronização final após todos os canais serem conectados
+        try {
+            const finalYtIntegrations = await db.all(
+                'SELECT channel_id, channel_name, niche, language, country FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
+                [userIdNum]
+            );
+            if (finalYtIntegrations && finalYtIntegrations.length > 0) {
+                let syncedCount = 0;
+                for (const yt of finalYtIntegrations) {
+                    if (!yt?.channel_id) continue;
+                    const channelUrl = `https://www.youtube.com/channel/${yt.channel_id}`;
+                    const existing = await db.get(
+                        'SELECT id FROM user_channels WHERE user_id = ? AND channel_id = ? LIMIT 1',
+                        [userIdNum, yt.channel_id]
+                    );
+                    if (!existing) {
+                        const activeCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ? AND is_active = 1', [userIdNum]);
+                        if ((activeCount?.count || 0) < 10) {
+                            await db.run(
+                                `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+                                [userIdNum, yt.channel_name || 'Canal do YouTube', channelUrl, yt.channel_id, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR']
+                            );
+                            syncedCount++;
+                        }
+                    } else {
+                        // Atualizar se necessário
+                        await db.run(
+                            `UPDATE user_channels
+                             SET channel_name = COALESCE(?, channel_name),
+                                 niche = COALESCE(niche, ?),
+                                 language = COALESCE(language, ?),
+                                 country = COALESCE(country, ?),
+                                 is_active = 1,
+                                 updated_at = CURRENT_TIMESTAMP
+                             WHERE id = ? AND user_id = ?`,
+                            [yt.channel_name || null, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR', existing.id, userIdNum]
+                        );
+                    }
+                }
+                console.log(`[YouTube OAuth] 🔄 Sincronização final: ${syncedCount} canais adicionados/atualizados em user_channels`);
+            }
+        } catch (finalSyncErr) {
+            console.error('[YouTube OAuth] ❌ Erro na sincronização final:', finalSyncErr);
+        }
 
         return res.status(200).json({
             msg: 'Canais conectados com sucesso!',
@@ -37622,7 +39800,8 @@ app.post('/api/youtube/oauth/connect-channels', async (req, res) => {
 app.get('/api/youtube/channels/:id/analytics', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
-    const { startDate, endDate, metrics = 'views,estimatedMinutesWatched,subscribersGained,likes,comments,shares,averageViewDuration,averageViewPercentage,impressions,impressionsCtr' } = req.query;
+    // Buscar todas as métricas disponíveis por padrão
+    const { startDate, endDate, metrics = 'views,estimatedMinutesWatched,subscribersGained,likes,comments,shares,averageViewDuration,averageViewPercentage,impressions,impressionsCtr,estimatedRevenue,estimatedAdRevenue' } = req.query;
 
     try {
         // Buscar integração do canal (id pode ser integration.id ou channel_id)
@@ -40216,9 +42395,18 @@ app.get('/api/channels', authenticateToken, async (req, res) => {
                 'SELECT channel_id, channel_name, niche, language, country FROM youtube_integrations WHERE user_id = ? AND is_active = 1',
                 [userId]
             );
+            console.log(`[Canais] 🔍 Encontrados ${ytIntegrations?.length || 0} canais do YouTube para sincronizar (userId: ${userId})`);
+            
             if (ytIntegrations && ytIntegrations.length > 0) {
+                let syncedCount = 0;
+                let createdCount = 0;
+                let updatedCount = 0;
+                
                 for (const yt of ytIntegrations) {
-                    if (!yt?.channel_id) continue;
+                    if (!yt?.channel_id) {
+                        console.warn(`[Canais] ⚠️ Canal sem channel_id ignorado:`, yt);
+                        continue;
+                    }
                     const channelUrl = `https://www.youtube.com/channel/${yt.channel_id}`;
                     const existing = await db.get(
                         'SELECT id FROM user_channels WHERE user_id = ? AND channel_id = ? LIMIT 1',
@@ -40237,26 +42425,54 @@ app.get('/api/channels', authenticateToken, async (req, res) => {
                              WHERE id = ? AND user_id = ?`,
                             [yt.channel_name || null, channelUrl, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR', existing.id, userId]
                         );
+                        updatedCount++;
+                        console.log(`[Canais] ✅ Canal atualizado: ${yt.channel_name} (${yt.channel_id})`);
                     } else {
                         // Respeitar o limite do app (10 ativos) — mas o YouTube também limita a 10 integrações ativas, então normalmente não estoura.
                         const activeCount = await db.get('SELECT COUNT(*) as count FROM user_channels WHERE user_id = ? AND is_active = 1', [userId]);
-                        if ((activeCount?.count || 0) >= 10) break;
+                        if ((activeCount?.count || 0) >= 10) {
+                            console.warn(`[Canais] ⚠️ Limite de 10 canais atingido para userId ${userId}`);
+                            // Mesmo assim, atualizar se já existe mas está inativo
+                            const inactiveChannel = await db.get(
+                                'SELECT id FROM user_channels WHERE user_id = ? AND channel_id = ? AND is_active = 0 LIMIT 1',
+                                [userId, yt.channel_id]
+                            );
+                            if (inactiveChannel) {
+                                await db.run(
+                                    `UPDATE user_channels SET is_active = 1, channel_name = ?, channel_url = ?, niche = ?, language = ?, country = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                                    [yt.channel_name || 'Canal do YouTube', channelUrl, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR', inactiveChannel.id]
+                                );
+                                updatedCount++;
+                                console.log(`[Canais] ✅ Canal reativado: ${yt.channel_name} (${yt.channel_id})`);
+                            }
+                            continue;
+                        }
                         await db.run(
                             `INSERT INTO user_channels (user_id, channel_name, channel_url, channel_id, niche, language, country, is_active)
                              VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
                             [userId, yt.channel_name || 'Canal do YouTube', channelUrl, yt.channel_id, yt.niche || null, yt.language || 'pt-BR', yt.country || 'BR']
                         );
+                        createdCount++;
+                        syncedCount++;
+                        console.log(`[Canais] ✅ Canal criado: ${yt.channel_name} (${yt.channel_id})`);
                     }
                 }
+                console.log(`[Canais] 📊 Sincronização concluída: ${syncedCount} processados (${createdCount} criados, ${updatedCount} atualizados)`);
+            } else {
+                console.log(`[Canais] ℹ️ Nenhum canal do YouTube encontrado para sincronizar`);
             }
         } catch (syncErr) {
-            console.warn('[Canais] Falha ao sincronizar canais do YouTube para user_channels:', syncErr.message);
+            console.error('[Canais] ❌ Falha ao sincronizar canais do YouTube para user_channels:', syncErr);
         }
 
         const channels = await db.all(
-            'SELECT * FROM user_channels WHERE user_id = ? ORDER BY created_at DESC',
+            'SELECT id, channel_name, channel_url, channel_id, niche, language, country, is_active, created_at, updated_at FROM user_channels WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC',
             [userId]
         );
+        console.log(`[Canais] 📋 Retornando ${channels?.length || 0} canais ativos para userId ${userId}`);
+        if (channels && channels.length > 0) {
+            console.log(`[Canais] 📝 Canais retornados:`, channels.map(c => ({ id: c.id, name: c.channel_name, channel_id: c.channel_id, active: c.is_active })));
+        }
         res.status(200).json(channels || []);
     } catch (err) {
         console.error('[ERRO NA ROTA /api/channels GET]:', err);

@@ -1074,6 +1074,10 @@
                     <i data-lucide="youtube"></i>
                     <span>Integração YouTube</span>
                 </a>
+                <a href="#" data-view="buscar-canais" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                    <i data-lucide="search"></i>
+                    <span>Buscar Canais Semelhantes</span>
+                </a>
                 
                 <a href="#" data-view="viral-analysis" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
                     <i data-lucide="trending-up"></i>
@@ -1346,6 +1350,20 @@
                     </div>
                 </div>
 
+                <!-- Palavra do Dia -->
+                <div class="bg-gradient-to-br from-amber-900/20 via-amber-800/10 to-blue-900/20 border border-amber-700/30 rounded-lg p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
+                        <i data-lucide="book-open" class="w-5 h-5 mr-2 text-amber-500"></i>
+                        Palavra do Dia
+                    </h2>
+                    <div id="daily-verse" class="space-y-3">
+                        <div class="text-center text-gray-400 py-4">
+                            <i data-lucide="loader" class="w-6 h-6 mx-auto mb-2 animate-spin"></i>
+                            <p class="text-sm">Carregando palavra do dia...</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Vídeos Recentes -->
                 <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
                     <h2 class="text-xl font-semibold text-white mb-4 flex items-center">
@@ -1416,6 +1434,7 @@
                                     <!-- Pastas serão carregadas aqui -->
                                 </select>
                             </div>
+                            
                         </div>
                         
                         <div>
@@ -4112,6 +4131,87 @@
             </div>
 
             <!-- VISÃO 9: Análise de Canais Virais -->
+            <!-- VISÃO: Buscar Canais Semelhantes -->
+            <div id="view-buscar-canais" style="display: none;">
+                <div class="max-w-7xl mx-auto px-4 py-8">
+                    <div class="mb-8">
+                        <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">🔍 Buscar Canais Semelhantes</h1>
+                        <p class="text-lg text-gray-400">Encontre canais similares ao seu para análise de concorrência e inspiração</p>
+                    </div>
+
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <form id="search-similar-channels-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-gray-200">URL do Canal de Referência <span class="text-amber-500">*</span></label>
+                                <input type="text" id="reference-channel-url" placeholder="https://www.youtube.com/@canal ou https://www.youtube.com/channel/..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" required>
+                                <p class="text-xs text-gray-500 mt-1.5">Cole a URL completa do canal do YouTube que deseja usar como referência</p>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Critérios de Similaridade</label>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="similar-niche" checked class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500">
+                                            <span class="text-sm text-gray-300">Mesmo nicho</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="similar-language" checked class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500">
+                                            <span class="text-sm text-gray-300">Mesmo idioma</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2 cursor-pointer">
+                                            <input type="checkbox" id="similar-country" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500">
+                                            <span class="text-sm text-gray-300">Mesmo país</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Limite de Resultados</label>
+                                    <input type="number" id="similar-channels-limit" min="5" max="50" value="20" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full py-3 px-6 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-bold transition-colors shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2">
+                                <i data-lucide="search" class="w-5 h-5"></i>
+                                <span>Buscar Canais Semelhantes</span>
+                            </button>
+                        </form>
+                    </div>
+
+                    <div id="similar-channels-results" class="space-y-4 mb-6" style="display: none;">
+                        <h2 class="text-2xl font-bold text-white mb-4">Resultados - Canais</h2>
+                        <div id="similar-channels-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <!-- Resultados serão inseridos aqui -->
+                        </div>
+                    </div>
+
+                    <!-- Segunda Ferramenta: Buscar Vídeos Semelhantes -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-6">
+                        <h3 class="text-xl font-semibold text-white mb-4">🎬 Buscar Vídeos Semelhantes</h3>
+                        <form id="search-similar-videos-form" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-gray-200">URL do Vídeo de Referência <span class="text-amber-500">*</span></label>
+                                <input type="text" id="reference-video-url" placeholder="https://www.youtube.com/watch?v=... ou https://youtu.be/..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" required>
+                                <p class="text-xs text-gray-500 mt-1.5">Cole a URL completa do vídeo do YouTube que deseja usar como referência</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-gray-200">Limite de Resultados</label>
+                                <input type="number" id="similar-videos-limit" min="5" max="30" value="15" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
+                            </div>
+                            <button type="submit" class="w-full py-3 px-6 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition-colors shadow-lg shadow-blue-500/20 flex items-center justify-center space-x-2">
+                                <i data-lucide="video" class="w-5 h-5"></i>
+                                <span>Buscar Vídeos Semelhantes</span>
+                            </button>
+                        </form>
+                    </div>
+
+                    <div id="similar-videos-results" class="space-y-4" style="display: none;">
+                        <h2 class="text-2xl font-bold text-white mb-4">Resultados - Vídeos</h2>
+                        <div id="similar-videos-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <!-- Resultados serão inseridos aqui -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="view-viral-analysis" style="display: none;">
                 <div class="max-w-7xl mx-auto px-4 py-8">
                     <div class="mb-8">
@@ -6398,17 +6498,21 @@ Equipe La Casa Dark Core</textarea>
         
         document.addEventListener('DOMContentLoaded', (event) => {
         
-            // URLs da API - Detecta automaticamente a porta do backend
-            // Detectar porta do backend automaticamente
+            // URLs da API - Porta padrão do backend (deve corresponder à porta do servidor Express)
             const currentPort = window.location.port;
-            // Usar a porta atual ou padrão 3000
-            const backendPort = currentPort || '3000';
-            const isBackendPort = currentPort === backendPort || currentPort === '';
+            const backendPort = '5001'; // Porta padrão do servidor Express
+            // Se estamos na mesma porta do backend OU não há porta (mesmo host), usar caminho relativo
+            const isBackendPort = currentPort === backendPort || currentPort === '' || !currentPort;
             const API_BASE = isBackendPort 
                 ? '' 
                 : `http://${window.location.hostname}:${backendPort}`;
             
-            console.log('API_BASE configurado:', API_BASE, { currentPort, isBackendPort });
+            console.log('[Dashboard] API_BASE configurado:', API_BASE, { 
+                currentPort: currentPort || '(vazio)', 
+                backendPort: backendPort,
+                isBackendPort: isBackendPort,
+                hostname: window.location.hostname
+            });
 
             // Variáveis globais para progresso de roteiro
             let scriptProgressSource = null;
@@ -6921,6 +7025,233 @@ Equipe La Casa Dark Core</textarea>
             // ================================================
             // SISTEMA DE NOTIFICAÇÕES
             // ================================================
+            
+            // Função para buscar vídeos semelhantes por URL
+            window.searchSimilarVideos = async function(videoUrl) {
+                if (!videoUrl || !videoUrl.includes('youtube')) {
+                    alert('URL do vídeo inválida. Cole uma URL do YouTube.');
+                    return;
+                }
+                
+                try {
+                    console.log('[Vídeos Semelhantes] Buscando vídeos semelhantes para:', videoUrl);
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        alert('Token não encontrado. Faça login novamente.');
+                        return;
+                    }
+                    
+                    // Mostrar modal de loading
+                    const modal = document.createElement('div');
+                    modal.id = 'similar-videos-modal';
+                    modal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
+                    modal.innerHTML = `
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-5xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-semibold text-white">Vídeos Semelhantes</h3>
+                                <button onclick="document.getElementById('similar-videos-modal').remove()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                            <div id="similar-videos-content" class="text-gray-400">
+                                <p>Buscando vídeos semelhantes...</p>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    const response = await fetch(`${API_BASE}/api/videos/similar`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ videoUrl })
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(error.msg || 'Erro ao buscar vídeos semelhantes');
+                    }
+                    
+                    const data = await response.json();
+                    const contentDiv = document.getElementById('similar-videos-content');
+                    
+                    if (data.videos && data.videos.length > 0) {
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const div = document.createElement('div');
+                            div.textContent = String(text);
+                            return div.innerHTML;
+                        };
+                        const formatNumber = (num) => {
+                            if (!num) return '0';
+                            return new Intl.NumberFormat('pt-BR').format(num);
+                        };
+                        
+                        let html = '';
+                        if (data.referenceVideo) {
+                            html += `
+                                <div class="mb-6 p-4 bg-gray-800 border border-gray-700 rounded-lg">
+                                    <p class="text-gray-400 text-sm mb-2">Vídeo de referência:</p>
+                                    <div class="flex items-center gap-3">
+                                        ${data.referenceVideo.thumbnailUrl ? `<img src="${data.referenceVideo.thumbnailUrl}" alt="" class="w-24 h-16 object-cover rounded">` : ''}
+                                        <div>
+                                            <p class="text-white font-semibold">${escapeHtml(data.referenceVideo.title || 'Sem título')}</p>
+                                            ${data.referenceVideo.niche ? `<p class="text-gray-400 text-xs">Nicho: ${escapeHtml(data.referenceVideo.niche)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                        
+                        html += `
+                            <p class="text-gray-400 mb-4">Encontrados ${data.videos.length} vídeos semelhantes:</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                ${data.videos.map(video => `
+                                    <div class="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden hover:border-amber-500 transition-colors">
+                                        ${video.thumbnailUrl ? `<img src="${video.thumbnailUrl}" alt="${video.title || 'Thumbnail'}" class="w-full h-32 object-cover cursor-pointer" onclick="window.open('${video.videoUrl || '#'}', '_blank')">` : ''}
+                                        <div class="p-3">
+                                            <p class="text-white text-xs font-semibold line-clamp-2 mb-2 cursor-pointer hover:text-amber-400" onclick="window.open('${video.videoUrl || '#'}', '_blank')">${escapeHtml(video.title || 'Sem título')}</p>
+                                            <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+                                                <span>${video.views ? formatNumber(video.views) + ' views' : 'N/A'}</span>
+                                                <span class="text-amber-400">${video.similarityScore ? (video.similarityScore * 100).toFixed(0) + '%' : 'N/A'}</span>
+                                            </div>
+                                            ${video.niche ? `<p class="text-gray-500 text-xs">${escapeHtml(video.niche)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                        
+                        contentDiv.innerHTML = html;
+                    } else {
+                        contentDiv.innerHTML = '<p class="text-gray-400">Nenhum vídeo semelhante encontrado.</p>';
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('[Vídeos Semelhantes] Erro:', err);
+                    const contentDiv = document.getElementById('similar-videos-content');
+                    if (contentDiv) {
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const div = document.createElement('div');
+                            div.textContent = String(text);
+                            return div.innerHTML;
+                        };
+                        contentDiv.innerHTML = `<p class="text-red-400">Erro: ${escapeHtml(err.message)}</p>`;
+                    }
+                }
+            };
+            
+            // Função para buscar thumbnails semelhantes (definida globalmente)
+            window.searchSimilarThumbnails = async function(thumbnailUrl, videoTitle) {
+                try {
+                    console.log('[Thumbnails Semelhantes] Buscando thumbnails semelhantes para:', thumbnailUrl);
+                    const token = localStorage.getItem('core_token');
+                    if (!token) {
+                        alert('Token não encontrado. Faça login novamente.');
+                        return;
+                    }
+                    
+                    // Mostrar modal de loading
+                    const modal = document.createElement('div');
+                    modal.id = 'similar-thumbnails-modal';
+                    modal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
+                    modal.innerHTML = `
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-semibold text-white">Thumbnails Semelhantes</h3>
+                                <button onclick="document.getElementById('similar-thumbnails-modal').remove()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-5 h-5"></i>
+                                </button>
+                            </div>
+                            <div id="similar-thumbnails-content" class="text-gray-400">
+                                <p>Buscando thumbnails semelhantes...</p>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    const response = await fetch(`${API_BASE}/api/thumbnails/similar`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ thumbnailUrl, videoTitle })
+                    });
+                    
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        throw new Error(error.msg || 'Erro ao buscar thumbnails semelhantes');
+                    }
+                    
+                    const data = await response.json();
+                    const contentDiv = document.getElementById('similar-thumbnails-content');
+                    
+                    if (data.similarThumbnails && data.similarThumbnails.length > 0) {
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const div = document.createElement('div');
+                            div.textContent = String(text);
+                            return div.innerHTML;
+                        };
+                        const formatNumber = (num) => {
+                            if (!num) return '0';
+                            return new Intl.NumberFormat('pt-BR').format(num);
+                        };
+                        
+                        // Remover duplicatas por URL antes de exibir
+                        const uniqueThumbnails = [];
+                        const seenThumbUrls = new Set();
+                        
+                        data.similarThumbnails.forEach(thumb => {
+                            if (thumb.thumbnailUrl && !seenThumbUrls.has(thumb.thumbnailUrl)) {
+                                seenThumbUrls.add(thumb.thumbnailUrl);
+                                uniqueThumbnails.push(thumb);
+                            }
+                        });
+                        
+                        contentDiv.innerHTML = `
+                            <p class="text-gray-400 mb-4">Encontrados ${uniqueThumbnails.length} thumbnails semelhantes:</p>
+                            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                ${uniqueThumbnails.map(thumb => `
+                                    <div class="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden hover:border-amber-500 transition-colors">
+                                        <img src="${thumb.thumbnailUrl}" alt="${thumb.title || 'Thumbnail'}" class="w-full h-32 object-cover cursor-pointer" onclick="window.open('${thumb.videoUrl || '#'}', '_blank')">
+                                        <div class="p-3">
+                                            <p class="text-white text-xs font-semibold line-clamp-2 mb-2">${escapeHtml(thumb.title || 'Sem título')}</p>
+                                            <div class="flex items-center justify-between text-xs text-gray-400">
+                                                <span>${thumb.views && thumb.views > 0 ? formatNumber(thumb.views) + ' views' : 'Sem views'}</span>
+                                                <span class="text-amber-400">${thumb.similarityScore ? (thumb.similarityScore * 100).toFixed(0) + '%' : '0%'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    } else {
+                        contentDiv.innerHTML = '<p class="text-gray-400">Nenhuma thumbnail semelhante encontrada.</p>';
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('[Thumbnails Semelhantes] Erro:', err);
+                    const contentDiv = document.getElementById('similar-thumbnails-content');
+                    if (contentDiv) {
+                        const escapeHtml = (text) => {
+                            if (!text) return '';
+                            const div = document.createElement('div');
+                            div.textContent = String(text);
+                            return div.innerHTML;
+                        };
+                        contentDiv.innerHTML = `<p class="text-red-400">Erro: ${escapeHtml(err.message)}</p>`;
+                    }
+                }
+            };
             
             function showNotification(title, message, type = 'info', duration = 5000) {
                 const container = document.getElementById('notification-container');
@@ -12263,6 +12594,7 @@ Equipe La Casa Dark Core</textarea>
                 }
                 if (viewName === 'analisador' || viewName === 'explorar-nicho') {
                     loadFolders();
+                    // Campo de canal removido - não precisa mais carregar canais
                 }
                 if (viewName === 'analytics') {
                     loadAnalytics();
@@ -12294,6 +12626,9 @@ Equipe La Casa Dark Core</textarea>
                     // ❗️Sem refresh automático (SaaS + quota): atualizar somente via ações do usuário
                     // - Clique em "Atualizar" / "Carregar Métricas"
                     // - Evento do popup OAuth (postMessage)
+                }
+                if (viewName === 'buscar-canais') {
+                    loadChannelsForSimilarSearch();
                 } else {
                     // Parar atualização automática quando sair da view de YouTube
                     if (youtubeChannelsRefreshInterval) {
@@ -12955,6 +13290,7 @@ Equipe La Casa Dark Core</textarea>
                 const videoUrl = document.getElementById('video-url').value;
                 const model = document.getElementById('model-select').value;
                 const folderId = folderSelect.value;
+                const channelId = null; // Removido campo de seleção de canal
                 
                 if (loadingSpinner) loadingSpinner.style.display = 'flex';
                 if (resultadosDiv) {
@@ -13025,6 +13361,7 @@ Equipe La Casa Dark Core</textarea>
                             videoUrl, 
                             model: requestModel,
                             folderId: folderId || null,
+                            channelId: channelId || null,
                             language
                         })
                     });
@@ -13148,6 +13485,14 @@ Equipe La Casa Dark Core</textarea>
             
             function populateAnalysisResults(data, videoUrl) {
                 try {
+                    // Função helper para escape HTML (garantir que está disponível)
+                    const escapeHtml = (text) => {
+                        if (!text) return '';
+                        const div = document.createElement('div');
+                        div.textContent = String(text);
+                        return div.innerHTML;
+                    };
+                    
                     if (!resultadosDiv) {
                         console.error('[Frontend] resultadosDiv não encontrado');
                         return;
@@ -13159,7 +13504,9 @@ Equipe La Casa Dark Core</textarea>
                     
                     resultadosDiv.style.display = 'block';
                     
-                    document.getElementById('video-url').value = videoUrl || data.originalVideoUrl || '';
+                    // Garantir que videoUrl está disponível no escopo
+                    const currentVideoUrl = videoUrl || data.originalVideoUrl || '';
+                    document.getElementById('video-url').value = currentVideoUrl;
                     
                     // Garantir que todas as propriedades existem antes de usar
                     const videoDetails = data.videoDetails || {};
@@ -13191,7 +13538,15 @@ Equipe La Casa Dark Core</textarea>
                     }
                     videoSummaryHtml += `
                         <div class="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-6 mb-6 bg-gray-800 p-4 rounded-lg border border-gray-700">
-                            <img src="${thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
+                            <div class="relative w-full md:w-48">
+                                <img src="${thumbnailUrl}" alt="Thumbnail do vídeo" class="w-full md:w-48 rounded-lg object-cover">
+                                ${thumbnailUrl ? `
+                                <button onclick="window.searchSimilarThumbnails && window.searchSimilarThumbnails('${thumbnailUrl.replace(/'/g, "\\'")}', '${escapeHtml(title).replace(/'/g, "\\'")}')" class="absolute bottom-2 right-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-lg transition-colors z-10" title="Buscar thumbnails semelhantes">
+                                    <i data-lucide="search" class="w-3 h-3"></i>
+                                    Semelhantes
+                                </button>
+                                ` : ''}
+                            </div>
                             <div class="flex-1">
                                 <h3 class="text-xl font-semibold text-white mb-2">${title}</h3>
                                 ${translatedTitle ? `
@@ -13234,6 +13589,10 @@ Equipe La Casa Dark Core</textarea>
                                     <button id="btn-load-transcript" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-amber-600 hover:bg-amber-500 text-black text-xs">
                                         <i data-lucide="file-text" class="w-4 h-4 mr-1.5"></i>
                                         Carregar Transcrição
+                                    </button>
+                                    <button onclick="window.searchSimilarVideos && window.searchSimilarVideos('${escapeHtml(currentVideoUrl || '').replace(/'/g, "\\'")}')" class="py-1 px-3 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-blue-600 hover:bg-blue-500 text-white text-xs">
+                                        <i data-lucide="search" class="w-4 h-4 mr-1.5"></i>
+                                        Buscar Vídeos Semelhantes
                                     </button>
                                 </div>
                             </div>
@@ -13373,8 +13732,10 @@ Equipe La Casa Dark Core</textarea>
                             .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
                             .trim();
                         const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
-                        const isCheckedClass = titleObj.is_checked ? 'opacity-60' : '';
-                        const isCheckedLabelClass = titleObj.is_checked ? 'line-through' : '';
+                        // Garantir que is_checked seja boolean (pode vir como 0/1 do banco)
+                        const isChecked = Boolean(titleObj.is_checked);
+                        const isCheckedClass = isChecked ? 'opacity-60' : '';
+                        const isCheckedLabelClass = isChecked ? 'line-through' : '';
                         
                         // Formatar nome do modelo para exibição e obter cor
                         const formatModelNameForDisplay = (model) => {
@@ -13396,7 +13757,10 @@ Equipe La Casa Dark Core</textarea>
                         const modelBadgeClass = modelBadgeColors[modelInfo.color] || modelBadgeColors.amber;
 
                         // Escapar fórmula/estrutura para HTML
-                        const escapedFormula = (titleObj.formula || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>');
+                        // SEMPRE usar a fórmula específica do título (não repetir a fórmula do título original)
+                        const formulaToShow = titleObj.formula || 'Fórmula não disponível';
+                        const escapedFormula = String(formulaToShow).replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>');
+                        const hasExplicacao = titleObj.explicacao && String(titleObj.explicacao).trim().length > 0;
 
                         titlesHtml += `
                             <li class="group relative bg-gradient-to-br from-gray-800 via-gray-800/95 to-gray-900 p-5 rounded-xl border border-gray-700/50 shadow-lg shadow-black/20 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 hover:border-amber-500/30 ${isCheckedClass}">
@@ -13408,7 +13772,7 @@ Equipe La Casa Dark Core</textarea>
                                     <!-- Title Section -->
                                     <div class="flex items-start gap-4 mb-4">
                                         <div class="flex-shrink-0 mt-0.5">
-                                            <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700/80 border-gray-600 rounded-md text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all cursor-pointer" data-title-id="${titleObj.id}" ${titleObj.is_checked ? 'checked' : ''}>
+                                            <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700/80 border-gray-600 rounded-md text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all cursor-pointer" data-title-id="${titleObj.id}" ${isChecked ? 'checked' : ''}>
                                         </div>
                                         <div class="flex-1 min-w-0">
                                             <label for="check-${index}" class="flex items-center gap-2.5 cursor-pointer group/label">
@@ -13424,8 +13788,7 @@ Equipe La Casa Dark Core</textarea>
                                 </div>
                                     </div>
                                     
-                                    <!-- Formula Section - Detalhada como análise do título original -->
-                                    ${titleObj.formula || titleObj.explicacao ? `
+                                    <!-- Formula Section - SEMPRE EXIBIR (obrigatório) -->
                                     <div class="mb-4 pl-9">
                                         <div class="relative bg-gradient-to-br from-gray-900/80 via-gray-900/60 to-gray-900/80 rounded-lg p-5 border border-gray-700/50 shadow-inner">
                                             <div class="absolute top-4 left-4 w-1.5 h-1.5 rounded-full bg-amber-500/60 animate-pulse"></div>
@@ -13434,24 +13797,21 @@ Equipe La Casa Dark Core</textarea>
                                                 Análise da Estrutura/Fórmula
                                             </h5>
                                             
-                                            ${titleObj.explicacao ? `
+                                            ${hasExplicacao ? `
                                             <div class="mb-4">
                                                 <p class="text-sm text-gray-300 mb-2">
-                                                    <strong>Motivo do Sucesso:</strong> ${titleObj.explicacao.replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>')}
+                                                    <strong>Motivo do Sucesso:</strong> ${String(titleObj.explicacao || '').replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>')}
                                     </p>
                                             </div>
                                             ` : ''}
                                             
-                                            ${titleObj.formula ? `
-                                            <div class="pt-3 border-t border-gray-700/50">
+                                            <div class="${hasExplicacao ? 'pt-3 border-t border-gray-700/50' : ''}">
                                                 <p class="text-sm text-gray-300 mb-2">
                                                     <strong>Fórmula:</strong> <code class="text-amber-400">${escapedFormula}</code>
                                                 </p>
                                             </div>
-                                            ` : ''}
                                         </div>
                                     </div>
-                                    ` : ''}
                                     
                                     <!-- Bottom Section: Badges -->
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pl-9 pt-3 border-t border-gray-700/50">
@@ -13468,6 +13828,24 @@ Equipe La Casa Dark Core</textarea>
                                                     <span>Impacto ${impactScore}/10</span>
                                                 </span>
                                             ` : ''}
+                                            ${titleObj.canal_adequacao ? `
+                                                ${titleObj.canal_adequacao === 'IDEAL' ? `
+                                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white font-bold text-sm shadow-sm" title="${titleObj.motivo_adequacao || 'Título ideal para o canal selecionado'}">
+                                                        <span>✓</span>
+                                                        <span>IDEAL para Canal</span>
+                                                    </span>
+                                                ` : titleObj.canal_adequacao === 'ADEQUADO' ? `
+                                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-600 text-white font-bold text-sm shadow-sm" title="${titleObj.motivo_adequacao || 'Título adequado para o canal com pequenos ajustes'}">
+                                                        <span>⚠</span>
+                                                        <span>ADEQUADO</span>
+                                                    </span>
+                                                ` : titleObj.canal_adequacao === 'FORA_DO_TEMA' ? `
+                                                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white font-bold text-sm shadow-sm" title="${titleObj.motivo_adequacao || 'Título não recomendado para este canal'}">
+                                                        <span>✗</span>
+                                                        <span>FORA DO TEMA</span>
+                                                    </span>
+                                                ` : ''}
+                                            ` : ''}
                                             <button title="Copiar Título" class="btn-copy p-2 rounded-lg bg-gray-700/50 hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 border border-gray-700/50 hover:border-amber-500/50 transition-all duration-200 shadow-sm hover:shadow-md" data-copy-text="${escapedTitle}">
                                             <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                         </button>
@@ -13482,7 +13860,7 @@ Equipe La Casa Dark Core</textarea>
                         const option = document.createElement('option');
                         option.value = escapedTitle;
                         option.innerText = escapedTitle;
-                        if (titleObj.is_checked) {
+                        if (isChecked) {
                             option.selected = true;
                         }
                         thumbTitleSelect.appendChild(option);
@@ -14575,7 +14953,26 @@ Equipe La Casa Dark Core</textarea>
             resultadosDiv.addEventListener('change', async (e) => {
                 if (e.target.classList.contains('title-checkbox')) {
                     const checkbox = e.target;
-                    const titleId = checkbox.dataset.titleId;
+                    const titleId = checkbox.dataset.titleId || checkbox.getAttribute('data-title-id');
+                    
+                    // Log para debug
+                    console.log('[Biblioteca Frontend] Checkbox clicado:', {
+                        titleId,
+                        hasDataset: !!checkbox.dataset.titleId,
+                        hasAttribute: !!checkbox.getAttribute('data-title-id'),
+                        checkboxElement: checkbox
+                    });
+                    
+                    if (!titleId || titleId === 'undefined' || titleId === 'null') {
+                        console.error('[Biblioteca Frontend] ❌ titleId não encontrado no checkbox!', {
+                            dataset: checkbox.dataset,
+                            attributes: Array.from(checkbox.attributes).map(a => ({ name: a.name, value: a.value }))
+                        });
+                        alert('Erro: ID do título não encontrado. Por favor, recarregue a página e tente novamente.');
+                        checkbox.checked = !checkbox.checked; // Reverter checkbox
+                        return;
+                    }
+                    
                     const isChecked = checkbox.checked;
 
                     // Adiciona/remove o estilo visual
@@ -14675,12 +15072,24 @@ Equipe La Casa Dark Core</textarea>
 
                     // Salvar o estado no backend
                     try {
+                        // Obter token do localStorage
+                        const token = localStorage.getItem('core_token');
+                        if (!token) {
+                            console.error('[Biblioteca Frontend] Token não encontrado');
+                            throw new Error('Token não encontrado. Faça login novamente.');
+                        }
+                        
+                        if (!titleId) {
+                            console.error('[Biblioteca Frontend] titleId não encontrado no checkbox');
+                            throw new Error('ID do título não encontrado.');
+                        }
+                        
                         console.log(`[Biblioteca Frontend] Enviando requisição para marcar título ${titleId} como ${isChecked ? 'marcado' : 'desmarcado'}`);
                         const response = await fetch(`${API_BASE}/api/titles/${titleId}/check`, {
                             method: 'PUT',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${userToken}`
+                                'Authorization': `Bearer ${token}`
                             },
                             body: JSON.stringify({ is_checked: isChecked })
                         });
@@ -14689,6 +15098,11 @@ Equipe La Casa Dark Core</textarea>
                         
                         if (response.ok) {
                             const data = await response.json();
+                            console.log('[Biblioteca Frontend] ✅ Resposta do servidor:', data);
+                            
+                            // Garantir que o checkbox permaneça marcado após sucesso
+                            checkbox.checked = isChecked;
+                            
                             if (isChecked) {
                                 console.log('[Biblioteca] ✅ Título marcado e salvo na biblioteca');
                                 // Mostrar mensagem de sucesso
@@ -14711,11 +15125,13 @@ Equipe La Casa Dark Core</textarea>
                             refreshDashboardIfVisible();
                         } else {
                             const errorData = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                            console.error('[Biblioteca Frontend] ❌ Erro na resposta:', response.status, errorData);
                             throw new Error(errorData.msg || 'Erro ao salvar título');
                         }
                     } catch (err) {
                         console.error("Falha ao salvar o estado do título:", err);
-                        // Opcional: reverter a mudança visual em caso de erro
+                        // Reverter a mudança visual em caso de erro
+                        const listItem = checkbox.closest('li');
                         if (listItem) {
                             listItem.classList.toggle('opacity-60', !isChecked);
                             const label = listItem.querySelector('label');
@@ -14724,6 +15140,9 @@ Equipe La Casa Dark Core</textarea>
                             }
                         }
                         checkbox.checked = !isChecked;
+                        
+                        // Mostrar mensagem de erro ao usuário
+                        alert(`Erro ao salvar título: ${err.message || 'Erro desconhecido'}`);
                     }
                 }
             });
@@ -16391,6 +16810,108 @@ Equipe La Casa Dark Core</textarea>
             const selectAllHistory = document.getElementById('select-all-history');
             const deleteSelectedBtn = document.getElementById('delete-selected-history');
 
+            // Carregar canais do usuário
+            async function loadChannels() {
+                try {
+                    // Buscar o elemento novamente para garantir que existe
+                    const select = document.getElementById('channel-select');
+                    if (!select) {
+                        console.warn('[Analisador] Elemento channel-select não encontrado, tentando novamente em 500ms...');
+                        setTimeout(() => loadChannels(), 500);
+                        return;
+                    }
+                    
+                    console.log('[Analisador] Carregando canais...');
+                    const response = await fetch(`${API_BASE}/api/channels`, {
+                        headers: { 'Authorization': `Bearer ${userToken}` }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('[Analisador] Erro ao carregar canais:', response.status, errorText);
+                        return;
+                    }
+                    
+                    const channels = await response.json();
+                    console.log('[Analisador] Canais recebidos:', channels);
+                    console.log('[Analisador] Total de canais:', channels?.length || 0);
+                    
+                    // Limpar select
+                    select.innerHTML = '<option value="">Nenhum canal selecionado</option>';
+                    
+                    if (channels && Array.isArray(channels) && channels.length > 0) {
+                        let addedCount = 0;
+                        channels.forEach(channel => {
+                            // Verificar se o canal está ativo (is_active pode ser 1, true, ou não estar definido)
+                            const isActive = channel.is_active !== undefined ? channel.is_active !== 0 && channel.is_active !== false : true;
+                            if (isActive && channel.channel_name) {
+                                const option = document.createElement('option');
+                                option.value = channel.id;
+                                option.textContent = `${channel.channel_name}${channel.niche ? ` (${channel.niche})` : ''}`;
+                                select.appendChild(option);
+                                addedCount++;
+                                console.log('[Analisador] ✅ Canal adicionado ao select:', channel.channel_name, '(ID:', channel.id, ', channel_id:', channel.channel_id, ')');
+                            } else {
+                                console.log('[Analisador] ⚠️ Canal ignorado:', channel.is_active === false ? 'inativo' : 'sem nome', channel);
+                            }
+                        });
+                        console.log(`[Analisador] ✅ Total de ${addedCount} canal(is) adicionado(s) ao select`);
+                        
+                        if (addedCount === 0) {
+                            console.warn('[Analisador] ⚠️ Nenhum canal ativo encontrado para adicionar');
+                        }
+                    } else {
+                        console.warn('[Analisador] ⚠️ Nenhum canal retornado pela API ou array vazio');
+                        console.log('[Analisador] Resposta completa:', channels);
+                    }
+                } catch (err) {
+                    console.error('[Analisador] ❌ Erro ao carregar canais:', err);
+                    console.error('[Analisador] Stack:', err.stack);
+                }
+            }
+            
+            // Carregar canais ao inicializar
+            // Campo de canal removido - não precisa mais carregar canais aqui
+            
+            // Listener para quando canais são conectados via OAuth
+            window.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'youtubeChannelsConnected') {
+                    console.log('[Analisador] Canais conectados via OAuth, recarregando lista...');
+                    // Aguardar um pouco para garantir que o backend processou
+                    setTimeout(() => {
+                        if (typeof loadChannels === 'function') {
+                            loadChannels();
+                        }
+                    }, 2000);
+                }
+            });
+            
+            // Também tentar carregar quando a view do analisador for exibida
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                        const analisadorView = document.getElementById('analisador');
+                        if (analisadorView && analisadorView.style.display !== 'none') {
+                            const select = document.getElementById('channel-select');
+                            if (select && select.options.length <= 1) {
+                                console.log('[Analisador] View visível e select vazio, recarregando canais...');
+                                setTimeout(() => {
+                                    if (typeof loadChannels === 'function') {
+                                        loadChannels();
+                                    }
+                                }, 300);
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Observar mudanças na view do analisador
+            const analisadorView = document.getElementById('analisador');
+            if (analisadorView) {
+                observer.observe(analisadorView, { attributes: true, attributeFilter: ['style'] });
+            }
+            
             async function loadFolders() {
                 try {
                     console.log('Carregando pastas...', { API_BASE });
@@ -18958,6 +19479,9 @@ Equipe La Casa Dark Core</textarea>
                     loadRecentVideos(data.recentVideos || []);
                     }
                     
+                    // Carregar Palavra do Dia
+                    loadDailyVerse();
+                    
                     // Carregar atividade recente
                     loadRecentActivity(data);
                     
@@ -18988,11 +19512,12 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                const videosHtml = videos.slice(0, 5).map(video => {
+                const videosHtml = videos.slice(0, 2).map(video => {
                     const views = formatNumber(video.actual_views || 0);
                     const ctr = (video.actual_ctr || 0).toFixed(1);
                     const revenue = video.revenue_estimate ? '$' + formatNumber(Math.round(video.revenue_estimate)) : 'N/A';
                     const channelName = video.channel_name || 'Canal Desconhecido';
+                    const videoId = video.id || video.youtube_video_id;
                     
                     return `
                         <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-amber-500/50 transition-colors">
@@ -19006,6 +19531,9 @@ Equipe La Casa Dark Core</textarea>
                                     </div>
                                     <p class="text-xs text-gray-500 mt-2">${channelName}</p>
                                 </div>
+                                <button onclick="deleteRecentVideo(${videoId})" class="ml-4 p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Excluir vídeo">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
                             </div>
                         </div>
                     `;
@@ -19014,6 +19542,117 @@ Equipe La Casa Dark Core</textarea>
                 container.innerHTML = videosHtml;
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
+
+            async function deleteRecentVideo(videoId) {
+                if (!confirm('Tem certeza que deseja excluir este vídeo do histórico?')) {
+                    return;
+                }
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/analytics/track/${videoId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (response.ok) {
+                        // Recarregar dashboard
+                        loadDashboard();
+                    } else {
+                        const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        alert('Erro ao excluir vídeo: ' + (error.msg || 'Erro desconhecido'));
+                    }
+                } catch (err) {
+                    console.error('Erro ao excluir vídeo:', err);
+                    alert('Erro ao excluir vídeo. Tente novamente.');
+                }
+            }
+
+            async function loadDailyVerse() {
+                const container = document.getElementById('daily-verse');
+                if (!container) return;
+                
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/daily-verse`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        const verse = data.verse;
+                        const isCompleted = data.isCompleted;
+                        
+                        if (verse) {
+                            container.innerHTML = `
+                                <div class="bg-gray-800/50 rounded-lg p-5 border ${isCompleted ? 'border-green-500/50' : 'border-amber-500/30'}">
+                                    <div class="flex items-start justify-between mb-3">
+                                        <div class="flex-1">
+                                            <p class="text-white text-lg leading-relaxed mb-3 italic">"${verse.verse_text}"</p>
+                                            <p class="text-amber-400 font-semibold">${verse.reference}</p>
+                                        </div>
+                                        <button onclick="window.toggleDailyVerseComplete(${data.dayOfYear})" 
+                                                class="ml-4 p-2 rounded-lg transition-colors ${isCompleted ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-gray-700 text-gray-400 hover:bg-amber-500/20 hover:text-amber-400'}"
+                                                title="${isCompleted ? 'Marcar como não lido' : 'Marcar como lido'}">
+                                            <i data-lucide="${isCompleted ? 'check-circle' : 'circle'}" class="w-6 h-6"></i>
+                                        </button>
+                                    </div>
+                                    ${isCompleted ? '<div class="mt-2 text-xs text-green-400 flex items-center"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Lido hoje</div>' : ''}
+                                </div>
+                            `;
+                        } else {
+                            container.innerHTML = `
+                                <div class="text-center text-gray-400 py-4">
+                                    <i data-lucide="book-open" class="w-8 h-8 mx-auto mb-2 text-gray-600"></i>
+                                    <p class="text-sm">Palavra do dia não disponível</p>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        container.innerHTML = `
+                            <div class="text-center text-gray-400 py-4">
+                                <p class="text-sm">Erro ao carregar palavra do dia</p>
+                            </div>
+                        `;
+                    }
+                    
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } catch (err) {
+                    console.error('Erro ao carregar palavra do dia:', err);
+                    container.innerHTML = `
+                        <div class="text-center text-gray-400 py-4">
+                            <p class="text-sm">Erro ao carregar palavra do dia</p>
+                        </div>
+                    `;
+                }
+            }
+
+            // Tornar função acessível globalmente
+            window.toggleDailyVerseComplete = async function(dayOfYear) {
+                try {
+                    const token = localStorage.getItem('core_token');
+                    const response = await fetch(`${API_BASE}/api/daily-verse/complete`, {
+                        method: 'POST',
+                        headers: { 
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ dayOfYear: dayOfYear })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        // Recarregar palavra do dia
+                        loadDailyVerse();
+                    } else {
+                        const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                        alert('Erro ao atualizar status: ' + (error.msg || 'Erro desconhecido'));
+                    }
+                } catch (err) {
+                    console.error('Erro ao marcar palavra do dia:', err);
+                    alert('Erro ao marcar palavra do dia. Tente novamente.');
+                }
+            };
 
             function loadRecentActivity(data) {
                 const container = document.getElementById('recent-activity');
@@ -20640,41 +21279,47 @@ Equipe La Casa Dark Core</textarea>
                     modal.id = 'generate-script-modal';
                     modal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center';
                     modal.innerHTML = `
-                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4">
-                            <div class="flex justify-between items-center mb-4">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-semibold text-white">Gerar Roteiro com Agente</h3>
-                                <span id="script-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
-                                <button id="close-generate-script-modal" class="text-gray-400 hover:text-white">
-                                    <i data-lucide="x"></i>
-                                </button>
+                        <div class="bg-gray-900 border-2 border-amber-500 rounded-xl shadow-2xl p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-2xl font-bold text-white">Gerar Roteiro com Agente</h3>
+                                <div class="flex items-center gap-3">
+                                    <span id="script-credit-estimate" class="credit-cost-badge" style="display: none;"></span>
+                                    <button id="close-generate-script-modal" class="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-800">
+                                        <i data-lucide="x" class="w-5 h-5"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <form id="generate-script-form" class="space-y-4">
+                            <form id="generate-script-form" class="space-y-6">
+                                <!-- Agente -->
                                 <div>
-                                    <label class="block text-sm font-medium mb-2 text-gray-300">Agente <span class="text-amber-500">*</span></label>
-                                    <input type="text" id="generate-script-agent-name" readonly class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed" required>
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Agente <span class="text-amber-500">*</span></label>
+                                    <input type="text" id="generate-script-agent-name" readonly class="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-300 cursor-not-allowed" required>
                                     <input type="hidden" id="generate-script-agent-id" value="">
-                                    <p class="text-xs text-gray-400 mt-1">Agente selecionado para gerar o roteiro</p>
+                                    <p class="text-xs text-gray-500 mt-1.5">Agente selecionado para gerar o roteiro</p>
                                 </div>
+
+                                <!-- Título do Vídeo -->
                                 <div>
-                                    <label class="block text-sm font-medium mb-2 text-gray-300">Título do Vídeo <span class="text-amber-500">*</span></label>
-                                    <input type="text" id="generate-script-title" placeholder="Cole aqui o título do vídeo para o qual deseja gerar o roteiro..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
-                                    <p class="text-xs text-gray-400 mt-1">O agente irá analisar o título e gerar um roteiro completo seguindo a estrutura do vídeo viral original.</p>
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Título do Vídeo <span class="text-amber-500">*</span></label>
+                                    <input type="text" id="generate-script-title" placeholder="Cole aqui o título do vídeo para o qual deseja gerar o roteiro..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" required>
+                                    <p class="text-xs text-gray-500 mt-1.5">O agente irá analisar o título e gerar um roteiro completo seguindo a estrutura do vídeo viral original.</p>
                                 </div>
-                                <div class="grid grid-cols-2 gap-4">
+
+                                <!-- Grid: Duração, Partes e Idioma -->
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
-                                        <label class="block text-sm font-medium mb-2 text-gray-300">Duração (min) <span class="text-amber-500">*</span></label>
-                                        <input type="number" id="generate-script-duration" min="3" max="120" value="5" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
-                                        <p class="text-xs text-gray-400 mt-1">Palavras: ~<span id="duration-words">650</span></p>
+                                        <label class="block text-sm font-semibold mb-2 text-gray-200">Duração (min) <span class="text-amber-500">*</span></label>
+                                        <input type="number" id="generate-script-duration" min="3" max="120" value="5" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" required>
+                                        <p class="text-xs text-gray-500 mt-1.5">Palavras: ~<span id="duration-words" class="text-amber-400 font-medium">650</span></p>
                                     </div>
                                     <div>
-                                        <label class="block text-sm font-medium mb-2 text-gray-300">Partes (Automático)</label>
-                                        <input type="text" id="generate-script-parts" readonly class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed">
-                                        <p class="text-xs text-gray-400 mt-1">Partes de 3 minutos cada</p>
+                                        <label class="block text-sm font-semibold mb-2 text-gray-200">Partes (Automático)</label>
+                                        <input type="text" id="generate-script-parts" readonly class="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-400 cursor-not-allowed">
+                                        <p class="text-xs text-gray-500 mt-1.5">Partes de 3 minutos cada</p>
                                     </div>
                                     <div>
-                                        <label class="block text-sm font-medium mb-2 text-gray-300">Idioma do Roteiro <span class="text-amber-500">*</span></label>
-                                        <select id="generate-script-language" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                                        <label class="block text-sm font-semibold mb-2 text-gray-200">Idioma do Roteiro <span class="text-amber-500">*</span></label>
+                                        <select id="generate-script-language" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" required>
                                             <option value="pt" selected>Português (Brasil)</option>
                                             <option value="pt-PT">Português (Portugal)</option>
                                             <option value="es">Español</option>
@@ -20688,40 +21333,48 @@ Equipe La Casa Dark Core</textarea>
                                         </select>
                                     </div>
                                 </div>
-                                <div>
-                                    <label class="block text-sm font-medium mb-2 text-gray-300">Call to Action (CTA) - Onde incluir?</label>
-                                    <div class="space-y-2">
-                                        <label class="flex items-center space-x-2 cursor-pointer">
-                                            <input type="checkbox" id="cta-inicio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
-                                            <span class="text-sm text-gray-300">CTA no Início (primeiros 30 segundos)</span>
+
+                                <!-- Call to Action -->
+                                <div class="bg-gray-800/30 border border-gray-700 rounded-lg p-4">
+                                    <label class="block text-sm font-semibold mb-3 text-gray-200">Call to Action (CTA) - Onde incluir?</label>
+                                    <div class="space-y-3">
+                                        <label class="flex items-center space-x-3 cursor-pointer group hover:bg-gray-800/50 p-2 rounded-lg transition-colors">
+                                            <input type="checkbox" id="cta-inicio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500 focus:ring-2">
+                                            <span class="text-sm text-gray-300 group-hover:text-white transition-colors">CTA no Início (primeiros 30 segundos)</span>
                                         </label>
-                                        <label class="flex items-center space-x-2 cursor-pointer">
-                                            <input type="checkbox" id="cta-meio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500">
-                                            <span class="text-sm text-gray-300">CTA no Meio (aproximadamente na metade do vídeo)</span>
+                                        <label class="flex items-center space-x-3 cursor-pointer group hover:bg-gray-800/50 p-2 rounded-lg transition-colors">
+                                            <input type="checkbox" id="cta-meio" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500 focus:ring-2">
+                                            <span class="text-sm text-gray-300 group-hover:text-white transition-colors">CTA no Meio (aproximadamente na metade do vídeo)</span>
                                         </label>
-                                        <label class="flex items-center space-x-2 cursor-pointer">
-                                            <input type="checkbox" id="cta-final" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-700 rounded focus:ring-amber-500" checked>
-                                            <span class="text-sm text-gray-300">CTA no Final (últimos 30 segundos)</span>
+                                        <label class="flex items-center space-x-3 cursor-pointer group hover:bg-gray-800/50 p-2 rounded-lg transition-colors">
+                                            <input type="checkbox" id="cta-final" class="w-4 h-4 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500 focus:ring-2" checked>
+                                            <span class="text-sm text-gray-300 group-hover:text-white transition-colors">CTA no Final (últimos 30 segundos)</span>
                                         </label>
                                     </div>
-                                    <p class="text-xs text-gray-400 mt-1">Marque onde deseja incluir chamadas para ação (like, subscribe, comentar, etc.)</p>
+                                    <p class="text-xs text-gray-500 mt-3">Marque onde deseja incluir chamadas para ação (like, subscribe, comentar, etc.)</p>
                                 </div>
+
+                                <!-- Modelo de IA -->
                                 <div>
-                                    <label class="block text-sm font-medium mb-2 text-gray-300">Modelo de IA</label>
-                                    <select id="generate-script-model" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Modelo de IA</label>
+                                    <select id="generate-script-model" class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
                                         <option value="claude-sonnet-4-20250514" selected>Claude 4 Sonnet ⭐ Recomendado</option>
                                         <option value="gpt-4o">GPT-4o (2025)</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro (2025)</option>
                                     </select>
                                 </div>
+
+                                <!-- Tópico Adicional -->
                                 <div>
-                                    <label class="block text-sm font-medium mb-2 text-gray-300">Tópico Adicional (Opcional)</label>
-                                    <textarea id="generate-script-topic" rows="3" placeholder="Se desejar, adicione informações adicionais sobre o tópico ou contexto específico..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
-                                    <p class="text-xs text-gray-400 mt-1">Opcional: Use apenas se quiser fornecer contexto adicional além do título.</p>
+                                    <label class="block text-sm font-semibold mb-2 text-gray-200">Tópico Adicional <span class="text-gray-500 text-xs">(Opcional)</span></label>
+                                    <textarea id="generate-script-topic" rows="4" placeholder="Se desejar, adicione informações adicionais sobre o tópico ou contexto específico..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none transition-all"></textarea>
+                                    <p class="text-xs text-gray-500 mt-1.5">Opcional: Use apenas se quiser fornecer contexto adicional além do título.</p>
                                 </div>
-                                <div class="flex space-x-4">
-                                    <button type="button" id="cancel-generate-script" class="flex-1 py-3 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold">Cancelar</button>
-                                    <button type="submit" id="submit-generate-script" class="flex-1 py-3 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-semibold flex items-center justify-center space-x-2">
+
+                                <!-- Botões -->
+                                <div class="flex space-x-4 pt-2">
+                                    <button type="button" id="cancel-generate-script" class="flex-1 py-3 px-6 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold transition-colors">Cancelar</button>
+                                    <button type="submit" id="submit-generate-script" class="flex-1 py-3 px-6 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-bold flex items-center justify-center space-x-2 transition-colors shadow-lg shadow-amber-500/20">
                                         <span>Gerar Roteiro</span>
                                         <div class="btn-spinner hidden"></div>
                                     </button>
@@ -22907,20 +23560,32 @@ Equipe La Casa Dark Core</textarea>
                                 btnConnect.innerHTML = '<i data-lucide="plus"></i><span>Adicionar Canal</span>';
                             }
 
-                            // Resumo rápido (primeiro canal) — evitar “piscar” a cada refresh
+                            // Resumo rápido (primeiro canal) — NÃO carregar automaticamente para economizar quota
+                            // Só carregar se não tiver dados ainda ou se o usuário clicar no botão de recarregar
                             if (data.channels && data.channels.length > 0) {
                                 const ch = data.channels[0];
-                                const key = `${ch.id}`;
-                                const now = Date.now();
-                                const shouldRefresh =
-                                    !lastQuickOverviewChannelKey ||
-                                    lastQuickOverviewChannelKey !== key ||
-                                    (now - lastQuickOverviewLoadedAt) > 60000; // 60s
-                                if (shouldRefresh) {
-                                    lastQuickOverviewChannelKey = key;
-                                    lastQuickOverviewLoadedAt = now;
-                                    loadYouTubeQuickOverview(ch, { forceLoading: !document.getElementById('youtube-quick-overview')?.dataset?.hasData });
+                                const overviewBox = document.getElementById('youtube-quick-overview');
+                                // Só carregar se não tiver dados ainda (primeira vez)
+                                if (overviewBox && !overviewBox.dataset.hasData) {
+                                    loadYouTubeQuickOverview(ch, { forceLoading: true });
+                                } else if (overviewBox && !overviewBox.innerHTML.trim()) {
+                                    // Se a box está vazia, mostrar botão para carregar
+                                    overviewBox.innerHTML = `
+                                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 text-center">
+                                            <p class="text-gray-400 mb-3">Clique no botão abaixo para carregar o resumo do canal</p>
+                                            <button onclick="loadYouTubeQuickOverview(${JSON.stringify(ch)}, { forceLoading: true })" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold">
+                                                Carregar Resumo
+                                            </button>
+                                        </div>
+                                    `;
                                 }
+                            }
+                            
+                            // Recarregar canais no seletor do analisador após conectar novos canais
+                            if (typeof loadChannels === 'function') {
+                                setTimeout(() => {
+                                    loadChannels();
+                                }, 500);
                             }
                         } else {
                             channelsList.innerHTML = '<p class="text-gray-400">Nenhum canal conectado. Clique em "Adicionar Canal" para começar.</p>';
@@ -22968,7 +23633,8 @@ Equipe La Casa Dark Core</textarea>
                         box.innerHTML = '<p class="text-gray-400">Carregando resumo do canal...</p>';
                     }
 
-                    const resp = await fetch(`${API_BASE}/api/youtube/channels/${channel.id}/analytics?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`, {
+                    // Buscar todas as métricas disponíveis
+                    const resp = await fetch(`${API_BASE}/api/youtube/channels/${channel.id}/analytics?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}&metrics=views,estimatedMinutesWatched,subscribersGained,likes,comments,shares,averageViewDuration,averageViewPercentage,impressions,impressionsCtr,estimatedRevenue,estimatedAdRevenue`, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
                     if (!resp.ok) {
@@ -22977,20 +23643,33 @@ Equipe La Casa Dark Core</textarea>
                     }
                     const data = await resp.json();
 
+                    // Extrair métricas básicas
                     let views = 0;
                     let watch = 0;
                     let subsGained = 0;
+                    let likes = 0;
+                    let comments = 0;
+                    let shares = 0;
+                    
                     if (data.analytics?.rows?.length && data.analytics?.columnHeaders?.length) {
                         const row = data.analytics.rows[0];
                         const headers = data.analytics.columnHeaders.map(h => h.name);
                         const idxViews = headers.findIndex(h => h === 'views');
                         const idxWatch = headers.findIndex(h => h === 'estimatedMinutesWatched');
                         const idxSubs = headers.findIndex(h => h === 'subscribersGained');
+                        const idxLikes = headers.findIndex(h => h === 'likes');
+                        const idxComments = headers.findIndex(h => h === 'comments');
+                        const idxShares = headers.findIndex(h => h === 'shares');
+                        
                         views = idxViews >= 0 ? parseInt(row[idxViews] || 0) : 0;
                         watch = idxWatch >= 0 ? parseInt(row[idxWatch] || 0) : 0;
                         subsGained = idxSubs >= 0 ? parseInt(row[idxSubs] || 0) : 0;
+                        likes = idxLikes >= 0 ? parseInt(row[idxLikes] || 0) : 0;
+                        comments = idxComments >= 0 ? parseInt(row[idxComments] || 0) : 0;
+                        shares = idxShares >= 0 ? parseInt(row[idxShares] || 0) : 0;
                     }
 
+                    // Métricas avançadas
                     const adv = data.advanced || {};
                     const ctrNum = (adv.impressionsCtr !== null && adv.impressionsCtr !== undefined && !isNaN(parseFloat(adv.impressionsCtr)))
                         ? parseFloat(adv.impressionsCtr)
@@ -22998,34 +23677,106 @@ Equipe La Casa Dark Core</textarea>
                     const retNum = (adv.averageViewPercentage !== null && adv.averageViewPercentage !== undefined && !isNaN(parseFloat(adv.averageViewPercentage)))
                         ? parseFloat(adv.averageViewPercentage)
                         : null;
+                    // Duração média - tentar múltiplas fontes
+                    let avgDurSeconds = adv.averageViewDurationSeconds;
+                    if (!avgDurSeconds && data.analytics?.rows?.length && data.analytics?.columnHeaders?.length) {
+                        const row = data.analytics.rows[0];
+                        const headers = data.analytics.columnHeaders.map(h => h.name);
+                        const idxDur = headers.findIndex(h => h === 'averageViewDuration');
+                        if (idxDur >= 0 && row[idxDur] !== null && row[idxDur] !== undefined && row[idxDur] !== '') {
+                            avgDurSeconds = parseFloat(row[idxDur] || 0);
+                        }
+                    }
+                    // Tentar também da série diária se não encontrou
+                    if (!avgDurSeconds && data.daily?.rows?.length && data.daily?.columnHeaders?.length) {
+                        const headers = data.daily.columnHeaders.map(h => h.name);
+                        const idxDur = headers.findIndex(h => h === 'averageViewDuration');
+                        if (idxDur >= 0) {
+                            let sum = 0;
+                            let count = 0;
+                            for (const r of data.daily.rows) {
+                                const val = parseFloat(r[idxDur] || 0);
+                                if (!isNaN(val) && val > 0) {
+                                    sum += val;
+                                    count++;
+                                }
+                            }
+                            if (count > 0) avgDurSeconds = sum / count;
+                        }
+                    }
+                    const durTxt = avgDurSeconds && avgDurSeconds > 0 
+                        ? `${Math.floor(avgDurSeconds / 60)}:${String(Math.floor(avgDurSeconds % 60)).padStart(2, '0')}` 
+                        : 'N/A';
+                    
+                    // Retenção - tentar múltiplas fontes
+                    let retValue = retNum;
+                    if (!retValue && data.analytics?.rows?.length && data.analytics?.columnHeaders?.length) {
+                        const row = data.analytics.rows[0];
+                        const headers = data.analytics.columnHeaders.map(h => h.name);
+                        const idxRet = headers.findIndex(h => h === 'averageViewPercentage');
+                        if (idxRet >= 0 && row[idxRet] !== null && row[idxRet] !== undefined && row[idxRet] !== '') {
+                            retValue = parseFloat(row[idxRet] || 0);
+                        }
+                    }
+                    // Tentar também da série diária se não encontrou
+                    if (!retValue && data.daily?.rows?.length && data.daily?.columnHeaders?.length) {
+                        const headers = data.daily.columnHeaders.map(h => h.name);
+                        const idxRet = headers.findIndex(h => h === 'averageViewPercentage');
+                        if (idxRet >= 0) {
+                            let sum = 0;
+                            let count = 0;
+                            for (const r of data.daily.rows) {
+                                const val = parseFloat(r[idxRet] || 0);
+                                if (!isNaN(val) && val > 0) {
+                                    sum += val;
+                                    count++;
+                                }
+                            }
+                            if (count > 0) retValue = sum / count;
+                        }
+                    }
                     const ctrTxt = ctrNum !== null ? `${ctrNum.toFixed(2)}%` : 'N/A';
-                    const retTxt = retNum !== null ? `${retNum.toFixed(1)}%` : 'N/A';
+                    const retTxt = retValue !== null && retValue !== undefined && !isNaN(retValue) ? `${retValue.toFixed(1)}%` : 'N/A';
 
+                    // Receita
                     const estRevenue = parseFloat(data.estimatedRevenue || data.estimatedAdRevenue || 0);
                     const revTxt = estRevenue > 0 ? `$${estRevenue.toFixed(2)}` : 'N/A';
+                    
+                    // Taxa de engajamento
+                    const engagementRate = views > 0 ? ((likes + comments + shares) / views * 100).toFixed(2) : '0.00';
 
                     box.innerHTML = `
                         <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                            <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center justify-between gap-3 mb-3">
                                 <div class="min-w-0">
                                     <p class="text-white font-semibold truncate">${escapeHtml(channel.channelName || 'Canal')}</p>
                                     <p class="text-gray-400 text-xs">${channel.niche ? `📌 ${escapeHtml(channel.niche)}` : 'Sem nicho'}${channel.language ? ` • 🌍 ${escapeHtml(channel.language)}` : ''}</p>
                                 </div>
-                                <button class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg" onclick="
-                                    switchYouTubeTab('analytics');
-                                    updateChannelSelects().then(() => {
-                                        const sel = document.getElementById('analytics-channel-select');
-                                        if (sel) sel.value = '${channel.id}';
-                                        if (typeof loadChannelAnalytics === 'function') loadChannelAnalytics();
-                                    });
-                                ">Ver métricas</button>
+                                <div class="flex items-center gap-2">
+                                    <button class="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded-lg" onclick="loadYouTubeQuickOverview(${JSON.stringify(channel)}, { forceLoading: true })" title="Recarregar resumo">
+                                        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                                    </button>
+                                    <button class="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg" onclick="
+                                        switchYouTubeTab('analytics');
+                                        updateChannelSelects().then(() => {
+                                            const sel = document.getElementById('analytics-channel-select');
+                                            if (sel) sel.value = '${channel.id}';
+                                            if (typeof loadChannelAnalytics === 'function') loadChannelAnalytics();
+                                        });
+                                    ">Ver métricas</button>
+                                </div>
                             </div>
-                            <div class="mt-3 grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                            <div class="mt-3 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 text-xs">
                                 <div><span class="text-gray-400">Views (30d)</span><div class="text-white font-bold">${formatNumber(views)}</div></div>
                                 <div><span class="text-gray-400">Watch</span><div class="text-white font-bold">${formatMinutes(watch)}</div></div>
                                 <div><span class="text-gray-400">Inscritos +</span><div class="text-white font-bold">+${formatNumber(subsGained)}</div></div>
+                                <div><span class="text-gray-400">Curtidas</span><div class="text-white font-bold">${formatNumber(likes)}</div></div>
+                                <div><span class="text-gray-400">Comentários</span><div class="text-white font-bold">${formatNumber(comments)}</div></div>
+                                <div><span class="text-gray-400">Compartilhamentos</span><div class="text-white font-bold">${formatNumber(shares)}</div></div>
                                 <div><span class="text-gray-400">CTR</span><div class="text-white font-bold">${ctrTxt}</div></div>
                                 <div><span class="text-gray-400">Retenção</span><div class="text-white font-bold">${retTxt}</div></div>
+                                <div><span class="text-gray-400">Duração Média</span><div class="text-white font-bold">${durTxt}</div></div>
+                                <div><span class="text-gray-400">Engajamento</span><div class="text-white font-bold">${engagementRate}%</div></div>
                                 <div><span class="text-gray-400">Receita (30d)</span><div class="text-white font-bold">${revTxt}</div></div>
                             </div>
                         </div>
@@ -23234,40 +23985,62 @@ Equipe La Casa Dark Core</textarea>
                     // Top 5 vídeos mais vistos + análise
                     const topVideosEl = document.getElementById('analytics-top-videos');
                     if (topVideosEl) {
-                        if (data.topVideosAnalysis && data.topVideosAnalysis.length > 0) {
-                            topVideosEl.innerHTML = data.topVideosAnalysis.map(v => `
+                        // Usar topVideos se topVideosAnalysis não estiver disponível
+                        const videosToShow = data.topVideosAnalysis && data.topVideosAnalysis.length > 0 
+                            ? data.topVideosAnalysis 
+                            : (data.topVideos && data.topVideos.length > 0 ? data.topVideos.slice(0, 5) : []);
+                        
+                        if (videosToShow && videosToShow.length > 0) {
+                            topVideosEl.innerHTML = videosToShow.map(v => {
+                                // Se for topVideosAnalysis, já tem análise; se for topVideos, criar estrutura básica
+                                const videoData = v.derived ? v : {
+                                    ...v,
+                                    derived: {
+                                        viewsPerDay: v.viewCount ? Math.round(v.viewCount / 30) : 0,
+                                        engagementRatePct: v.viewCount > 0 ? ((v.likeCount || 0) + (v.commentCount || 0)) / v.viewCount * 100 : 0,
+                                        titlePatternScore: 0
+                                    },
+                                    tips: [],
+                                    nextVideoIdeas: []
+                                };
+                                return `
                                 <div class="bg-gray-700 border border-gray-600 rounded-lg p-4">
                                     <div class="flex items-start gap-3">
-                                        ${v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" alt="" class="w-16 h-10 object-cover rounded border border-gray-600 flex-shrink-0">` : ''}
+                                        ${videoData.thumbnail ? `<img src="${escapeHtml(videoData.thumbnail)}" alt="" class="w-16 h-10 object-cover rounded border border-gray-600 flex-shrink-0">` : ''}
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center justify-between gap-3">
-                                                <h4 class="text-white font-semibold truncate">${escapeHtml(v.title || 'Sem título')}</h4>
-                                                ${v.videoId ? `<a class="text-xs text-amber-400 hover:text-amber-300 whitespace-nowrap" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}">Abrir</a>` : ''}
+                                                <h4 class="text-white font-semibold truncate">${escapeHtml(videoData.title || 'Sem título')}</h4>
+                                                ${videoData.videoId ? `<a class="text-xs text-amber-400 hover:text-amber-300 whitespace-nowrap" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(videoData.videoId)}">Abrir</a>` : ''}
                                             </div>
                                             <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                                <div><span class="text-gray-400">Views</span><div class="text-white font-bold">${formatNumber(v.viewCount || 0)}</div></div>
-                                                <div><span class="text-gray-400">Likes</span><div class="text-white font-bold">${formatNumber(v.likeCount || 0)}</div></div>
-                                                <div><span class="text-gray-400">Comentários</span><div class="text-white font-bold">${formatNumber(v.commentCount || 0)}</div></div>
-                                                <div><span class="text-gray-400">Views/dia</span><div class="text-white font-bold">${formatNumber(v.derived?.viewsPerDay || 0)}</div></div>
+                                                <div><span class="text-gray-400">Views</span><div class="text-white font-bold">${formatNumber(videoData.viewCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Likes</span><div class="text-white font-bold">${formatNumber(videoData.likeCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Comentários</span><div class="text-white font-bold">${formatNumber(videoData.commentCount || 0)}</div></div>
+                                                <div><span class="text-gray-400">Views/dia</span><div class="text-white font-bold">${formatNumber(videoData.derived?.viewsPerDay || 0)}</div></div>
                                             </div>
+                                            ${videoData.tips && videoData.tips.length > 0 ? `
                                             <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <div class="bg-gray-800/60 border border-gray-700 rounded p-3">
                                                     <p class="text-gray-300 text-xs font-semibold mb-2">Dicas valiosas</p>
                                                     <ul class="text-gray-200 text-xs space-y-1 list-disc list-inside">
-                                                        ${(v.tips || []).slice(0, 4).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+                                                        ${videoData.tips.slice(0, 4).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
                                                     </ul>
                                                 </div>
+                                                ${videoData.nextVideoIdeas && videoData.nextVideoIdeas.length > 0 ? `
                                                 <div class="bg-gray-800/60 border border-gray-700 rounded p-3">
                                                     <p class="text-gray-300 text-xs font-semibold mb-2">Próximos vídeos (inspirados)</p>
                                                     <ul class="text-gray-200 text-xs space-y-1 list-disc list-inside">
-                                                        ${(v.nextVideoIdeas || []).slice(0, 3).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+                                                        ${videoData.nextVideoIdeas.slice(0, 3).map(t => `<li>${escapeHtml(t)}</li>`).join('')}
                                                     </ul>
                                                 </div>
+                                                ` : ''}
                                             </div>
+                                            ` : ''}
                                         </div>
                                     </div>
                                 </div>
-                            `).join('');
+                                `;
+                            }).join('');
                         } else {
                             const errText = data?.topVideosError?.status
                                 ? ` (erro ${data.topVideosError.status} — possivelmente quota da API do YouTube)`
@@ -31706,6 +32479,200 @@ Equipe La Casa Dark Core</textarea>
             window.analyzeViralChannel = analyzeViralChannel;
             window.viewViralAnalysis = viewViralAnalysis;
             window.deleteViralChannel = deleteViralChannel;
+            
+            // Função para buscar thumbnails semelhantes
+            // Função já definida acima (linha ~7000)
+            
+            // Função para carregar canais para busca semelhante (não mais necessária, mas mantida para compatibilidade)
+            async function loadChannelsForSimilarSearch() {
+                // Não precisa mais carregar canais, apenas URL é necessária
+                console.log('[Buscar Canais] Busca por URL apenas');
+            }
+            
+            // Event listener para formulário de busca de canais semelhantes
+            const similarChannelsForm = document.getElementById('search-similar-channels-form');
+            if (similarChannelsForm) {
+                similarChannelsForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const channelUrl = document.getElementById('reference-channel-url').value.trim();
+                    const similarNiche = document.getElementById('similar-niche').checked;
+                    const similarLanguage = document.getElementById('similar-language').checked;
+                    const similarCountry = document.getElementById('similar-country').checked;
+                    const limit = parseInt(document.getElementById('similar-channels-limit').value) || 20;
+                    
+                    if (!channelUrl) {
+                        alert('Digite a URL do canal.');
+                        return;
+                    }
+                    
+                    if (!channelUrl.includes('youtube.com')) {
+                        alert('URL inválida. Use uma URL do YouTube (ex: https://www.youtube.com/@canal ou https://www.youtube.com/channel/...)');
+                        return;
+                    }
+                    
+                    try {
+                        const token = localStorage.getItem('core_token');
+                        const response = await fetch(`${API_BASE}/api/channels/similar`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                channelUrl: channelUrl,
+                                criteria: {
+                                    niche: similarNiche,
+                                    language: similarLanguage,
+                                    country: similarCountry
+                                },
+                                limit
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                            throw new Error(error.msg || 'Erro ao buscar canais semelhantes');
+                        }
+                        
+                        const data = await response.json();
+                        const resultsDiv = document.getElementById('similar-channels-results');
+                        const listDiv = document.getElementById('similar-channels-list');
+                        
+                        if (resultsDiv && listDiv) {
+                            resultsDiv.style.display = 'block';
+                            if (data.channels && data.channels.length > 0) {
+                                listDiv.innerHTML = data.channels.map(channel => `
+                                    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-amber-500 transition-colors">
+                                        <div class="flex items-start justify-between mb-3">
+                                            <h3 class="text-white font-semibold">${escapeHtml(channel.channelName || 'Sem nome')}</h3>
+                                            <a href="${channel.channelUrl || '#'}" target="_blank" class="text-amber-400 hover:text-amber-300">
+                                                <i data-lucide="external-link" class="w-4 h-4"></i>
+                                            </a>
+                                        </div>
+                                        <div class="space-y-2 text-sm">
+                                            ${channel.niche ? `<p class="text-gray-300"><span class="text-amber-400">Nicho:</span> ${escapeHtml(channel.niche)}</p>` : ''}
+                                            ${channel.language ? `<p class="text-gray-300"><span class="text-amber-400">Idioma:</span> ${escapeHtml(channel.language)}</p>` : ''}
+                                            ${channel.country ? `<p class="text-gray-300"><span class="text-amber-400">País:</span> ${escapeHtml(channel.country)}</p>` : ''}
+                                            ${channel.subscriberCount ? `<p class="text-gray-300"><span class="text-amber-400">Inscritos:</span> ${formatNumber(channel.subscriberCount)}</p>` : ''}
+                                            ${channel.similarityScore ? `<p class="text-amber-400 font-semibold">Similaridade: ${(channel.similarityScore * 100).toFixed(0)}%</p>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('');
+                                if (typeof lucide !== 'undefined') lucide.createIcons();
+                            } else {
+                                listDiv.innerHTML = '<p class="text-gray-400 col-span-full">Nenhum canal semelhante encontrado.</p>';
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Buscar Canais] Erro:', err);
+                        alert(`Erro: ${err.message}`);
+                    }
+                });
+            }
+            
+            // Event listener para formulário de busca de vídeos semelhantes
+            const similarVideosForm = document.getElementById('search-similar-videos-form');
+            if (similarVideosForm) {
+                similarVideosForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const videoUrl = document.getElementById('reference-video-url').value.trim();
+                    const limit = parseInt(document.getElementById('similar-videos-limit').value) || 15;
+                    
+                    if (!videoUrl) {
+                        alert('Digite a URL do vídeo.');
+                        return;
+                    }
+                    
+                    if (!videoUrl.includes('youtube.com') && !videoUrl.includes('youtu.be')) {
+                        alert('URL inválida. Use uma URL do YouTube (ex: https://www.youtube.com/watch?v=... ou https://youtu.be/...)');
+                        return;
+                    }
+                    
+                    try {
+                        const token = localStorage.getItem('core_token');
+                        const response = await fetch(`${API_BASE}/api/videos/similar`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ videoUrl, limit })
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json().catch(() => ({ msg: 'Erro desconhecido' }));
+                            throw new Error(error.msg || 'Erro ao buscar vídeos semelhantes');
+                        }
+                        
+                        const data = await response.json();
+                        const resultsDiv = document.getElementById('similar-videos-results');
+                        const listDiv = document.getElementById('similar-videos-list');
+                        
+                        if (resultsDiv && listDiv) {
+                            resultsDiv.style.display = 'block';
+                            if (data.videos && data.videos.length > 0) {
+                                const escapeHtml = (text) => {
+                                    if (!text) return '';
+                                    const div = document.createElement('div');
+                                    div.textContent = String(text);
+                                    return div.innerHTML;
+                                };
+                                const formatNumber = (num) => {
+                                    if (!num) return '0';
+                                    return new Intl.NumberFormat('pt-BR').format(num);
+                                };
+                                
+                                let html = '';
+                                if (data.referenceVideo) {
+                                    html += `
+                                        <div class="mb-4 p-4 bg-gray-800 border border-gray-700 rounded-lg">
+                                            <p class="text-gray-400 text-sm mb-2">Vídeo de referência:</p>
+                                            <div class="flex items-center gap-3">
+                                                ${data.referenceVideo.thumbnailUrl ? `<img src="${data.referenceVideo.thumbnailUrl}" alt="" class="w-24 h-16 object-cover rounded">` : ''}
+                                                <div>
+                                                    <p class="text-white font-semibold">${escapeHtml(data.referenceVideo.title || 'Sem título')}</p>
+                                                    ${data.referenceVideo.niche ? `<p class="text-gray-400 text-xs">Nicho: ${escapeHtml(data.referenceVideo.niche)}</p>` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }
+                                
+                                // Remover duplicatas no frontend também (por videoId)
+                                const uniqueVideosMap = new Map();
+                                data.videos.forEach(video => {
+                                    if (video.videoId && !uniqueVideosMap.has(video.videoId)) {
+                                        uniqueVideosMap.set(video.videoId, video);
+                                    }
+                                });
+                                const uniqueVideos = Array.from(uniqueVideosMap.values());
+                                
+                                html += uniqueVideos.map(video => `
+                                    <div class="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden hover:border-blue-500 transition-colors">
+                                        ${video.thumbnailUrl ? `<img src="${video.thumbnailUrl}" alt="${video.title || 'Thumbnail'}" class="w-full h-32 object-cover cursor-pointer" onclick="window.open('${video.videoUrl || '#'}', '_blank')">` : ''}
+                                        <div class="p-3">
+                                            <p class="text-white text-xs font-semibold line-clamp-2 mb-2 cursor-pointer hover:text-blue-400" onclick="window.open('${video.videoUrl || '#'}', '_blank')">${escapeHtml(video.title || 'Sem título')}</p>
+                                            <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+                                                <span>${video.views ? formatNumber(video.views) + ' views' : 'Sem views'}</span>
+                                                <span class="text-blue-400">${video.similarityScore ? (video.similarityScore * 100).toFixed(0) + '%' : 'N/A'}</span>
+                                            </div>
+                                            ${video.niche ? `<p class="text-gray-500 text-xs">Nicho: ${escapeHtml(video.niche)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('');
+                                
+                                listDiv.innerHTML = html;
+                                if (typeof lucide !== 'undefined') lucide.createIcons();
+                            } else {
+                                listDiv.innerHTML = '<p class="text-gray-400 col-span-full">Nenhum vídeo semelhante encontrado.</p>';
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Buscar Vídeos] Erro:', err);
+                        alert(`Erro: ${err.message}`);
+                    }
+                });
+            }
 
             // Iniciar polling de notificações
             if (userToken && userToken !== 'undefined') {

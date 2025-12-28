@@ -705,12 +705,22 @@
     <script>
         // URLs da API
         const currentPort = window.location.port;
-        // Usar a porta atual ou padrão 3000
-        const backendPort = currentPort || '3000';
-        const isBackendPort = currentPort === backendPort || currentPort === '';
-        const API_BASE_URL = isBackendPort 
+        // Porta padrão do backend (deve corresponder à porta do servidor Express)
+        const backendPort = '5001'; // Porta padrão do servidor Express
+        // Se estamos na mesma porta do backend OU não há porta (mesmo host), usar caminho relativo
+        // Caso contrário, usar URL completa com a porta do backend
+        const isSameOrigin = currentPort === backendPort || currentPort === '' || !currentPort;
+        const API_BASE_URL = isSameOrigin 
             ? '/api/auth' 
             : `http://${window.location.hostname}:${backendPort}/api/auth`;
+        
+        console.log('[Auth] Configuração de API:', {
+            currentPort: currentPort || '(vazio)',
+            backendPort: backendPort,
+            isSameOrigin: isSameOrigin,
+            API_BASE_URL: API_BASE_URL,
+            hostname: window.location.hostname
+        });
         
         // Seletores
         const loginForm = document.getElementById('login-form');
@@ -870,8 +880,8 @@
                 let errorMessage = error.message;
                 
                 if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                    const currentPort = window.location.port || '3000';
-                    errorMessage = `Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta ${currentPort}.`;
+                    const serverPort = '5001'; // Porta padrão do servidor
+                    errorMessage = `Não foi possível conectar ao servidor. Verifique se o servidor está rodando na porta ${serverPort}.`;
                 } else if (error.message.includes('Unexpected end of JSON input')) {
                     errorMessage = 'Erro na comunicação com o servidor.';
                 }
