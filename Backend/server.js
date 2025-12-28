@@ -211,6 +211,11 @@ app.use((req, res, next) => {
         req.setTimeout(15 * 60 * 1000); // 15 minutos
         res.setTimeout(15 * 60 * 1000);
     }
+    // Timeout de 30 minutos para geração de prompts de cena (pode ser muito longo)
+    if (req.path.includes('/api/generate/scene-prompts')) {
+        req.setTimeout(30 * 60 * 1000); // 30 minutos
+        res.setTimeout(30 * 60 * 1000);
+    }
     next();
 }); // Aumentar limite para suportar URLs de imagens grandes
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -3544,13 +3549,65 @@ function parseScenePromptsResponse(response) {
         }
     }
 
-    const scenesArrayMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)\]/);
+    // Tentativa melhorada: extrair array de scenes mesmo que incompleto
+    const scenesArrayMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
     if (scenesArrayMatch) {
         let scenesArrayStr = scenesArrayMatch[1];
-        if (!scenesArrayStr.trim().endsWith('}')) {
-            const sceneObjects = scenesArrayStr.match(/\{[^{}]*\}/g);
-            if (sceneObjects && sceneObjects.length > 0) {
-                scenesArrayStr = sceneObjects.join(',\n');
+        
+        // Tentar extrair objetos de cena completos usando regex mais robusto
+        const sceneObjects = [];
+        const sceneObjPattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]{0,10000}?"prompt_text"\s*:\s*"([^"]{50,})/g;
+        let sceneObjMatch;
+        let lastIndex = 0;
+        
+        while ((sceneObjMatch = sceneObjPattern.exec(scenesArrayStr)) !== null) {
+            try {
+                const sceneNum = parseInt(sceneObjMatch[1]);
+                const promptStart = sceneObjMatch.index + sceneObjMatch[0].indexOf('"prompt_text"');
+                
+                // Tentar encontrar o final do prompt_text (pode estar cortado)
+                let promptText = sceneObjMatch[2];
+                const remainingText = scenesArrayStr.substring(promptStart);
+                
+                // Procurar pelo final da string do prompt_text
+                const promptEndMatch = remainingText.match(/"prompt_text"\s*:\s*"([^"]{50,})/);
+                if (promptEndMatch) {
+                    // Tentar encontrar o fechamento da string
+                    let promptEnd = remainingText.indexOf('"', promptEndMatch[0].length);
+                    if (promptEnd > 0) {
+                        promptText = remainingText.substring(promptEndMatch[0].indexOf('"') + 1, promptEnd);
+                    } else {
+                        // Se não encontrou fechamento, usar até o final (pode estar cortado)
+                        promptText = promptEndMatch[1];
+                    }
+                }
+                
+                // Extrair scene_description se disponível
+                const descMatch = scenesArrayStr.substring(sceneObjMatch.index, sceneObjMatch.index + 2000).match(/"scene_description"\s*:\s*"([^"]*)"/);
+                const sceneDesc = descMatch ? descMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') : `Cena ${sceneNum}`;
+                
+                if (promptText && promptText.length > 50) {
+                    sceneObjects.push({
+                        scene_number: sceneNum,
+                        scene_description: sceneDesc,
+                        prompt_text: promptText.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\/g, '')
+                    });
+                }
+            } catch (e) {
+                console.warn('[Scene Prompts Parser] Erro ao extrair cena:', e.message);
+            }
+        }
+        
+        if (sceneObjects.length > 0) {
+            console.log(`[Scene Prompts Parser] ✅ Extraídas ${sceneObjects.length} cenas via extração robusta!`);
+            return sceneObjects;
+        }
+        
+        // Fallback: tentar parsear como JSON completo
+        if (!scenesArrayStr.trim().endsWith('}') && !scenesArrayStr.trim().endsWith(']')) {
+            const simpleSceneObjects = scenesArrayStr.match(/\{[^{}]{0,5000}\}/g);
+            if (simpleSceneObjects && simpleSceneObjects.length > 0) {
+                scenesArrayStr = simpleSceneObjects.join(',\n');
             }
         }
 
@@ -3561,15 +3618,41 @@ function parseScenePromptsResponse(response) {
         }
     }
 
-    const scenePattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]*?"scene_description"\s*:\s*"([^"]*)"[\s\S]*?"prompt_text"\s*:\s*"([^"]*)"[\s\S]*?\}/g;
+    // Padrão melhorado que lida com strings JSON que podem ter quebras de linha e caracteres especiais
+    const scenePattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]*?"scene_description"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*?"prompt_text"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*?\}/g;
     const regexScenes = [];
     let match;
     while ((match = scenePattern.exec(rawResponse)) !== null) {
-        regexScenes.push({
-            scene_number: parseInt(match[1]),
-            scene_description: match[2],
-            prompt_text: match[3]
-        });
+        try {
+            // Tentar extrair o objeto completo e parsear
+            const sceneStart = rawResponse.lastIndexOf('{', match.index);
+            const sceneEnd = rawResponse.indexOf('}', match.index) + 1;
+            if (sceneStart >= 0 && sceneEnd > sceneStart) {
+                const sceneStr = rawResponse.substring(sceneStart, sceneEnd);
+                try {
+                    const sceneObj = JSON.parse(sceneStr);
+                    if (sceneObj.prompt_text || sceneObj.prompt || sceneObj.text) {
+                        regexScenes.push({
+                            scene_number: sceneObj.scene_number || sceneObj.number || parseInt(match[1]),
+                            scene_description: sceneObj.scene_description || sceneObj.description || match[2],
+                            prompt_text: sceneObj.prompt_text || sceneObj.prompt || sceneObj.text || match[3]
+                        });
+                        continue;
+                    }
+                } catch (e) {
+                    // Se falhar, usar os grupos capturados
+                }
+            }
+            
+            // Fallback: usar grupos capturados
+            regexScenes.push({
+                scene_number: parseInt(match[1]),
+                scene_description: match[2].replace(/\\"/g, '"').replace(/\\n/g, '\n'),
+                prompt_text: match[3].replace(/\\"/g, '"').replace(/\\n/g, '\n')
+            });
+        } catch (e) {
+            console.warn('[Scene Prompts Parser] Erro ao processar cena via regex:', e.message);
+        }
     }
     if (regexScenes.length > 0) {
         console.log(`[Scene Prompts Parser] ✅ Extraídas ${regexScenes.length} cenas via regex padrão!`);
@@ -3596,6 +3679,49 @@ function parseScenePromptsResponse(response) {
         }
     }
 
+    // ÚLTIMA TENTATIVA: Tentar extrair objetos de cena mesmo que o JSON esteja incompleto
+    console.log('[Scene Prompts Parser] Tentando extração de emergência de objetos de cena...');
+    
+    // Procurar por todos os objetos que parecem ser cenas (mesmo que incompletos)
+    const emergencyPattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]{0,5000}?"prompt_text"\s*:\s*"([^"]{50,})/g;
+    const emergencyScenes = [];
+    let emergencyMatch;
+    while ((emergencyMatch = emergencyPattern.exec(rawResponse)) !== null) {
+        try {
+            const sceneNum = parseInt(emergencyMatch[1]);
+            const promptStart = emergencyMatch.index + emergencyMatch[0].indexOf('"prompt_text"');
+            const promptEnd = rawResponse.indexOf('"', promptStart + emergencyMatch[0].length);
+            
+            // Tentar extrair prompt_text completo (pode estar cortado)
+            let promptText = emergencyMatch[2];
+            if (promptEnd > promptStart) {
+                const fullPromptMatch = rawResponse.substring(promptStart, promptEnd + 1000).match(/"prompt_text"\s*:\s*"([^"]{50,})/);
+                if (fullPromptMatch) {
+                    promptText = fullPromptMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+                }
+            }
+            
+            // Extrair scene_description se disponível
+            const descMatch = rawResponse.substring(emergencyMatch.index, emergencyMatch.index + 2000).match(/"scene_description"\s*:\s*"([^"]*)"/);
+            const sceneDesc = descMatch ? descMatch[1].replace(/\\"/g, '"') : `Cena ${sceneNum}`;
+            
+            if (promptText && promptText.length > 50) {
+                emergencyScenes.push({
+                    scene_number: sceneNum,
+                    scene_description: sceneDesc,
+                    prompt_text: promptText
+                });
+            }
+        } catch (e) {
+            console.warn('[Scene Prompts Parser] Erro na extração de emergência:', e.message);
+        }
+    }
+    
+    if (emergencyScenes.length > 0) {
+        console.log(`[Scene Prompts Parser] ✅ Extraídas ${emergencyScenes.length} cenas via extração de emergência!`);
+        return emergencyScenes;
+    }
+    
     throw new Error(`Não foi possível interpretar a resposta da IA como JSON válido. Conteúdo analisado (primeiros 500 chars): ${rawResponse.substring(0, 500)}`);
 }
 
@@ -23726,22 +23852,157 @@ ${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: 
                         } catch (e3) {
                             console.log('[Scene Prompts] Tentativa 3 de parsing falhou, tentando extrair scenes diretamente...');
                             
-                            // Última tentativa: procurar por "scenes" no texto
-                            const scenesMatch = rawResponse.match(/"scenes"\s*:\s*\[[\s\S]*\]/);
+                            // Tentativa 4: Procurar por "scenes" no texto e tentar completar JSON incompleto
+                            const scenesMatch = rawResponse.match(/"scenes"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
                             if (scenesMatch) {
                                 try {
-                                    scenesData = JSON.parse(`{${scenesMatch[0]}}`);
+                                    // Tentar completar o JSON se estiver incompleto
+                                    let scenesArrayStr = scenesMatch[1];
+                                    
+                                    // Extrair objetos de cena completos mesmo que o array esteja incompleto
+                                    const sceneObjects = [];
+                                    const sceneObjPattern = /\{\s*"scene_number"\s*:\s*(\d+)[\s\S]{0,10000}?"prompt_text"\s*:\s*"([^"]{50,})/g;
+                                    let sceneObjMatch;
+                                    
+                                    while ((sceneObjMatch = sceneObjPattern.exec(scenesArrayStr)) !== null) {
+                                        try {
+                                            const sceneNum = parseInt(sceneObjMatch[1]);
+                                            const promptStart = sceneObjMatch.index + sceneObjMatch[0].indexOf('"prompt_text"');
+                                            
+                                            // Tentar encontrar o final do prompt_text (pode estar cortado)
+                                            let promptText = sceneObjMatch[2];
+                                            const remainingText = scenesArrayStr.substring(promptStart);
+                                            
+                                            // Procurar pelo final da string do prompt_text de forma mais robusta
+                                            // Primeiro, encontrar onde começa o prompt_text
+                                            const promptTextStart = remainingText.indexOf('"prompt_text"');
+                                            if (promptTextStart >= 0) {
+                                                const afterPromptLabel = remainingText.substring(promptTextStart);
+                                                const quoteStart = afterPromptLabel.indexOf('"', '"prompt_text"'.length);
+                                                if (quoteStart >= 0) {
+                                                    // Procurar pelo fechamento da string (pode estar cortado ou ter escapes)
+                                                    let quoteEnd = -1;
+                                                    let searchStart = quoteStart + 1;
+                                                    
+                                                    // Procurar por aspas não escapadas
+                                                    while (searchStart < afterPromptLabel.length && searchStart < 5000) {
+                                                        const nextQuote = afterPromptLabel.indexOf('"', searchStart);
+                                                        if (nextQuote < 0) {
+                                                            // Não encontrou fechamento, usar até o final
+                                                            quoteEnd = afterPromptLabel.length;
+                                                            break;
+                                                        }
+                                                        // Verificar se a aspa não está escapada
+                                                        if (afterPromptLabel[nextQuote - 1] !== '\\') {
+                                                            quoteEnd = nextQuote;
+                                                            break;
+                                                        }
+                                                        searchStart = nextQuote + 1;
+                                                    }
+                                                    
+                                                    if (quoteEnd > 0) {
+                                                        promptText = afterPromptLabel.substring(quoteStart + 1, quoteEnd);
+                                                    } else if (quoteEnd === -1) {
+                                                        // Se não encontrou fechamento, usar até encontrar próximo campo ou fim
+                                                        const nextField = afterPromptLabel.indexOf('"', searchStart);
+                                                        if (nextField > 0 && nextField < 5000) {
+                                                            promptText = afterPromptLabel.substring(quoteStart + 1, nextField - 1);
+                                                        } else {
+                                                            // Usar até o final, removendo possíveis caracteres finais inválidos
+                                                            promptText = afterPromptLabel.substring(quoteStart + 1).replace(/[",}\]]+$/, '');
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Se ainda não tem promptText ou está muito curto, usar o que foi capturado no regex
+                                            if (!promptText || promptText.length < 50) {
+                                                promptText = sceneObjMatch[2];
+                                                // Se o promptText capturado também está cortado, tentar buscar mais texto
+                                                if (promptText.length < 100) {
+                                                    const extendedMatch = scenesArrayStr.substring(sceneObjMatch.index, Math.min(sceneObjMatch.index + 10000, scenesArrayStr.length)).match(/"prompt_text"\s*:\s*"([^"]{100,})/);
+                                                    if (extendedMatch && extendedMatch[1].length > promptText.length) {
+                                                        promptText = extendedMatch[1];
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Extrair scene_description se disponível
+                                            const descMatch = scenesArrayStr.substring(sceneObjMatch.index, Math.min(sceneObjMatch.index + 2000, scenesArrayStr.length)).match(/"scene_description"\s*:\s*"([^"]*)"/);
+                                            const sceneDesc = descMatch ? descMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') : `Cena ${sceneNum}`;
+                                            
+                                            if (promptText && promptText.length > 50) {
+                                                sceneObjects.push(JSON.stringify({
+                                                    scene_number: sceneNum,
+                                                    scene_description: sceneDesc,
+                                                    prompt_text: promptText.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\/g, '')
+                                                }));
+                                            }
+                                        } catch (e) {
+                                            console.warn('[Scene Prompts] Erro ao extrair cena:', e.message);
+                                        }
+                                    }
+                                    
+                                    if (sceneObjects.length > 0) {
+                                        scenesArrayStr = sceneObjects.join(',\n');
+                                        scenesData = JSON.parse(`{"scenes":[${scenesArrayStr}]}`);
+                                        console.log(`[Scene Prompts] ✅ JSON completado com ${sceneObjects.length} cenas extraídas!`);
+                                    } else {
+                                        // Tentar parsear como está
+                                        try {
+                                            scenesData = JSON.parse(`{"scenes":[${scenesArrayStr}]}`);
+                                        } catch (e) {
+                                            throw new Error('Não foi possível extrair objetos de cena válidos');
+                                        }
+                                    }
                                 } catch (e4) {
-                                    console.error('[Scene Prompts] Erro no parsing:', e4.message);
-                                    throw new Error(`Resposta da IA não contém JSON válido. Erro: ${e4.message}`);
+                                    console.error('[Scene Prompts] Tentativa 4 falhou, usando parseScenePromptsResponse...');
+                                    // Última tentativa: usar parseScenePromptsResponse
+                                    try {
+                                        const parsedScenes = parseScenePromptsResponse(rawResponse);
+                                        if (parsedScenes && parsedScenes.length > 0) {
+                                            scenesData = { scenes: parsedScenes };
+                                            console.log('[Scene Prompts] ✅ parseScenePromptsResponse conseguiu extrair cenas!');
+                                        } else {
+                                            throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                                        }
+                                    } catch (parseErr) {
+                                        console.error('[Scene Prompts] Erro no parsing:', e4.message);
+                                        throw new Error(`Resposta da IA não contém JSON válido. Erro: ${e4.message}. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                                    }
                                 }
                             } else {
-                                throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                                // Última tentativa: usar parseScenePromptsResponse
+                                console.log('[Scene Prompts] Tentando parseScenePromptsResponse como último recurso...');
+                                try {
+                                    const parsedScenes = parseScenePromptsResponse(rawResponse);
+                                    if (parsedScenes && parsedScenes.length > 0) {
+                                        scenesData = { scenes: parsedScenes };
+                                        console.log('[Scene Prompts] ✅ parseScenePromptsResponse conseguiu extrair cenas!');
+                                    } else {
+                                        throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                                    }
+                                } catch (parseErr) {
+                                    throw new Error(`Resposta da IA não contém JSON válido. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                                }
                             }
                         }
                     }
                 } else {
-                    throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                    // ÚLTIMA TENTATIVA: Usar a função parseScenePromptsResponse que tem múltiplos fallbacks
+                    console.log('[Scene Prompts] Tentando usar parseScenePromptsResponse como último recurso...');
+                    try {
+                        const parsedScenes = parseScenePromptsResponse(rawResponse);
+                        if (parsedScenes && parsedScenes.length > 0) {
+                            scenesData = { scenes: parsedScenes };
+                            console.log('[Scene Prompts] ✅ parseScenePromptsResponse conseguiu extrair cenas!');
+                        } else {
+                            throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                        }
+                    } catch (parseErr) {
+                        console.error('[Scene Prompts] parseScenePromptsResponse também falhou:', parseErr.message);
+                        throw new Error(`Nenhum JSON encontrado na resposta. Primeiros 500 caracteres: ${rawResponse.substring(0, 500)}`);
+                    }
                 }
             }
         }
@@ -24171,12 +24432,226 @@ Cada prompt_text deve seguir este padrão:
 EXEMPLO DE PROMPT VO3:
 "Aerial view of a military helicopter flying low over a desert landscape, rotor blades spinning rapidly, dust clouds trailing behind, camera tracking the helicopter from behind and slightly above, smooth forward motion, golden hour lighting casting long shadows, [SFX: helicopter rotor blades, mechanical] [SFX: wind rushing, atmospheric] [SFX: distant engine roar, vehicle] - fast-paced action sequence, dynamic camera movement"` : '';
 
-        const prompt = `${GLOBAL_VISUAL_ANCHOR}${styleModifier}
+        // ============================================
+        // LÓGICA DE GERAÇÃO (BATCHING VS SINGLE)
+        // ============================================
+        let scenesData = null;
+        let rawResponse = "";
+
+        // Limite conservador para evitar timeouts e limites de tokens (Claude suporta ~8k tokens output)
+        const MAX_SCENES_PER_BATCH = 8; 
+
+        // Mapear modelo selecionado para modelo da API
+        let modelForAPI = null;
+        if (useLaozhang) {
+            if (selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') modelForAPI = 'gpt-4o';
+            else if (selectedModel === 'claude-sonnet-4-20250514' || selectedModel === 'Claude 4 Sonnet') modelForAPI = 'claude-sonnet-4-20250514';
+            else if (selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') modelForAPI = 'gemini-2.5-pro';
+            else if (selectedModel && selectedModel.includes('claude')) modelForAPI = 'claude-sonnet-4-20250514';
+            else if (selectedModel && selectedModel.includes('gemini')) modelForAPI = 'gemini-2.5-pro';
+            else modelForAPI = selectedModel || 'gpt-4o';
+        } else {
+            modelForAPI = selectedModel || model;
+        }
+        if (!modelForAPI) modelForAPI = 'gpt-4o';
+        
+        console.log(`[Scene Prompts] Modelo: "${selectedModel}" -> API: "${modelForAPI}" (Batching Check: ${estimatedScenes} > ${MAX_SCENES_PER_BATCH}?)`);
+
+        if (estimatedScenes > MAX_SCENES_PER_BATCH) {
+            console.log(`[Scene Prompts] 📦 MODO BATCH ATIVADO: ${estimatedScenes} cenas estimadas.`);
+            
+            scenesData = { scenes: [] };
+            const paragraphs = script.split(/\n\s*\n/);
+            const totalBatches = Math.ceil(estimatedScenes / MAX_SCENES_PER_BATCH);
+            const totalWords = script.split(/\s+/).length;
+            
+            let currentParaIdx = 0;
+            let currentSceneNum = 1;
+            
+            for (let i = 0; i < totalBatches; i++) {
+                let batchScript = "";
+                let batchWordCount = 0;
+                const targetWordsPerBatch = Math.ceil(totalWords / totalBatches);
+                
+                while (currentParaIdx < paragraphs.length) {
+                    const para = paragraphs[currentParaIdx];
+                    const paraWords = para.split(/\s+/).length;
+                    if (batchScript.length > 0 && batchWordCount + paraWords > targetWordsPerBatch * 1.3) break;
+                    batchScript += para + "\n\n";
+                    batchWordCount += paraWords;
+                    currentParaIdx++;
+                }
+                
+                if (!batchScript.trim()) continue;
+                
+                let batchScenes;
+                if (i === totalBatches - 1) batchScenes = estimatedScenes - scenesData.scenes.length;
+                else batchScenes = Math.max(1, Math.round(estimatedScenes * (batchWordCount / totalWords)));
+                batchScenes = Math.max(1, batchScenes);
+                
+                console.log(`[Scene Prompts] 🔄 Batch ${i+1}/${totalBatches} (Cenas ${currentSceneNum}-${currentSceneNum + batchScenes - 1})`);
+                
+                const batchPrompt = `${GLOBAL_VISUAL_ANCHOR}${styleModifier}
 
 Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
 
 TAREFA:
-Analise o roteiro fornecido e crie prompts detalhados para cada cena do vídeo. Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'} para aquela parte do roteiro.${vo3Instructions}
+Analise esta PARTE ${i+1} de ${totalBatches} do roteiro e crie prompts detalhados.
+Cada prompt deve descrever visualmente o que deve aparecer ${forVO3 ? 'no vídeo' : 'na imagem'}.${vo3Instructions}
+
+ROTEIRO (PARTE ${i+1}/${totalBatches}):
+"""
+${batchScript}
+"""
+
+INSTRUÇÕES:
+1. 🔒 OBRIGATÓRIO: Siga a ÂNCORA VISUAL GLOBAL acima.
+2. 🎨 Estilo: "${selectedStyle}".
+3. ⚠️ CRÍTICO: Gere EXATAMENTE ${batchScenes} cenas.
+4. Comece a numeração em ${currentSceneNum}.
+5. Prompts em INGLÊS (${forVO3 ? '800-1500' : '600-1200'} chars).
+6. ⚠️ CRÍTICO: Retorne APENAS o JSON válido.
+
+FORMATO JSON:
+{
+  "scenes": [
+    {
+      "scene_number": ${currentSceneNum},
+      "scene_description": "...",
+      "prompt_text": "..."
+    }
+  ]
+}
+
+IMPORTANTE: Retorne APENAS o JSON.`;
+
+                const batchTimeout = 300000; // 5 min
+                let batchResponse;
+                
+                try {
+                    // Tentar com modelo principal
+                    try {
+                        if (useLaozhang) {
+                            batchResponse = await callLaozhangAPI(batchPrompt, apiKeyToUse, modelForAPI, null, userId, '/api/generate/scene-prompts/laozhang', JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI, estimatedScenes: batchScenes, timeout: batchTimeout }));
+                            batchResponse = typeof batchResponse === 'string' ? batchResponse.trim() : JSON.stringify(batchResponse);
+                        } else {
+                            if (serviceToUse === 'claude') batchResponse = await callClaudeAPI(batchPrompt, apiKeyToUse, modelForAPI, null, batchTimeout);
+                            else batchResponse = await apiCallFunction(batchPrompt, apiKeyToUse, modelForAPI);
+                            
+                            if (batchResponse && typeof batchResponse === 'object' && batchResponse.titles) batchResponse = batchResponse.titles;
+                            else if (typeof batchResponse === 'string') batchResponse = batchResponse.trim();
+                            else batchResponse = JSON.stringify(batchResponse);
+                        }
+                    } catch (primaryErr) {
+                        console.warn(`[Scene Prompts] Falha no Batch ${i+1} com modelo principal. Tentando fallback...`, primaryErr.message);
+                        
+                        // Verificar se é erro de créditos - se for, NÃO tentar fallback (vai falhar de novo)
+                        if (primaryErr.message && (primaryErr.message.includes('Créditos insuficientes') || primaryErr.message.includes('Insufficient credits'))) {
+                            throw primaryErr; // Repassar erro para o catch externo gerar placeholders
+                        }
+
+                        // Fallback para gpt-4o-mini se falhar (mais rápido e estável)
+                        const fallbackModel = 'gpt-4o-mini';
+                        if (useLaozhang) {
+                             batchResponse = await callLaozhangAPI(batchPrompt, apiKeyToUse, fallbackModel, null, userId, '/api/generate/scene-prompts/laozhang', JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: fallbackModel, estimatedScenes: batchScenes, timeout: batchTimeout }));
+                             batchResponse = typeof batchResponse === 'string' ? batchResponse.trim() : JSON.stringify(batchResponse);
+                        } else {
+                             // Se for API própria, tentar reusar a mesma key se for OpenAI, ou falhar se for Claude
+                             if (serviceToUse === 'openai') {
+                                 batchResponse = await callOpenAIAPI(batchPrompt, apiKeyToUse, fallbackModel);
+                             } else {
+                                 throw primaryErr; // Claude não tem fallback fácil de mesmo provedor
+                             }
+                             if (batchResponse && typeof batchResponse === 'object' && batchResponse.titles) batchResponse = batchResponse.titles;
+                             else if (typeof batchResponse === 'string') batchResponse = batchResponse.trim();
+                             else batchResponse = JSON.stringify(batchResponse);
+                        }
+                    }
+
+                    let jsonStr = batchResponse.replace(/```json\s*/i, '').replace(/```/g, '').trim();
+                    // Tentar extrair o maior bloco JSON possível
+                    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+                    
+                    let batchSuccess = false;
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (parsed.scenes && Array.isArray(parsed.scenes)) {
+                                scenesData.scenes.push(...parsed.scenes);
+                                batchSuccess = true;
+                            }
+                        } catch (parseErr) {
+                             // Fallback: Tentar extrair objetos de cena individuais via Regex
+                             console.warn(`[Scene Prompts] JSON Batch falhou, tentando regex manual:`, parseErr.message);
+                             const sceneMatches = jsonStr.match(/\{\s*"scene_number"[\s\S]*?\}/g);
+                             if (sceneMatches) {
+                                 for (const match of sceneMatches) {
+                                     try {
+                                         const s = JSON.parse(match);
+                                         if (s.scene_number && s.prompt_text) {
+                                             scenesData.scenes.push(s);
+                                             batchSuccess = true;
+                                         }
+                                     } catch (e) {}
+                                 }
+                             }
+                        }
+                    } else {
+                         // Fallback extremo: Regex direto na string crua
+                         const sceneMatches = jsonStr.match(/\{\s*"scene_number"[\s\S]*?\}/g);
+                         if (sceneMatches) {
+                             for (const match of sceneMatches) {
+                                 try {
+                                     const s = JSON.parse(match);
+                                     if (s.scene_number && s.prompt_text) {
+                                         scenesData.scenes.push(s);
+                                         batchSuccess = true;
+                                     }
+                                 } catch (e) {}
+                             }
+                         }
+                    }
+                    
+                    // Se falhou completamente, adicionar cenas placeholder para não quebrar a sequência
+                    if (!batchSuccess) {
+                        console.error(`[Scene Prompts] Falha total no Batch ${i+1}. Gerando placeholders.`);
+                        for (let j = 0; j < batchScenes; j++) {
+                            scenesData.scenes.push({
+                                scene_number: currentSceneNum + j,
+                                scene_description: "Falha na geração desta cena. Por favor, edite manualmente.",
+                                prompt_text: `[ERROR RECOVERY] Scene ${currentSceneNum + j}: ${styleModifier} - Failed to generate prompt. Please edit manually.`
+                            });
+                        }
+                    }
+                    
+                } catch (err) {
+                    console.error(`[Scene Prompts] ❌ Erro Crítico no Batch ${i+1}:`, err.message);
+                    // Adicionar placeholders em caso de erro de API
+                    for (let j = 0; j < batchScenes; j++) {
+                        scenesData.scenes.push({
+                            scene_number: currentSceneNum + j,
+                            scene_description: "Erro de API nesta cena. Por favor, edite manualmente.",
+                            prompt_text: `[API ERROR] Scene ${currentSceneNum + j}: Failed to generate prompt due to API error. Please edit manually.`
+                        });
+                    }
+                }
+                currentSceneNum += batchScenes;
+            }
+            
+            // Verificação final: Se não gerou NADA (nem placeholders), aí sim lança erro
+            if (!scenesData.scenes || scenesData.scenes.length === 0) {
+                 throw new Error("Falha total na geração em lotes. Nenhum dado recuperado.");
+            }
+            
+            rawResponse = JSON.stringify(scenesData);
+        } else {
+            // SINGLE CALL (Original logic optimized)
+            const prompt = `${GLOBAL_VISUAL_ANCHOR}${styleModifier}
+
+Você é um especialista em criação de prompts para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'} usando IA.
+
+TAREFA:
+Analise o roteiro e crie prompts detalhados.${vo3Instructions}
 
 ROTEIRO:
 """
@@ -24184,116 +24659,42 @@ ${script}
 """
 
 INSTRUÇÕES:
-1. 🔒 OBRIGATÓRIO: TODAS as cenas DEVEM seguir a ÂNCORA VISUAL GLOBAL acima. Esta é a base visual definida pelo estilo escolhido (${selectedStyle}).
-2. 🎨 O estilo "${selectedStyle}" foi selecionado pelo usuário. TODOS os prompts devem seguir este estilo visual consistentemente.
-3. ⚠️⚠️⚠️ CRÍTICO - NÚMERO EXATO DE CENAS ⚠️⚠️⚠️: Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO mais, NÃO menos. O frontend espera ${estimatedScenes} cenas e você DEVE entregar todas elas. Se a resposta ficar muito longa, continue mesmo assim. É OBRIGATÓRIO gerar todas as ${estimatedScenes} cenas.
-4. Cada prompt deve ter entre ${forVO3 ? '800-1500' : '600-1200'} caracteres${forVO3 ? ' (VO3 precisa de mais detalhes para movimento e SFX)' : ''}
-5. Cada prompt deve ser em INGLÊS e otimizado para ${forVO3 ? 'geração de vídeo (VO3)' : 'geração de imagens'}
-6. Seja específico e detalhado: descreva composição, iluminação, cores, atmosfera, personagens, cenário${forVO3 ? ', movimento, ação, transições e efeitos sonoros' : ''}
-7. Use termos técnicos de fotografia/cinematografia quando apropriado${imageModelInstruction}${charactersInstruction}
-8. ⚠️ CRÍTICO: Cada prompt_text DEVE seguir o estilo "${selectedStyle}" consistentemente. Todas as cenas devem pertencer ao mesmo mundo visual definido pela Âncora Visual Global.
-9. 🔧 REFORÇO DE ESTILO: Cada prompt_text DEVE incluir elementos específicos do estilo "${selectedStyle}" conforme definido na Âncora Visual Global acima. Use as frases de reforço apropriadas para o estilo escolhido.
+1. 🔒 Siga a ÂNCORA VISUAL GLOBAL.
+2. 🎨 Estilo: "${selectedStyle}".
+3. ⚠️ CRÍTICO: Gere EXATAMENTE ${estimatedScenes} cenas.
+4. Prompts em INGLÊS (${forVO3 ? '800-1500' : '600-1200'} chars).
 
-FORMATO DE RESPOSTA (JSON):
+FORMATO JSON:
 {
   "scenes": [
     {
       "scene_number": 1,
-      "scene_description": "Breve descrição da cena",
-      "prompt_text": "Prompt detalhado em inglês para ${forVO3 ? 'geração de vídeo VO3 com SFX embutido' : 'geração de imagem'} (${forVO3 ? '800-1500' : '600-1200'} caracteres)${forVO3 ? ' - DEVE incluir [SFX: ...] e descrições de movimento' : ''}"
-    },
-    ...
+      "scene_description": "...",
+      "prompt_text": "..."
+    }
   ]
 }
 
-IMPORTANTE: 
-- Retorne APENAS o JSON, sem texto adicional
-- Certifique-se de que cada prompt_text tem entre ${forVO3 ? '800-1500' : '600-1200'} caracteres
-${forVO3 ? '- TODOS os prompts DEVE incluir pelo menos 1-3 SFX no formato [SFX: nome do som, categoria]\n- TODOS os prompts DEVE descrever movimento, ação ou transição para VO3\n' : ''}
-⚠️⚠️⚠️ REGRA ABSOLUTA - NÚMERO DE CENAS ⚠️⚠️⚠️:
-- Você DEVE gerar EXATAMENTE ${estimatedScenes} cenas. NÃO ${minScenes}, NÃO ${maxScenes}, mas EXATAMENTE ${estimatedScenes} cenas.
-- O JSON DEVE conter um array "scenes" com EXATAMENTE ${estimatedScenes} objetos.
-- NÃO pare antes de gerar todas as ${estimatedScenes} cenas, mesmo que a resposta fique muito longa.
-- Se você gerar menos de ${estimatedScenes} cenas, a resposta será considerada INCOMPLETA e REJEITADA.
-- O roteiro tem ${wordCount} palavras, o que justifica ${estimatedScenes} cenas. Gere TODAS elas.
-- Comece pela cena 1 e continue até a cena ${estimatedScenes}. NÃO pule nenhuma cena.
-- É CRÍTICO e OBRIGATÓRIO que o array "scenes" tenha EXATAMENTE ${estimatedScenes} elementos.`;
+IMPORTANTE: Retorne APENAS o JSON.`;
 
-        // Mapear modelo selecionado para modelo da API (Laozhang ou própria)
-        let modelForAPI = null;
-        if (useLaozhang) {
-            // Mapear para modelo Laozhang
-            if (selectedModel === 'gpt-4o' || selectedModel === 'GPT-4o (2025)') {
-                modelForAPI = 'gpt-4o';
-            } else if (selectedModel === 'claude-sonnet-4-20250514' || selectedModel === 'Claude 4 Sonnet') {
-                modelForAPI = 'claude-sonnet-4-20250514';
-            } else if (selectedModel === 'gemini-2.5-pro' || selectedModel === 'Gemini 2.5 Pro (2025)') {
-                modelForAPI = 'gemini-2.5-pro';
-            } else if (selectedModel && selectedModel.includes('claude')) {
-                modelForAPI = 'claude-sonnet-4-20250514';
-            } else if (selectedModel && selectedModel.includes('gemini')) {
-                modelForAPI = 'gemini-2.5-pro';
-            } else if (selectedModel && selectedModel.includes('gpt')) {
-                modelForAPI = 'gpt-4o';
+            let response;
+            const baseTimeout = 300000;
+            const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenes - 20) * 2000);
+            const scenePromptsTimeout = Math.min(1200000, Math.max(300000, calculatedTimeout));
+            
+            if (useLaozhang) {
+                response = await callLaozhangAPI(prompt, apiKeyToUse, modelForAPI, null, userId, '/api/generate/scene-prompts/laozhang', JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI, estimatedScenes, timeout: scenePromptsTimeout }));
+                response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
             } else {
-                modelForAPI = selectedModel || 'gpt-4o';
+                if (serviceToUse === 'claude') response = await callClaudeAPI(prompt, apiKeyToUse, modelForAPI, null, scenePromptsTimeout);
+                else response = await apiCallFunction(prompt, apiKeyToUse, modelForAPI);
+                
+                if (response && typeof response === 'object' && response.titles) response = response.titles;
+                else if (typeof response === 'string') response = response.trim();
+                else response = JSON.stringify(response);
             }
-        } else {
-            // Usar modelo original para API própria
-            modelForAPI = selectedModel || model;
+            rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         }
-        
-        // Se ainda não tem modelo, usar 'gpt-4o' apenas como último recurso
-        if (!modelForAPI) {
-            console.warn(`[Scene Prompts] ⚠️ Modelo não fornecido ou não reconhecido, usando 'gpt-4o' como fallback`);
-            modelForAPI = 'gpt-4o';
-        }
-        
-        console.log(`[Scene Prompts] Modelo recebido: "${selectedModel || 'N/A'}" -> Mapeado para API: "${modelForAPI}" (${useLaozhang ? 'Laozhang' : serviceToUse})`);
-        
-        // Chamar API apropriada
-        let response;
-        // Calcular timeout dinamicamente baseado no número de cenas esperadas (antes de chamar a API)
-        const baseTimeout = 300000; // 5 minutos
-        const timeoutPerScene = 2000; // 2 segundos por cena
-        const baseScenes = 20;
-        const calculatedTimeout = baseTimeout + (Math.max(0, estimatedScenes - baseScenes) * timeoutPerScene);
-        const scenePromptsTimeout = Math.min(1200000, Math.max(300000, calculatedTimeout));
-        
-        console.log(`[Scene Prompts Laozhang] Timeout calculado: ${scenePromptsTimeout/1000}s (${estimatedScenes} cenas esperadas)`);
-        
-        if (useLaozhang) {
-            response = await callLaozhangAPI(
-                prompt, 
-                apiKeyToUse, 
-                modelForAPI, 
-                null, 
-                userId, 
-                '/api/generate/scene-prompts/laozhang', 
-                JSON.stringify({ endpoint: '/api/generate/scene-prompts/laozhang', model: modelForAPI, estimatedScenes, timeout: scenePromptsTimeout })
-            );
-            // callLaozhangAPI retorna string diretamente
-            response = typeof response === 'string' ? response.trim() : JSON.stringify(response);
-        } else {
-            if (serviceToUse === 'claude') {
-                console.log(`[Scene Prompts] Usando timeout estendido de ${scenePromptsTimeout/1000}s para Claude (geração de múltiplas cenas)`);
-                response = await callClaudeAPI(prompt, apiKeyToUse, modelForAPI, null, scenePromptsTimeout);
-            } else {
-                response = await apiCallFunction(prompt, apiKeyToUse, modelForAPI);
-            }
-            // APIs próprias retornam objeto com propriedade titles
-            if (response && typeof response === 'object' && response.titles) {
-                response = response.titles;
-            } else if (typeof response === 'string') {
-                response = response.trim();
-            } else {
-                response = JSON.stringify(response);
-            }
-        }
-
-        // Parsear resposta - callLaozhangAPI retorna string diretamente agora
-        let scenesData;
-        let rawResponse = typeof response === 'string' ? response.trim() : JSON.stringify(response);
         
         console.log(`[Scene Prompts] Resposta bruta (primeiros 500 chars):`, rawResponse.substring(0, 500));
         
