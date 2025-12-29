@@ -4991,6 +4991,29 @@
                         </div>
                     </div>
 
+                    <!-- Modal de Preview de Email -->
+                    <div id="email-preview-modal" class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden items-center justify-center">
+                        <div class="bg-gray-900 rounded-lg shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+                            <div class="flex items-center justify-between p-6 border-b border-gray-700">
+                                <h3 class="text-xl font-semibold text-white">📧 Preview do Template de Email</h3>
+                                <button onclick="closeEmailPreview()" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <div class="flex-1 overflow-auto p-6">
+                                <iframe id="email-preview-iframe" class="w-full h-full min-h-[600px] border border-gray-700 rounded-lg bg-white"></iframe>
+                            </div>
+                            <div class="p-4 border-t border-gray-700 flex gap-2">
+                                <button onclick="closeEmailPreview()" class="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition">
+                                    Fechar
+                                </button>
+                                <button onclick="testEmailFromPreview()" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition">
+                                    <i data-lucide="mail" class="w-4 h-4 inline mr-2"></i> Enviar Teste
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Status Geral -->
                     <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
                         <h2 class="text-xl font-semibold text-white mb-4">📈 Status de Rastreamento</h2>
@@ -5053,9 +5076,13 @@
                         </div>
                     </div>
 
-                    <!-- Templates de Email -->
+                    <!-- Templates de Email Melhorados -->
                     <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
-                        <h2 class="text-xl font-semibold text-white mb-4">📧 Templates de Email Automático</h2>
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-semibold text-white">📧 Templates de Email Automático</h2>
+                            <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-700 text-white">Templates Padrão Ativos</span>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-6">Os templates abaixo são enviados automaticamente. Você pode visualizar o preview de cada um:</p>
                         <div class="space-y-6">
                             <!-- Template: Registro -->
                             <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
@@ -5089,10 +5116,47 @@ Equipe La Casa Dark Core</textarea>
                                         <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('register')">
                                             Salvar Template
                                         </button>
+                                        <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" onclick="previewEmailTemplate('PendingApprovalEmail')" title="Visualizar Preview">
+                                            <i data-lucide="eye" class="w-4 h-4"></i> Preview
+                                        </button>
                                         <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('register')" title="Enviar email de teste">
                                             <i data-lucide="mail" class="w-4 h-4"></i>
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Template: Acesso Liberado -->
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-white">🎉 Acesso Liberado (Aprovação)</h3>
+                                    <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-700 text-white">Ativo</span>
+                                </div>
+                                <p class="text-sm text-gray-400 mb-4">Enviado automaticamente quando um usuário é aprovado no painel admin.</p>
+                                <div class="flex gap-2">
+                                    <button class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" onclick="previewEmailTemplate('AccessGrantedEmail')">
+                                        <i data-lucide="eye" class="w-4 h-4 inline mr-2"></i> Visualizar Preview
+                                    </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('AccessGrantedEmail')" title="Enviar email de teste">
+                                        <i data-lucide="mail" class="w-4 h-4"></i> Testar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Template: Recuperação de Senha -->
+                            <div class="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-white">🔐 Recuperação de Senha</h3>
+                                    <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-700 text-white">Ativo</span>
+                                </div>
+                                <p class="text-sm text-gray-400 mb-4">Enviado automaticamente quando um usuário solicita recuperação de senha.</p>
+                                <div class="flex gap-2">
+                                    <button class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" onclick="previewEmailTemplate('PasswordRecoveryEmail')">
+                                        <i data-lucide="eye" class="w-4 h-4 inline mr-2"></i> Visualizar Preview
+                                    </button>
+                                    <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('PasswordRecoveryEmail')" title="Enviar email de teste">
+                                        <i data-lucide="mail" class="w-4 h-4"></i> Testar
+                                    </button>
                                 </div>
                             </div>
 
@@ -5126,7 +5190,10 @@ Equipe La Casa Dark Core</textarea>
                                         <button class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition" onclick="saveEmailTemplate('cancel')">
                                             Salvar Template
                                         </button>
-                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('cancel')" title="Enviar email de teste">
+                                        <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition" onclick="previewEmailTemplate('CancellationEmail')" title="Visualizar Preview">
+                                            <i data-lucide="eye" class="w-4 h-4"></i> Preview
+                                        </button>
+                                        <button class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition" onclick="testEmailTemplate('CancellationEmail')" title="Enviar email de teste">
                                             <i data-lucide="mail" class="w-4 h-4"></i>
                                         </button>
                                     </div>
@@ -32980,6 +33047,140 @@ Equipe La Casa Dark Core</textarea>
                 loadCurrentPlan();
                 startDashboardAutoRefresh();
             }, 500); // Pequeno delay para garantir que tudo está carregado
+
+            // Funções para Preview de Templates de Email (escopo global)
+            let currentPreviewTemplate = null;
+            
+            // Tornar função global para acesso via onclick
+            window.previewEmailTemplate = async function(templateName) {
+                currentPreviewTemplate = templateName;
+                const modal = document.getElementById('email-preview-modal');
+                const iframe = document.getElementById('email-preview-iframe');
+                
+                if (!modal || !iframe) {
+                    alert('Erro: Modal de preview não encontrado');
+                    return;
+                }
+                
+                // Dados de exemplo para preview
+                const sampleData = {
+                    PendingApprovalEmail: { userName: 'João Silva' },
+                    AccessGrantedEmail: { userName: 'Maria Santos', planName: 'MASTER PRO', loginLink: 'http://127.0.0.1:5001/dashboard.html' },
+                    PasswordRecoveryEmail: { userName: 'Pedro Costa', resetLink: 'http://127.0.0.1:5001/la-casa-dark-core-auth.html?reset_token=exemplo123' },
+                    CancellationEmail: { userName: 'Ana Oliveira', planName: 'TURBO MAKER', endDate: '31/12/2024' }
+                };
+                
+                try {
+                    // Buscar HTML do template do servidor
+                    const response = await fetch(`${API_BASE}/api/admin/email-templates/preview`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            template: templateName,
+                            props: sampleData[templateName] || {}
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Erro ao carregar preview');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Inserir HTML no iframe
+                    iframe.srcdoc = data.html || '<p>Erro ao carregar preview</p>';
+                    
+                    // Mostrar modal
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                    
+                } catch (error) {
+                    console.error('Erro ao carregar preview:', error);
+                    alert('Erro ao carregar preview do template. Verifique o console.');
+                }
+            }
+            
+            window.closeEmailPreview = function() {
+                const modal = document.getElementById('email-preview-modal');
+                if (modal) {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                }
+                currentPreviewTemplate = null;
+            }
+            
+            window.testEmailFromPreview = async function() {
+                if (!currentPreviewTemplate) return;
+                
+                const email = prompt('Digite o email para enviar o teste:');
+                if (!email) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/email-templates/test`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            template: currentPreviewTemplate,
+                            email: email
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        alert('✅ Email de teste enviado com sucesso!');
+                        closeEmailPreview();
+                    } else {
+                        const error = await response.json();
+                        alert(`Erro: ${error.msg || 'Erro ao enviar email'}`);
+                    }
+                } catch (error) {
+                    console.error('Erro ao enviar teste:', error);
+                    alert('Erro ao enviar email de teste. Verifique o console.');
+                }
+            }
+            
+            // Função para testar envio de email (escopo global)
+            window.testEmailTemplate = async function(templateName) {
+                const email = prompt('Digite o email para enviar o teste:');
+                if (!email) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/admin/email-templates/test`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`
+                        },
+                        body: JSON.stringify({
+                            template: templateName,
+                            email: email
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        alert('✅ Email de teste enviado com sucesso!');
+                    } else {
+                        const error = await response.json();
+                        alert(`Erro: ${error.message || error.msg || 'Erro ao enviar email'}`);
+                    }
+                } catch (error) {
+                    console.error('Erro ao enviar teste:', error);
+                    alert('Erro ao enviar email de teste. Verifique o console.');
+                }
+            }
+            
+            // Fechar modal ao clicar fora
+            document.addEventListener('click', (e) => {
+                const modal = document.getElementById('email-preview-modal');
+                if (modal && e.target === modal) {
+                    closeEmailPreview();
+                }
+            });
 
         });
 

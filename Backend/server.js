@@ -34,6 +34,7 @@ const { GoogleGenAI } = require('@google/genai');
 const formidable = require('formidable');
 const Stripe = require('stripe');
 const nodemailer = require('nodemailer');
+const { renderEmailTemplate, renderFallbackTemplate } = require('./email-renderer.js');
 const LAOZHANG_CHAT_ENDPOINT = process.env.LAOZHANG_CHAT_ENDPOINT || 'https://api.laozhang.ai/v1/chat/completions';
 const puppeteer = require('puppeteer');
 
@@ -9010,28 +9011,21 @@ app.post('/api/auth/register', async (req, res) => {
             console.error('⚠️ Erro ao inicializar créditos para novo usuário:', creditError);
         }
 
-        // Enviar email de boas-vindas
+        // Enviar email de aguardando aprovação
         try {
-            // Priorizar variável de ambiente, depois header, depois req.get('host')
-            const baseUrl = process.env.BASE_URL || process.env.APP_URL || process.env.PUBLIC_URL;
-            let loginUrl;
-            
-            if (baseUrl) {
-                loginUrl = `${baseUrl.replace(/\/$/, '')}/la-casa-dark-core-auth.html`;
-            } else {
-                const protocol = req.protocol || (req.get('x-forwarded-proto') || 'http');
-                const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:5001';
-                loginUrl = `${protocol}://${host}/la-casa-dark-core-auth.html`;
-            }
-            
-            await sendTemplateEmail('register', email, {
-                nome: name,
-                email: email,
-                creditos_iniciais: bonusAmount || 0,
-                link_acesso: loginUrl
+            console.log(`[EMAIL] Enviando email de aguardando aprovação para: ${email}`);
+            const htmlContent = renderFallbackTemplate('PendingApprovalEmail', {
+                userName: name
             });
+            
+            await sendEmail(
+                email,
+                'Cadastro Recebido - La Casa Dark Core',
+                htmlContent
+            );
+            console.log(`[EMAIL] ✅ Email de aguardando aprovação enviado para: ${email}`);
         } catch (emailError) {
-            console.error('[EMAIL] Erro ao enviar email de boas-vindas:', emailError.message);
+            console.error('[EMAIL] ❌ Erro ao enviar email de aguardando aprovação:', emailError.message);
             // Não falhar o registro se o email falhar
         }
 
@@ -9193,12 +9187,16 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             // Enviar email de reset
             console.log('[AUTH] 📨 Tentando enviar email de reset...');
             try {
-                const emailResult = await sendTemplateEmail('password_reset', user.email, {
-                    nome: user.name,
-                    email: user.email,
-                    senha_provisoria: null, // Não usamos senha provisória aqui
-                    link_acesso: resetUrl
+                const htmlContent = renderFallbackTemplate('PasswordRecoveryEmail', {
+                    userName: user.name,
+                    resetLink: resetUrl
                 });
+                
+                const emailResult = await sendEmail(
+                    user.email,
+                    '🔐 Recuperação de Senha - La Casa Dark Core',
+                    htmlContent
+                );
                 
                 if (emailResult.success) {
                     console.log(`[AUTH] ✅ Email de reset de senha enviado com sucesso para: ${user.email}`);
@@ -11474,43 +11472,114 @@ app.post('/api/admin/email-templates', authenticateToken, isAdmin, async (req, r
     }
 });
 
+// POST /api/admin/email-templates/preview - Preview de template de email
+app.post('/api/admin/email-templates/preview', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { template, props = {} } = req.body;
+        
+        if (!template) {
+            return res.status(400).json({ msg: 'Template é obrigatório' });
+        }
+        
+        // Mapear nomes antigos para novos templates melhorados
+        const templateMapping = {
+            'cancel': 'CancellationEmail',
+            'password_recovery': 'PasswordRecoveryEmail',
+            'password_reset': 'PasswordRecoveryEmail',
+            'access_granted': 'AccessGrantedEmail',
+            'register': 'PendingApprovalEmail'
+        };
+        
+        const mappedTemplate = templateMapping[template] || template;
+        
+        // Dados de exemplo para preview se não foram fornecidos
+        const defaultProps = {
+            PendingApprovalEmail: { userName: props.userName || 'João Silva' },
+            AccessGrantedEmail: { 
+                userName: props.userName || 'Maria Santos', 
+                planName: props.planName || 'MASTER PRO',
+                loginLink: props.loginLink || (process.env.BASE_URL ? `${process.env.BASE_URL}/dashboard.html` : 'http://127.0.0.1:5001/dashboard.html')
+            },
+            PasswordRecoveryEmail: { 
+                userName: props.userName || 'Pedro Costa',
+                resetLink: props.resetLink || (process.env.BASE_URL ? `${process.env.BASE_URL}/la-casa-dark-core-auth.html?reset_token=test123` : 'http://127.0.0.1:5001/la-casa-dark-core-auth.html?reset_token=test123')
+            },
+            CancellationEmail: { 
+                userName: props.userName || 'Ana Oliveira',
+                planName: props.planName || 'TURBO MAKER',
+                endDate: props.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')
+            }
+        };
+        
+        const finalProps = Object.keys(props).length > 0 ? props : (defaultProps[mappedTemplate] || {});
+        
+        const { renderFallbackTemplate } = require('./email-renderer.js');
+        const html = renderFallbackTemplate(mappedTemplate, finalProps);
+        
+        res.json({ html });
+    } catch (err) {
+        console.error('[EMAIL PREVIEW] Erro:', err);
+        res.status(500).json({ msg: 'Erro ao gerar preview do template: ' + err.message });
+    }
+});
+
 // POST /api/admin/email-templates/test - Testar envio de template de email
 app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (req, res) => {
     try {
-        const { template_type, test_email } = req.body;
+        const { template, email, template_type, test_email } = req.body;
         
-        if (!template_type) {
-            return res.status(400).json({ message: "Tipo de template é obrigatório." });
-        }
+        // Suportar ambos os formatos (novo e antigo)
+        const templateName = template || template_type;
+        const testEmail = email || test_email;
         
-        if (!test_email) {
-            return res.status(400).json({ message: "Email de teste é obrigatório." });
+        if (!templateName || !testEmail) {
+            console.log('[EMAIL TEST] Parâmetros recebidos:', { template, email, template_type, test_email });
+            return res.status(400).json({ message: "Template e email são obrigatórios." });
         }
         
         // Validar formato de email
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(test_email)) {
+        if (!emailRegex.test(testEmail)) {
             return res.status(400).json({ message: "Email inválido." });
         }
+        
+        console.log(`[EMAIL TEST] Template: ${templateName}, Email: ${testEmail}`);
         
         // Variáveis de exemplo para cada tipo de template
         const exampleVariables = {
             register: {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 creditos_iniciais: '100',
                 link_acesso: 'https://lacasadarkcore.com/login'
             },
+            PendingApprovalEmail: {
+                userName: 'João Silva'
+            },
+            AccessGrantedEmail: {
+                userName: 'Maria Santos',
+                planName: 'MASTER PRO',
+                loginLink: process.env.BASE_URL ? `${process.env.BASE_URL}/dashboard.html` : 'http://127.0.0.1:5001/dashboard.html'
+            },
+            PasswordRecoveryEmail: {
+                userName: 'Pedro Costa',
+                resetLink: process.env.BASE_URL ? `${process.env.BASE_URL}/la-casa-dark-core-auth.html?reset_token=test123` : 'http://127.0.0.1:5001/la-casa-dark-core-auth.html?reset_token=test123'
+            },
+            CancellationEmail: {
+                userName: 'Ana Oliveira',
+                planName: 'TURBO MAKER',
+                endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')
+            },
             cancel: {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'MASTER PRO Mensal',
                 data_cancelamento: new Date().toLocaleDateString('pt-BR'),
                 data_fim_acesso: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR')
             },
             payment: {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'MASTER PRO Mensal',
                 valor: 'R$ 297,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11518,7 +11587,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             package: {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 pacote: 'Pacote Premium',
                 creditos: '500',
                 valor: 'R$ 99,90',
@@ -11527,13 +11596,13 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             password_reset: {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 senha_provisoria: 'TempPass123!',
                 link_acesso: 'https://lacasadarkcore.com/login'
             },
             'subscription_plan-start': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'START CREATOR Mensal',
                 valor: 'R$ 79,90',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11542,7 +11611,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             'subscription_plan-turbo': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'TURBO MAKER Mensal',
                 valor: 'R$ 197,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11551,7 +11620,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             'subscription_plan-master': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'MASTER PRO Mensal',
                 valor: 'R$ 297,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11560,7 +11629,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             'subscription_plan-start-annual': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'START CREATOR Anual',
                 valor: 'R$ 799,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11569,7 +11638,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             'subscription_plan-turbo-annual': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'TURBO MAKER Anual',
                 valor: 'R$ 1.970,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11578,7 +11647,7 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             },
             'subscription_plan-master-annual': {
                 nome: 'João Silva',
-                email: test_email,
+                email: testEmail,
                 plano: 'MASTER PRO Anual',
                 valor: 'R$ 2.970,00',
                 data_pagamento: new Date().toLocaleDateString('pt-BR'),
@@ -11587,15 +11656,55 @@ app.post('/api/admin/email-templates/test', authenticateToken, isAdmin, async (r
             }
         };
         
-        const variables = exampleVariables[template_type] || {
-            nome: 'João Silva',
-            email: test_email
+        // Mapear nomes antigos para novos templates melhorados
+        const templateMapping = {
+            'cancel': 'CancellationEmail',
+            'password_recovery': 'PasswordRecoveryEmail',
+            'password_reset': 'PasswordRecoveryEmail',
+            'access_granted': 'AccessGrantedEmail',
+            'register': 'PendingApprovalEmail'
         };
         
-        console.log(`[EMAIL TEST] Enviando email de teste para template: ${template_type}`);
-        console.log(`[EMAIL TEST] Email de destino: ${test_email}`);
+        // Usar o nome mapeado se existir, senão usar o nome original
+        const mappedTemplateName = templateMapping[templateName] || templateName;
         
-        const result = await sendTemplateEmail(template_type, test_email, variables);
+        // Verificar se é um dos novos templates melhorados
+        const newTemplates = ['PendingApprovalEmail', 'AccessGrantedEmail', 'PasswordRecoveryEmail', 'CancellationEmail'];
+        const isNewTemplate = newTemplates.includes(mappedTemplateName);
+        
+        let result;
+        
+        if (isNewTemplate) {
+            // Usar os novos templates melhorados
+            const { renderFallbackTemplate } = require('./email-renderer.js');
+            const props = exampleVariables[mappedTemplateName] || exampleVariables[templateName] || {};
+            const html = renderFallbackTemplate(mappedTemplateName, props);
+            
+            const subjects = {
+                'PendingApprovalEmail': '🎯 Cadastro Recebido - La Casa Dark Core | Análise em Andamento',
+                'AccessGrantedEmail': '🎉 Acesso Liberado! - La Casa Dark Core | Comece Agora Mesmo',
+                'PasswordRecoveryEmail': '🔐 Recuperação de Senha - La Casa Dark Core | Redefina em Segundos',
+                'CancellationEmail': '💔 Cancelamento Confirmado - La Casa Dark Core | Ainda Temos Tempo?'
+            };
+            
+            console.log(`[EMAIL TEST] Enviando email de teste para template melhorado: ${mappedTemplateName} (original: ${templateName})`);
+            console.log(`[EMAIL TEST] Email de destino: ${testEmail}`);
+            
+            result = await sendEmail(testEmail, subjects[mappedTemplateName] || 'Teste de Email', html);
+        } else {
+            // Usar templates antigos
+            const variables = exampleVariables[templateName] || {
+                nome: 'João Silva',
+                email: testEmail
+            };
+            
+            console.log(`[EMAIL TEST] Enviando email de teste para template: ${templateName}`);
+            console.log(`[EMAIL TEST] Email de destino: ${testEmail}`);
+            
+            // Tentar usar o template mapeado primeiro
+            const finalTemplateName = templateMapping[templateName] || templateName;
+            result = await sendTemplateEmail(finalTemplateName, testEmail, variables);
+        }
         
         if (result.success) {
             res.status(200).json({ 
@@ -11936,8 +12045,24 @@ async function createEmailTransporter() {
 
 // Templates padrão para fallback
 const defaultEmailTemplates = {
+    register: {
+        subject: '🎉 Cadastro Recebido - La Casa Dark Core | Sua Jornada Começa Agora!',
+        body: 'Template de registro'
+    },
+    PendingApprovalEmail: {
+        subject: '🎯 Cadastro Recebido - La Casa Dark Core | Análise em Andamento',
+        body: 'Template de aprovação pendente'
+    },
+    AccessGrantedEmail: {
+        subject: '🎉 Acesso Liberado! - La Casa Dark Core | Comece Agora Mesmo',
+        body: 'Template de acesso liberado'
+    },
+    CancellationEmail: {
+        subject: '💔 Cancelamento Confirmado - La Casa Dark Core | Ainda Temos Tempo?',
+        body: 'Template de cancelamento'
+    },
     password_reset: {
-        subject: 'Reset de Senha - La Casa Dark Core',
+        subject: '🔐 Recuperação de Senha - La Casa Dark Core | Redefina em Segundos',
         body: `
             <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -11963,7 +12088,7 @@ const defaultEmailTemplates = {
         `
     },
     register: {
-        subject: 'Bem-vindo à La Casa Dark Core!',
+        subject: '🎉 Cadastro Recebido - La Casa Dark Core | Sua Jornada Começa Agora!',
         body: `
             <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -13351,22 +13476,45 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     
                     // Enviar email de assinatura (usar template específico do plano ou genérico)
                     try {
-                        const templateType = `subscription_${planKey}`;
-                        const template = await getEmailTemplate(templateType);
+                        // Mapear planKey para nome do template
+                        const templateMapping = {
+                            'plan-start': 'subscription_plan-start',
+                            'plan-turbo': 'subscription_plan-turbo',
+                            'plan-master': 'subscription_plan-master',
+                            'plan-start-annual': 'subscription_plan-start-annual',
+                            'plan-turbo-annual': 'subscription_plan-turbo-annual',
+                            'plan-master-annual': 'subscription_plan-master-annual'
+                        };
                         
-                        if (template) {
-                            // Template específico do plano existe
-                            await sendTemplateEmail(templateType, userData.email, {
-                                nome: userData.name,
-                                email: userData.email,
-                                plano: planName,
-                                valor: `R$ ${amount}`,
-                                data_pagamento: paymentDate,
-                                proxima_cobranca: nextBilling,
-                                creditos: planCreditsRow?.monthly_credits || 0
-                            });
+                        const templateType = templateMapping[planKey] || `subscription_plan-${planKey.replace('plan-', '')}`;
+                        
+                        // Tentar usar template específico do plano (melhorado com coroa de rei)
+                        const { renderFallbackTemplate } = require('./email-renderer.js');
+                        const emailHtml = renderFallbackTemplate(templateType, {
+                            nome: userData.name,
+                            email: userData.email,
+                            plano: planName,
+                            valor: `R$ ${amount}`,
+                            data_pagamento: paymentDate,
+                            proxima_cobranca: nextBilling,
+                            creditos: planCreditsRow?.monthly_credits || 0,
+                            loginLink: process.env.BASE_URL ? `${process.env.BASE_URL}/dashboard.html` : 'http://127.0.0.1:5001/dashboard.html'
+                        });
+                        
+                        if (emailHtml && emailHtml.includes('👑')) {
+                            // Template melhorado encontrado
+                            const subjects = {
+                                'subscription_plan-start': '🎉 Assinatura START CREATOR Confirmada - La Casa Dark Core',
+                                'subscription_plan-turbo': '🚀 Assinatura TURBO MAKER Confirmada - La Casa Dark Core',
+                                'subscription_plan-master': '👑 Assinatura MASTER PRO Confirmada - La Casa Dark Core',
+                                'subscription_plan-start-annual': '🎉 Assinatura START CREATOR Anual Confirmada - La Casa Dark Core',
+                                'subscription_plan-turbo-annual': '🚀 Assinatura TURBO MAKER Anual Confirmada - La Casa Dark Core',
+                                'subscription_plan-master-annual': '👑 Assinatura MASTER PRO Anual Confirmada - La Casa Dark Core'
+                            };
+                            
+                            await sendEmail(userData.email, subjects[templateType] || 'Assinatura Confirmada - La Casa Dark Core', emailHtml);
                         } else {
-                            // Usar template genérico de pagamento
+                            // Fallback para template genérico
                             await sendTemplateEmail('payment', userData.email, {
                                 nome: userData.name,
                                 email: userData.email,
@@ -13435,17 +13583,21 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                         // Obter saldo atualizado
                         const updatedUser = await db.get("SELECT credits FROM users WHERE id = ?", [userId]);
                         
-                        // Enviar email de pacote comprado
+                        // Enviar email de pacote comprado (template melhorado com coroa de rei)
                         try {
-                            await sendTemplateEmail('package', userData.email, {
+                            const { renderFallbackTemplate } = require('./email-renderer.js');
+                            const emailHtml = renderFallbackTemplate('package', {
                                 nome: userData.name,
                                 email: userData.email,
                                 pacote: planName,
                                 creditos: creditsToAdd,
                                 valor: `R$ ${amount}`,
                                 data_compra: paymentDate,
-                                saldo_atual: updatedUser?.credits || 0
+                                saldo_atual: updatedUser?.credits || 0,
+                                loginLink: process.env.BASE_URL ? `${process.env.BASE_URL}/dashboard.html` : 'http://127.0.0.1:5001/dashboard.html'
                             });
+                            
+                            await sendEmail(userData.email, '💎 Pacote de Créditos Comprado - La Casa Dark Core', emailHtml);
                         } catch (emailError) {
                             console.error('[EMAIL] Erro ao enviar email de pacote:', emailError.message);
                         }
@@ -13533,15 +13685,21 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                         const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
                         
                         try {
-                            await sendTemplateEmail('cancel', userData.email, {
-                                nome: userData.name,
-                                email: userData.email,
-                                plano: planName,
-                                data_cancelamento: cancelDate,
-                                data_fim_acesso: endAccessDate
+                            console.log(`[EMAIL] Enviando email de cancelamento para: ${userData.email}`);
+                            const htmlContent = renderFallbackTemplate('CancellationEmail', {
+                                userName: userData.name,
+                                planName: planName,
+                                endDate: endAccessDate
                             });
+                            
+                            await sendEmail(
+                                userData.email,
+                                'Cancelamento Confirmado - La Casa Dark Core',
+                                htmlContent
+                            );
+                            console.log(`[EMAIL] ✅ Email de cancelamento enviado para: ${userData.email}`);
                         } catch (emailError) {
-                            console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                            console.error('[EMAIL] ❌ Erro ao enviar email de cancelamento:', emailError.message);
                         }
                     }
                 }
@@ -13596,15 +13754,21 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
                     const planName = planNames[userData.subscription_plan] || userData.subscription_plan;
                     
                         try {
-                    await sendTemplateEmail('cancel', userData.email, {
-                        nome: userData.name,
-                        email: userData.email,
-                        plano: planName,
-                        data_cancelamento: cancelDate,
-                        data_fim_acesso: endAccessDate
-                    });
-            } catch (emailError) {
-                console.error('[EMAIL] Erro ao enviar email de cancelamento:', emailError.message);
+                            console.log(`[EMAIL] Enviando email de cancelamento para: ${userData.email}`);
+                            const htmlContent = renderFallbackTemplate('CancellationEmail', {
+                                userName: userData.name,
+                                planName: planName,
+                                endDate: endAccessDate
+                            });
+                            
+                            await sendEmail(
+                                userData.email,
+                                'Cancelamento Confirmado - La Casa Dark Core',
+                                htmlContent
+                            );
+                            console.log(`[EMAIL] ✅ Email de cancelamento enviado para: ${userData.email}`);
+                        } catch (emailError) {
+                            console.error('[EMAIL] ❌ Erro ao enviar email de cancelamento:', emailError.message);
                         }
                     }
                 }
@@ -33171,10 +33335,48 @@ app.post('/api/admin/users/approve-all', authenticateToken, isAdmin, async (req,
 
 app.put('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
     const { id } = req.params;
-    const { name, whatsapp, isAdmin, isBlocked, isApproved, tags } = req.body;
+    const { name, whatsapp, isAdmin: isAdminNew, isBlocked, isApproved, tags } = req.body;
     try {
+        // Verificar estado anterior para detectar mudança de aprovação
+        const userBefore = await db.get('SELECT name, email, isApproved, plan FROM users WHERE id = ?', [id]);
+        
         await db.run('UPDATE users SET name = ?, whatsapp = ?, isAdmin = ?, isBlocked = ?, isApproved = ?, tags = ? WHERE id = ?', 
-            [name, whatsapp, isAdmin, isBlocked, isApproved, tags || null, id]);
+            [name, whatsapp, isAdminNew, isBlocked, isApproved, tags || null, id]);
+        
+        // Se usuário foi aprovado agora, enviar email de acesso liberado
+        if (userBefore && !userBefore.isApproved && isApproved) {
+            try {
+                console.log(`[EMAIL] Usuário aprovado! Enviando email de acesso liberado para: ${userBefore.email}`);
+                
+                // Determinar nome do plano para exibir
+                const planName = userBefore.plan ? userBefore.plan.replace('plan-', '').replace('-', ' ').toUpperCase() : 'Padrão';
+                
+                const htmlContent = renderFallbackTemplate('AccessGrantedEmail', {
+                    userName: userBefore.name || name,
+                    planName: planName,
+                    features: [
+                        'Analisador de Títulos Virais com IA',
+                        'Gerador de Thumbnails Automático',
+                        'Roteiros Inteligentes para Vídeos',
+                        'Análise de Competidores e Nichos',
+                        'Biblioteca de Títulos de Sucesso',
+                        'Suporte Prioritário 24/7'
+                    ],
+                    loginLink: process.env.BASE_URL ? `${process.env.BASE_URL}/dashboard.html` : 'http://127.0.0.1:5001/dashboard.html'
+                });
+                
+                await sendEmail(
+                    userBefore.email,
+                    '🎉 Seu Acesso Foi Liberado - La Casa Dark Core',
+                    htmlContent
+                );
+                console.log(`[EMAIL] ✅ Email de acesso liberado enviado para: ${userBefore.email}`);
+            } catch (emailError) {
+                console.error('[EMAIL] ❌ Erro ao enviar email de acesso liberado:', emailError.message);
+                // Não falhar a aprovação se o email falhar
+            }
+        }
+        
         res.status(200).json({ msg: 'Utilizador atualizado com sucesso.' });
     } catch (err) {
         console.error('[ADMIN] Erro ao atualizar utilizador:', err);
