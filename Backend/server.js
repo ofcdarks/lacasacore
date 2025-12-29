@@ -111,6 +111,14 @@ async function detectAmbientationFromTitle(userId, title, niche) {
     return bestScore > 0 ? best : null;
 }
 
+async function ensureThumbnailWritingStyleColumn() {
+    if (!db) return;
+    const info = await db.all("PRAGMA table_info(thumbnail_references)");
+    if (!info.some(col => col.name === 'writing_style')) {
+        await db.exec('ALTER TABLE thumbnail_references ADD COLUMN writing_style TEXT');
+    }
+}
+
 async function saveAmbientationSnapshot(userId, niche, themeKey, title, ambienteArr, elementosArr, subject, acessorios) {
     await ensureAmbientationsTable();
     const kw = Array.from(new Set(String(title || '').toLowerCase().split(/[^a-záéíóúãõâêîôûç0-9]+/i).filter(w => w && w.length > 2))).slice(0, 10).join(',');
@@ -4915,6 +4923,11 @@ const getDefaultAdminApi = async () => {
             LIMIT 1
         `);
         
+        const thumbRefSchema = await db.all("PRAGMA table_info(thumbnail_references)");
+        if (!thumbRefSchema.some(col => col.name === 'writing_style')) {
+            await db.exec('ALTER TABLE thumbnail_references ADD COLUMN writing_style TEXT');
+        }
+        
         if (api) {
             return api;
         }
@@ -6971,6 +6984,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 FOREIGN KEY (folder_id) REFERENCES analysis_folders (id) ON DELETE SET NULL
             );
         `);
+        await ensureThumbnailWritingStyleColumn();
 
         await db.exec(`
             CREATE TABLE IF NOT EXISTS generated_titles (
@@ -7168,6 +7182,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 niche TEXT,
                 subniche TEXT,
                 description TEXT,
+                writing_style TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                 FOREIGN KEY (folder_id) REFERENCES analysis_folders (id) ON DELETE SET NULL
@@ -17370,9 +17385,14 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             }
         }
         console.log(`[Análise Laozhang] Resposta recebida (primeiros 500 chars):`, responseText.substring(0, 500));
+        console.log(`[Análise Laozhang] Resposta COMPLETA (primeiros 2000 chars):`, responseText.substring(0, 2000));
         // NUNCA passar nome de serviço real para parsing - sempre usar genérico para evitar exposição no frontend
         const serviceNameForParse = 'IA';
         const parsedData = parseTitleAnalysisResponse(responseText, serviceNameForParse, 5);
+        console.log(`[Análise Laozhang] Títulos parseados:`, parsedData.titulosSugeridos ? parsedData.titulosSugeridos.length : 0);
+        if (parsedData.titulosSugeridos && parsedData.titulosSugeridos.length > 0) {
+            console.log(`[Análise Laozhang] Primeiros títulos:`, parsedData.titulosSugeridos.slice(0, 2).map(t => ({ titulo: t.titulo?.substring(0, 60), pontuacao: t.pontuacao, impact: t.impact_score })));
+        }
         
         // Aplicar score de impacto aos títulos parseados
         let allWithScores = [];
@@ -17381,10 +17401,12 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
                 ...t,
                 impact_score: t.impact_score || computeImpactVisualScore(t.titulo)
             }));
+            console.log(`[Análise Laozhang] Scores calculados:`, allWithScores.map(t => ({ titulo: t.titulo?.substring(0, 40), pontuacao: t.pontuacao, impact: t.impact_score })));
         }
 
         // 1. Pegar os que são >= 7
         let highImpact = allWithScores.filter(t => (t.impact_score || 0) >= 7);
+        console.log(`[Análise Laozhang] Títulos com alto impacto (>= 7):`, highImpact.length);
         let finalTitles = [...highImpact];
         let uxMessage = null;
 
@@ -17416,6 +17438,8 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
 
         // Limitar ao solicitado
         const passing = finalTitles.slice(0, titlesRequired);
+        console.log(`[Análise Laozhang] Títulos finais selecionados:`, passing.length);
+        console.log(`[Análise Laozhang] Títulos finais (preview):`, passing.map(t => ({ titulo: t.titulo?.substring(0, 50), impact: t.impact_score })));
         
         // Sempre usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
         const derivedNiche = deriveNicheAndSubnicheFromContext({
@@ -17608,6 +17632,8 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
             niche: finalNiche,
             subniche: finalSubniche
         });
+        console.log(`[Análise Laozhang] ✅ RETORNANDO ${allGeneratedTitles.length} TÍTULOS PARA O FRONTEND`);
+        console.log(`[Análise Laozhang] Primeiros títulos:`, allGeneratedTitles.slice(0, 2).map(t => ({ titulo: t.titulo?.substring(0, 50), model: t.model })));
 
         res.status(200).json({
             niche: finalNiche,
@@ -18671,7 +18697,7 @@ function getThumbnailViralRules(selectedRule = 'auto', selectedTitle = '') {
 // Upload de thumbnail de referência
 app.post('/api/thumbnail-references/upload', authenticateToken, async (req, res) => {
     try {
-        const { thumbnail_base64, folder_id, channel_name, niche, subniche, description } = req.body;
+        const { thumbnail_base64, folder_id, channel_name, niche, subniche, description, writing_style } = req.body;
         const userId = req.user.id;
 
         if (!thumbnail_base64) {
@@ -18715,15 +18741,15 @@ app.post('/api/thumbnail-references/upload', authenticateToken, async (req, res)
         let result;
         if (hasFolderId) {
             result = await db.run(
-                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, folder_id, channel_name, niche, subniche, description)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [userId, thumbnail_base64, folder_id || null, channel_name || null, niche || null, subniche || null, description || null]
+                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, folder_id, channel_name, niche, subniche, description, writing_style)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [userId, thumbnail_base64, folder_id || null, channel_name || null, niche || null, subniche || null, description || null, writing_style || null]
             );
         } else {
             result = await db.run(
-                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, channel_name, niche, subniche, description)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [userId, thumbnail_base64, channel_name || null, niche || null, subniche || null, description || null]
+                `INSERT INTO thumbnail_references (user_id, thumbnail_base64, channel_name, niche, subniche, description, writing_style)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, thumbnail_base64, channel_name || null, niche || null, subniche || null, description || null, writing_style || null]
             );
         }
 
@@ -18905,7 +18931,7 @@ app.get('/api/thumbnail-references', authenticateToken, async (req, res) => {
         const { folder_id, channel_name, niche, subniche } = req.query;
 
         // Verificar se a coluna folder_id existe, se não, usar query sem ela
-        let query = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, created_at FROM thumbnail_references WHERE user_id = ?';
+        let query = 'SELECT id, thumbnail_base64, channel_name, niche, subniche, description, writing_style, created_at FROM thumbnail_references WHERE user_id = ?';
         const params = [userId];
         
         // Tentar adicionar folder_id se a coluna existir
@@ -18913,7 +18939,7 @@ app.get('/api/thumbnail-references', authenticateToken, async (req, res) => {
             const tableInfo = await db.all("PRAGMA table_info(thumbnail_references)");
             const hasFolderId = tableInfo.some(col => col.name === 'folder_id');
             if (hasFolderId) {
-                query = 'SELECT id, thumbnail_base64, folder_id, channel_name, niche, subniche, description, created_at FROM thumbnail_references WHERE user_id = ?';
+                query = 'SELECT id, thumbnail_base64, folder_id, channel_name, niche, subniche, description, writing_style, created_at FROM thumbnail_references WHERE user_id = ?';
             }
         } catch (e) {
             // Se der erro ao verificar, usar query sem folder_id
@@ -19441,7 +19467,7 @@ app.delete('/api/thumbnail-references/:id', authenticateToken, async (req, res) 
 app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        let { title, niche, subniche, folder_id, language = 'pt-BR', style = 'photorealistic', theme_key, variations = 2, ai_model, prompt_variant, include_4k_badge = false } = req.body;
+        let { title, niche, subniche, folder_id, language = 'pt-BR', style = 'photorealistic', theme_key, variations = 2, ai_model, prompt_variant, include_4k_badge = false, include_headline_on_image = true, headline_mode = 'auto', headline_override = null } = req.body;
 
         if (!title || !title.trim()) {
             return res.status(400).json({ msg: 'Título é obrigatório.' });
@@ -19454,6 +19480,11 @@ app.post('/api/generate/thumbnail/complete', authenticateToken, async (req, res)
             folder_id = parseInt(folder_id, 10);
             if (isNaN(folder_id)) folder_id = null;
         }
+
+        const includeHeadlineOnImage = include_headline_on_image !== false;
+        const validHeadlineModes = ['auto', 'title', 'none'];
+        const resolvedHeadlineMode = validHeadlineModes.includes(String(headline_mode)) ? String(headline_mode) : 'auto';
+        const headlineOverrideText = (typeof headline_override === 'string' && headline_override.trim()) ? headline_override.trim() : null;
         
         console.log('[Thumbnail Complete] Buscando prompt para:', { userId, folder_id, niche, subniche });
 
@@ -20212,6 +20243,24 @@ RESPONDA APENAS COM JSON:
         const headline1 = parsedSEO.headline1 || parsedSEO.headline || parsedSEO.headline_1 || titleText.split(':')[0].trim();
         const headline2 = parsedSEO.headline2 || parsedSEO.headline_2 || headline1; // Se não tiver, usar headline1 como fallback
         const headline3 = parsedSEO.headline3 || parsedSEO.headline_3 || headline1; // Se não tiver, usar headline1 como fallback
+
+        const resolveHeadlineForImage = (baseHeadline) => {
+            if (resolvedHeadlineMode === 'title') {
+                return headlineOverrideText || titleText;
+            }
+            if (resolvedHeadlineMode === 'none') {
+                return null;
+            }
+            return baseHeadline || titleText;
+        };
+
+        const overlayHeadline1 = resolveHeadlineForImage(headline1);
+        const overlayHeadline2 = resolveHeadlineForImage(headline2);
+        const overlayHeadline3 = resolveHeadlineForImage(headline3);
+
+        const seoHeadline1 = overlayHeadline1 || titleText;
+        const seoHeadline2 = overlayHeadline2 || titleText;
+        const seoHeadline3 = overlayHeadline3 || titleText;
         
         console.log('[Thumbnail Complete] Headlines extraídas:', {
             headline1: headline1,
@@ -20346,28 +20395,28 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
         
         // Gerar SEO para cada variação
         console.log('[Thumbnail Complete] Gerando SEO único para cada variação...');
-        const variation1SEO = await generateVariationSEO(headline1, 1);
+        const variation1SEO = await generateVariationSEO(seoHeadline1, 1);
         console.log('[Thumbnail Complete] Variação 1 SEO:', {
             descriptionLength: variation1SEO.description?.length || 0,
             tagsCount: Array.isArray(variation1SEO.tags) ? variation1SEO.tags.length : (variation1SEO.tags ? variation1SEO.tags.split(',').length : 0),
             descriptionPreview: variation1SEO.description?.substring(0, 100) || 'N/A'
         });
         
-        const variation2SEO = await generateVariationSEO(headline2, 2);
+        const variation2SEO = await generateVariationSEO(seoHeadline2, 2);
         console.log('[Thumbnail Complete] Variação 2 SEO:', {
             descriptionLength: variation2SEO.description?.length || 0,
             tagsCount: Array.isArray(variation2SEO.tags) ? variation2SEO.tags.length : (variation2SEO.tags ? variation2SEO.tags.split(',').length : 0),
             descriptionPreview: variation2SEO.description?.substring(0, 100) || 'N/A'
         });
         
-        const variation3SEO = await generateVariationSEO(headline3, 3);
+        const variation3SEO = await generateVariationSEO(seoHeadline3, 3);
         console.log('[Thumbnail Complete] Variação 3 SEO:', {
             descriptionLength: variation3SEO.description?.length || 0,
             tagsCount: Array.isArray(variation3SEO.tags) ? variation3SEO.tags.length : (variation3SEO.tags ? variation3SEO.tags.split(',').length : 0),
             descriptionPreview: variation3SEO.description?.substring(0, 100) || 'N/A'
         });
         
-        const variation4SEO = await generateVariationSEO(headline1, 4); // Usar headline1 para a 4ª variação (junção)
+        const variation4SEO = await generateVariationSEO(seoHeadline1, 4); // Usar headline1 para a 4ª variação (junção)
         console.log('[Thumbnail Complete] Variação 4 SEO:', {
             descriptionLength: variation4SEO.description?.length || 0,
             tagsCount: Array.isArray(variation4SEO.tags) ? variation4SEO.tags.length : (variation4SEO.tags ? variation4SEO.tags.split(',').length : 0),
@@ -20384,35 +20433,37 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
         const negativeBlock = `Remove corner markings, logos, watermarks, labels and badges. Do not render any text, words, letters, captions, typography, font names or color codes anywhere in the image.`;
         
         // Instruções sem overlay de texto: manter estilo e impedir qualquer legenda/texto
+        const overlayHeadlines = [overlayHeadline1, overlayHeadline2, overlayHeadline3, overlayHeadline1];
+
         const variations_data = [
             {
                 promptBase: adaptedPrompt1, // Prompt 1 (preservado quase inteiro)
-                headline: headline1,
-                hasHeadline: false,
+                headline: overlayHeadlines[0],
+                hasHeadline: includeHeadlineOnImage && !!overlayHeadlines[0],
                 seoDescription: variation1SEO.description,
                 tags: variation1SEO.tags,
                 promptName: 'Prompt 1'
             },
             {
                 promptBase: adaptedPrompt2, // Prompt 2 (preservado quase inteiro)
-                headline: headline2,
-                hasHeadline: false,
+                headline: overlayHeadlines[1],
+                hasHeadline: includeHeadlineOnImage && !!overlayHeadlines[1],
                 seoDescription: variation2SEO.description,
                 tags: variation2SEO.tags,
                 promptName: 'Prompt 2'
             },
             {
                 promptBase: adaptedPrompt3, // Prompt 3 (preservado quase inteiro)
-                headline: headline3,
-                hasHeadline: false,
+                headline: overlayHeadlines[2],
+                hasHeadline: includeHeadlineOnImage && !!overlayHeadlines[2],
                 seoDescription: variation3SEO.description,
                 tags: variation3SEO.tags,
                 promptName: 'Prompt 3'
             },
             {
                 promptBase: adaptedCombinedPrompt, // Prompt Combinado (preservado quase inteiro)
-                headline: headline1, // Usar headline1 para a junção
-                hasHeadline: false,
+                headline: overlayHeadlines[3],
+                hasHeadline: includeHeadlineOnImage && !!overlayHeadlines[3],
                 seoDescription: variation4SEO.description,
                 tags: variation4SEO.tags,
                 promptName: 'Prompt Combinado'
@@ -20465,26 +20516,27 @@ RESPONDA APENAS COM JSON VÁLIDO (sem markdown, sem código):
             
             // Regras de texto/caption conforme seletor de 4K
             const allow4k = !!include_4k_badge;
-            const textRules = allow4k 
-                ? `Renderize APENAS um pequeno selo "4K" no canto superior direito. NÃO RENDERIZE nenhum outro texto, legendas, números, nomes de fontes ou códigos de cor.`
-                : `NÃO RENDERIZE QUALQUER TEXTO, LEGENDAS, NÚMEROS, LETRAS, TIPOGRAFIA, NOMES DE FONTES OU CÓDIGOS DE COR NA IMAGEM.`;
-            
-            // Negativos padrões (sempre remover logos e watermarks; badges/labels só quando não permitir 4K)
             const negativeBlockFinal = allow4k 
                 ? `Remove logos and watermarks.` 
                 : negativeBlock;
-            
-            // Instrução opcional do selo 4K (quando permitido)
             const badgeInstruction = allow4k 
                 ? `Adicione um selo "4K" discreto no canto superior direito (pequeno, alta legibilidade, sem outros textos).`
                 : ``;
-            
+
+            const overlayHeadlineForPrompt = includeHeadlineOnImage && variation.headline ? variation.headline : null;
+            const headlineInstruction = overlayHeadlineForPrompt
+                ? `Renderize a headline "${overlayHeadlineForPrompt}" em letras maiúsculas, com fonte impactante e leve contorno, posicionada como texto principal. Não adicione nenhum outro texto ou legenda.`
+                : '';
+            const textRules = overlayHeadlineForPrompt
+                ? `${headlineInstruction}\nNão renderize outros textos, legendas ou rótulos.`
+                : `NÃO RENDERIZE QUALQUER TEXTO, LEGENDAS, NÚMEROS, LETRAS, TIPOGRAFIA, NOMES DE FONTES OU CÓDIGOS DE COR NA IMAGEM.`;
+
             finalPrompt = `${cleanedPrompt}
 
-${textRules}
-${badgeInstruction}
+            ${textRules}
+            ${badgeInstruction}
 
-${negativeBlockFinal}`;
+            ${negativeBlockFinal}`;
             
             try {
                 console.log(`[Thumbnail Complete] Gerando variação ${i + 1}/${variations_data.length}...`);
@@ -35708,6 +35760,71 @@ app.get('/api/library/thumbnails', authenticateToken, async (req, res) => {
 });
 
 // Excluir thumbnails em lote
+// Função auxiliar para buscar thumbnails diretamente do YouTube
+async function fetchYoutubeThumbnailsForSimilarity(query, currentVideo, apiKey, limit = 4) {
+    if (!query || !apiKey) return [];
+    const searchParams = new URLSearchParams({
+        part: 'snippet',
+        type: 'video',
+        q: query,
+        maxResults: String(limit),
+        key: apiKey
+    });
+
+    try {
+        const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?${searchParams.toString()}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!searchRes.ok) {
+            console.warn('[Thumbnails Semelhantes] YouTube search falhou:', searchRes.status);
+            return [];
+        }
+
+        const searchData = await searchRes.json();
+        const items = Array.isArray(searchData.items) ? searchData.items : [];
+        const videoIds = items.map(item => item?.id?.videoId).filter(Boolean);
+        const statsMap = {};
+
+        if (videoIds.length > 0) {
+            const statsParams = new URLSearchParams({
+                part: 'statistics',
+                id: videoIds.join(','),
+                key: apiKey
+            });
+            const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?${statsParams.toString()}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            if (statsRes.ok) {
+                const statsData = await statsRes.json();
+                (Array.isArray(statsData.items) ? statsData.items : []).forEach(item => {
+                    if (item?.id) {
+                        statsMap[item.id] = Number(item.statistics?.viewCount) || 0;
+                    }
+                });
+            }
+        }
+
+        return items.map(item => {
+            const videoId = item?.id?.videoId || null;
+            const snippet = item?.snippet || {};
+            const thumbnailUrl = snippet?.thumbnails?.high?.url || snippet?.thumbnails?.medium?.url || snippet?.thumbnails?.default?.url || null;
+            return {
+                thumbnailUrl,
+                title: snippet?.title || '',
+                videoUrl: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+                views: statsMap[videoId] || null,
+                niche: currentVideo?.niche || null,
+                subniche: currentVideo?.subniche || null,
+                similarityScore: 0.3,
+                source: 'youtube'
+            };
+        });
+    } catch (err) {
+        console.warn('[Thumbnails Semelhantes] Erro ao buscar do YouTube:', err.message);
+        return [];
+    }
+}
+
 // Endpoint para buscar thumbnails semelhantes
 app.post('/api/thumbnails/similar', authenticateToken, async (req, res) => {
     const { thumbnailUrl, videoTitle } = req.body;
@@ -35930,7 +36047,16 @@ app.post('/api/thumbnails/similar', authenticateToken, async (req, res) => {
         })
         .slice(0, 4); // Limitar a 4 thumbnails
         
-        res.status(200).json({ similarThumbnails });
+        const youtubeApiKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+        let youtubeMatches = [];
+        if (youtubeApiKey) {
+            const fallbackQuery = videoTitle || `${currentVideo?.niche || ''} ${currentVideo?.subniche || ''}`.trim() || 'vídeos virais';
+            youtubeMatches = await fetchYoutubeThumbnailsForSimilarity(fallbackQuery, currentVideo, youtubeApiKey, 4);
+        }
+
+        const combinedThumbnails = [...youtubeMatches, ...similarThumbnails].slice(0, 4);
+        
+        res.status(200).json({ similarThumbnails: combinedThumbnails });
     } catch (err) {
         console.error('[Thumbnails Semelhantes] Erro:', err);
         res.status(500).json({ msg: 'Erro ao buscar thumbnails semelhantes.', error: err.message });

@@ -319,6 +319,7 @@
         /* Estilos para biblioteca de títulos */
         .line-clamp-2 {
             display: -webkit-box;
+            line-clamp: 2;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
@@ -1665,6 +1666,16 @@
                                     </optgroup>
                                 </select>
                             </div>
+                        </div>
+                        <div class="flex flex-wrap gap-6 mb-6">
+                            <label class="flex items-center gap-2 text-sm text-gray-200">
+                                <input id="thumb-include-headline" type="checkbox" checked class="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500">
+                                <span>Incluir headline na imagem</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-sm text-gray-200">
+                                <input id="thumb-use-title-headline" type="checkbox" class="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500">
+                                <span>Usar o título como headline</span>
+                            </label>
                         </div>
                         
                             <button type="button" id="btn-generate-complete-thumbnail" class="w-full py-4 px-6 rounded-lg transition duration-300 shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 font-bold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black text-lg">
@@ -13704,7 +13715,6 @@ Equipe La Casa Dark Core</textarea>
                                 </button>
                             </div>
                         </div>
-                        
                         <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 mb-6">
                             <h4 class="text-lg font-semibold text-white mb-2">Análise do Título Original</h4>
                             <p class="text-sm text-gray-300 mb-2">
@@ -13788,6 +13798,16 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     `;
                     
+                    const bestTitleToken = getBestTitleToken(data.titulosSugeridos || []);
+                    const bestTitleReason = bestTitleToken?.reason || '';
+                    const safeBestTitleReason = bestTitleReason
+                        ? String(bestTitleReason)
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#39;')
+                        : '';
                     let titlesHtml = '<ul id="generated-titles-list" class="space-y-5">';
                     
                     // Verificar se thumbTitleSelect existe antes de usar (pode não existir quando carregado do histórico)
@@ -13816,10 +13836,21 @@ Equipe La Casa Dark Core</textarea>
                             .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
                             .trim();
                         const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
+                        const formulaChips = buildFormulaChips(titleObj, cleanTitle);
+                        const formulaChipsHtml = formulaChips.map(chip => `
+                            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800/70 text-xs font-semibold text-gray-200 border border-gray-700 shadow-sm">
+                                <span class="text-amber-400 text-sm leading-none">🎉</span>
+                                <span>${chip}</span>
+                            </span>
+                        `).join('');
                         // Garantir que is_checked seja boolean (pode vir como 0/1 do banco)
                         const isChecked = Boolean(titleObj.is_checked);
                         const isCheckedClass = isChecked ? 'opacity-60' : '';
                         const isCheckedLabelClass = isChecked ? 'line-through' : '';
+                        const isBestTitle = bestTitleToken && (
+                            (bestTitleToken.id && String(titleObj.id) === String(bestTitleToken.id)) ||
+                            (bestTitleToken.title && cleanTitle === bestTitleToken.title)
+                        );
                         
                         // Formatar nome do modelo para exibição e obter cor
                         const formatModelNameForDisplay = (model) => {
@@ -13856,7 +13887,7 @@ Equipe La Casa Dark Core</textarea>
                                     <!-- Title Section -->
                                     <div class="flex items-start gap-4 mb-4">
                                         <div class="flex-shrink-0 mt-0.5">
-                                            <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700/80 border-gray-600 rounded-md text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all cursor-pointer" data-title-id="${titleObj.id}" ${isChecked ? 'checked' : ''}>
+                                            <input type="checkbox" id="check-${index}" class="title-checkbox form-checkbox h-5 w-5 bg-gray-700/80 border-gray-600 rounded-md text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all cursor-pointer" data-title-id="${titleObj.id || ''}" ${isChecked ? 'checked' : ''}>
                                         </div>
                                         <div class="flex-1 min-w-0">
                                             <label for="check-${index}" class="flex items-center gap-2.5 cursor-pointer group/label">
@@ -13894,6 +13925,9 @@ Equipe La Casa Dark Core</textarea>
                                                     <strong>Fórmula:</strong> <code class="text-amber-400">${escapedFormula}</code>
                                                 </p>
                                             </div>
+                                            <div class="flex flex-wrap gap-2 mt-3">
+                                                ${formulaChipsHtml}
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -13910,6 +13944,12 @@ Equipe La Casa Dark Core</textarea>
                                                 <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${impactColor} font-bold text-sm shadow-sm">
                                                     <span>🔥</span>
                                                     <span>Impacto ${impactScore}/10</span>
+                                                </span>
+                                            ` : ''}
+                                            ${isBestTitle ? `
+                                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/90 via-amber-400 to-amber-500 text-black font-bold text-sm shadow-md border border-amber-600">
+                                                    <span>🏆</span>
+                                                    <span>Melhor Título</span>
                                                 </span>
                                             ` : ''}
                                             ${titleObj.canal_adequacao ? `
@@ -13935,6 +13975,9 @@ Equipe La Casa Dark Core</textarea>
                                         </button>
                                         </div>
                                     </div>
+                                    ${isBestTitle && safeBestTitleReason ? `
+                                    <p class="text-xs text-gray-300 italic mt-2">${safeBestTitleReason}</p>
+                                    ` : ''}
                                 </div>
                             </li>
                         `;
@@ -14030,6 +14073,128 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
 
+            function deriveFormulaEnhancements(titleText) {
+                if (!titleText) return [];
+                const normalized = titleText.toLowerCase();
+                const extras = [];
+                const addUnique = (value) => {
+                    if (value && !extras.includes(value)) extras.push(value);
+                };
+
+                if (/(como|como foi|como conseguiu|como foi possível|por que|por que)/i.test(normalized)) {
+                    addUnique('ângulo “como/por que” para curiosidade');
+                }
+                if (/(mist[eé]rio|segredo|descoberta|revelação|oculto|proibido)/i.test(normalized)) {
+                    addUnique('loop mental de revelação');
+                }
+                if (/(vs|versus|contra|frente a|x)/i.test(normalized)) {
+                    addUnique('contraste entre rivais');
+                }
+                if (/(surpreendente|imposs[ií]vel|inacreditável|chocante|nunca|proibido)/i.test(normalized)) {
+                    addUnique('vocabulário de impacto emocional');
+                }
+                if (/(\b\d+\b|lista|top|melhores)/i.test(normalized)) {
+                    addUnique('estrutura de lista com promessa clara');
+                }
+                return extras;
+            }
+
+            function extractTitleKeywords(titleText) {
+                if (!titleText) return [];
+                const cleaned = titleText
+                    .replace(/[^\wáéíóúãõâêîôûàèìòùç]/gi, ' ')
+                    .toLowerCase()
+                    .split(/\s+/)
+                    .filter(word => word.length > 3);
+                const stopWords = new Set(['que','com','para','sobre','entre','como','mais','menos','quem','quando','onde','por','dos','das','em','de','do','da','uma','um','no','na']);
+                return Array.from(new Set(cleaned.filter(word => !stopWords.has(word)))).slice(0, 4);
+            }
+
+            function buildFormulaChips(titleObj, cleanTitle) {
+                const extras = deriveFormulaEnhancements(cleanTitle);
+                const keywords = extractTitleKeywords(cleanTitle);
+                const unique = [];
+                extras.forEach(item => {
+                    if (item && !unique.includes(item)) unique.push(item);
+                });
+                const wordChips = keywords.map(word => `Explora "${word}" no gancho`);
+                wordChips.forEach(item => {
+                    if (item && !unique.includes(item)) unique.push(item);
+                });
+                if (unique.length === 0) {
+                    unique.push('Sem complementos identificados');
+                }
+                return unique.slice(0, 6);
+            }
+
+            function getBestTitleToken(titles) {
+                if (!Array.isArray(titles) || titles.length === 0) return null;
+                const weightQuality = 0.65;
+                const weightImpact = 0.35;
+                let bestScore = -Infinity;
+                let bestToken = null;
+
+                const normalizeTitleText = (raw) => {
+                    if (!raw) return '';
+                    const withoutBadge = raw
+                        .replace(/^\[(?:Gemini|Claude|OpenAI|GPT-4o \(2025\)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\]\s*/i, '')
+                        .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o \(2025\)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
+                        .trim();
+                    return withoutBadge;
+                };
+
+                let secondBestScore = -Infinity;
+                let bestQuality = 0;
+                let bestImpact = 0;
+                titles.forEach(title => {
+                    const quality = Number(title?.pontuacao) || 0;
+                    const impact = Number(title?.impact_score) || 0;
+                    const score = (quality * weightQuality) + (impact * weightImpact);
+                    if (score > bestScore) {
+                        secondBestScore = bestScore;
+                        bestScore = score;
+                        bestQuality = quality;
+                        bestImpact = impact;
+                        const normalizedTitle = normalizeTitleText(title?.titulo);
+                        bestToken = {
+                            id: title?.id ?? null,
+                            title: normalizedTitle,
+                            formula: title?.formula?.trim() || title?.formulaTitulo?.trim() || 'estrutura original',
+                            quality,
+                            impact,
+                            enhancements: deriveFormulaEnhancements(normalizedTitle)
+                        };
+                    } else if (score > secondBestScore) {
+                        secondBestScore = score;
+                    }
+                });
+
+                if (!bestToken && titles.length > 0) {
+                    const fallback = titles[0];
+                    const normalizedFallbackTitle = normalizeTitleText(fallback?.titulo);
+                    bestToken = {
+                        id: fallback?.id ?? null,
+                        title: normalizedFallbackTitle,
+                        formula: fallback?.formula?.trim() || fallback?.formulaTitulo?.trim() || 'estrutura original',
+                        quality: Number(fallback?.pontuacao) || 0,
+                        impact: Number(fallback?.impact_score) || 0,
+                        enhancements: deriveFormulaEnhancements(normalizedFallbackTitle)
+                    };
+                    bestQuality = bestToken.quality;
+                    bestImpact = bestToken.impact;
+                    bestScore = (bestQuality * weightQuality) + (bestImpact * weightImpact);
+                }
+
+                    if (bestToken) {
+                        const diffText = secondBestScore > -Infinity ? `Lidera por ${Math.max(0, (bestScore - secondBestScore)).toFixed(2)} ponto(s) sobre a concorrência.` : '';
+                        const formulaLabel = bestToken.formula || 'estrutura original';
+                        const enhancements = (bestToken.enhancements || []);
+                        const extras = enhancements.length ? ` acrescentando ${enhancements.join(', ')}.` : '.';
+                        bestToken.reason = `Este título equilibra Qualidade (${bestQuality}/10) e Impacto (${bestImpact}/10) com score ${bestScore.toFixed(2)}. ${diffText} Mantém a mesma estrutura do original: ${formulaLabel}${extras}`;
+                    }
+
+                return bestToken;
+            }
             // Função para inicializar funcionalidades de transcrição e agente de roteiro
             function initializeTranscriptAndAgentFeatures(videoId, videoTitle, translatedTitle, niche, subniche) {
                 console.log('[DEBUG] Inicializando funcionalidades de transcrição para videoId:', videoId);
@@ -15536,6 +15701,12 @@ Equipe La Casa Dark Core</textarea>
                 
                 const promptVariantSelect = document.getElementById('thumb-prompt-variant-simple');
                 const promptVariant = promptVariantSelect ? parseInt(promptVariantSelect.value, 10) : 1;
+                const includeHeadlineCheckbox = document.getElementById('thumb-include-headline');
+                const useTitleHeadlineCheckbox = document.getElementById('thumb-use-title-headline');
+                const includeHeadline = includeHeadlineCheckbox ? includeHeadlineCheckbox.checked : true;
+                const useTitleHeadline = useTitleHeadlineCheckbox ? useTitleHeadlineCheckbox.checked : false;
+                const headlineMode = includeHeadline ? (useTitleHeadline ? 'title' : 'auto') : 'none';
+                const headlineOverride = useTitleHeadline ? (title || null) : null;
                 
                 console.log('[Thumbnail Complete] Dados enviados:', {
                     title,
@@ -15572,7 +15743,10 @@ Equipe La Casa Dark Core</textarea>
                             style, 
                             ai_model: aiModel,
                             prompt_variant: promptVariant,
-                            variations: 2 
+                            variations: 2,
+                            include_headline_on_image: includeHeadline,
+                            headline_mode: headlineMode,
+                            headline_override: headlineOverride
                         })
                     });
                     
@@ -16002,6 +16176,7 @@ Equipe La Casa Dark Core</textarea>
                                 ${ref.channel_name ? `<p class="text-white font-semibold">${ref.channel_name}</p>` : ''}
                                 ${ref.niche ? `<p class="text-gray-300">Nicho: ${ref.niche}</p>` : ''}
                                 ${ref.subniche ? `<p class="text-gray-400">Subnicho: ${ref.subniche}</p>` : ''}
+                                ${ref.writing_style ? `<p class="text-gray-500 text-xs">Estilo de escrita: ${ref.writing_style}</p>` : ''}
                                 ${ref.description ? `<p class="text-gray-400 text-xs mt-2">${ref.description}</p>` : ''}
                                 <p class="text-gray-500 text-xs mt-2">${new Date(ref.created_at).toLocaleDateString('pt-BR')}</p>
                             </div>
@@ -16473,6 +16648,7 @@ Equipe La Casa Dark Core</textarea>
                     const niche = document.getElementById('ref-niche').value.trim();
                     const subniche = document.getElementById('ref-subniche').value.trim();
                     const description = document.getElementById('ref-description').value.trim();
+                    const writingStyle = currentAnalysisData?.model ? String(currentAnalysisData.model).trim() : null;
                     
                     if (!fileInput.files || !fileInput.files[0]) {
                         alert('Por favor, selecione uma imagem.');
@@ -16520,7 +16696,8 @@ Equipe La Casa Dark Core</textarea>
                                 channel_name: channelName || null,
                                 niche: niche || null,
                                 subniche: subniche || null,
-                                description: description || null
+                                description: description || null,
+                                writing_style: writingStyle || null
                             })
                         });
                         
