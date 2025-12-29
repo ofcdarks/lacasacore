@@ -33054,9 +33054,13 @@ app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
 });
 
 app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
-    const { search, status } = req.query;
+    const { search, status, page = 1, limit = 10 } = req.query;
     try {
-        let query = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, plan, subscription_plan, tags, created_at FROM users';
+        const pageNum = parseInt(page) || 1;
+        const limitNum = parseInt(limit) || 10;
+        const offset = (pageNum - 1) * limitNum;
+
+        let baseQuery = 'SELECT id, name, email, whatsapp, isAdmin, isBlocked, isApproved, plan, subscription_plan, tags, created_at FROM users';
         const params = [];
         const conditions = [];
 
@@ -33071,12 +33075,32 @@ app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
             if (status === 'blocked') conditions.push('isBlocked = 1');
         }
 
-        if (conditions.length > 0) {
-            query += ' WHERE ' + conditions.join(' AND ');
-        }
+        const whereClause = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
         
-        const users = await db.all(query, params);
-        res.json(users);
+        // Query para contar total de registros
+        const countQuery = 'SELECT COUNT(*) as total FROM users' + whereClause;
+        const countResult = await db.get(countQuery, params);
+        const total = countResult.total;
+
+        // Query para buscar os registros com paginação
+        const query = baseQuery + whereClause + ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        const queryParams = [...params, limitNum, offset];
+        
+        const users = await db.all(query, queryParams);
+        
+        const totalPages = Math.ceil(total / limitNum);
+        
+        res.json({
+            users,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages,
+                hasPrev: pageNum > 1,
+                hasNext: pageNum < totalPages
+            }
+        });
     } catch (err) {
         console.error('Erro ao buscar utilizadores admin:', err);
         res.status(500).json({ msg: 'Erro no servidor.' });

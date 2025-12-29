@@ -4514,10 +4514,10 @@
                                     <option value="pending">Pendentes</option>
                                     <option value="blocked">Bloqueados</option>
                                 </select>
-                                <select class="styled-select px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <option>10 por pagina</option>
-                                    <option>25 por pagina</option>
-                                    <option>50 por pagina</option>
+                                <select id="admin-users-per-page" class="styled-select px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="10">10 por pagina</option>
+                                    <option value="25">25 por pagina</option>
+                                    <option value="50">50 por pagina</option>
                                 </select>
                             </div>
                         </div>
@@ -4543,14 +4543,8 @@
                         </div>
                         
                         <div class="flex justify-end items-center mt-4">
-                            <nav class="flex items-center space-x-2 text-sm">
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">Anterior</a>
-                                <a href="#" class="px-3 py-1 rounded-md bg-blue-600 text-white">1</a>
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">2</a>
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">3</a>
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">4</a>
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">5</a>
-                                <a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700">Proximo</a>
+                            <nav class="flex items-center space-x-2 text-sm" id="admin-users-pagination">
+                                <!-- Paginação será inserida aqui dinamicamente -->
                             </nav>
                         </div>
                     </div>
@@ -7932,19 +7926,28 @@ Equipe La Casa Dark Core</textarea>
                 }
             }
 
-            async function loadAdminUsers() {
+            let currentUsersPage = 1;
+            let currentUsersLimit = 10;
+
+            async function loadAdminUsers(page = currentUsersPage, limit = currentUsersLimit) {
+                currentUsersPage = page;
+                currentUsersLimit = limit;
+                
                 const search = document.getElementById('admin-search-input').value;
                 const status = document.getElementById('admin-status-filter').value;
-                let url = `${API_BASE}/api/admin/users?`;
-                if (search) url += `search=${encodeURIComponent(search)}&`;
-                if (status) url += `status=${status}&`;
+                let url = `${API_BASE}/api/admin/users?page=${page}&limit=${limit}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+                if (status) url += `&status=${status}`;
 
                 try {
                     const response = await fetch(url, {
                         headers: { 'Authorization': `Bearer ${userToken}` }
                     });
                     if (!response.ok) throw new Error('Falha ao buscar utilizadores.');
-                    const users = await response.json();
+                    const data = await response.json();
+                    const users = data.users || [];
+                    const pagination = data.pagination || {};
+                    
                     const tableBody = document.getElementById('admin-user-table-body');
                     if (!tableBody) return;
                     
@@ -8034,7 +8037,77 @@ Equipe La Casa Dark Core</textarea>
                     });
 
                     if (typeof lucide !== 'undefined') lucide.createIcons();
+                    
+                    // Atualizar paginação
+                    updateUsersPagination(pagination);
                 } catch (err) { console.error('Erro ao carregar utilizadores admin:', err); }
+            }
+            
+            function updateUsersPagination(pagination) {
+                const paginationEl = document.getElementById('admin-users-pagination');
+                if (!paginationEl) return;
+                
+                if (!pagination || !pagination.total || pagination.totalPages <= 1) {
+                    paginationEl.innerHTML = '';
+                    return;
+                }
+                
+                let paginationHtml = '';
+                
+                // Botão Anterior
+                if (pagination.hasPrev) {
+                    paginationHtml += `<a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700 prev-users-page">Anterior</a>`;
+                } else {
+                    paginationHtml += `<span class="px-3 py-1 rounded-md text-gray-600 cursor-not-allowed">Anterior</span>`;
+                }
+                
+                // Números das páginas
+                const maxPages = 5;
+                let startPage = Math.max(1, pagination.page - Math.floor(maxPages / 2));
+                let endPage = Math.min(pagination.totalPages, startPage + maxPages - 1);
+                
+                if (endPage - startPage < maxPages - 1) {
+                    startPage = Math.max(1, endPage - maxPages + 1);
+                }
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    paginationHtml += `<a href="#" class="px-3 py-1 rounded-md ${i === pagination.page ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'} users-page-link" data-page="${i}">${i}</a>`;
+                }
+                
+                // Botão Próximo
+                if (pagination.hasNext) {
+                    paginationHtml += `<a href="#" class="px-3 py-1 rounded-md text-gray-400 hover:bg-gray-700 next-users-page">Próximo</a>`;
+                } else {
+                    paginationHtml += `<span class="px-3 py-1 rounded-md text-gray-600 cursor-not-allowed">Próximo</span>`;
+                }
+                
+                paginationEl.innerHTML = paginationHtml;
+                
+                // Adicionar event listeners
+                const prevBtn = paginationEl.querySelector('.prev-users-page');
+                if (prevBtn) {
+                    prevBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        loadAdminUsers(pagination.page - 1, currentUsersLimit);
+                    });
+                }
+                
+                const nextBtn = paginationEl.querySelector('.next-users-page');
+                if (nextBtn) {
+                    nextBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        loadAdminUsers(pagination.page + 1, currentUsersLimit);
+                    });
+                }
+                
+                const pageLinks = paginationEl.querySelectorAll('.users-page-link');
+                pageLinks.forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const page = parseInt(link.dataset.page);
+                        loadAdminUsers(page, currentUsersLimit);
+                    });
+                });
             }
             
             // Sistema de Abas do Admin
@@ -8067,7 +8140,10 @@ Equipe La Casa Dark Core</textarea>
                             targetContent.style.display = 'block';
                             
                             // Carrega dados específicos da aba
-                            if (targetTab === 'credits') {
+                            if (targetTab === 'users') {
+                                loadAdminUsers();
+                                loadAdminStats();
+                            } else if (targetTab === 'credits') {
                                 loadAdminCredits();
                             } else if (targetTab === 'apis') {
                                 loadAdminApis();
@@ -12358,8 +12434,16 @@ Equipe La Casa Dark Core</textarea>
                     showAddApiModal();
                 });
 
-                document.getElementById('admin-search-input').addEventListener('input', loadAdminUsers);
-                document.getElementById('admin-status-filter').addEventListener('change', loadAdminUsers);
+                document.getElementById('admin-search-input').addEventListener('input', () => {
+                    loadAdminUsers(1, currentUsersLimit); // Resetar para página 1 ao buscar
+                });
+                document.getElementById('admin-status-filter').addEventListener('change', () => {
+                    loadAdminUsers(1, currentUsersLimit); // Resetar para página 1 ao filtrar
+                });
+                document.getElementById('admin-users-per-page').addEventListener('change', (e) => {
+                    const newLimit = parseInt(e.target.value);
+                    loadAdminUsers(1, newLimit); // Resetar para página 1 ao mudar limite
+                });
                 
                 // Listeners para aba de armazenamento
                 document.getElementById('refresh-storage-stats')?.addEventListener('click', loadAdminStorage);
