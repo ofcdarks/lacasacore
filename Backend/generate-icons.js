@@ -18,12 +18,27 @@ async function generateIcon(size) {
     try {
         const outputPath = path.join(iconsDir, `icon-${size}x${size}.png`);
         
+        // Reduzir padding ao mínimo para logo ocupar quase todo o espaço
+        // Para ícones grandes (192+), usar apenas 2% de padding
+        // Para médios (128+), usar 3%
+        // Para pequenos, usar 5% para não cortar
+        const paddingPercent = size >= 192 ? 0.02 : (size >= 128 ? 0.03 : 0.05);
+        const logoSize = Math.floor(size * (1 - paddingPercent * 2));
+        
         await sharp(faviconPath)
-            .resize(size, size, {
+            .resize(logoSize, logoSize, {
                 fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .extend({
+                top: Math.floor(size * paddingPercent),
+                bottom: Math.floor(size * paddingPercent),
+                left: Math.floor(size * paddingPercent),
+                right: Math.floor(size * paddingPercent),
                 background: { r: 0, g: 0, b: 0, alpha: 1 }
             })
-            .png()
+            .resize(size, size)
+            .png({ quality: 100, compressionLevel: 9 })
             .toFile(outputPath);
         
         console.log(`✅ Ícone ${size}x${size} gerado: ${outputPath}`);

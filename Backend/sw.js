@@ -1,6 +1,6 @@
 // Service Worker para La Casa Dark Core PWA
-const CACHE_NAME = 'la-casa-dark-core-v1';
-const RUNTIME_CACHE = 'la-casa-dark-core-runtime-v1';
+const CACHE_NAME = 'la-casa-dark-core-v3';
+const RUNTIME_CACHE = 'la-casa-dark-core-runtime-v3';
 
 // Arquivos estáticos para cache
 const STATIC_ASSETS = [

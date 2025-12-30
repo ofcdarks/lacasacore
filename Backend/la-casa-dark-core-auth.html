@@ -80,14 +80,14 @@
         }
         
         .login-form-card {
-            background: rgba(17, 24, 39, 0.95);
+            background: rgba(0, 0, 0, 0.95);
             backdrop-filter: blur(20px);
             border: 1px solid rgba(245, 158, 11, 0.3);
             border-radius: 24px;
             padding: 3.6rem;
             width: 100%;
             max-width: 576px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
             position: relative;
             overflow: hidden;
         }
@@ -123,8 +123,8 @@
             background: radial-gradient(
                 circle 300px at var(--mouse-x, 50%) var(--mouse-y, 50%),
                 transparent 0%,
-                rgba(17, 24, 39, 0.2) 40%,
-                rgba(17, 24, 39, 0.95) 100%
+                rgba(0, 0, 0, 0.2) 40%,
+                rgba(0, 0, 0, 0.95) 100%
             );
             pointer-events: none;
             opacity: 0;
@@ -209,7 +209,7 @@
         .form-input {
             width: 100%;
             padding: 1.05rem 1.2rem;
-            background: rgba(31, 41, 55, 0.6);
+            background: rgba(0, 0, 0, 0.6);
             border: 1px solid rgba(75, 85, 99, 0.5);
             border-radius: 12px;
             color: #ffffff;
@@ -220,7 +220,7 @@
         .form-input:focus {
             outline: none;
             border-color: #3b82f6;
-            background: rgba(31, 41, 55, 0.8);
+            background: rgba(0, 0, 0, 0.8);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
         
@@ -377,7 +377,7 @@
         }
         
         #forgot-modal-content {
-            background: rgba(17, 24, 39, 0.95);
+            background: rgba(0, 0, 0, 0.95);
             backdrop-filter: blur(20px);
             border: 1px solid rgba(245, 158, 11, 0.3);
             border-radius: 24px;
@@ -464,6 +464,7 @@
                 <div class="brand-tag">
                     <i class="fas fa-lock"></i> PRIVATE CORE
                 </div>
+                <img src="/logo-official.svg" alt="La Casa Dark Core" style="width:140px;height:140px;margin:0 auto 20px;display:block;filter:drop-shadow(0 6px 20px rgba(245,158,11,0.6));" />
                 <h1 class="brand-title">
                     LA CASA DARK <span class="core">CORE</span>
                 </h1>
@@ -1079,7 +1080,7 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(17, 24, 39, 0.98);
+            background: rgba(0, 0, 0, 0.98);
             backdrop-filter: blur(20px);
             border: 1px solid rgba(245, 158, 11, 0.3);
             border-radius: 16px;
@@ -1127,17 +1128,21 @@
             const dismissedDate = installDismissed ? new Date(installDismissed) : null;
             const daysSinceDismissed = dismissedDate ? (Date.now() - dismissedDate.getTime()) / (1000 * 60 * 60 * 24) : null;
             
-            // Mostrar banner se não foi instalado e não foi dispensado recentemente (menos de 7 dias)
-            if (!installDate && (!dismissedDate || daysSinceDismissed > 7)) {
+            // Mostrar banner se não foi instalado e não foi dispensado recentemente (reduzido para 3 dias)
+            if (!installDate && (!dismissedDate || daysSinceDismissed > 3)) {
                 setTimeout(() => {
                     installBanner.style.display = 'block';
-                }, 2000); // Mostrar após 2 segundos
+                }, 3000); // Mostrar após 3 segundos
             }
         });
         
         // Botão de instalação
         document.getElementById('install-btn')?.addEventListener('click', async () => {
-            if (!deferredPrompt) return;
+            if (!deferredPrompt) {
+                // Se não houver prompt, tentar mostrar manualmente
+                alert('Para instalar o app, use o menu do navegador:\n\nChrome/Edge: Menu (⋮) > Instalar La Casa Dark Core\nFirefox: Menu (☰) > Instalar\nSafari: Compartilhar > Adicionar à Tela de Início');
+                return;
+            }
             
             deferredPrompt.prompt();
             const { outcome } = await deferredPrompt.userChoice;
@@ -1150,6 +1155,16 @@
             deferredPrompt = null;
         });
         
+        // Verificar periodicamente se o prompt está disponível
+        setTimeout(() => {
+            if (!deferredPrompt && !localStorage.getItem('pwa-install-date')) {
+                const installDismissed = localStorage.getItem('pwa-install-dismissed');
+                if (!installDismissed) {
+                    console.log('[PWA] Evento beforeinstallprompt não disparado ainda...');
+                }
+            }
+        }, 5000);
+        
         // Botão de dispensar
         document.getElementById('dismiss-install')?.addEventListener('click', () => {
             installBanner.style.display = 'none';
@@ -1161,6 +1176,14 @@
             installBanner.style.display = 'none';
             localStorage.setItem('pwa-install-date', new Date().toISOString());
         }
+        
+        // Função de debug: limpar cache PWA (para desenvolvimento/teste)
+        // Use no console: clearPWACache()
+        window.clearPWACache = function() {
+            localStorage.removeItem('pwa-install-dismissed');
+            localStorage.removeItem('pwa-install-date');
+            console.log('[PWA] Cache limpo! Recarregue a página para ver o banner novamente.');
+        };
     </script>
 </body>
 </html>

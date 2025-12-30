@@ -1006,6 +1006,7 @@
                          md:relative md:translate-x-0 md:flex">
             <!-- Logo -->
             <div class="text-center mb-10">
+                <img src="/logo-official.svg" alt="La Casa Dark Core" class="mx-auto mb-4" style="width:120px;height:120px;filter:drop-shadow(0 6px 20px rgba(245,158,11,0.5));" />
                 <h1 class="text-2xl brand-title">
                     La Casa Dark
                     <span class="brand-title-core">CORE</span>
@@ -13588,6 +13589,7 @@ Equipe La Casa Dark Core</textarea>
                         videoId: data.videoDetails.videoId,
                         niche: data.niche,
                         subniche: data.subniche,
+                        microniche: data.microniche || null,
                         model: model, 
                         generatedTitles: data.titulosSugeridos
                     };
@@ -13596,6 +13598,7 @@ Equipe La Casa Dark Core</textarea>
                     await saveTitlesToLibrary(data.titulosSugeridos, {
                         niche: data.niche,
                         subniche: data.subniche,
+                        microniche: data.microniche || null,
                         views: data.videoDetails?.views || null,
                         formula: data.analiseOriginal?.formulaTitulo || null
                     });
@@ -13762,7 +13765,7 @@ Equipe La Casa Dark Core</textarea>
                     `;
 
                     let nicheHtml = `
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div class="niche-tag flex justify-between items-center">
                                 <div>
                                     <strong>Nicho Detetado</strong>
@@ -13778,6 +13781,15 @@ Equipe La Casa Dark Core</textarea>
                                     <span id="detected-subniche">${data.subniche || 'N/A'}</span>
                                 </div>
                                 <button title="Copiar Subnicho" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.subniche || ''}">
+                                    <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
+                                </button>
+                            </div>
+                            <div class="niche-tag flex justify-between items-center">
+                                <div>
+                                    <strong>Micro-nicho Detetado</strong>
+                                    <span id="detected-microniche">${data.microniche || 'Não especificado'}</span>
+                                </div>
+                                <button title="Copiar Micro-nicho" class="btn-copy p-2 rounded-md hover:bg-gray-700 text-gray-400 hover:text-amber-500" data-copy-text="${data.microniche || ''}">
                                     <i data-lucide="copy" class="w-4 h-4 pointer-events-none"></i>
                                 </button>
                             </div>
@@ -33212,6 +33224,154 @@ Equipe La Casa Dark Core</textarea>
         });
     </script>
 
+    <!-- Service Worker Registration para PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('Service Worker registrado com sucesso:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Falha ao registrar Service Worker:', error);
+                    });
+            });
+        }
+        
+        // Prompt de Instalação do PWA
+        let deferredPrompt;
+        const installBanner = document.createElement('div');
+        installBanner.id = 'install-banner';
+        installBanner.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="fas fa-mobile-alt" style="font-size: 1.5rem; color: #f59e0b;"></i>
+                    <div>
+                        <div style="font-weight: 700; color: #ffffff; font-size: 0.875rem;">Instale La Casa Dark Core</div>
+                        <div style="font-size: 0.75rem; color: #9ca3af;">Tenha acesso rápido e use offline</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="install-btn" style="background: #f59e0b; color: #ffffff; border: none; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">
+                        Instalar
+                    </button>
+                    <button id="dismiss-install" style="background: transparent; color: #9ca3af; border: 1px solid #374151; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">
+                        Agora não
+                    </button>
+                </div>
+            </div>
+        `;
+        installBanner.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(17, 24, 39, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 16px;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            max-width: 90%;
+            width: 500px;
+            animation: slideUpBanner 0.5s ease-out;
+            display: none;
+        `;
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideUpBanner {
+                from {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(100px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+            }
+            #install-btn:hover {
+                background: #d97706;
+                transform: translateY(-1px);
+            }
+            #dismiss-install:hover {
+                background: rgba(55, 65, 81, 0.5);
+                color: #ffffff;
+            }
+        `;
+        document.head.appendChild(style);
+        document.body.appendChild(installBanner);
+        
+        // Detectar evento beforeinstallprompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Verificar se já foi instalado
+            const installDate = localStorage.getItem('pwa-install-date');
+            const installDismissed = localStorage.getItem('pwa-install-dismissed');
+            const dismissedDate = installDismissed ? new Date(installDismissed) : null;
+            const daysSinceDismissed = dismissedDate ? (Date.now() - dismissedDate.getTime()) / (1000 * 60 * 60 * 24) : null;
+            
+            // Mostrar banner se não foi instalado e não foi dispensado recentemente (menos de 3 dias agora)
+            if (!installDate && (!dismissedDate || daysSinceDismissed > 3)) {
+                setTimeout(() => {
+                    installBanner.style.display = 'block';
+                }, 3000); // Mostrar após 3 segundos
+            }
+        });
+        
+        // Botão de instalação
+        document.getElementById('install-btn')?.addEventListener('click', async () => {
+            if (!deferredPrompt) {
+                // Se não houver prompt, tentar mostrar manualmente
+                alert('Para instalar o app, use o menu do navegador:\n\nChrome/Edge: Menu (⋮) > Instalar La Casa Dark Core\nFirefox: Menu (☰) > Instalar\nSafari: Compartilhar > Adicionar à Tela de Início');
+                return;
+            }
+            
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            
+            if (outcome === 'accepted') {
+                localStorage.setItem('pwa-install-date', new Date().toISOString());
+                installBanner.style.display = 'none';
+            }
+            
+            deferredPrompt = null;
+        });
+        
+        // Botão de dispensar
+        document.getElementById('dismiss-install')?.addEventListener('click', () => {
+            installBanner.style.display = 'none';
+            localStorage.setItem('pwa-install-dismissed', new Date().toISOString());
+        });
+        
+        // Verificar se já está instalado
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+            installBanner.style.display = 'none';
+            localStorage.setItem('pwa-install-date', new Date().toISOString());
+        }
+        
+        // Verificar periodicamente se o prompt está disponível (para casos onde o evento não dispara)
+        setTimeout(() => {
+            if (!deferredPrompt && !localStorage.getItem('pwa-install-date')) {
+                const installDismissed = localStorage.getItem('pwa-install-dismissed');
+                if (!installDismissed) {
+                    console.log('[PWA] Evento beforeinstallprompt não disparado ainda. Verifique se:\n1. Está usando HTTPS ou localhost\n2. O manifest.json está acessível\n3. O service worker está registrado');
+                }
+            }
+        }, 5000);
+        
+        // Função de debug: limpar cache PWA (para desenvolvimento/teste)
+        // Use no console: clearPWACache()
+        window.clearPWACache = function() {
+            localStorage.removeItem('pwa-install-dismissed');
+            localStorage.removeItem('pwa-install-date');
+            console.log('[PWA] Cache limpo! Recarregue a página para ver o banner novamente.');
+        };
+    </script>
+
     <!-- Rodapé Elite (Sistema Fechado) -->
     <footer class="mt-12 pb-6 text-center">
         <p class="text-xs text-gray-600 font-light tracking-wider" style="letter-spacing: 0.1em; opacity: 0.5;">
@@ -33220,6 +33380,5 @@ Equipe La Casa Dark Core</textarea>
     </footer>
 
 </body>
-</html>
 </html>
 

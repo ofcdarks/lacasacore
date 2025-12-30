@@ -628,7 +628,24 @@ app.get('/sw.js', (req, res) => {
 // Rota para manifest.json
 app.get('/manifest.json', (req, res) => {
     res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(__dirname, 'manifest.json'));
+});
+
+// Rota para ícones PWA (forçar atualização)
+app.get('/icons/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const iconPath = path.join(__dirname, 'icons', filename);
+    if (fs.existsSync(iconPath)) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.sendFile(iconPath);
+    } else {
+        res.status(404).send('Ícone não encontrado');
+    }
 });
 
 // Rota para sitemap.xml (dinâmico baseado no domínio)
@@ -799,7 +816,7 @@ async function callYouTubeDataAPI(videoId, apiKey) {
     // Limpar a chave de espaços e caracteres inválidos
     apiKey = apiKey.trim();
     
-    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${apiKey}`;
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,topicDetails&id=${videoId}&key=${apiKey}`;
     try {
         const response = await fetch(url);
         const data = await response.json();
@@ -851,7 +868,39 @@ async function callYouTubeDataAPI(videoId, apiKey) {
         const item = data.items[0];
         const snippet = item.snippet;
         const stats = item.statistics;
+        const topicDetails = item.topicDetails || {};
 
+        // Mapear categoryId para nicho (categorias do YouTube)
+        const categoryMap = {
+            '1': 'Filmes e Animações',
+            '2': 'Carros e Veículos',
+            '10': 'Música',
+            '15': 'Animais e Pets',
+            '17': 'Esportes',
+            '19': 'Viagens e Eventos',
+            '20': 'Jogos',
+            '22': 'Pessoas e Blogs',
+            '23': 'Comédia',
+            '24': 'Entretenimento',
+            '25': 'Notícias e Política',
+            '26': 'Como fazer e Estilo',
+            '27': 'Educação',
+            '28': 'Ciência e Tecnologia',
+            '29': 'Sem fins lucrativos e Ativismo'
+        };
+
+        const categoryIdStr = String(snippet.categoryId || '');
+        const categoryName = categoryMap[categoryIdStr] || null;
+        
+        console.log('[YouTube API] Dados extraídos:', {
+            categoryId: categoryIdStr,
+            categoryName: categoryName,
+            tagsCount: (snippet.tags || []).length,
+            tags: (snippet.tags || []).slice(0, 5), // Primeiras 5 tags
+            topicCategoriesCount: (topicDetails.topicCategories || []).length,
+            topicCategories: (topicDetails.topicCategories || []).slice(0, 3) // Primeiros 3 tópicos
+        });
+        
         return {
             title: snippet.title,
             description: snippet.description || '',
@@ -859,7 +908,13 @@ async function callYouTubeDataAPI(videoId, apiKey) {
             views: stats.viewCount || 0,
             likes: stats.likeCount || 0,
             comments: stats.commentCount || 0,
-            days: Math.round((new Date() - new Date(snippet.publishedAt)) / (1000 * 60 * 60 * 24))
+            days: Math.round((new Date() - new Date(snippet.publishedAt)) / (1000 * 60 * 60 * 24)),
+            tags: snippet.tags || [],
+            categoryId: categoryIdStr || null,
+            categoryName: categoryName,
+            channelId: snippet.channelId || null,
+            channelTitle: snippet.channelTitle || null,
+            topicCategories: topicDetails.topicCategories || []
         };
     } catch (err) {
         console.error("Erro ao chamar YouTube Data API v3:", err);
@@ -2532,41 +2587,508 @@ REGRAS FINAIS
 ${attemptBlock()}`;
 }
 
-function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, descriptionStart, transcriptStart }) {
-    const hay = `${originalTitle || ''}\n${translatedTitle || ''}\n${descriptionStart || ''}\n${transcriptStart || ''}`.toLowerCase();
+// Função helper para detectar nicho usando IA SEMPRE (mais preciso que API)
+async function detectNicheComplete({ originalTitle, translatedTitle, descriptionStart, transcriptStart, videoTags = [], categoryId = null, categoryName = null, topicCategories = [], userId, model, videoDetails }) {
+    // SEMPRE usar IA para análise mais precisa
+    console.log('[detectNicheComplete] Usando IA para análise profunda do nicho...');
     
-    // História e Civilizações
-    if (/(hist[oó]ria|civiliza|imp[eé]rio|antigo|antiga|aztec|astec|tenocht|maia|inca|roma|egito|eg[ipí]cio|templo|pir[âa]mide|conquista|descobr|explora)/i.test(hay)) {
-        return { niche: 'História', subniche: 'Civilizações Antigas' };
+    // Determinar qual serviço de IA usar
+    let aiService = 'gemini';
+    let aiModel = 'gemini-2.0-flash';
+    let aiApiKey = null;
+    
+    // Mapear modelo do frontend para serviço
+    if (model && typeof model === 'string') {
+        if (model.startsWith('claude') || model.includes('claude') || model.includes('sonnet')) {
+            aiService = 'claude';
+            aiModel = model.includes('3.7') ? 'claude-sonnet-4-20250514' : model;
+        } else if (model.startsWith('gpt') || model.includes('gpt') || model.includes('openai')) {
+            aiService = 'openai';
+            aiModel = model.includes('4o') ? 'gpt-4o' : model;
+        } else if (model.startsWith('gemini') || model.includes('gemini')) {
+            aiService = 'gemini';
+            aiModel = model.includes('2.5-pro') ? 'gemini-2.5-pro' : (model.includes('2.5-flash') ? 'gemini-2.5-flash' : 'gemini-2.0-flash');
+        }
     }
     
-    // Finanças e Investimentos
-    if (/(finan|dinheiro|invest|renda|bitcoin|cripto|a[cç][aã]o|bolsa|neg[óo]cio|empreend)/i.test(hay)) {
-        return { niche: 'Finanças', subniche: 'Investimentos' };
+    // Buscar chave da API
+    const aiKeyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, aiService]);
+    if (aiKeyData) {
+        aiApiKey = decrypt(aiKeyData.api_key) || aiKeyData.api_key;
     }
     
-    // Saúde e Bem-estar
-    if (/(sa[uú]de|fitness|treino|dieta|emagrec|ansiedade|depress|m[uú]sculo|nutri[cç])/i.test(hay)) {
-        return { niche: 'Saúde', subniche: 'Bem-estar' };
+    // Se não tiver chave do modelo escolhido, tentar outros
+    if (!aiApiKey) {
+        for (const svc of ['claude', 'openai', 'gemini']) {
+            const keyData = await db.get('SELECT api_key FROM user_api_keys WHERE user_id = ? AND service_name = ?', [userId, svc]);
+            if (keyData) {
+                aiApiKey = decrypt(keyData.api_key) || keyData.api_key;
+                aiService = svc;
+                aiModel = svc === 'claude' ? 'claude-sonnet-4-20250514' : (svc === 'openai' ? 'gpt-4o' : 'gemini-2.0-flash');
+                break;
+            }
+        }
     }
     
-    // Engenharia e Construção
-    if (/(engenharia|constru|obra|arquitetura|edif[ií]cio|estrutura|projeto|engenh)/i.test(hay)) {
-        return { niche: 'Educação', subniche: 'Engenharia' };
+    if (aiApiKey) {
+        console.log('[detectNicheComplete] Chamando IA para análise...', { service: aiService, model: aiModel });
+        const aiDetectedNiche = await detectNicheWithAI({
+            originalTitle,
+            translatedTitle,
+            descriptionStart,
+            videoTags,
+            categoryName,
+            userId,
+            model: aiModel,
+            apiKey: aiApiKey,
+            service: aiService
+        });
+        
+        if (aiDetectedNiche && aiDetectedNiche.niche) {
+            console.log('[detectNicheComplete] ✅ Nicho detectado pela IA:', aiDetectedNiche);
+            return aiDetectedNiche;
+        }
     }
     
-    // Mistérios e Enigmas
-    if (/(mist[eé]rio|enigma|inexplicável|segredo|oculto|conspira|paranormal)/i.test(hay)) {
-        return { niche: 'Entretenimento', subniche: 'Mistérios' };
+    // Fallback: usar dados da API se IA falhar
+    console.warn('[detectNicheComplete] ⚠️ IA falhou, usando dados da API como fallback');
+    const derivedNiche = deriveNicheAndSubnicheFromContext({
+        originalTitle,
+        translatedTitle,
+        descriptionStart,
+        transcriptStart,
+        videoTags,
+        categoryId,
+        categoryName,
+        topicCategories
+    });
+    
+    return derivedNiche || { niche: 'Geral', subniche: 'Não especificado', microniche: null };
+}
+
+async function detectNicheWithAI({ originalTitle, translatedTitle, descriptionStart, videoTags = [], categoryName = null, userId, model, apiKey, service }) {
+    console.log('[detectNicheWithAI] Usando IA para detectar nicho, subnicho e micro-nicho do título');
+    
+    const tagsList = Array.isArray(videoTags) && videoTags.length > 0 ? videoTags.slice(0, 10).join(', ') : 'Nenhuma tag disponível';
+    const description = descriptionStart ? descriptionStart.substring(0, 200) : 'Sem descrição disponível';
+    
+    const prompt = `Você é um ANALISTA SENIOR de conteúdo do YouTube com 15+ anos de experiência em categorização e análise de nichos performáticos. Sua missão é fazer uma ANÁLISE CIRÚRGICA do conteúdo e identificar o NICHO, SUBNICHO e MICRO-NICHO mais precisos.
+
+═══════════════════════════════════════════════════════════════
+📊 DADOS DO VÍDEO PARA ANÁLISE:
+═══════════════════════════════════════════════════════════════
+
+🎬 TÍTULO ORIGINAL: "${originalTitle}"
+🇧🇷 TÍTULO TRADUZIDO: "${translatedTitle}"
+📝 DESCRIÇÃO: "${description}"
+🏷️ TAGS: ${tagsList}
+📂 CATEGORIA YOUTUBE: ${categoryName || 'Não especificada'}
+
+═══════════════════════════════════════════════════════════════
+🎯 METODOLOGIA DE ANÁLISE (SIGA RIGOROSAMENTE):
+═══════════════════════════════════════════════════════════════
+
+PASSO 1 - ANÁLISE DO TEMA CENTRAL:
+• Qual é a HISTÓRIA sendo contada? (não apenas o formato)
+• Qual é o CONFLITO ou ELEMENTO DRAMÁTICO principal?
+• Sobre o que REALMENTE o vídeo fala?
+
+PASSO 2 - ANÁLISE PSICOGRÁFICA:
+• Que EMOÇÃO o título quer despertar? (curiosidade, choque, empatia, etc.)
+• Qual ARQUÉTIPO está presente? (riqueza oculta, revelação, teste, transformação, vingança, etc.)
+• Que MOTIVAÇÃO tem quem clica? (aprender, se emocionar, se inspirar, etc.)
+
+PASSO 3 - ANÁLISE NARRATIVA:
+• É uma HISTÓRIA SOCIAL? (relacionamentos, família, sociedade)
+• É uma HISTÓRIA DE RIQUEZA? (dinheiro, status, materialismo)
+• É um TESTE ou EXPERIMENTO SOCIAL?
+• É MOTIVACIONAL ou tem LIÇÃO DE MORAL?
+
+═══════════════════════════════════════════════════════════════
+❌ ERROS COMUNS A EVITAR:
+═══════════════════════════════════════════════════════════════
+
+1. NÃO use "Filmes" para histórias narrativas - "Filmes" é para ANÁLISE DE CINEMA
+2. NÃO seja genérico - "Drama" sozinho não basta, precisa especificar QUAL tipo
+3. NÃO ignore o CONTEXTO EMOCIONAL - a emoção define o subnicho
+4. NÃO use a categoria do YouTube cegamente - analise o CONTEÚDO REAL
+5. NÃO invente nichos - use APENAS os listados abaixo
+
+═══════════════════════════════════════════════════════════════
+📋 NICHOS DISPONÍVEIS:
+═══════════════════════════════════════════════════════════════
+
+1️⃣ NICHO PRINCIPAL (categoria macro):
+   • Entretenimento | Finanças | História | Educação | Saúde | Esportes | Viagens | Automotivo | Animais | Notícias | Ativismo | Geral
+
+2️⃣ SUBNICHO (categoria específica - SEJA ANALÍTICO):
+
+   SE for Entretenimento:
+   • Histórias Sociais (relacionamentos, sociedade, comportamento humano)
+   • Drama Familiar (conflitos familiares, dinâmicas familiares)
+   • Teste Social (experimentos, testes de caráter, revelações)
+   • Histórias Motivacionais (superação, inspiração, lições)
+   • Mistérios (enigmas, investigações, suspense)
+   • Comédia (humor, paródia, sketches)
+   • Vlogs (dia a dia, rotina pessoal)
+   • Jogos (gameplay, reviews de jogos)
+   • Música (performances, análises musicais)
+   • Filmes (APENAS para análise/review de cinema)
+
+   SE for Finanças:
+   • Histórias de Riqueza (bilionários, sucesso financeiro, fortunas)
+   • Investimentos (ações, fundos, estratégias)
+   • Empreendedorismo (negócios, startups)
+   • Criptomoedas (Bitcoin, blockchain)
+
+3️⃣ MICRO-NICHO (ultra-específico - O MAIS IMPORTANTE):
+
+   Exemplos REAIS de micro-nichos performáticos:
+   
+   Para histórias com RIQUEZA + FAMÍLIA:
+   • Histórias de Riqueza Oculta
+   • Bilionários Disfarçados
+   • Teste de Caráter com Dinheiro
+   • Revelações de Fortuna Familiar
+   
+   Para histórias com TESTE/EXPERIMENTO:
+   • Teste de Caráter
+   • Teste de Lealdade Familiar
+   • Experimento Social de Valores
+   • Revelações Comportamentais
+   
+   Para histórias com LIÇÃO/MORAL:
+   • Lições de Vida sobre Ganância
+   • Contos Morais Modernos
+   • Histórias de Karma Social
+   • Reflexões sobre Valores Humanos
+
+═══════════════════════════════════════════════════════════════
+✅ EXEMPLO DE ANÁLISE CORRETA:
+═══════════════════════════════════════════════════════════════
+
+Título: "Billionaire returned home, pretending to be poor to test his family – what they did shocked him"
+
+ANÁLISE PASSO A PASSO:
+1. TEMA CENTRAL: Um bilionário testa sua família fingindo ser pobre
+2. CONFLITO: Teste de caráter + revelação chocante sobre a família
+3. ARQUÉTIPO: Riqueza oculta + teste de lealdade + revelação dramática
+4. EMOÇÃO: Choque, curiosidade sobre o resultado do teste
+5. MOTIVAÇÃO DO ESPECTADOR: Ver como as pessoas agem quando testadas
+
+CLASSIFICAÇÃO FINAL:
+✅ Nicho: Entretenimento (é uma história narrativa com drama)
+✅ Subnicho: Histórias Sociais / Drama Familiar / Teste Social (combina os 3 elementos)
+✅ Micro-nicho: Histórias de Riqueza Oculta / Teste de Caráter / Lições de Vida
+✅ Reasoning: "História dramática combinando teste social com dinâmica familiar e revelação de riqueza oculta, com lição moral sobre valores"
+
+❌ ERRADO: Nicho: Entretenimento, Subnicho: Filmes (muito genérico, não é sobre cinema)
+❌ ERRADO: Micro-nicho: Drama (muito amplo, não é específico o suficiente)
+
+═══════════════════════════════════════════════════════════════
+🎯 SUA ANÁLISE (responda APENAS o JSON):
+═══════════════════════════════════════════════════════════════
+
+Responda APENAS em JSON válido, sem markdown, sem explicações extras:
+{
+  "niche": "nome do nicho principal",
+  "subniche": "subnicho específico (pode ser múltiplos separados por /)",
+  "microniche": "micro-nicho ultra-específico e performático",
+  "confidence": "alta|media|baixa",
+  "reasoning": "explicação analítica da classificação (2-3 frases)"
+}`;
+
+    try {
+        let aiResponse;
+        
+        if (service === 'claude') {
+            aiResponse = await callClaudeAPI(prompt, apiKey, model);
+        } else if (service === 'openai') {
+            aiResponse = await callOpenAIAPI(prompt, apiKey, model);
+        } else if (service === 'gemini') {
+            aiResponse = await callGeminiAPI(prompt, apiKey, model);
+        } else {
+            throw new Error('Serviço de IA não suportado');
+        }
+        
+        // Parsear resposta da IA
+        let responseText = typeof aiResponse === 'string' ? aiResponse : (aiResponse.titles || JSON.stringify(aiResponse));
+        
+        // Limpar markdown se presente
+        responseText = responseText.replace(/```json|```/g, '').trim();
+        
+        // Tentar parsear JSON
+        let parsed;
+        try {
+            parsed = JSON.parse(responseText);
+        } catch (e) {
+            // Tentar extrair JSON usando regex
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('Resposta da IA não contém JSON válido');
+            }
+        }
+        
+        if (parsed.niche && parsed.subniche) {
+            console.log('[detectNicheWithAI] ✅ Nicho detectado pela IA:', parsed);
+            return {
+                niche: parsed.niche,
+                subniche: parsed.subniche,
+                microniche: parsed.microniche || parsed.microNiche || parsed.micro_niche || null,
+                confidence: parsed.confidence || 'media',
+                reasoning: parsed.reasoning || null
+            };
+        } else {
+            throw new Error('Resposta da IA não contém niche e subniche');
+        }
+    } catch (error) {
+        console.error('[detectNicheWithAI] ❌ Erro ao detectar nicho com IA:', error.message);
+        return { niche: 'Geral', subniche: 'Não especificado', microniche: null };
+    }
+}
+
+function deriveNicheAndSubnicheFromContext({ originalTitle, translatedTitle, descriptionStart, transcriptStart, videoTags = [], categoryId = null, categoryName = null, topicCategories = [] }) {
+    // PRIORIDADE 1: Usar categoria do YouTube se disponível (mais confiável)
+    const tagsText = Array.isArray(videoTags) ? videoTags.join(' ').toLowerCase() : '';
+    const topicText = Array.isArray(topicCategories) ? topicCategories.map(tc => tc.split('/').pop()).join(' ').toLowerCase() : '';
+    
+    console.log('[deriveNiche] Detecção de nicho:', {
+        hasCategoryName: !!categoryName,
+        categoryName: categoryName,
+        categoryId: categoryId,
+        hasTags: tagsText.length > 0,
+        tagsCount: Array.isArray(videoTags) ? videoTags.length : 0,
+        tagsPreview: videoTags?.slice(0, 5) || [],
+        hasTopics: topicText.length > 0,
+        topicsCount: Array.isArray(topicCategories) ? topicCategories.length : 0
+    });
+    
+    // PRIORIDADE 1: Usar categoria do YouTube se disponível
+    if (categoryName) {
+        console.log('[deriveNiche] Usando categoria do YouTube:', categoryName);
+        const categoryNicheMap = {
+            'Educação': { niche: 'Educação', subniche: 'Geral' },
+            'Ciência e Tecnologia': { niche: 'Educação', subniche: 'Ciência' },
+            'Entretenimento': { niche: 'Entretenimento', subniche: 'Geral' },
+            'Comédia': { niche: 'Entretenimento', subniche: 'Comédia' },
+            'Música': { niche: 'Entretenimento', subniche: 'Música' },
+            'Jogos': { niche: 'Entretenimento', subniche: 'Jogos' },
+            'Filmes e Animações': { niche: 'Entretenimento', subniche: 'Filmes' },
+            'Pessoas e Blogs': { niche: 'Entretenimento', subniche: 'Vlogs' },
+            'Notícias e Política': { niche: 'Notícias', subniche: 'Política' },
+            'Como fazer e Estilo': { niche: 'Educação', subniche: 'Tutoriais' },
+            'Esportes': { niche: 'Esportes', subniche: 'Geral' },
+            'Viagens e Eventos': { niche: 'Viagens', subniche: 'Geral' },
+            'Carros e Veículos': { niche: 'Automotivo', subniche: 'Geral' },
+            'Animais e Pets': { niche: 'Animais', subniche: 'Geral' },
+            'Sem fins lucrativos e Ativismo': { niche: 'Ativismo', subniche: 'Geral' }
+        };
+        
+        if (categoryNicheMap[categoryName]) {
+            const mapped = categoryNicheMap[categoryName];
+            // Refinar subnicho usando tags da API
+            const refinedSubniche = refineSubnicheFromTags(mapped.niche, mapped.subniche, tagsText, tagsText);
+            console.log('[deriveNiche] Resultado da categoria:', { niche: mapped.niche, subniche: refinedSubniche });
+            return { niche: mapped.niche, subniche: refinedSubniche, microniche: null };
+        }
     }
     
-    // Ciência e Tecnologia
-    if (/(ci[eê]ncia|tecnologia|inven[cç]|descoberta|pesquisa|cientista|inova)/i.test(hay)) {
-        return { niche: 'Educação', subniche: 'Ciência' };
+    // PRIORIDADE 2: Analisar tags do YouTube
+    if (tagsText && Array.isArray(videoTags) && videoTags.length > 0) {
+        console.log('[deriveNiche] Analisando tags do YouTube...');
+        const tagBasedNiche = detectNicheFromTags(tagsText, tagsText);
+        if (tagBasedNiche) {
+            console.log('[deriveNiche] Resultado das tags:', tagBasedNiche);
+            return { ...tagBasedNiche, microniche: null };
+        }
     }
     
-    // Fallback: Entretenimento Geral
-    return { niche: 'Entretenimento', subniche: 'Geral' };
+    // PRIORIDADE 3: Analisar topicCategories
+    if (topicText && Array.isArray(topicCategories) && topicCategories.length > 0) {
+        console.log('[deriveNiche] Analisando tópicos do YouTube...');
+        const topicBasedNiche = detectNicheFromTopics(topicText, topicText);
+        if (topicBasedNiche) {
+            console.log('[deriveNiche] Resultado dos tópicos:', topicBasedNiche);
+            return { ...topicBasedNiche, microniche: null };
+        }
+    }
+    
+    // Se não houver dados da API, retornar objeto genérico (será refinado pela IA)
+    console.log('[deriveNiche] Nenhum dado da API disponível - será usado IA para análise do título');
+    return { niche: 'Geral', subniche: 'Não especificado', microniche: null };
+}
+
+// Função auxiliar para detectar nicho a partir das tags do YouTube (APENAS tags, não título)
+function detectNicheFromTags(tagsText, fullText) {
+    const tagLower = tagsText.toLowerCase();
+    // Usar apenas tagsText, não fullText (que pode conter título)
+    const searchText = tagLower;
+    
+    // Dividir tags em palavras individuais para busca mais precisa
+    const tagWords = tagLower.split(/\s+/).filter(w => w.length > 2);
+    
+    console.log('[detectNicheFromTags] Analisando APENAS tags da API:', {
+        tagsCount: tagWords.length,
+        tagsPreview: tagWords.slice(0, 10)
+    });
+    
+    // Mapeamento de palavras-chave de tags para nichos (usar palavras completas quando possível)
+    const nicheKeywords = {
+        'Entretenimento': {
+            keywords: ['entertainment', 'entretenimento', 'funny', 'engraçado', 'comedy', 'comédia', 'movie', 'filme', 'viral', 'story', 'storytime', 'drama', 'reality', 'prank', 'challenge'],
+            subniches: {
+                'Comédia': ['comedy', 'comédia', 'funny', 'engraçado', 'humor', 'prank', 'joke'],
+                'Mistérios': ['mystery', 'mistério', 'secret', 'segredo', 'conspiracy', 'conspiração'],
+                'Filmes': ['movie', 'filme', 'cinema', 'film'],
+                'Vlogs': ['vlog', 'storytime', 'daily', 'life', 'lifestyle'],
+                'Drama': ['drama', 'story', 'reality', 'family']
+            }
+        },
+        'Finanças': {
+            keywords: ['finance', 'finança', 'money', 'dinheiro', 'investment', 'investimento', 'crypto', 'cripto', 'bitcoin', 'stock', 'ação', 'wealth', 'rich', 'millionaire', 'billionaire'],
+            subniches: {
+                'Investimentos': ['investment', 'investimento', 'stock', 'ação', 'trading', 'negociação'],
+                'Criptomoedas': ['crypto', 'cripto', 'bitcoin', 'ethereum', 'blockchain'],
+                'Empreendedorismo': ['business', 'negócio', 'empreend', 'startup', 'entrepreneur'],
+                'Riqueza': ['wealth', 'rich', 'millionaire', 'billionaire', 'money']
+            }
+        },
+        'História': {
+            keywords: ['history', 'historia', 'ancient', 'antigo', 'civilization', 'civilização', 'empire', 'império', 'archeology', 'arqueologia', 'historical'],
+            subniches: {
+                'Civilizações Antigas': ['ancient', 'antigo', 'aztec', 'astec', 'maia', 'inca', 'roma', 'egito', 'egipcio', 'egypt', 'civilization'],
+                'Guerras': ['war', 'guerra', 'battle', 'batalha', 'conflict', 'conflito'],
+                'Biografias': ['biography', 'biografia', 'person', 'pessoa', 'leader', 'líder']
+            }
+        },
+        'Educação': {
+            keywords: ['education', 'educação', 'learn', 'aprender', 'tutorial', 'how to', 'como fazer', 'science', 'ciência', 'tech', 'technology'],
+            subniches: {
+                'Ciência': ['science', 'ciência', 'physics', 'física', 'chemistry', 'química', 'biology', 'biologia'],
+                'Tutoriais': ['tutorial', 'how to', 'como fazer', 'guide', 'guia'],
+                'Engenharia': ['engineering', 'engenharia', 'construction', 'construção'],
+                'Tecnologia': ['tech', 'technology', 'tecnologia', 'programming', 'coding']
+            }
+        },
+        'Saúde': {
+            keywords: ['health', 'saúde', 'fitness', 'workout', 'diet', 'dieta', 'nutrition', 'nutrição', 'wellness'],
+            subniches: {
+                'Bem-estar': ['wellness', 'health', 'saúde', 'fitness'],
+                'Fitness': ['fitness', 'workout', 'exercise', 'treino'],
+                'Nutrição': ['diet', 'dieta', 'nutrition', 'nutrição']
+            }
+        }
+    };
+    
+    // Verificar cada nicho - usar busca APENAS nas tags (não no título)
+    for (const [niche, data] of Object.entries(nicheKeywords)) {
+        // Verificar se alguma palavra-chave está presente APENAS nas tags
+        const hasNicheKeyword = data.keywords.some(kw => {
+            // Buscar palavra completa APENAS nas tags
+            return tagWords.some(tag => tag.includes(kw) || kw.includes(tag));
+        });
+        
+        if (hasNicheKeyword) {
+            console.log('[detectNicheFromTags] Nicho encontrado:', niche);
+            // Tentar identificar subnicho APENAS nas tags
+            for (const [subniche, subKeywords] of Object.entries(data.subniches)) {
+                const hasSubnicheKeyword = subKeywords.some(kw => {
+                    // Buscar APENAS nas tags
+                    return tagWords.some(tag => tag.includes(kw) || kw.includes(tag));
+                });
+                if (hasSubnicheKeyword) {
+                    console.log('[detectNicheFromTags] Subnicho encontrado:', subniche);
+                    return { niche, subniche, microniche: null };
+                }
+            }
+            // Se não encontrou subnicho específico, usar o primeiro disponível
+            const defaultSubniche = Object.keys(data.subniches)[0];
+            console.log('[detectNicheFromTags] Usando subnicho padrão:', defaultSubniche);
+            return { niche, subniche: defaultSubniche, microniche: null };
+        }
+    }
+    
+    console.log('[detectNicheFromTags] Nenhum nicho encontrado nas tags');
+    return null;
+}
+
+// Função auxiliar para detectar nicho a partir de tópicos do YouTube (APENAS tópicos)
+function detectNicheFromTopics(topicText, fullText) {
+    const topicLower = topicText.toLowerCase();
+    
+    console.log('[detectNicheFromTopics] Analisando APENAS tópicos da API:', topicLower);
+    
+    // Mapeamento de tópicos do YouTube para nichos (usar apenas tópicos, não título)
+    if (topicLower.includes('history') || topicLower.includes('historia') || topicLower.includes('/history')) {
+        return { niche: 'História', subniche: 'Civilizações Antigas', microniche: null };
+    }
+    if (topicLower.includes('science') || topicLower.includes('ciencia') || topicLower.includes('/science')) {
+        return { niche: 'Educação', subniche: 'Ciência', microniche: null };
+    }
+    if (topicLower.includes('finance') || topicLower.includes('financa') || topicLower.includes('/finance')) {
+        return { niche: 'Finanças', subniche: 'Investimentos', microniche: null };
+    }
+    if (topicLower.includes('entertainment') || topicLower.includes('entretenimento') || topicLower.includes('/entertainment')) {
+        return { niche: 'Entretenimento', subniche: 'Geral', microniche: null };
+    }
+    if (topicLower.includes('comedy') || topicLower.includes('comédia') || topicLower.includes('/comedy')) {
+        return { niche: 'Entretenimento', subniche: 'Comédia', microniche: null };
+    }
+    if (topicLower.includes('music') || topicLower.includes('música') || topicLower.includes('/music')) {
+        return { niche: 'Entretenimento', subniche: 'Música', microniche: null };
+    }
+    if (topicLower.includes('gaming') || topicLower.includes('jogos') || topicLower.includes('/gaming')) {
+        return { niche: 'Entretenimento', subniche: 'Jogos', microniche: null };
+    }
+    
+    return null;
+}
+
+// Função auxiliar para refinar subnicho usando APENAS tags (não título)
+function refineSubnicheFromTags(niche, defaultSubniche, fullText, tagsText) {
+    // Usar APENAS tagsText, não fullText (que pode conter título)
+    const combined = tagsText.toLowerCase();
+    
+    // Refinamentos específicos por nicho
+    if (niche === 'História') {
+        if (/(civiliza|antigo|ancient|aztec|maia|inca|egito|egipcio)/i.test(combined)) {
+            return 'Civilizações Antigas';
+        }
+        if (/(guerra|war|batalha|battle)/i.test(combined)) {
+            return 'Guerras';
+        }
+        if (/(biografia|biography|pessoa|person)/i.test(combined)) {
+            return 'Biografias';
+        }
+    }
+    
+    if (niche === 'Finanças') {
+        if (/(cripto|crypto|bitcoin|blockchain)/i.test(combined)) {
+            return 'Criptomoedas';
+        }
+        if (/(invest|stock|ação|trading)/i.test(combined)) {
+            return 'Investimentos';
+        }
+        if (/(negócio|business|empreend|startup)/i.test(combined)) {
+            return 'Empreendedorismo';
+        }
+    }
+    
+    if (niche === 'Educação') {
+        if (/(ciência|science|física|physics|química|chemistry)/i.test(combined)) {
+            return 'Ciência';
+        }
+        if (/(engenharia|engineering|construção|construction)/i.test(combined)) {
+            return 'Engenharia';
+        }
+        if (/(tutorial|how to|como fazer|guide)/i.test(combined)) {
+            return 'Tutoriais';
+        }
+    }
+    
+    return defaultSubniche;
 }
 
 function deriveTitleAnalysis({ originalTitle, translatedTitle, views, days }) {
@@ -6977,6 +7499,7 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
                 
                 detected_niche TEXT,
                 detected_subniche TEXT,
+                detected_microniche TEXT,
                 
                 analysis_data_json TEXT, -- JSON com a 'analiseOriginal'
                 
@@ -7278,12 +7801,17 @@ const generateGeminiTtsAudio = async ({ apiKey, textInput }) => {
             original_comments: 'INTEGER',
             original_days: 'INTEGER',
             original_thumbnail_url: 'TEXT',
-            analysis_data_json: 'TEXT'
+            analysis_data_json: 'TEXT',
+            detected_microniche: 'TEXT'
         };
         for (const [col, type] of Object.entries(analyzedVideosColumns)) {
             if (!analyzedVideosInfo.some(c => c.name === col)) {
                 console.log(`MIGRATION: Adding column "${col}" to "analyzed_videos"...`);
-                await db.exec(`ALTER TABLE analyzed_videos ADD COLUMN ${col} ${type}`);
+                try {
+                    await db.exec(`ALTER TABLE analyzed_videos ADD COLUMN ${col} ${type}`);
+                } catch (e) {
+                    // Coluna já existe, ignorar erro
+                }
             }
         }
 
@@ -12216,6 +12744,10 @@ async function sendEmail(to, subject, htmlBody, textBody = null) {
 
 // Função para enviar email usando template
 async function sendTemplateEmail(templateType, to, variables = {}) {
+    // Adicionar baseUrl se não estiver presente
+    if (!variables.baseUrl) {
+        variables.baseUrl = process.env.BASE_URL || process.env.APP_URL || process.env.PUBLIC_URL || 'https://lacasadark.com';
+    }
     try {
         const template = await getEmailTemplate(templateType);
         if (!template) {
@@ -16527,12 +17059,41 @@ Tradução em PT-BR:`;
         const MIN_IMPACT_SCORE = 7;
         
         // Derivar nicho e análise ANTES de construir o prompt (para passar ao prompt)
-        const derivedNiche = deriveNicheAndSubnicheFromContext({
+        const nicheDetectionParams = {
             originalTitle: videoDetails.title,
             translatedTitle,
             descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
-            transcriptStart: transcriptText || ''
+            transcriptStart: transcriptText || '',
+            videoTags: videoDetails.tags || [],
+            categoryId: videoDetails.categoryId || null,
+            categoryName: videoDetails.categoryName || null,
+            topicCategories: videoDetails.topicCategories || []
+        };
+        
+        console.log('[Análise] Parâmetros para detecção de nicho:', {
+            hasTags: (nicheDetectionParams.videoTags?.length || 0) > 0,
+            tagsCount: nicheDetectionParams.videoTags?.length || 0,
+            categoryId: nicheDetectionParams.categoryId,
+            categoryName: nicheDetectionParams.categoryName,
+            topicCategoriesCount: nicheDetectionParams.topicCategories?.length || 0
         });
+        
+        // Detectar nicho usando API do YouTube + IA como fallback
+        const derivedNiche = await detectNicheComplete({
+            originalTitle: videoDetails.title,
+            translatedTitle,
+            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+            transcriptStart: transcriptText || '',
+            videoTags: videoDetails.tags || [],
+            categoryId: videoDetails.categoryId || null,
+            categoryName: videoDetails.categoryName || null,
+            topicCategories: videoDetails.topicCategories || [],
+            userId,
+            model,
+            videoDetails
+        });
+        
+        console.log('[Análise] ✅ Nicho detectado:', derivedNiche);
         const derivedAnalysis = deriveTitleAnalysis({
             originalTitle: videoDetails.title,
             translatedTitle,
@@ -16784,11 +17345,20 @@ Tradução em PT-BR:`;
             
             // SEMPRE usar dados derivados pelo backend (não depender da IA para análise e nicho)
             // Isso garante que análise e subnicho sempre estarão presentes
-            const derivedNiche = deriveNicheAndSubnicheFromContext({
+            // Usar modelo do primeiro serviço configurado para detecção de nicho
+            const firstModel = serviceConfigs[0]?.model || model;
+            const derivedNiche = await detectNicheComplete({
                 originalTitle: videoDetails.title,
                 translatedTitle,
                 descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
-                transcriptStart: transcriptText || ''
+                transcriptStart: transcriptText || '',
+                videoTags: videoDetails.tags || [],
+                categoryId: videoDetails.categoryId || null,
+                categoryName: videoDetails.categoryName || null,
+                topicCategories: videoDetails.topicCategories || [],
+                userId,
+                model: firstModel,
+                videoDetails
             });
             finalNicheData = derivedNiche;
             finalAnalysisData = deriveTitleAnalysis({
@@ -16978,7 +17548,11 @@ Tradução em PT-BR:`;
                 originalTitle: videoDetails.title,
                 translatedTitle,
                 descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
-                transcriptStart: transcriptText || ''
+                transcriptStart: transcriptText || '',
+                videoTags: videoDetails.tags || [],
+                categoryId: videoDetails.categoryId || null,
+                categoryName: videoDetails.categoryName || null,
+                topicCategories: videoDetails.topicCategories || []
             });
             finalNicheData = derivedNiche;
             finalAnalysisData = deriveTitleAnalysis({
@@ -17049,16 +17623,17 @@ Tradução em PT-BR:`;
                 motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
                 formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
                 niche: finalNicheData.niche,
-                subniche: finalNicheData.subniche
+                subniche: finalNicheData.subniche,
+                microniche: finalNicheData.microniche
             });
             
              const analysisResult = await db.run(
-                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json, full_transcript) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, detected_microniche, analysis_data_json, full_transcript) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
                     videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
-                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', JSON.stringify(finalAnalysisData), fullTranscript
+                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', finalNicheData.microniche || null, JSON.stringify(finalAnalysisData), fullTranscript
                 ]
             );
             analysisId = analysisResult.lastID;
@@ -17191,6 +17766,7 @@ Tradução em PT-BR:`;
         const responseData = {
             niche: finalNicheData?.niche || 'N/A',
             subniche: finalNicheData?.subniche || 'N/A',
+            microniche: finalNicheData?.microniche || null,
             analiseOriginal: finalAnalysisData || {},
             titulosSugeridos: formattedTitles,
             ux_message: uxMessage, // Mensagem de transparência para fallback
@@ -17268,6 +17844,17 @@ Tradução em PT-BR:`;
             console.warn('[Análise] ⚠️ Subnicho não detectado, usando dados derivados');
             responseData.subniche = finalNicheData?.subniche || 'Geral';
         }
+        
+        if (!responseData.microniche) {
+            responseData.microniche = finalNicheData?.microniche || null;
+        }
+        
+        // Log para debug - incluir microniche
+        console.log('[Análise] Enviando resposta com nichos:', {
+            niche: responseData.niche,
+            subniche: responseData.subniche,
+            microniche: responseData.microniche
+        });
 
         res.status(200).json(responseData);
 
@@ -17478,11 +18065,18 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         const MIN_IMPACT_SCORE = 7;
         const performanceContext = `Este vídeo tem ${videoDetails.views.toLocaleString()} views em ${videoDetails.days} dias (média de ${viewsPerDay.toLocaleString()} views/dia) e foi classificado como ${isViral ? 'VIRAL' : 'Popular'}.`;
         // Derivar nicho e análise ANTES de construir o prompt (Laozhang)
-        const laozhangDerivedNiche = deriveNicheAndSubnicheFromContext({
+        const laozhangDerivedNiche = await detectNicheComplete({
             originalTitle: videoDetails.title,
             translatedTitle,
-            descriptionStart: 'N/A',
-            transcriptStart: transcriptText || ''
+            descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
+            transcriptStart: transcriptText || '',
+            videoTags: videoDetails.tags || [],
+            categoryId: videoDetails.categoryId || null,
+            categoryName: videoDetails.categoryName || null,
+            topicCategories: videoDetails.topicCategories || [],
+            userId,
+            model: modelToUse,
+            videoDetails
         });
         const laozhangDerivedAnalysis = deriveTitleAnalysis({
             originalTitle: videoDetails.title,
@@ -17606,15 +18200,27 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         console.log(`[Análise Laozhang] Títulos finais (preview):`, passing.map(t => ({ titulo: t.titulo?.substring(0, 50), impact: t.impact_score })));
         
         // Sempre usar dados derivados pelo backend (garantir que análise e subnicho sempre existam)
-        const derivedNiche = deriveNicheAndSubnicheFromContext({
+        const derivedNiche = await detectNicheComplete({
             originalTitle: videoDetails.title,
             translatedTitle,
             descriptionStart: videoDetails.description ? videoDetails.description.substring(0, 300) : '',
-            transcriptStart: transcriptText || ''
+            transcriptStart: transcriptText || '',
+            videoTags: videoDetails.tags || [],
+            categoryId: videoDetails.categoryId || null,
+            categoryName: videoDetails.categoryName || null,
+            topicCategories: videoDetails.topicCategories || [],
+            userId,
+            model: modelToUse,
+            videoDetails
         });
+        
+        console.log('[Análise Laozhang] derivedNiche completo:', derivedNiche);
+        
+        // Garantir que sempre tenha valores válidos
         const finalNicheData = { 
-            niche: derivedNiche.niche || parsedData.niche || 'Entretenimento', 
-            subniche: derivedNiche.subniche || parsedData.subniche || 'Geral' 
+            niche: (derivedNiche && derivedNiche.niche) || parsedData.niche || 'Entretenimento', 
+            subniche: (derivedNiche && derivedNiche.subniche) || parsedData.subniche || 'Geral',
+            microniche: (derivedNiche && derivedNiche.microniche) || null
         };
         
         // Garantir que análise sempre tenha dados válidos
@@ -17708,16 +18314,17 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
                 motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
                 formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
                 niche: finalNicheData.niche,
-                subniche: finalNicheData.subniche
+                subniche: finalNicheData.subniche,
+                microniche: finalNicheData.microniche
             });
             
              const analysisResult = await db.run(
-                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, analysis_data_json, full_transcript) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO analyzed_videos (user_id, folder_id, youtube_video_id, video_url, original_title, translated_title, original_views, original_comments, original_days, original_thumbnail_url, detected_niche, detected_subniche, detected_microniche, analysis_data_json, full_transcript) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     userId, folderId || null, videoId, videoUrl, videoDetails.title, translatedTitle, videoDetails.views,
                     videoDetails.comments, videoDetails.days, videoDetails.thumbnailUrl,
-                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', JSON.stringify(finalAnalysisData), fullTranscript
+                    finalNicheData.niche || 'Entretenimento', finalNicheData.subniche || 'Geral', finalNicheData.microniche || null, JSON.stringify(finalAnalysisData), fullTranscript
                 ]
             );
             analysisId = analysisResult.lastID;
@@ -17789,12 +18396,14 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         // Garantir que niche e subniche não sejam "N/A"
         const finalNiche = finalNicheData.niche || 'Entretenimento';
         const finalSubniche = finalNicheData.subniche && finalNicheData.subniche !== 'N/A' ? finalNicheData.subniche : 'Geral';
+        const finalMicroniche = finalNicheData.microniche || null;
         
         console.log('[Análise Laozhang] Retornando dados:', {
             motivoSucesso: finalAnalysisData.motivoSucesso?.substring(0, 50),
             formulaTitulo: finalAnalysisData.formulaTitulo?.substring(0, 50),
             niche: finalNiche,
-            subniche: finalSubniche
+            subniche: finalSubniche,
+            microniche: finalMicroniche
         });
         console.log(`[Análise Laozhang] ✅ RETORNANDO ${allGeneratedTitles.length} TÍTULOS PARA O FRONTEND`);
         console.log(`[Análise Laozhang] Primeiros títulos:`, allGeneratedTitles.slice(0, 2).map(t => ({ titulo: t.titulo?.substring(0, 50), model: t.model })));
@@ -17802,6 +18411,7 @@ app.post('/api/analyze/titles/laozhang', authenticateToken, async (req, res) => 
         res.status(200).json({
             niche: finalNiche,
             subniche: finalSubniche,
+            microniche: finalMicroniche,
             analiseOriginal: finalAnalysisData,
             titulosSugeridos: allGeneratedTitles,
             ux_message: uxMessage, // Mensagem de transparência para fallback
