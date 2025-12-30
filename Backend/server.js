@@ -4732,49 +4732,10 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
         laozhang: 'gpt-4o'                      // Laozhang.ai (usa GPT-4o como padrão)
     };
 
-    // PRIMEIRO: Verificar se laozhang.ai está configurada como padrão no admin
+    // PRIMEIRO: Verificar preferências do usuário ANTES de usar laozhang padrão
+    // REGRA CRÍTICA: Se usuário tem API própria e NÃO marcou para usar créditos, NUNCA usar laozhang
     try {
-        const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
-        console.log('[AI Provider] Verificando configuração padrão:', laozhangDefaultSetting);
-        
-        let laozhangUseAsDefault = false;
-        if (laozhangDefaultSetting) {
-            try {
-                const parsedValue = JSON.parse(laozhangDefaultSetting.value);
-                laozhangUseAsDefault = parsedValue === true || parsedValue === 'true' || parsedValue === 1;
-            } catch (e) {
-                // Se não for JSON, verificar como string
-                laozhangUseAsDefault = laozhangDefaultSetting.value === 'true' || laozhangDefaultSetting.value === '1';
-            }
-        }
-        
-        console.log('[AI Provider] laozhangUseAsDefault:', laozhangUseAsDefault);
-        
-        if (laozhangUseAsDefault) {
-            const laozhangKey = await getLaozhangApiKey();
-            console.log('[AI Provider] Chave de API encontrada:', laozhangKey ? 'Sim' : 'Não');
-            if (laozhangKey) {
-                console.log('[AI Provider] ✅ Usando API configurada como padrão (configuração do admin)');
-                return {
-                    service: 'laozhang',
-                    apiKey: laozhangKey,
-                    model: defaultModels.laozhang
-                };
-            } else {
-                console.warn('[AI Provider] ⚠️ API configurada como padrão mas chave não encontrada');
-            }
-        } else {
-            console.log('[AI Provider] Laozhang.ai não está configurada como padrão');
-        }
-    } catch (err) {
-        console.error('[AI Provider] ❌ Erro ao verificar configuração padrão Laozhang.ai:', err.message);
-    }
-
-    // SEGUNDO: Verificar se deve usar créditos (laozhang.ai)
-    // REGRA: Usa créditos SOMENTE se usuário marcou preferência OU não tem plano que permite API própria OU não tem API própria configurada
-    // REGRA CRÍTICA: Se preferência NÃO está marcada E usuário tem plano que permite E tem API própria → usar API própria SEM verificar créditos
-    try {
-        // Primeiro, verificar a preferência do usuário
+        // Verificar a preferência do usuário
         const userPrefs = await db.get('SELECT use_credits_instead_of_own_api FROM user_preferences WHERE user_id = ?', [userId]);
         const hasPreference = userPrefs && userPrefs.use_credits_instead_of_own_api === 1;
         
@@ -4831,26 +4792,41 @@ async function getPreferredAIProvider(userId, preferenceOrder = ['claude', 'open
         const creditsCheck = await shouldUseCredits(userId, preferenceOrder);
         
         if (creditsCheck.shouldUse) {
-            // Se deve usar créditos, usar laozhang.ai
-            const laozhangKey = await getLaozhangApiKey();
-            if (laozhangKey) {
-                console.log(`[AI Provider] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
-                return {
-                    service: 'laozhang',
-                    apiKey: laozhangKey,
-                    model: defaultModels.laozhang
-                };
-            } else {
-                console.warn('[AI Provider] ⚠️ Laozhang.ai não configurada, tentando usar APIs próprias do usuário');
+            // SEGUNDO: Verificar se laozhang.ai está configurada como padrão no admin (só usar se deve usar créditos)
+            try {
+                const laozhangDefaultSetting = await db.get("SELECT value FROM app_settings WHERE key = 'laozhang_use_as_default'");
+                let laozhangUseAsDefault = false;
+                if (laozhangDefaultSetting) {
+                    try {
+                        const parsedValue = JSON.parse(laozhangDefaultSetting.value);
+                        laozhangUseAsDefault = parsedValue === true || parsedValue === 'true' || parsedValue === 1;
+                    } catch (e) {
+                        laozhangUseAsDefault = laozhangDefaultSetting.value === 'true' || laozhangDefaultSetting.value === '1';
+                    }
+                }
+                
+                if (laozhangUseAsDefault) {
+                    const laozhangKey = await getLaozhangApiKey();
+                    if (laozhangKey) {
+                        console.log(`[AI Provider] ✅ Usando Laozhang.ai (${creditsCheck.reason})`);
+                        return {
+                            service: 'laozhang',
+                            apiKey: laozhangKey,
+                            model: defaultModels.laozhang
+                        };
+                    }
+                }
+            } catch (err) {
+                console.warn('[AI Provider] Erro ao verificar configuração padrão Laozhang.ai:', err.message);
             }
         } else {
-            console.log(`[AI Provider] ✅ Usando API própria (${creditsCheck.reason})`);
+            console.log(`[AI Provider] ✅ Usuário NÃO deve usar créditos (${creditsCheck.reason}), buscando API própria`);
         }
     } catch (err) {
         console.warn('[AI Provider] Erro ao verificar uso de créditos:', err.message);
     }
 
-    // TERCEIRO: Se não usar laozhang.ai, usar APIs próprias do usuário
+    // TERCEIRO: Usar APIs próprias do usuário
     for (const service of preferenceOrder) {
         try {
             const keyData = await db.get(
