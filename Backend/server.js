@@ -268,6 +268,7 @@ app.get('/debug-headers', (req, res) => {
 });
 
 // Desabilitar cache para arquivos HTML durante desenvolvimento
+// IMPORTANTE: Não servir a rota raiz aqui, ela será tratada pela rota app.get('/')
 app.use(express.static(__dirname, {
     setHeaders: (res, path) => {
         if (path.endsWith('.html')) {
@@ -275,7 +276,8 @@ app.use(express.static(__dirname, {
             res.setHeader('Pragma', 'no-cache');
             res.setHeader('Expires', '0');
         }
-    }
+    },
+    index: false // Não servir index.html automaticamente
 }));
 
 // Middleware para detectar host e definir contexto (landing ou app)
@@ -440,7 +442,8 @@ app.use((req, res, next) => {
                    hostWithoutPort.includes('127.0.0.1') || 
                    hostnameLower === 'localhost' ||
                    hostnameLower.includes('127.0.0.1'));
-    const isAppSubdomainDev = isDev && (req.query.subdomain === 'app' || req.get('x-subdomain') === 'app');
+    const isAppSubdomainDev = isDev && (req.query.subdomain === 'app' || req.get('x-subdomain') === 'app' || req.query.force === 'app');
+    // Em desenvolvimento, por padrão servir landing page (a menos que seja explicitamente app)
     const isLandingDomainDev = isDev && !isAppSubdomainDev;
     
     req.isAppSubdomain = isAppSubdomainProd || isAppSubdomainDev;
@@ -564,6 +567,7 @@ app.get('/', (req, res) => {
         // Domínio principal: servir landing page React
         const landingIndexPath = path.join(__dirname, 'landing-dist', 'index.html');
         if (fs.existsSync(landingIndexPath)) {
+            console.log(`[Route /] ✅ Servindo landing page`);
             console.log(`[Route /] ✅ Servindo landing page (main domain)`);
             res.sendFile(landingIndexPath);
         } else {
@@ -2743,25 +2747,8 @@ PASSO 3 - ANÁLISE NARRATIVA:
 
 3️⃣ MICRO-NICHO (ultra-específico - O MAIS IMPORTANTE):
 
-   Exemplos REAIS de micro-nichos performáticos:
-   
-   Para histórias com RIQUEZA + FAMÍLIA:
-   • Histórias de Riqueza Oculta
-   • Bilionários Disfarçados
-   • Teste de Caráter com Dinheiro
-   • Revelações de Fortuna Familiar
-   
-   Para histórias com TESTE/EXPERIMENTO:
-   • Teste de Caráter
-   • Teste de Lealdade Familiar
-   • Experimento Social de Valores
-   • Revelações Comportamentais
-   
-   Para histórias com LIÇÃO/MORAL:
-   • Lições de Vida sobre Ganância
-   • Contos Morais Modernos
-   • Histórias de Karma Social
-   • Reflexões sobre Valores Humanos
+   • Escolha UM micro-nicho cristalino (máx 6 palavras), nada genérico.
+   • Deve descrever o gancho central (ex.: "Teste de Caráter Familiar", "Riqueza Oculta Revelada", "Vingança com Reviravolta", "Mistério de Herança", "Experimento Social de Lealdade").
 
 ═══════════════════════════════════════════════════════════════
 ✅ EXEMPLO DE ANÁLISE CORRETA:
@@ -2789,11 +2776,13 @@ CLASSIFICAÇÃO FINAL:
 🎯 SUA ANÁLISE (responda APENAS o JSON):
 ═══════════════════════════════════════════════════════════════
 
+Saída ENXUTA: escolha 1 nicho, 1 subnicho (máx 2 termos separados por " / " se precisar combinar) e 1 micro-nicho (máx 6 palavras, sem barras e sem vírgulas). Nada de listas. Seja o mais específico possível sem adicionar texto extra.
+
 Responda APENAS em JSON válido, sem markdown, sem explicações extras:
 {
   "niche": "nome do nicho principal",
-  "subniche": "subnicho específico (pode ser múltiplos separados por /)",
-  "microniche": "micro-nicho ultra-específico e performático",
+  "subniche": "subnicho específico (1 ou 2 termos no máximo)",
+  "microniche": "micro-nicho ultra-específico (até 6 palavras, 1 opção)",
   "confidence": "alta|media|baixa",
   "reasoning": "explicação analítica da classificação (2-3 frases)"
 }`;
@@ -10421,6 +10410,47 @@ app.post('/api/user/preferences', authenticateToken, async (req, res) => {
     try {
         const { use_credits_instead_of_own_api } = req.body;
         
+        // Se está desmarcando (tentando usar API própria), verificar se tem plano que permite
+        if (!use_credits_instead_of_own_api) {
+            const userData = await db.get('SELECT plan, subscription_plan, isAdmin FROM users WHERE id = ?', [req.user.id]);
+            let hasPlanPermission = false;
+            
+            if (userData) {
+                // Admin sempre tem permissão
+                if (userData.isAdmin === 1 || userData.isAdmin === true || String(userData.isAdmin) === '1') {
+                    hasPlanPermission = true;
+                } else {
+                    const planName = userData.subscription_plan || userData.plan || 'plan-free';
+                    const permission = await db.get(
+                        'SELECT is_allowed FROM plan_permissions WHERE plan_name = ? AND feature_name = ?',
+                        [planName, 'api_propria']
+                    );
+                    hasPlanPermission = permission && permission.is_allowed === 1;
+                }
+            }
+            
+            // Se não tem permissão de plano, BLOQUEAR (mesmo que tenha API configurada)
+            if (!hasPlanPermission) {
+                return res.status(403).json({ 
+                    message: 'Seu plano atual não permite usar API própria. Faça upgrade do plano para usar suas chaves de API.',
+                    code: 'PLAN_UPGRADE_REQUIRED',
+                    requiresUpgrade: true
+                });
+            }
+            
+            // Se tem permissão mas não tem API configurada, permitir desmarcar (vai usar créditos mesmo assim)
+            // Mas avisar que precisa configurar API para realmente usar API própria
+            const hasApiKey = await db.get(
+                'SELECT COUNT(*) as count FROM user_api_keys WHERE user_id = ? AND api_key IS NOT NULL AND api_key != ""',
+                [req.user.id]
+            );
+            
+            if (!hasApiKey || hasApiKey.count === 0) {
+                // Permitir desmarcar, mas vai usar créditos mesmo assim (já que não tem API)
+                console.log(`[Preferences] Usuário ${req.user.id} desmarcou preferência mas não tem API configurada - vai usar créditos`);
+            }
+        }
+        
         // Verificar se já existe
         const existing = await db.get('SELECT id FROM user_preferences WHERE user_id = ?', [req.user.id]);
         
@@ -10442,7 +10472,15 @@ app.post('/api/user/preferences', authenticateToken, async (req, res) => {
         });
     } catch (error) {
         console.error('Erro ao salvar preferências:', error);
-        res.status(500).json({ message: 'Erro ao salvar preferências' });
+        if (error.code === 'PLAN_UPGRADE_REQUIRED' || error.requiresUpgrade) {
+            res.status(403).json({ 
+                message: error.message || 'Seu plano atual não permite usar API própria. Faça upgrade do plano.',
+                code: 'PLAN_UPGRADE_REQUIRED',
+                requiresUpgrade: true
+            });
+        } else {
+            res.status(500).json({ message: 'Erro ao salvar preferências' });
+        }
     }
 });
 

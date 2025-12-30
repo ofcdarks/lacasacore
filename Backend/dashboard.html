@@ -110,6 +110,51 @@
             border-color: #fbbf24;
         }
         
+        /* Esconder badge verde com estrela (se houver widget externo) */
+        [class*="badge"][class*="green"],
+        [class*="notification"][class*="green"],
+        [class*="new"][class*="badge"],
+        .badge-green,
+        .notification-badge-green,
+        [style*="background-color: green"],
+        [style*="background: green"] {
+            display: none !important;
+        }
+        
+        /* Esconder/neutralizar widgets externos de chat */
+        iframe[src*="tawk"],
+        iframe[src*="tidio"],
+        iframe[src*="crisp"],
+        iframe[src*="intercom"],
+        iframe[src*="landbot"],
+        iframe[src*="botpress"],
+        iframe[src*="zohochat"],
+        iframe[src*="smartsupp"],
+        iframe[src*="livechat"],
+        div[id*="tawk"],
+        div[id*="tidio"],
+        div[id*="crisp"],
+        div[id*="intercom"],
+        div[id*="landbot"],
+        div[id*="botpress"],
+        div[id*="zohochat"],
+        div[id*="smartsupp"],
+        div[id*="livechat"],
+        div[class*="tawk"],
+        div[class*="tidio"],
+        div[class*="crisp"],
+        div[class*="intercom"],
+        div[class*="landbot"],
+        div[class*="botpress"],
+        div[class*="zohochat"],
+        div[class*="smartsupp"],
+        div[class*="livechat"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        
         /* Badge animations */
         #generated-titles-list .rounded-md {
             transition: all 0.2s ease;
@@ -767,7 +812,30 @@
             background: rgba(255, 255, 255, 0.1);
         }
         
-        /* Responsividade Mobile */
+        /* Permitir rolagem vertical geral; travar apenas horizontal */
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        
+            /* Ajustes de sidebar compacta */
+            #sidebar nav a {
+                min-height: 36px;
+                line-height: 1.1;
+            }
+            #sidebar .sidebar-card {
+                font-size: 12px;
+            }
+            #sidebar .sidebar-card p,
+            #sidebar .sidebar-card span {
+                line-height: 1.2;
+            }
+            #sidebar .sidebar-logo-img {
+                max-width: 90px;
+                max-height: 90px;
+            }
+            /* Responsividade Mobile */
         @media (max-width: 1024px) {
             .admin-tab-btn {
                 font-size: 0.75rem;
@@ -999,100 +1067,100 @@
     <!-- Overlay para o menu mobile -->
     <div id="sidebar-overlay" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden"></div>
 
-    <div class="flex min-h-screen">
+    <div class="flex min-h-screen overflow-hidden">
         <!-- Barra Lateral (Sidebar) -->
-        <aside id="sidebar" class="fixed inset-y-0 left-0 z-30 w-64 bg-gray-900 border-r border-gray-800 p-6 flex flex-col
+        <aside id="sidebar" class="fixed inset-y-0 left-0 z-30 w-60 bg-gray-900 border-r border-gray-800 px-5 pt-5 pb-2 flex flex-col overflow-y-auto
                          transform -translate-x-full transition-transform duration-300 ease-in-out
-                         md:relative md:translate-x-0 md:flex">
+                         md:static md:inset-auto md:h-auto md:transform-none md:translate-x-0 md:flex md:overflow-visible">
             <!-- Logo -->
-            <div class="text-center mb-10">
-                <img src="/logo-official.svg" alt="La Casa Dark Core" class="mx-auto mb-4" style="width:120px;height:120px;filter:drop-shadow(0 6px 20px rgba(245,158,11,0.5));" />
-                <h1 class="text-2xl brand-title">
+            <div class="text-center mb-6">
+                <img src="/logo-official.svg" alt="La Casa Dark Core" class="mx-auto mb-2 sidebar-logo-img" style="width:90px;height:90px;filter:drop-shadow(0 6px 20px rgba(245,158,11,0.5));" />
+                <h1 class="text-xl brand-title">
                     La Casa Dark
                     <span class="brand-title-core">CORE</span>
                 </h1>
             </div>
             
             <!-- Navegação -->
-            <nav id="main-nav" class="flex-1 space-y-2">
-                <a href="#" data-view="inicio" class="flex items-center space-x-3 px-4 py-3 bg-amber-600 text-black rounded-lg font-bold">
+            <nav id="main-nav" class="flex-1 space-y-1">
+                <a href="#" data-view="inicio" class="flex items-center space-x-3 px-3 py-2 bg-amber-600 text-black rounded-lg font-bold text-sm">
                     <i data-lucide="layout-dashboard"></i>
                     <span>Início</span>
                 </a>
-                <a href="#" data-view="analisador" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="analisador" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="youtube"></i>
                     <span>Analisador de Vídeos</span>
                 </a>
-                <a href="#" data-view="explorar-nicho" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="explorar-nicho" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="compass"></i>
                     <span>Explorar Nicho</span>
                 </a>
-                <a href="#" data-view="historico" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="historico" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="history"></i>
                     <span>Pastas e Histórico</span>
                 </a>
                 
-                <a href="#" data-view="canais" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="canais" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="target"></i>
                     <span>Canais Monitorados</span>
                 </a>
                 
-                <a href="#" data-view="analytics" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="analytics" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="bar-chart-2"></i>
                     <span>Analytics</span>
                 </a>
                 
-                <a href="#" data-view="biblioteca" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="biblioteca" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="book-open"></i>
                     <span>Biblioteca Virais</span>
                 </a>
                 
-                <a href="#" data-view="viral-agents" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="viral-agents" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="bot"></i>
                     <span>Agentes Virais</span>
                 </a>
                 
-                <a href="#" data-view="prompts-imagens" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="prompts-imagens" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="image"></i>
                     <span>Prompts e Imagens</span>
                 </a>
                 
-                <a href="#" data-view="gerador-voz" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="gerador-voz" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="mic"></i>
                     <span>Gerador de Voz</span>
                 </a>
                 
-                <a href="#" data-view="imagens-lote" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="imagens-lote" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="images"></i>
                     <span>Imagens em Lote</span>
                 </a>
                 
-                <a href="#" data-view="gerador-video" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="gerador-video" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="video"></i>
                     <span>Gerador de Vídeo</span>
                 </a>
                 
-                <a href="#" data-view="youtube-integration" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="youtube-integration" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="youtube"></i>
                     <span>Integração YouTube</span>
                 </a>
-                <a href="#" data-view="buscar-canais" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="buscar-canais" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="search"></i>
                     <span>Buscar Canais Semelhantes</span>
                 </a>
                 
-                <a href="#" data-view="viral-analysis" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="viral-analysis" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="trending-up"></i>
                     <span>Análise de Canais Virais</span>
                 </a>
                 
-                <a href="#" data-view="configuracoes" class="flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 font-medium">
+                <a href="#" data-view="configuracoes" class="flex items-center space-x-3 px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="settings"></i>
                     <span>Configurações</span>
                 </a>
                 
                 <!-- Exibição de Créditos no Sidebar -->
-                <div class="mt-4 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700">
+                <div class="mt-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700 sidebar-card">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center space-x-2">
                             <i data-lucide="coins" class="w-4 h-4 text-yellow-500"></i>
@@ -1112,7 +1180,7 @@
                 </div>
                 
                 <!-- Armazenamento no Sidebar -->
-                <div class="mt-4 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700">
+                <div class="mt-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700 sidebar-card">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center space-x-2">
                             <i data-lucide="hard-drive" class="w-4 h-4 text-indigo-500"></i>
@@ -1129,7 +1197,7 @@
                 </div>
 
                 <!-- Plano Atual no Sidebar -->
-                <div class="mt-4 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700">
+                <div class="mt-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700 sidebar-card">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center space-x-2">
                             <i data-lucide="crown" class="w-4 h-4 text-amber-500"></i>
@@ -1147,7 +1215,7 @@
 
                 <!-- Link do Painel Admin (Oculto por padrão) -->
                 <a href="#" data-view="admin" id="admin-nav-link" style="display: none;"
-                   class="flex items-center space-x-3 px-4 py-3 text-red-400 hover:bg-gray-800 hover:text-red-300 rounded-lg transition duration-200 font-medium">
+                   class="flex items-center space-x-3 px-3 py-2 text-red-400 hover:bg-gray-800 hover:text-red-300 rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="shield-check"></i>
                     <span>Painel Admin</span>
                 </a>
@@ -1155,7 +1223,7 @@
 
             <!-- Logout -->
             <div>
-                <button id="logout-button" class="flex items-center space-x-3 px-4 py-3 w-full text-left text-red-500 hover:bg-red-900 hover:text-red-300 rounded-lg transition duration-200 font-medium">
+                <button id="logout-button" class="flex items-center space-x-3 px-3 py-2 w-full text-left text-red-500 hover:bg-red-900 hover:text-red-300 rounded-lg transition duration-200 text-sm font-medium">
                     <i data-lucide="log-out"></i>
                     <span>Sair</span>
                 </button>
@@ -1163,7 +1231,7 @@
         </aside>
 
         <!-- Conteúdo Principal -->
-        <main class="flex-1 p-6 md:p-10 w-full overflow-x-hidden max-w-7xl mx-auto">
+        <main class="flex-1 min-h-screen overflow-y-auto overflow-x-hidden p-4 md:p-8 w-full max-w-7xl mx-auto">
 
             <!-- Header Mobile com botão Hamburger -->
             <header class="mb-6 md:hidden flex items-center justify-between">
@@ -2383,39 +2451,16 @@
                                 </div>
                             </div>
 
-                            <!-- Abas -->
-                            <div class="flex gap-2 mb-6 border-b border-gray-800">
-                                <button onclick="showViralChatTab()" id="viral-tab-chat" class="px-4 py-2 font-semibold border-b-2 border-amber-500 text-amber-500">
-                                    Chat
-                                </button>
-                                <button onclick="showViralConversationsTab()" id="viral-tab-conversations" class="px-4 py-2 font-semibold border-b-2 border-transparent text-gray-400 hover:text-white">
-                                    Conversas
-                                </button>
-                            </div>
-
-                            <!-- Tab: Chat -->
-                            <div id="viral-tab-content-chat" class="tab-content">
-                                <div class="bg-gray-900 border border-gray-800 rounded-lg" style="height: 600px; display: flex; flex-direction: column;">
-                                    <div class="flex-1 overflow-y-auto p-6 space-y-4" id="viral-chat-messages">
-                                        <!-- Mensagens serão carregadas aqui -->
-                                    </div>
-                                    <div class="p-4 border-t border-gray-800 flex gap-3">
-                                        <input 
-                                            type="text" 
-                                            id="viral-chat-input" 
-                                            placeholder="Digite sua mensagem..."
-                                            class="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                            onkeypress="if(event.key === 'Enter') sendViralMessage()"
-                                        >
-                                        <button onclick="sendViralMessage()" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-lg transition duration-200">
-                                            <i data-lucide="send"></i>
-                                        </button>
-                                    </div>
+                            <!-- Conversas (chat desativado) -->
+                            <div class="mb-6 border-b border-gray-800">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-lg font-semibold text-white">Conversas</h3>
+                                    <p class="text-sm text-gray-500">Chat desativado nesta área.</p>
                                 </div>
                             </div>
 
-                            <!-- Tab: Conversas -->
-                            <div id="viral-tab-content-conversations" class="tab-content" style="display: none;">
+                            <!-- Lista de conversas -->
+                            <div id="viral-tab-content-conversations" class="tab-content">
                                 <div class="flex items-center justify-between mb-4">
                                     <h3 class="text-lg font-semibold text-white">Conversas Anteriores</h3>
                                     <button onclick="createNewViralConversation()" class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white hover:bg-gray-700 transition text-sm flex items-center space-x-2">
@@ -3802,7 +3847,7 @@
                     <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border border-amber-500/50 rounded-2xl p-8 max-w-lg w-full shadow-2xl transform transition-all">
                         <div class="text-center mb-6">
                             <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20">
-                                <img src="/landing-dist/assets/logo-main-3G-7SlCb.png" alt="La Casa Dark CORE" class="w-12 h-12 object-contain animate-pulse">
+                                <img src="/logo-official.svg" alt="La Casa Dark CORE" class="w-20 h-20 object-contain animate-pulse">
                             </div>
                             <h3 class="text-3xl font-bold text-white mb-2 bg-gradient-to-r from-amber-400 to-yellow-400 bg-clip-text text-transparent">Gerando Prompts de Cena</h3>
                             <p class="text-gray-300 text-sm" id="progress-modal-status">Iniciando...</p>
@@ -3962,7 +4007,7 @@
                             <textarea id="scene-script-text" rows="10" placeholder="Cole o roteiro completo aqui..." class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"></textarea>
                             <div class="flex items-center justify-between mt-1">
                                 <p class="text-xs text-gray-400" id="scene-word-count">0 palavras</p>
-                                <button type="button" id="btn-import-last-script" class="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition duration-200">
+                                <button type="button" id="btn-import-last-script" onclick="openAgentModal()" class="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded transition duration-200">
                                     Importar Roteiro do Agente
                                 </button>
                             </div>
@@ -4133,8 +4178,21 @@
 
                 <!-- Seção 3: Histórico de Prompts -->
                 <div class="bg-gray-900 border border-gray-800 rounded-lg p-6">
-                    <h2 class="text-xl font-semibold text-white mb-4">📚 Histórico de Prompts Gerados</h2>
-                    <p class="text-gray-400 mb-4">Visualize e reutilize prompts de cenas anteriores</p>
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-2">
+                        <div>
+                            <h2 class="text-xl font-semibold text-white">📚 Histórico de Prompts Gerados</h2>
+                            <p class="text-gray-400 text-sm">Visualize, reutilize ou apague múltiplos prompts</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                                <input type="checkbox" id="scene-history-select-all" class="w-4 h-4 text-amber-500 bg-gray-800 border-gray-700 rounded">
+                                Selecionar todos
+                            </label>
+                            <button id="scene-history-delete-selected" class="px-3 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                                Excluir selecionados
+                            </button>
+                        </div>
+                    </div>
                     
                     <div id="scene-prompts-history" class="space-y-3">
                         <p class="text-gray-400">Carregando histórico...</p>
@@ -6292,7 +6350,6 @@ Equipe La Casa Dark Core</textarea>
                         </div>
                     </div>
                 </div>
-            </div>
 
         </main>
     </div>
@@ -13915,13 +13972,7 @@ Equipe La Casa Dark Core</textarea>
                             .replace(/^(?:Gemini|Claude|OpenAI|GPT-4o (2025)|Claude 3\.7 Sonnet|Gemini 2\.5 Pro|Laozhang\.ai)\s+/i, '')
                             .trim();
                         const escapedTitle = cleanTitle.replace(/'/g, "&apos;").replace(/"/g, "&quot;");
-                        const formulaChips = buildFormulaChips(titleObj, cleanTitle);
-                        const formulaChipsHtml = formulaChips.map(chip => `
-                            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800/70 text-xs font-semibold text-gray-200 border border-gray-700 shadow-sm">
-                                <span class="text-amber-400 text-sm leading-none">🎉</span>
-                                <span>${chip}</span>
-                            </span>
-                        `).join('');
+                        const originalFormula = data?.analiseOriginal?.formulaTitulo || null;
                         // Garantir que is_checked seja boolean (pode vir como 0/1 do banco)
                         const isChecked = Boolean(titleObj.is_checked);
                         const isCheckedClass = isChecked ? 'opacity-60' : '';
@@ -13954,6 +14005,12 @@ Equipe La Casa Dark Core</textarea>
                         // SEMPRE usar a fórmula específica do título (não repetir a fórmula do título original)
                         const formulaToShow = titleObj.formula || 'Fórmula não disponível';
                         const escapedFormula = String(formulaToShow).replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>');
+                        // Mostrar apenas a fórmula surpresa aplicada (sem os demais chips)
+                        const formulaChipsHtml = `
+                            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800/70 text-xs font-semibold text-gray-200 border border-gray-700 shadow-sm">
+                                <span class="text-amber-400 text-sm leading-none">🎉</span>
+                                <span>Fórmula surpresa: ${escapedFormula}</span>
+                            </span>`;
                         const hasExplicacao = titleObj.explicacao && String(titleObj.explicacao).trim().length > 0;
 
                         titlesHtml += `
@@ -13999,9 +14056,10 @@ Equipe La Casa Dark Core</textarea>
                                             </div>
                                             ` : ''}
                                             
-                                            <div class="${hasExplicacao ? 'pt-3 border-t border-gray-700/50' : ''}">
-                                                <p class="text-sm text-gray-300 mb-2">
-                                                    <strong>Fórmula:</strong> <code class="text-amber-400">${escapedFormula}</code>
+                                            <div class="${hasExplicacao ? 'pt-3 border-t border-gray-700/50' : ''} space-y-2">
+                                                <p class="text-sm text-gray-300">
+                                                    <strong>Fórmula original:</strong>
+                                                    <code class="text-amber-400">${(originalFormula || 'Fórmula não disponível').replace(/'/g, "&apos;").replace(/"/g, "&quot;").replace(/\n/g, '<br>')}</code>
                                                 </p>
                                             </div>
                                             <div class="flex flex-wrap gap-2 mt-3">
@@ -18807,15 +18865,120 @@ Equipe La Casa Dark Core</textarea>
             const prefCheckbox = document.getElementById('pref-use-credits');
             if (prefCheckbox) {
                 prefCheckbox.addEventListener('change', async (e) => {
-                    try {
-                        await saveUserPreference(e.target.checked);
-                        updatePreferenceStatus(e.target.checked);
-                    } catch (err) {
-                        console.error('Erro ao salvar preferência:', err);
-                        // Reverter checkbox em caso de erro
-                        e.target.checked = !e.target.checked;
+                    const wasChecked = !e.target.checked; // Estado anterior
+                    const willBeChecked = e.target.checked; // Novo estado
+                    
+                    // Se está desmarcando (tentando usar API própria), verificar permissão
+                    if (!willBeChecked) {
+                        try {
+                            // Verificar se tem permissão antes de salvar
+                            const checkResponse = await fetch(`${API_BASE}/api/user/preferences`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${userToken}`
+                                },
+                                body: JSON.stringify({
+                                    use_credits_instead_of_own_api: false
+                                })
+                            });
+                            
+                            if (!checkResponse.ok) {
+                                const error = await checkResponse.json();
+                                
+                                // Se requer upgrade de plano, mostrar modal
+                                if (error.code === 'PLAN_UPGRADE_REQUIRED' || error.requiresUpgrade) {
+                                    // Reverter checkbox
+                                    prefCheckbox.checked = wasChecked;
+                                    
+                                    // Mostrar modal de upgrade
+                                    showUpgradePlanModal(error.message || 'Seu plano atual não permite usar API própria. Faça upgrade do plano para usar suas chaves de API.');
+                                    return;
+                                }
+                                
+                                throw new Error(error.message || 'Erro ao salvar preferência');
+                            }
+                            
+                            // Se passou, atualizar status
+                            const result = await checkResponse.json();
+                            updatePreferenceStatus(result.use_credits_instead_of_own_api);
+                        } catch (err) {
+                            console.error('Erro ao salvar preferência:', err);
+                            // Reverter checkbox em caso de erro
+                            prefCheckbox.checked = wasChecked;
+                            showMessage('configuracoes-error-message', err.message || 'Erro ao salvar preferência');
+                        }
+                    } else {
+                        // Se está marcando (usar créditos), salvar normalmente
+                        try {
+                            await saveUserPreference(willBeChecked);
+                            updatePreferenceStatus(willBeChecked);
+                        } catch (err) {
+                            console.error('Erro ao salvar preferência:', err);
+                            // Reverter checkbox em caso de erro
+                            prefCheckbox.checked = wasChecked;
+                            showMessage('configuracoes-error-message', err.message || 'Erro ao salvar preferência');
+                        }
                     }
                 });
+            }
+            
+            // Função para mostrar modal de upgrade de plano
+            function showUpgradePlanModal(message) {
+                // Criar modal se não existir
+                let modal = document.getElementById('upgrade-plan-modal');
+                if (!modal) {
+                    modal = document.createElement('div');
+                    modal.id = 'upgrade-plan-modal';
+                    modal.className = 'fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4';
+                    modal.innerHTML = `
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-semibold text-white">Upgrade de Plano Necessário</h3>
+                                <button id="close-upgrade-modal" class="text-gray-400 hover:text-white">
+                                    <i data-lucide="x" class="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            <p class="text-gray-300 mb-6">${message}</p>
+                            <div class="flex space-x-4">
+                                <button id="go-to-plans" class="flex-1 py-3 px-4 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold transition">
+                                    Ver Planos
+                                </button>
+                                <button id="cancel-upgrade-modal" class="flex-1 py-3 px-4 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold transition">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    
+                    // Event listeners
+                    document.getElementById('close-upgrade-modal').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                    });
+                    document.getElementById('cancel-upgrade-modal').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                    });
+                    document.getElementById('go-to-plans').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                        // Redirecionar para página de planos
+                        window.location.href = '/plans.html';
+                    });
+                    
+                    // Fechar ao clicar fora
+                    modal.addEventListener('click', (e) => {
+                        if (e.target === modal) {
+                            modal.style.display = 'none';
+                        }
+                    });
+                    
+                    // Inicializar ícones
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }
+                
+                modal.style.display = 'flex';
             }
             
             // --- LÓGICA DE EXPLORAR NICHO ---
@@ -19852,12 +20015,12 @@ Equipe La Casa Dark Core</textarea>
                     return;
                 }
                 
-                const videosHtml = videos.slice(0, 2).map(video => {
+                    const videosHtml = videos.slice(0, 2).map(video => {
                     const views = formatNumber(video.actual_views || 0);
                     const ctr = (video.actual_ctr || 0).toFixed(1);
                     const revenue = video.revenue_estimate ? '$' + formatNumber(Math.round(video.revenue_estimate)) : 'N/A';
                     const channelName = video.channel_name || 'Canal Desconhecido';
-                    const videoId = video.id || video.youtube_video_id;
+                        const videoId = video.id || video.video_tracking_id || video.youtube_video_id;
                     
                     return `
                         <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-amber-500/50 transition-colors">
@@ -19883,7 +20046,8 @@ Equipe La Casa Dark Core</textarea>
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
 
-            async function deleteRecentVideo(videoId) {
+            // Tornar global para uso em onClick
+            window.deleteRecentVideo = async function(videoId) {
                 if (!confirm('Tem certeza que deseja excluir este vídeo do histórico?')) {
                     return;
                 }
@@ -19906,7 +20070,7 @@ Equipe La Casa Dark Core</textarea>
                     console.error('Erro ao excluir vídeo:', err);
                     alert('Erro ao excluir vídeo. Tente novamente.');
                 }
-            }
+            };
 
             async function loadDailyVerse() {
                 const container = document.getElementById('daily-verse');
@@ -22020,8 +22184,8 @@ Equipe La Casa Dark Core</textarea>
                     progressModal.innerHTML = `
                         <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border-2 border-amber-500/50 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 transform transition-all">
                             <div class="text-center mb-6">
-                                <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20 animate-pulse">
-                                    <img src="/landing-dist/assets/logo-main-3G-7SlCb.png" alt="La Casa Dark CORE" class="w-12 h-12 object-contain animate-pulse">
+                                <div class="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-br from-amber-500/30 to-amber-600/20 rounded-full mb-4 ring-4 ring-amber-500/20 animate-pulse">
+                                    <img src="/logo-official.svg" alt="La Casa Dark CORE" class="w-16 h-16 object-contain" style="filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.5));">
                                 </div>
                                 <h3 class="text-3xl font-bold text-white mb-2 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400 bg-clip-text text-transparent animate-pulse">Gerando Roteiro...</h3>
                                 <p class="text-gray-300 text-sm mb-1" id="progress-main-status">Inicializando geração...</p>
@@ -25586,9 +25750,27 @@ Equipe La Casa Dark Core</textarea>
             }
             
             // Carregar histórico ao abrir a view
+            const selectedSceneHistoryIds = new Set();
+
+            function updateSceneHistoryBulkUI() {
+                const deleteBtn = document.getElementById('scene-history-delete-selected');
+                const selectAll = document.getElementById('scene-history-select-all');
+                if (deleteBtn) {
+                    deleteBtn.disabled = selectedSceneHistoryIds.size === 0;
+                }
+                if (selectAll) {
+                    const totalItems = document.querySelectorAll('.scene-history-item input[type="checkbox"]').length;
+                    const checkedItems = document.querySelectorAll('.scene-history-item input[type="checkbox"]:checked').length;
+                    selectAll.checked = totalItems > 0 && checkedItems === totalItems;
+                    selectAll.indeterminate = checkedItems > 0 && checkedItems < totalItems;
+                }
+            }
+
             async function loadScenePromptsHistory() {
                 const historyContainer = document.getElementById('scene-prompts-history');
                 if (!historyContainer) return;
+                selectedSceneHistoryIds.clear();
+                updateSceneHistoryBulkUI();
                 
                 try {
                     historyContainer.innerHTML = '<p class="text-gray-400">Carregando histórico...</p>';
@@ -25648,14 +25830,17 @@ Equipe La Casa Dark Core</textarea>
                     };
                     
                     historyContainer.innerHTML = history.map(item => `
-                        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex-1">
-                                    <h4 class="text-white font-semibold">${escapeHtml(item.title || 'Prompts sem título')}</h4>
-                                    <p class="text-gray-400 text-sm">${item.scene_count || 0} cenas • ${new Date(item.created_at).toLocaleString('pt-BR')}</p>
-                                    <p class="text-gray-500 text-xs mt-1">Estilo: ${escapeHtml(item.style || 'N/A')} • Modelo: ${escapeHtml(formatModelName(item.model))}</p>
+                        <div class="scene-history-item bg-gray-800 border border-gray-700 rounded-lg p-4">
+                            <div class="flex justify-between items-start mb-2 gap-3">
+                                <div class="flex items-start gap-3 flex-1">
+                                    <input type="checkbox" class="mt-1 w-4 h-4 text-amber-500 bg-gray-800 border-gray-700 rounded scene-history-checkbox" data-id="${item.id}">
+                                    <div class="flex-1">
+                                        <h4 class="text-white font-semibold">${escapeHtml(item.title || 'Prompts sem título')}</h4>
+                                        <p class="text-gray-400 text-sm">${item.scene_count || 0} cenas • ${new Date(item.created_at).toLocaleString('pt-BR')}</p>
+                                        <p class="text-gray-500 text-xs mt-1">Estilo: ${escapeHtml(item.style || 'N/A')} • Modelo: ${escapeHtml(formatModelName(item.model))}</p>
+                                    </div>
                                 </div>
-                                <div class="flex gap-2">
+                                <div class="flex gap-2 flex-shrink-0">
                                     <button onclick="loadScenePromptHistory(${item.id})" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm">
                                         Carregar
                                     </button>
@@ -25666,6 +25851,20 @@ Equipe La Casa Dark Core</textarea>
                             </div>
                         </div>
                     `).join('');
+
+                    // Listeners para checkboxes
+                    historyContainer.querySelectorAll('.scene-history-checkbox').forEach(cb => {
+                        cb.addEventListener('change', (e) => {
+                            const id = Number(e.target.dataset.id);
+                            if (e.target.checked) {
+                                selectedSceneHistoryIds.add(id);
+                            } else {
+                                selectedSceneHistoryIds.delete(id);
+                            }
+                            updateSceneHistoryBulkUI();
+                        });
+                    });
+                    updateSceneHistoryBulkUI();
                     
                 } catch (err) {
                     console.error('[Load History] Erro:', err);
@@ -25735,6 +25934,58 @@ Equipe La Casa Dark Core</textarea>
                     showMessage('prompts-imagens-error-message', err.message || 'Erro ao excluir prompt.', true);
                 }
             };
+
+            // Excluir selecionados
+            // Inicializar listeners de seleção em massa (evitar redeclaração)
+            if (!window._sceneHistoryBulkInit) {
+                window._sceneHistoryBulkInit = true;
+
+                const deleteSelectedBtn = document.getElementById('scene-history-delete-selected');
+                if (deleteSelectedBtn) {
+                    deleteSelectedBtn.addEventListener('click', async () => {
+                        if (selectedSceneHistoryIds.size === 0) return;
+                        if (!confirm(`Excluir ${selectedSceneHistoryIds.size} item(ns) do histórico?`)) return;
+                        try {
+                            const token = localStorage.getItem('core_token');
+                            if (!token) return;
+                            // Excluir em sequência para simplicidade
+                            for (const id of Array.from(selectedSceneHistoryIds)) {
+                                const response = await fetch(`${API_BASE}/api/scene-prompts/history/${id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Authorization': `Bearer ${token}` }
+                                });
+                                if (!response.ok) {
+                                    throw new Error('Erro ao excluir alguns itens.');
+                                }
+                            }
+                            await loadScenePromptsHistory();
+                            showMessage('prompts-imagens-success-message', 'Itens excluídos com sucesso.');
+                        } catch (err) {
+                            console.error('[Delete Selected] Erro:', err);
+                            showMessage('prompts-imagens-error-message', err.message || 'Erro ao excluir selecionados.', true);
+                        }
+                    });
+                }
+
+                // Selecionar/Desmarcar todos
+                const selectAllHistory = document.getElementById('scene-history-select-all');
+                if (selectAllHistory) {
+                    selectAllHistory.addEventListener('change', (e) => {
+                        const checkboxes = document.querySelectorAll('.scene-history-item input[type="checkbox"]');
+                        const check = e.target.checked;
+                        checkboxes.forEach(cb => {
+                            cb.checked = check;
+                            const id = Number(cb.dataset.id);
+                            if (check) {
+                                selectedSceneHistoryIds.add(id);
+                            } else {
+                                selectedSceneHistoryIds.delete(id);
+                            }
+                        });
+                        updateSceneHistoryBulkUI();
+                    });
+                }
+            }
             
             // Carregar histórico quando a view for aberta
             const originalNavigateToView = window.navigateToView;
@@ -30576,21 +30827,15 @@ Equipe La Casa Dark Core</textarea>
             };
 
             window.showViralChatTab = function() {
-                document.getElementById('viral-tab-content-chat').style.display = 'block';
-                document.getElementById('viral-tab-content-conversations').style.display = 'none';
-                document.getElementById('viral-tab-chat').classList.add('border-amber-500', 'text-amber-500');
-                document.getElementById('viral-tab-chat').classList.remove('border-transparent', 'text-gray-400');
-                document.getElementById('viral-tab-conversations').classList.remove('border-amber-500', 'text-amber-500');
-                document.getElementById('viral-tab-conversations').classList.add('border-transparent', 'text-gray-400');
+                // Chat foi desativado - manter apenas lista de conversas visível
+                showViralConversationsTab();
             };
 
             window.showViralConversationsTab = function() {
-                document.getElementById('viral-tab-content-chat').style.display = 'none';
-                document.getElementById('viral-tab-content-conversations').style.display = 'block';
-                document.getElementById('viral-tab-conversations').classList.add('border-amber-500', 'text-amber-500');
-                document.getElementById('viral-tab-conversations').classList.remove('border-transparent', 'text-gray-400');
-                document.getElementById('viral-tab-chat').classList.remove('border-amber-500', 'text-amber-500');
-                document.getElementById('viral-tab-chat').classList.add('border-transparent', 'text-gray-400');
+                const conversationsTab = document.getElementById('viral-tab-content-conversations');
+                if (conversationsTab) {
+                    conversationsTab.style.display = 'block';
+                }
             };
 
             // Tornar função globalmente acessível
@@ -31055,7 +31300,7 @@ Equipe La Casa Dark Core</textarea>
                     currentViralConversation = data.conversation.id;
                     await openViralAgent(currentViralAgent.id);
                     await loadViralMessages(currentViralConversation);
-                    showViralChatTab();
+                showViralConversationsTab();
                 } catch (error) {
                     console.error('Erro:', error);
                     alert('Erro ao criar conversa: ' + error.message);
@@ -31065,7 +31310,7 @@ Equipe La Casa Dark Core</textarea>
             window.loadViralConversation = async function(conversationId) {
                 currentViralConversation = conversationId;
                 await loadViralMessages(conversationId);
-                showViralChatTab();
+                showViralConversationsTab();
             };
 
             async function loadViralMessages(conversationId) {
@@ -31315,6 +31560,11 @@ Equipe La Casa Dark Core</textarea>
                 }
 
                 const input = document.getElementById('viral-chat-input');
+                const container = document.getElementById('viral-chat-messages');
+                if (!input || !container) {
+                    console.warn('[Viral Chat] Chat desativado - envio ignorado.');
+                    return;
+                }
                 const message = input.value.trim();
                 if (!message) return;
 
@@ -31325,7 +31575,6 @@ Equipe La Casa Dark Core</textarea>
                 });
 
                 // Adicionar mensagem do usuário na UI
-                const container = document.getElementById('viral-chat-messages');
                 container.innerHTML += `
                     <div class="p-3 rounded-lg bg-amber-500/20 border border-amber-500/30 ml-auto max-w-[80%]">
                         <p class="text-sm text-white whitespace-pre-wrap">${escapeHtml(message)}</p>
@@ -33370,6 +33619,75 @@ Equipe La Casa Dark Core</textarea>
             localStorage.removeItem('pwa-install-date');
             console.log('[PWA] Cache limpo! Recarregue a página para ver o banner novamente.');
         };
+    </script>
+
+    <!-- Remover widgets externos de chat (bolha flutuante) -->
+    <script>
+        (function removeExternalChatWidget() {
+            const selectors = [
+                'iframe[src*="tawk"]',
+                'iframe[src*="tidio"]',
+                'iframe[src*="crisp"]',
+                'iframe[src*="intercom"]',
+                'iframe[src*="landbot"]',
+                'iframe[src*="botpress"]',
+                'iframe[src*="zohochat"]',
+                'iframe[src*="smartsupp"]',
+                'iframe[src*="livechat"]',
+                'div[id*="tawk"]',
+                'div[id*="tidio"]',
+                'div[id*="crisp"]',
+                'div[id*="intercom"]',
+                'div[id*="landbot"]',
+                'div[id*="botpress"]',
+                'div[id*="zohochat"]',
+                'div[id*="smartsupp"]',
+                'div[id*="livechat"]',
+                'div[class*="tawk"]',
+                'div[class*="tidio"]',
+                'div[class*="crisp"]',
+                'div[class*="intercom"]',
+                'div[class*="landbot"]',
+                'div[class*="botpress"]',
+                'div[class*="zohochat"]',
+                'div[class*="smartsupp"]',
+                'div[class*="livechat"]'
+            ];
+
+            const shouldRemoveFixedBubble = (el) => {
+                try {
+                    const rect = el.getBoundingClientRect();
+                    const style = getComputedStyle(el);
+                    const isFixed = style.position === 'fixed';
+                    const nearBottomLeft = rect.bottom >= 0 && rect.right >= 0 && rect.bottom <= (window.innerHeight + 200) && rect.left >= 0 && rect.left <= 220;
+                    const isSmall = rect.width <= 140 && rect.height <= 140;
+                    const highZ = parseInt(style.zIndex || '0', 10) >= 8;
+                    return isFixed && nearBottomLeft && isSmall && highZ;
+                } catch (e) {
+                    return false;
+                }
+            };
+
+            const cleanup = () => {
+                selectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(node => node.remove());
+                });
+
+                // Fallback: qualquer bolha fixa no canto inferior esquerdo
+                document.querySelectorAll('iframe,div').forEach(node => {
+                    if (shouldRemoveFixedBubble(node)) {
+                        node.remove();
+                    }
+                });
+            };
+
+            const observer = new MutationObserver(() => cleanup());
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+
+            window.addEventListener('load', cleanup);
+            document.addEventListener('DOMContentLoaded', cleanup);
+            cleanup();
+        })();
     </script>
 
     <!-- Rodapé Elite (Sistema Fechado) -->

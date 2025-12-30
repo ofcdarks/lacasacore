@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev:backend": "nodemon server.js",
+    "dev:backend": "nodemon start-backend.js",
     "dev:frontend": "live-server Backend --port=5500 --open=la-casa-dark-core-auth.html",
     "dev": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\""
   },
