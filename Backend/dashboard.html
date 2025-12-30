@@ -22658,12 +22658,12 @@ Equipe La Casa Dark Core</textarea>
                 
                 if (durationInput && partsInput && wordsSpan) {
                     const duration = parseInt(durationInput.value) || 5;
-                    // Adicionar 3-5 minutos a mais na duração mostrada ao usuário
-                    const additionalMinutes = Math.min(5, Math.max(3, Math.ceil(duration * 0.2))); // 20% da duração, mínimo 3, máximo 5
-                    const displayedDuration = duration + additionalMinutes;
+                    // NOVO: Adicionar no máximo 3 minutos a mais (nunca menos)
+                    const additionalMinutes = 3; // Fixo em 3 minutos como solicitado
+                    const displayedDuration = duration + additionalMinutes; // Máximo: duration + 3
                     const basePartDuration = 3;
                     const numberOfParts = Math.max(1, Math.ceil(displayedDuration / basePartDuration));
-                    const wordsTarget = displayedDuration * 130; // 130 palavras/minuto (mais rigoroso)
+                    const wordsTarget = displayedDuration * 130; // 130 palavras/minuto
                     
                     partsInput.value = numberOfParts;
                     // Atualizar texto mostrando duração ajustada
